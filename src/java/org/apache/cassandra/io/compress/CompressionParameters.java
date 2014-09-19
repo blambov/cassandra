@@ -29,10 +29,11 @@ import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
-
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.config.ParametrizedClass;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -137,7 +138,7 @@ public class CompressionParameters
         return chunkLength == null ? DEFAULT_CHUNK_LENGTH : chunkLength;
     }
 
-    private static Class<? extends ICompressor> parseCompressorClass(String className) throws ConfigurationException
+    private static Class<?> parseCompressorClass(String className) throws ConfigurationException
     {
         if (className == null || className.isEmpty())
             return null;
@@ -145,7 +146,7 @@ public class CompressionParameters
         className = className.contains(".") ? className : "org.apache.cassandra.io.compress." + className;
         try
         {
-            return (Class<? extends ICompressor>)Class.forName(className);
+            return Class.forName(className);
         }
         catch (Exception e)
         {
@@ -153,7 +154,7 @@ public class CompressionParameters
         }
     }
 
-    private static ICompressor createCompressor(Class<? extends ICompressor> compressorClass, Map<String, String> compressionOptions) throws ConfigurationException
+    private static ICompressor createCompressor(Class<?> compressorClass, Map<String, String> compressionOptions) throws ConfigurationException
     {
         if (compressorClass == null)
         {
@@ -197,6 +198,10 @@ public class CompressionParameters
         {
             throw new ConfigurationException("Cannot initialize class " + compressorClass.getName());
         }
+    }
+
+    public static ICompressor createCompressor(ParametrizedClass compression) throws ConfigurationException {
+        return createCompressor(parseCompressorClass(compression.class_name), copyOptions(compression.parameters));
     }
 
     private static Map<String, String> copyOptions(Map<? extends CharSequence, ? extends CharSequence> co)

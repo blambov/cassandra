@@ -20,12 +20,13 @@ package org.apache.cassandra.config;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.common.collect.Sets;
+
 import org.supercsv.io.CsvListReader;
 import org.supercsv.prefs.CsvPreference;
-
 import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -53,7 +54,7 @@ public class Config
     public Set<String> hinted_handoff_enabled_by_dc = Sets.newConcurrentHashSet();
     public volatile Integer max_hint_window_in_ms = 3600 * 1000; // one hour
 
-    public SeedProviderDef seed_provider;
+    public ParametrizedClass seed_provider;
     public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
@@ -152,6 +153,7 @@ public class Config
     public Integer commitlog_sync_period_in_ms;
     public int commitlog_segment_size_in_mb = 32;
     public int commitlog_periodic_queue_size = 1024 * FBUtilities.getAvailableProcessors();
+    public ParametrizedClass commitlog_compression;
 
     public String endpoint_snitch;
     public Boolean dynamic_snitch = true;

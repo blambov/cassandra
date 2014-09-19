@@ -19,19 +19,18 @@ package org.apache.cassandra.io.util;
 
 import java.io.*;
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class MappedFileDataInput extends AbstractDataInput implements FileDataInput, DataInput
+public class ByteBufferDataInput extends AbstractDataInput implements FileDataInput, DataInput
 {
-    private final MappedByteBuffer buffer;
+    private final ByteBuffer buffer;
     private final String filename;
     private final long segmentOffset;
     private int position;
 
-    public MappedFileDataInput(FileInputStream stream, String filename, long segmentOffset, int position) throws IOException
+    public ByteBufferDataInput(FileInputStream stream, String filename, long segmentOffset, int position) throws IOException
     {
         FileChannel channel = stream.getChannel();
         buffer = channel.map(FileChannel.MapMode.READ_ONLY, position, channel.size());
@@ -40,7 +39,7 @@ public class MappedFileDataInput extends AbstractDataInput implements FileDataIn
         this.position = position;
     }
 
-    public MappedFileDataInput(MappedByteBuffer buffer, String filename, long segmentOffset, int position)
+    public ByteBufferDataInput(ByteBuffer buffer, String filename, long segmentOffset, int position)
     {
         assert buffer != null;
         this.buffer = buffer;
@@ -65,12 +64,14 @@ public class MappedFileDataInput extends AbstractDataInput implements FileDataIn
         return segmentOffset + position;
     }
 
-    protected long getPosition()
+    @Override
+    public long getPosition()
     {
         return segmentOffset + position;
     }
 
-    protected long getPositionLimit()
+    @Override
+    public long getPositionLimit()
     {
         return segmentOffset + buffer.capacity();
     }
@@ -156,9 +157,10 @@ public class MappedFileDataInput extends AbstractDataInput implements FileDataIn
     }
 
     @Override
-    public final void readFully(byte[] buffer, int offset, int count) throws IOException
+    public final void readFully(byte[] bytes, int offset, int count) throws IOException
     {
-        throw new UnsupportedOperationException("use readBytes instead");
+        ByteBufferUtil.arrayCopy(buffer, buffer.position() + position, bytes, offset, count);
+        position += count;
     }
 
     private static class MappedFileDataInputMark implements FileMark

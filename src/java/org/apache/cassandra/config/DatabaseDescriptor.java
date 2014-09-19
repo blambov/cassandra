@@ -1074,6 +1074,11 @@ public class DatabaseDescriptor
         return conf.commitlog_directory;
     }
 
+    public static ParametrizedClass getCommitLogCompression()
+    {
+        return conf.commitlog_compression;
+    }
+
     public static int getTombstoneWarnThreshold()
     {
         return conf.tombstone_warn_threshold;
