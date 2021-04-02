@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -65,6 +66,7 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
 
     private int allocatedPos = 0;
     private int contentCount = 0;
+    private int maxDepth = 0;
 
     private final BufferType bufferType;    // on or off heap
 
@@ -561,21 +563,42 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     /**
      * State of the walk of the given mutation trie. Passed to mutation nodes in their parentState link.
      */
-    class ApplyState
+    class ApplyState<U>
     {
-        final ApplyState parentState;
+        final UpsertTransformer<T, U> transformer;
+        int[] data = new int[Math.max(maxDepth + 1, 16) * 5];
+        int currentLevel = -1;
+
+        ApplyState(UpsertTransformer<T, U> transformer)
+        {
+            this.transformer = transformer;
+        }
 
         /**
          * Pointer to the existing node before skipping over content nodes, i.e. this is either the same as
          * existingPostContentNode or a pointer to a prefix or leaf node whose child is existingPostContentNode.
          */
-        final int existingPreContentNode;
+        int existingPreContentNode()
+        {
+            return data[currentLevel * 5 + 0];
+        }
+        void setExistingPreContentNode(int value)
+        {
+            data[currentLevel * 5 + 0] = value;
+        }
 
         /**
          * Pointer to the existing node being updated, after any content nodes have been skipped and before any
          * modification have been applied. Always a non-content node.
          */
-        final int existingPostContentNode;
+        int existingPostContentNode()
+        {
+            return data[currentLevel * 5 + 1];
+        }
+        void setExistingPostContentNode(int value)
+        {
+            data[currentLevel * 5 + 1] = value;
+        }
 
         /**
          * The updated node, i.e. the node to which the relevant modifications are being applied. This will change as
@@ -585,26 +608,57 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
          * applied in-place, this will be the same as existingPostContentNode, otherwise a completely different
          * pointer. Always a non-content node.
          */
-        int updatedPostContentNode;
-
-        final int parentTransition;
-        final int contentIndex;
-
-        <U> ApplyState(ApplyState parentState, int transition, U mutationContent, UpsertTransformer<T, U> transformer)
+        int updatedPostContentNode()
         {
-            this.parentState = parentState;
-            this.parentTransition = transition;
+            return data[currentLevel * 5 + 2];
+        }
 
-            if (parentState == null)
+        void setUpdatedPostContentNode(int value)
+        {
+            data[currentLevel * 5 + 2] = value;
+        }
+
+        int transition()
+        {
+            return data[currentLevel * 5 + 3];
+        }
+        void setTransition(int transition)
+        {
+            data[currentLevel * 5 + 3] = transition;
+        }
+        int contentIndex()
+        {
+            return data[currentLevel * 5 + 4];
+        }
+        void setContentIndex(int value)
+        {
+            data[currentLevel * 5 + 4] = value;
+        }
+
+        void descend(int transition, U mutationContent)
+        {
+            int existingPreContentNode;
+            if (currentLevel < 0)
                 existingPreContentNode = root;
             else
             {
-                existingPreContentNode = isNull(parentState.existingPostContentNode)
+                setTransition(transition);
+                existingPreContentNode = isNull(existingPostContentNode())
                                          ? NONE
-                                         : getChild(parentState.existingPostContentNode, transition);
+                                         : getChild(existingPostContentNode(), transition);
             }
 
+            ++currentLevel;
+            if (currentLevel > maxDepth)
+            {
+                maxDepth = currentLevel;
+                if (currentLevel * 5 >= data.length)
+                    data = Arrays.copyOf(data, currentLevel * 5 * 2);
+            }
+            setExistingPreContentNode(existingPreContentNode);
+
             int existingContentIndex = -1;
+            int existingPostContentNode;
             if (isLeaf(existingPreContentNode))
             {
                 existingContentIndex = ~existingPreContentNode;
@@ -617,7 +671,15 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             }
             else
                 existingPostContentNode = existingPreContentNode;
+            setExistingPostContentNode(existingPostContentNode);
+            setUpdatedPostContentNode(existingPostContentNode);
 
+            int contentIndex = updateContentIndex(mutationContent, existingContentIndex);
+            setContentIndex(contentIndex);
+        }
+
+        private int updateContentIndex(U mutationContent, int existingContentIndex)
+        {
             if (mutationContent != null)
             {
                 if (existingContentIndex != -1)
@@ -626,42 +688,46 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
                     T combinedContent = transformer.apply(existingContent, mutationContent);
                     setContent(existingContentIndex, combinedContent);
                     if (combinedContent != null)
-                        contentIndex = existingContentIndex;
+                        return existingContentIndex;
                     else
-                        contentIndex = -1;
+                        return -1;
                 }
                 else
                 {
                     T combinedContent = transformer.apply(null, mutationContent);
                     if (combinedContent != null)
-                        contentIndex = addContent(combinedContent);
+                        return addContent(combinedContent);
                     else
-                        contentIndex = -1;
+                        return -1;
                 }
             }
             else
-                contentIndex = existingContentIndex;
-
-            updatedPostContentNode = existingPostContentNode;
+                return existingContentIndex;
         }
 
         private void attachChild(int transition, int ourChild) throws SpaceExhaustedException
         {
+            int updatedPostContentNode = updatedPostContentNode();
             if (isNull(updatedPostContentNode))
-                updatedPostContentNode = expandOrCreateChainNode(transition, ourChild);
+                setUpdatedPostContentNode(expandOrCreateChainNode(transition, ourChild));
             else
-                updatedPostContentNode = MemtableTrie.this.attachChild(updatedPostContentNode,
-                                                                       transition,
-                                                                       ourChild);
+                setUpdatedPostContentNode(MemtableTrie.this.attachChild(updatedPostContentNode,
+                                                                        transition,
+                                                                        ourChild));
         }
 
         private int applyContent() throws SpaceExhaustedException
         {
+            int contentIndex = contentIndex();
+            int updatedPostContentNode = updatedPostContentNode();
             if (contentIndex == -1)
                 return updatedPostContentNode;
 
             if (isNull(updatedPostContentNode))
                 return ~contentIndex;
+
+            int existingPreContentNode = existingPreContentNode();
+            int existingPostContentNode = existingPostContentNode();
 
             // We can't update in-place if there was no preexisting prefix, or if the prefix was embedded and the target
             // node must change.
@@ -677,13 +743,13 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             return existingPreContentNode;
         }
 
-        private <U> ApplyState attachAndMoveToParentState() throws SpaceExhaustedException
+        // true if still have work to do, false if completed
+        private boolean attachAndMoveToParentState() throws SpaceExhaustedException
         {
-            ApplyState parentState = this.parentState;
-
             int updatedPreContentNode = applyContent();
-
-            if (parentState == null)
+            int existingPreContentNode = existingPreContentNode();
+            --currentLevel;
+            if (currentLevel == -1)
             {
                 assert root == existingPreContentNode;
                 if (updatedPreContentNode != existingPreContentNode)
@@ -692,14 +758,11 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
                     // we don't want to invalidate the value in other cores' caches unnecessarily).
                     root = updatedPreContentNode;
                 }
-
-                return null;
+                return false;
             }
-
             if (updatedPreContentNode != existingPreContentNode)
-                parentState.attachChild(parentTransition, updatedPreContentNode);
-
-            return parentState;
+                attachChild(transition(), updatedPreContentNode);
+            return true;
         }
     }
 
@@ -737,29 +800,26 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         if (mutationCursor.level() == -1)
             return;
         assert mutationCursor.level() == 0;
-
-        ApplyState state = new ApplyState(null, -1, mutationCursor.content(), transformer);
-        int prevLevel = 0;
+        ApplyState state = new ApplyState(transformer);
+        state.descend(-1, mutationCursor.content());
+        assert state.currentLevel == 0;
 
         while (true)
         {
             int level = mutationCursor.advance();
-            while (prevLevel >= level)
+            while (state.currentLevel >= level)
             {
                 // There are no more children. Ascend to the parent state to continue walk.
-                state = state.attachAndMoveToParentState();
-                --prevLevel;
-                if (state == null)
+                if (!state.attachAndMoveToParentState())
                 {
-                    assert prevLevel == -1;
+                    assert level == -1;
                     return;
                 }
             }
-            assert level == prevLevel + 1;
 
             // We have a transition, get child to descend into
-            state = new ApplyState(state, mutationCursor.transition(), mutationCursor.content(), transformer);
-            prevLevel = level;
+            state.descend(mutationCursor.transition(), mutationCursor.content());
+            assert state.currentLevel == level;
         }
     }
 
@@ -810,23 +870,27 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
      */
     public <R> void putRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
-        int newRoot = putRecursive(root, key.asComparableBytes(BYTE_COMPARABLE_VERSION), value, transformer);
+        int newRoot = putRecursive(root, key.asComparableBytes(BYTE_COMPARABLE_VERSION), 0, value, transformer);
         if (newRoot != root)
             root = newRoot;
     }
 
     @DontInline
-    private <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int putRecursive(int node, ByteSource key, int depth, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
         int transition = key.next();
         if (transition == ByteSource.END_OF_STREAM)
+        {
+            if (depth > maxDepth)
+                maxDepth = depth;
             return applyContent(node, value, transformer);
+        }
 
         int child = NONE;
         if (!isNull(node))
             child = getChild(node, transition);
 
-        int newChild = putRecursive(child, key, value, transformer);
+        int newChild = putRecursive(child, key, depth + 1, value, transformer);
         if (newChild == child)
             return node;
 
