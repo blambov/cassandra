@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.db.tries;
 
+import org.apache.cassandra.utils.AbstractIterator;
+
 /**
  * Convertor of trie contents to flow.
  *
@@ -24,34 +26,21 @@ package org.apache.cassandra.db.tries;
  * Java. Using {@code <>} when instantiating works, but any subclasses will also need to declare this useless type
  * argument.
  */
-class TrieValuesIterator<T, L extends Trie.Node<T, L>> extends TrieIterator<T, L, T>
+class TrieValuesIterator<T> extends AbstractIterator<T>
 {
-    public TrieValuesIterator(Trie<T> trie)
+    private final Trie.Cursor<T> cursor;
+
+    protected TrieValuesIterator(Trie<T> trie)
     {
-        super(trie);
+        cursor = trie.cursor();
     }
 
-    Trie.Node<T, L> getChild(Trie.Node<T, L> node, Trie.Remaining has)
+    protected T computeNext()
     {
-        // If we know this is the last child for this node, we can just as well skip this node when backtracking,
-        final L parentLink = has == Trie.Remaining.ONE ? node.parentLink : (L) node;
-
-        Trie.Node<T, L> child = node.getCurrentChild(parentLink);
-
-        // and as long as any child has single descendant, we don't need to backtrack to that either.
-        if (child != null)
-            child = child.getUniqueDescendant(parentLink, null);
-
-        return child;
-    }
-
-    Trie.Node<T, L> exitNodeAndReturnParent(Trie.Node<T, L> n)
-    {
-        return n.parentLink;
-    }
-
-    T contentOf(Trie.Node<T, L> node)
-    {
-        return node.content();
+        T value = cursor.advanceToContent();
+        if (value == null)
+            return endOfData();
+        else
+            return value;
     }
 }

@@ -201,6 +201,56 @@ public abstract class Trie<T>
      */
     protected abstract <L> Node<T, L> root();
 
+    // Cursor-style walks
+    interface Cursor<T>
+    {
+        int advance(); // returns level (can be prev+1 or <=prev), -1 means done
+        default int advanceMultiple() // advance, descending multiple levels if that does not require extra work (e.g. chain nodes)
+        {
+            return advance();
+        }
+
+        default T advanceToContent() // advances all the way (to next content)
+        {
+            while (true)
+            {
+                int level = advanceMultiple();
+                if (level < 0)
+                    return null;
+                T content = content();
+                if (content != null)
+                    return content;
+            }
+        }
+
+//        int advanceTo(int transition); // advance to child with this transition or higher. if none exists, ascend to parent and advance
+//        default int ascend() // ignore the remaining children at this level or below and ascend to parent and advance
+//        {
+//            return advanceTo(Integer.MAX_VALUE);
+//        }
+
+        int level(); // return current state
+        default int transition()
+        {
+            return transitionAtLevel(level() - 1);
+        }
+        T content();
+
+        int transitionAtLevel(int level);
+
+        default void retrieveKey(byte[] dest) // length is the level
+        {
+            int level = level();
+            for (int i = 0; i < level; ++i)
+                dest[i] = (byte) transitionAtLevel(i);
+        }
+    }
+
+    protected Cursor<T> cursor()
+    {
+        return new CursorFromNode<>(this);
+    }
+
     // Version of the byte comparable conversion to use for all operations
     static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS41;
 
@@ -442,6 +492,32 @@ public abstract class Trie<T>
         public <L> Node<Object, L> root()
         {
             return null;
+        }
+
+        protected Cursor<Object> cursor()
+        {
+            return new Cursor<Object>()
+            {
+                public int advance()
+                {
+                    return -1;
+                }
+
+                public int level()
+                {
+                    return -1;
+                }
+
+                public Object content()
+                {
+                    return null;
+                }
+
+                public int transitionAtLevel(int level)
+                {
+                    return 0;
+                }
+            };
         }
     };
 

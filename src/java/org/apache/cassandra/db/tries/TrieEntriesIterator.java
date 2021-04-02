@@ -17,30 +17,40 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.util.AbstractMap;
+import java.util.Arrays;
 import java.util.Map;
 
+import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Convertor of trie entries to iterator where each entry is passed through {@link #mapContent} (to be implemented by
  * descendants).
  */
-public abstract class TrieEntriesIterator<T, V> extends TrieIteratorWithKey<T, V>
+public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V>
 {
+    private final Trie.Cursor<T> cursor;
+
     protected TrieEntriesIterator(Trie<T> trie)
     {
-        super(trie);
+        this.cursor = trie.cursor();
     }
 
-    V contentOf(Trie.Node<T, NodeWithPosition<T>> node)
+    public V computeNext()
     {
-        T content = node.content();
-        if (content == null)
-            return null;
-        return mapContent(content, path, ppos);
+        T value = cursor.advanceToContent();
+        if (value == null)
+            return endOfData();
+
+        int keyLength = cursor.level();
+
+        byte[] array = new byte[keyLength];
+        cursor.retrieveKey(array);
+        return mapContent(value, array);
     }
 
-    protected abstract V mapContent(T content, byte[] bytes, int byteLength);
+    protected abstract V mapContent(T content, byte[] bytes);
 
     /**
      * Iterator representing the content of the trie a sequence of (path, content) pairs.
@@ -53,9 +63,15 @@ public abstract class TrieEntriesIterator<T, V> extends TrieIteratorWithKey<T, V
             super(trie);
         }
 
-        protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes, int byteLength)
+        protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes)
         {
-            return toEntry(content, bytes, byteLength);
+            return toEntry(content, bytes);
         }
+    }
+
+    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(T content, byte[] bytes)
+    {
+        ByteComparable b = ByteComparable.fixedLength(bytes);
+        return new AbstractMap.SimpleImmutableEntry<>(b, content);
     }
 }

@@ -24,6 +24,7 @@ import java.util.function.Function;
  */
 class TrieDumper<T> implements TrieWalker<T, String>
 {
+    // TODO: Test then make simpler direct version
     private final Function<T, String> contentToString;
     private final StringBuilder b = new StringBuilder();
     private int depth = -1;

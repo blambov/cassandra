@@ -49,48 +49,28 @@ public interface TrieWalker<T, V>
      */
     V completion();
 
-    public static <T, V, L extends Trie.Node<T, L>> V process(TrieWalker<T, V> walker, Trie<T> trie)
+    public static <T, V> V process(TrieWalker<T, V> walker, Trie<T> trie)
     {
-        Trie.Node<T, L> current = trie.root();
-        if (current == null)
+        Trie.Cursor<T> cursor = trie.cursor();
+        if (cursor.level() == -1)
             return walker.completion();
 
-        walker.onNodeEntry(-1, current.content());
+        walker.onNodeEntry(-1, cursor.content());
 
-        Trie.Remaining has = current.startIteration();
-
-        while (true)
+        int prevLevel = 0;
+        int level = cursor.advance();
+        while (level != -1)
         {
-            if (has != null)
+            while (prevLevel >= level)
             {
-                // We have a transition, get child to descend into
-                Trie.Node<T, L> child = current.getCurrentChild((L) current);
-                if (child == null)
-                {
-                    // no child, get next
-                    has = current.advanceIteration();
-                }
-                else
-                {
-                    walker.onNodeEntry(current.currentTransition, child.content());
-
-                    // We have a new child. Move to it
-                    current = child;
-                    has = child.startIteration();
-                }
-            }
-            else
-            {
-                // There are no more children. Ascend to the parent state to continue walk.
                 walker.onNodeExit();
-                current = current.parentLink;
-                if (current == null)
-                {
-                    // We've reached back the root, our walk is finished
-                    return walker.completion();
-                }
-                has = current.advanceIteration();
+                --prevLevel;
+                assert prevLevel >= 0;
             }
+            walker.onNodeEntry(cursor.transition(), cursor.content());
+            prevLevel = level;
+            level = cursor.advance();
         }
+        return walker.completion();
     }
 }

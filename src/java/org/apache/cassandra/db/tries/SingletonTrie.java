@@ -118,4 +118,56 @@ class SingletonTrie<T> extends Trie<T>
     {
         return makeNode(null, key.asComparableBytes(BYTE_COMPARABLE_VERSION));
     }
+
+    public Cursor cursor()
+    {
+        return new Cursor();
+    }
+
+    class Cursor implements Trie.Cursor<T>
+    {
+        ByteSource.Peekable src = ByteSource.peekable(key.asComparableBytes(BYTE_COMPARABLE_VERSION));
+        int currentLevel = 0;
+        int currentTransition = -1;
+
+        public int advance()
+        {
+            currentTransition = src.next();
+            if (currentTransition != ByteSource.END_OF_STREAM)
+                return ++currentLevel;
+            else
+                return currentLevel = -1;
+        }
+
+        public int level()
+        {
+            return currentLevel;
+        }
+
+        public T content()
+        {
+            return src.peek() == ByteSource.END_OF_STREAM ? value : null;
+        }
+
+        public int transition()
+        {
+            return currentTransition;
+        }
+
+        public void retrieveKey(byte[] dest)
+        {
+            ByteSource srcCopy = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
+            for (int i = 0; i < currentLevel; ++i)
+                dest[i] = (byte) srcCopy.next();
+        }
+
+        public int transitionAtLevel(int level)
+        {
+            ByteSource srcCopy = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
+            int next = -1;
+            for (int i = 0; i <= level; ++i)
+                next = (byte) srcCopy.next();
+            return next;
+        }
+    }
 }
