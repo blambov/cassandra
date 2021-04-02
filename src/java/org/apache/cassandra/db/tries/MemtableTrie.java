@@ -560,18 +560,19 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         return updatePrefixNodeChild(existingPreContentNode, updatedPostContentNode);
     }
 
+    final ApplyState applyState = new ApplyState();
+
     /**
      * State of the walk of the given mutation trie. Passed to mutation nodes in their parentState link.
      */
-    class ApplyState<U>
+    class ApplyState
     {
-        final UpsertTransformer<T, U> transformer;
-        int[] data = new int[Math.max(maxDepth + 1, 16) * 5];
+        int[] data = new int[16 * 5];
         int currentLevel = -1;
 
-        ApplyState(UpsertTransformer<T, U> transformer)
+        void reset()
         {
-            this.transformer = transformer;
+            currentLevel = -1;
         }
 
         /**
@@ -635,7 +636,7 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             data[currentLevel * 5 + 4] = value;
         }
 
-        void descend(int transition, U mutationContent)
+        <U> void descend(int transition, U mutationContent, final UpsertTransformer<T, U> transformer)
         {
             int existingPreContentNode;
             if (currentLevel < 0)
@@ -674,11 +675,11 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             setExistingPostContentNode(existingPostContentNode);
             setUpdatedPostContentNode(existingPostContentNode);
 
-            int contentIndex = updateContentIndex(mutationContent, existingContentIndex);
+            int contentIndex = updateContentIndex(mutationContent, existingContentIndex, transformer);
             setContentIndex(contentIndex);
         }
 
-        private int updateContentIndex(U mutationContent, int existingContentIndex)
+        private <U> int updateContentIndex(U mutationContent, int existingContentIndex, final UpsertTransformer<T, U> transformer)
         {
             if (mutationContent != null)
             {
@@ -800,8 +801,9 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         if (mutationCursor.level() == -1)
             return;
         assert mutationCursor.level() == 0;
-        ApplyState state = new ApplyState(transformer);
-        state.descend(-1, mutationCursor.content());
+        ApplyState state = applyState;
+        state.reset();
+        state.descend(-1, mutationCursor.content(), transformer);
         assert state.currentLevel == 0;
 
         while (true)
@@ -818,7 +820,7 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             }
 
             // We have a transition, get child to descend into
-            state.descend(mutationCursor.transition(), mutationCursor.content());
+            state.descend(mutationCursor.transition(), mutationCursor.content(), transformer);
             assert state.currentLevel == level;
         }
     }
