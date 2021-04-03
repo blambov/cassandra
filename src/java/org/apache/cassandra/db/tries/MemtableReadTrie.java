@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
@@ -181,6 +182,7 @@ public class MemtableReadTrie<T> extends Trie<T>
      */
     static final int NONE = 0;
 
+    int maxDepth = 0;
     volatile int root;
 
     /*
@@ -427,7 +429,7 @@ public class MemtableReadTrie<T> extends Trie<T>
     int splitNodeMidIndex(int trans)
     {
         // first 2 bytes of the 2-3-3 split
-        return (trans >> 6) & 0x3;
+        return (trans >> 6);
     }
 
     /** Given a transition, returns the corresponding index (within the mid block) of the pointer to the tail block of
@@ -535,9 +537,7 @@ public class MemtableReadTrie<T> extends Trie<T>
 
         Remaining nextValid(int trans)
         {
-            if (trans >= 0x100)
-                return null;
-
+            assert trans >= 0 && trans <= 0x100;
             // Splits the 2-3-3 parts of the transition
             int midIndex = splitNodeMidIndex(trans);
             int tailIdx = splitNodeTailIndex(trans);
@@ -818,14 +818,206 @@ public class MemtableReadTrie<T> extends Trie<T>
         }
     }
 
-    /*
-     Direct read methods
-     */
-
     public <L> BaseNode<L> root()
     {
         return makeNode(root, null);
     }
+
+
+    /*
+     Cursor implementation
+     */
+
+    class MemtableCursor implements Cursor<T>
+    {
+        int[] nodes = new int[maxDepth + 1];
+        byte[] transitions = new byte[maxDepth + 1];
+        T content;
+        int level = -1;
+
+        MemtableCursor()
+        {
+            descendInto(root);
+        }
+
+        public int advance()
+        {
+            int transition = -1;
+            while (true)
+            {
+                int child = advanceToNextChild(level, transition);
+                if (child != NONE)
+                    return descendInto(child);
+
+                --level;
+                if (level == -1)
+                    return level;
+                transition = transitions[level] & 0xFF;
+            }
+        }
+
+        private int descendInto(int child)
+        {
+            ++level;
+            maybeGrow(level);
+            content = getNodeContent(child);
+            nodes[level] = followContentTransition(child);
+            return level;
+        }
+
+        private void maybeGrow(int level)
+        {
+            if (level >= nodes.length)
+            {
+                // A concurrent update may have increased the max depth beyond what we saw at initialization.
+                // There's a happens before between us getting here, reading a volatile write, and the writer thread
+                // updating maxDepth, so if we read it now we should get an updated value.
+                int newLength = maxDepth + 1;
+                assert level < newLength;
+                nodes = Arrays.copyOf(nodes, newLength);
+                transitions = Arrays.copyOf(transitions, newLength);
+            }
+        }
+
+        int advanceToNextChild(int level, int transition)
+        {
+            int node = nodes[level];
+            if (isNull(node))
+                return NONE;
+
+            switch (offset(node))
+            {
+            case SPLIT_OFFSET:
+                return nextValidSplitTransition(node, transition + 1);
+            case SPARSE_OFFSET:
+                return nextValidSparseTransition(node, transition + 1);
+            default:
+                return nextValidChainTransition(node, transition + 1);
+            }
+        }
+
+        int nextValidSplitTransition(int node, int trans)
+        {
+            assert trans >= 0 && trans <= 0x100;
+            // Splits the 2-3-3 parts of the transition
+            int midIndex = splitNodeMidIndex(trans);
+            int tailIdx = splitNodeTailIndex(trans);
+            int childIdx = splitNodeChildIndex(trans);
+
+            while (midIndex < 4)
+            {
+                int mid = getInt(node + SPLIT_POINTER_OFFSET + midIndex * 4);
+                if (!isNull(mid))
+                {
+                    while (tailIdx < 8)
+                    {
+                        int tail = getInt(mid + tailIdx * 4);
+                        if (!isNull(tail))
+                        {
+                            while (childIdx < 8)
+                            {
+                                int child = getInt(tail + childIdx * 4);
+                                if (!isNull(child))
+                                {
+                                    transitions[level] = (byte) ((midIndex << 6) | (tailIdx << 3) | childIdx);
+                                    return child;
+                                }
+                                ++childIdx;
+                            }
+                        }
+                        childIdx = 0;
+                        ++tailIdx;
+                    }
+                }
+                tailIdx = 0;
+                ++midIndex;
+            }
+            return NONE;
+        }
+
+        private int nextValidSparseTransition(int node, int transition)
+        {
+            int minValid = Integer.MAX_VALUE;
+            int minChild = NONE;
+
+            for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
+            {
+                int child = getInt(node + SPARSE_CHILDREN_OFFSET + i * 4);
+                int t = getByte(node + SPARSE_BYTES_OFFSET + i);
+                if (child != NONE && t >= transition && t < minValid)
+                {
+                    minValid = t;
+                    minChild = child;
+                }
+            }
+            transitions[level] = (byte) minValid;  // don't care if we override with garbage on no match
+            return minChild;
+        }
+
+        private int nextValidChainTransition(int node, int transition)
+        {
+            int chainByte = getByte(node);
+            if (transition <= chainByte)
+            {
+                transitions[level] = (byte) chainByte;
+                int next = node + 1;
+                return offset(next) <= CHAIN_MAX_OFFSET
+                       ? next
+                       : getInt(next);
+            }
+            else
+                return NONE;
+        }
+
+        public int advanceMultiple()
+        {
+            int node = nodes[level];
+            if (isNull(node) || offset(node) > CHAIN_MAX_OFFSET)
+                return advance();
+
+            int pointer = chainBlockChildPointer(node);
+            int length = pointer - node;
+            UnsafeBuffer buffer = getBuffer(node);
+            int ofs = getOffset(node);
+
+            maybeGrow(level + length);
+            buffer.getBytes(ofs, transitions, level, length);
+            Arrays.fill(nodes, level, level + length, NONE);
+
+            level += length - 1; // compensate for increase below
+            return descendInto(getInt(pointer));
+        }
+
+        public int level()
+        {
+            return level;
+        }
+
+        public T content()
+        {
+            return content;
+        }
+
+        public int transitionAtLevel(int level)
+        {
+            return transitions[level];
+        }
+
+        public void retrieveKey(byte[] dest)
+        {
+            System.arraycopy(transitions, 0, dest, 0, level);
+        }
+    }
+
+    public MemtableCursor cursor()
+    {
+        return new MemtableCursor();
+    }
+
+
+    /*
+     Direct read methods
+     */
 
     /**
      * Get the content mapped by the specified key.
