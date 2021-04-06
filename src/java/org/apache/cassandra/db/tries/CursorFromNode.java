@@ -77,15 +77,10 @@ public class CursorFromNode<T> implements Trie.Cursor<T>
         return current.content();
     }
 
-    public int transitionAtLevel(int level)
+    public int incomingTransition()
     {
-        int nodeLevel = this.level;
-        Trie.Node<T, Trie.Node> node = current;
-        while (nodeLevel > level)
-        {
-            node = node.parentLink;
-            --nodeLevel;
-        }
-        return node.currentTransition;
+
+        Trie.Node<T, Trie.Node> parent = current.parentLink;
+        return parent != null ? parent.currentTransition : -1;
     }
 }

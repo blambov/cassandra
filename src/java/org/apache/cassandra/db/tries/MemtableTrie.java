@@ -819,7 +819,7 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             }
 
             // We have a transition, get child to descend into
-            state.descend(mutationCursor.transition(), mutationCursor.content(), transformer);
+            state.descend(mutationCursor.incomingTransition(), mutationCursor.content(), transformer);
             assert state.currentLevel == level;
         }
     }

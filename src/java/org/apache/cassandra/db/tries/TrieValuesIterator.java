@@ -37,7 +37,7 @@ class TrieValuesIterator<T> extends AbstractIterator<T>
 
     protected T computeNext()
     {
-        T value = cursor.advanceToContent();
+        T value = cursor.advanceToContent(null);
         if (value == null)
             return endOfData();
         else

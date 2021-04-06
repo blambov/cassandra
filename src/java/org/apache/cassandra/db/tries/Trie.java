@@ -98,6 +98,8 @@ public abstract class Trie<T>
         void add(int t);
         /** Add the count bytes from position pos at the given buffer. */
         void add(UnsafeBuffer b, int pos, int count);
+        /** Delete all bytes beyond the given length. */
+        void reset(int newLength);
     }
 
     /**
@@ -205,16 +207,31 @@ public abstract class Trie<T>
     interface Cursor<T>
     {
         int advance(); // returns level (can be prev+1 or <=prev), -1 means done
-        default int advanceMultiple() // advance, descending multiple levels if that does not require extra work (e.g. chain nodes)
+        default int advanceMultiple(TransitionsReceiver receiver) // advance, descending multiple levels if that does not require extra work (e.g. chain nodes)
         {
-            return advance();
+            return advanceMultiple(this, receiver);
         }
 
-        default T advanceToContent() // advances all the way (to next content)
+        static int advanceMultiple(Cursor c, TransitionsReceiver receiver)
+        {
+            if (receiver == null)
+                return c.advance();
+
+            int prevLevel = c.level();
+            int level = c.advance();
+            if (level < 0)
+                return level;
+            if (level <= prevLevel)
+                receiver.reset(level - 1);
+            receiver.add(c.incomingTransition());
+            return level;
+        }
+
+        default T advanceToContent(TransitionsReceiver receiver) // advances all the way (to next content)
         {
             while (true)
             {
-                int level = advanceMultiple();
+                int level = advanceMultiple(receiver);
                 if (level < 0)
                     return null;
                 T content = content();
@@ -230,20 +247,8 @@ public abstract class Trie<T>
 //        }
 
         int level(); // return current state
-        default int transition()
-        {
-            return transitionAtLevel(level() - 1);
-        }
+        int incomingTransition(); // not set in advanceMultiple/ToCursor
         T content();
-
-        int transitionAtLevel(int level);
-
-        default void retrieveKey(byte[] dest) // length is the level
-        {
-            int level = level();
-            for (int i = 0; i < level; ++i)
-                dest[i] = (byte) transitionAtLevel(i);
-        }
     }
 
     protected Cursor<T> cursor()
@@ -513,9 +518,9 @@ public abstract class Trie<T>
                     return null;
                 }
 
-                public int transitionAtLevel(int level)
+                public int incomingTransition()
                 {
-                    return 0;
+                    return -1;
                 }
             };
         }

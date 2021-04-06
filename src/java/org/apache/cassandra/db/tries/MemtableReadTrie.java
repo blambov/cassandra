@@ -830,60 +830,82 @@ public class MemtableReadTrie<T> extends Trie<T>
 
     class MemtableCursor implements Cursor<T>
     {
-        int[] nodes = new int[maxDepth + 1];
-        byte[] transitions = new byte[maxDepth + 1];
-        T content;
-        int level = -1;
+        private int[] backtrack = new int[48];
+        private int backtrackLevel = 0;
+
+        private int currentNode;
+
+        private int incomingTransition;
+        private T content;
+        private int level = -1;
 
         MemtableCursor()
         {
-            descendInto(root);
+            descendInto(root, -1);
         }
 
+        private int node(int backtrackLevel)
+        {
+            return backtrack[backtrackLevel * 3 + 0];
+        }
+        private int data(int backtrackLevel)
+        {
+            return backtrack[backtrackLevel * 3 + 1];
+        }
+        private int level(int backtrackLevel)
+        {
+            return backtrack[backtrackLevel * 3 + 2];
+        }
+        void addBacktrack(int node, int data, int level)
+        {
+            if (backtrackLevel * 3 >= backtrack.length)
+                backtrack = Arrays.copyOf(backtrack, backtrack.length * 2);
+            backtrack[backtrackLevel * 3 + 0] = node;
+            backtrack[backtrackLevel * 3 + 1] = data;
+            backtrack[backtrackLevel * 3 + 2] = level;
+            ++backtrackLevel;
+        }
+
+        @Override
         public int advance()
         {
             int transition = -1;
             while (true)
             {
-                int child = advanceToNextChild(level, transition);
-                if (child != NONE)
-                    return descendInto(child);
-
-                --level;
-                if (level == -1)
+                if (advanceToNextChild(currentNode, transition))
                     return level;
-                transition = transitions[level] & 0xFF;
+
+                if (--backtrackLevel < 0)
+                    return -1;
+
+                level = level(backtrackLevel);
+                currentNode = node(backtrackLevel);
+                transition = data(backtrackLevel);
             }
         }
 
-        private int descendInto(int child)
+        private int descendInto(int child, int transition)
         {
             ++level;
-            maybeGrow(level);
+            incomingTransition = transition;
             content = getNodeContent(child);
-            nodes[level] = followContentTransition(child);
+            currentNode = followContentTransition(child);
             return level;
         }
 
-        private void maybeGrow(int level)
+        private int descendIntoChain(int child, int transition)
         {
-            if (level >= nodes.length)
-            {
-                // A concurrent update may have increased the max depth beyond what we saw at initialization.
-                // There's a happens before between us getting here, reading a volatile write, and the writer thread
-                // updating maxDepth, so if we read it now we should get an updated value.
-                int newLength = maxDepth + 1;
-                assert level < newLength;
-                nodes = Arrays.copyOf(nodes, newLength);
-                transitions = Arrays.copyOf(transitions, newLength);
-            }
+            ++level;
+            incomingTransition = transition;
+            content = null;
+            currentNode = child;
+            return level;
         }
 
-        int advanceToNextChild(int level, int transition)
+        private boolean advanceToNextChild(int node, int transition)
         {
-            int node = nodes[level];
             if (isNull(node))
-                return NONE;
+                return false;
 
             switch (offset(node))
             {
@@ -892,11 +914,11 @@ public class MemtableReadTrie<T> extends Trie<T>
             case SPARSE_OFFSET:
                 return nextValidSparseTransition(node, transition + 1);
             default:
-                return nextValidChainTransition(node, transition + 1);
+                return getChainTransition(node);
             }
         }
 
-        int nextValidSplitTransition(int node, int trans)
+        private boolean nextValidSplitTransition(int node, int trans)
         {
             assert trans >= 0 && trans <= 0x100;
             // Splits the 2-3-3 parts of the transition
@@ -919,8 +941,10 @@ public class MemtableReadTrie<T> extends Trie<T>
                                 int child = getInt(tail + childIdx * 4);
                                 if (!isNull(child))
                                 {
-                                    transitions[level] = (byte) ((midIndex << 6) | (tailIdx << 3) | childIdx);
-                                    return child;
+                                    int transition = ((midIndex << 6) | (tailIdx << 3) | childIdx);
+                                    addBacktrack(node, transition, level);
+                                    descendInto(child, transition);
+                                    return true;
                                 }
                                 ++childIdx;
                             }
@@ -932,60 +956,71 @@ public class MemtableReadTrie<T> extends Trie<T>
                 tailIdx = 0;
                 ++midIndex;
             }
-            return NONE;
+            return false;
         }
 
-        private int nextValidSparseTransition(int node, int transition)
+        private boolean nextValidSparseTransition(int node, int transition)
         {
             int minValid = Integer.MAX_VALUE;
             int minChild = NONE;
+            int validCount = 0;
 
             for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
             {
                 int child = getInt(node + SPARSE_CHILDREN_OFFSET + i * 4);
+                if (child == NONE)
+                    break;
                 int t = getByte(node + SPARSE_BYTES_OFFSET + i);
-                if (child != NONE && t >= transition && t < minValid)
+                if (t >= transition)
                 {
-                    minValid = t;
-                    minChild = child;
+                    if (t < minValid)
+                    {
+                        minValid = t;
+                        minChild = child;
+                    }
+                    ++validCount;
                 }
             }
-            transitions[level] = (byte) minValid;  // don't care if we override with garbage on no match
-            return minChild;
+            if (validCount == 0)
+                return false;
+
+            if (validCount > 1)
+                addBacktrack(node, minValid, level);
+
+            descendInto(minChild, minValid);
+            return true;
         }
 
-        private int nextValidChainTransition(int node, int transition)
+        private boolean getChainTransition(int node)
         {
-            int chainByte = getByte(node);
-            if (transition <= chainByte)
-            {
-                transitions[level] = (byte) chainByte;
-                int next = node + 1;
-                return offset(next) <= CHAIN_MAX_OFFSET
-                       ? next
-                       : getInt(next);
-            }
+            // no backtracking needed
+            int transition = getByte(node);
+            int next = node + 1;
+            if (offset(next) <= CHAIN_MAX_OFFSET)
+                descendIntoChain(next, transition);
             else
-                return NONE;
+                descendInto(getInt(next), transition);
+            return true;
         }
 
-        public int advanceMultiple()
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
         {
-            int node = nodes[level];
+            int node = currentNode;
             if (isNull(node) || offset(node) > CHAIN_MAX_OFFSET)
-                return advance();
+                return Cursor.advanceMultiple(this, receiver);
 
             int pointer = chainBlockChildPointer(node);
             int length = pointer - node;
-            UnsafeBuffer buffer = getBuffer(node);
-            int ofs = getOffset(node);
-
-            maybeGrow(level + length);
-            buffer.getBytes(ofs, transitions, level, length);
-            Arrays.fill(nodes, level, level + length, NONE);
+            if (receiver != null)
+            {
+                UnsafeBuffer buffer = getBuffer(node);
+                int ofs = getOffset(node);
+                receiver.add(buffer, ofs, length);
+            }
 
             level += length - 1; // compensate for increase below
-            return descendInto(getInt(pointer));
+            return descendInto(getInt(pointer), -1);
         }
 
         public int level()
@@ -998,14 +1033,9 @@ public class MemtableReadTrie<T> extends Trie<T>
             return content;
         }
 
-        public int transitionAtLevel(int level)
+        public int incomingTransition()
         {
-            return transitions[level];
-        }
-
-        public void retrieveKey(byte[] dest)
-        {
-            System.arraycopy(transitions, 0, dest, 0, level);
+            return incomingTransition;
         }
     }
 

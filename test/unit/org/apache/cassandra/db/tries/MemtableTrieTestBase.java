@@ -23,14 +23,12 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multiset;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
@@ -289,7 +287,7 @@ public abstract class MemtableTrieTestBase
                           trie.sizeOnHeap(), trie.sizeOffHeap(), onh, keysize, ts);
         System.out.format("per entry on heap %.2f off heap %.2f measured %.2f keys %.2f treemap %.2f\n",
                           trie.sizeOnHeap() * 1.0 / COUNT, trie.sizeOffHeap() * 1.0 / COUNT, onh * 1.0 / COUNT, keysize * 1.0 / COUNT, ts * 1.0 / COUNT);
-        // System.out.println("Trie " + trie.dump(ByteBufferUtil::bytesToHex).get());
+        // System.out.println("Trie " + trie.dump(ByteBufferUtil::bytesToHex));
 
         assertSameContent(trie, content);
         checkGet(trie, content);

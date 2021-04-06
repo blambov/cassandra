@@ -149,7 +149,7 @@ class SingletonTrie<T> extends Trie<T>
             return src.peek() == ByteSource.END_OF_STREAM ? value : null;
         }
 
-        public int transition()
+        public int incomingTransition()
         {
             return currentTransition;
         }

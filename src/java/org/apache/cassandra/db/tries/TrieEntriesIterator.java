@@ -21,6 +21,7 @@ import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Map;
 
+import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -28,9 +29,11 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * Convertor of trie entries to iterator where each entry is passed through {@link #mapContent} (to be implemented by
  * descendants).
  */
-public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V>
+public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V> implements Trie.TransitionsReceiver
 {
     private final Trie.Cursor<T> cursor;
+    private byte[] keyBytes = new byte[32];
+    private int keyPos = 0;
 
     protected TrieEntriesIterator(Trie<T> trie)
     {
@@ -39,18 +42,35 @@ public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V>
 
     public V computeNext()
     {
-        T value = cursor.advanceToContent();
+        T value = cursor.advanceToContent(this);
         if (value == null)
             return endOfData();
 
-        int keyLength = cursor.level();
-
-        byte[] array = new byte[keyLength];
-        cursor.retrieveKey(array);
-        return mapContent(value, array);
+        return mapContent(value, keyBytes, keyPos);
     }
 
-    protected abstract V mapContent(T content, byte[] bytes);
+    public void add(int t)
+    {
+        if (keyPos >= keyBytes.length)
+            keyBytes = Arrays.copyOf(keyBytes, keyPos * 2);
+        keyBytes[keyPos++] = (byte) t;
+    }
+
+    public void add(UnsafeBuffer b, int pos, int count)
+    {
+        int newPos = keyPos + count;
+        if (newPos > keyBytes.length)
+            keyBytes = Arrays.copyOf(keyBytes, Math.max(newPos + 16, keyBytes.length * 2));
+        b.getBytes(pos, keyBytes, keyPos, count);
+        keyPos = newPos;
+    }
+
+    public void reset(int newLength)
+    {
+        keyPos = newLength;
+    }
+
+    protected abstract V mapContent(T content, byte[] bytes, int byteLength);
 
     /**
      * Iterator representing the content of the trie a sequence of (path, content) pairs.
@@ -63,15 +83,15 @@ public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V>
             super(trie);
         }
 
-        protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes)
+        protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes, int byteLength)
         {
-            return toEntry(content, bytes);
+            return toEntry(content, bytes, byteLength);
         }
     }
 
-    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(T content, byte[] bytes)
+    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(T content, byte[] bytes, int byteLength)
     {
-        ByteComparable b = ByteComparable.fixedLength(bytes);
+        ByteComparable b = ByteComparable.fixedLength(Arrays.copyOf(bytes, byteLength));
         return new AbstractMap.SimpleImmutableEntry<>(b, content);
     }
 }

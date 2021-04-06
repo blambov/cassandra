@@ -67,7 +67,7 @@ public interface TrieWalker<T, V>
                 --prevLevel;
                 assert prevLevel >= 0;
             }
-            walker.onNodeEntry(cursor.transition(), cursor.content());
+            walker.onNodeEntry(cursor.incomingTransition(), cursor.content());
             prevLevel = level;
             level = cursor.advance();
         }
