@@ -140,7 +140,6 @@ class SetIntersectionTrie<T> extends Trie<T>
     {
         private final Cursor<T> tCursor;
         private final Cursor<TrieSet.InSet> sCursor;
-        int branchLevel = Integer.MAX_VALUE;
 
         public IntersectionCursor(Cursor<T> tCursor,
                                   Cursor<TrieSet.InSet> sCursor)
@@ -149,6 +148,7 @@ class SetIntersectionTrie<T> extends Trie<T>
             this.sCursor = sCursor;
         }
 
+        @Override
         public int advance()
         {
             int tLevel = tCursor.advance();
@@ -163,6 +163,27 @@ class SetIntersectionTrie<T> extends Trie<T>
             return advanceToIntersection(tLevel, sLevel);
         }
 
+        @Override
+        public int advanceMultiple(TransitionsReceiver transitionsReceiver)
+        {
+            if (!sCursor.content().branchCovered())
+                return Cursor.advanceMultiple(this, transitionsReceiver);
+
+            int tLevel = tCursor.advanceMultiple(transitionsReceiver);  // FIXME this could overwrite a byte
+            if (tLevel > sCursor.level())
+                return tLevel;
+
+            int sLevel = sCursor.advance();
+            int rLevel = advanceToIntersection(tLevel, sLevel);
+            if (transitionsReceiver != null && rLevel >= 0)
+            {
+                transitionsReceiver.reset(rLevel - 1);
+                transitionsReceiver.add(incomingTransition());
+            }
+            return rLevel;
+        }
+
+        @Override
         public int ascend() // this is not tested ATM
         {
             int tLevel = tCursor.ascend();

@@ -333,8 +333,8 @@ public abstract class Trie<T>
      */
     public Trie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
-//        if (left == null && right == null)
-//            return this;
+        if (left == null && right == null)
+            return this;
 
         return new SetIntersectionTrie<>(this, TrieSet.range(left, includeLeft, right, includeRight));
     }
