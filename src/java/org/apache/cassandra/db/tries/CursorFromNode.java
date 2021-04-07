@@ -42,7 +42,11 @@ public class CursorFromNode<T> implements Trie.Cursor<T>
 
     public int advance()
     {
-        Trie.Remaining has = current.startIteration();
+        return advance(current.startIteration());
+    }
+
+    private int advance(Trie.Remaining has)
+    {
         Trie.Node<T, Trie.Node> child = null;
         do
         {
@@ -65,6 +69,13 @@ public class CursorFromNode<T> implements Trie.Cursor<T>
         while (child == null);
         current = child;
         return ++level;
+    }
+
+    public int ascend()
+    {
+        --level;
+        current = current.parentLink;
+        return advance(current.advanceIteration());
     }
 
     public int level()

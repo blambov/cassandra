@@ -74,6 +74,8 @@ public class SetIntersectionTrieTest
             if (!includeLeft && !includeRight && cmp == 0)
                 includeRight = true;
             checkEqualRange(content1, trie1, l, includeLeft, r, includeRight);
+            checkEqualRange(content1, trie1, null, includeLeft, r, includeRight);
+            checkEqualRange(content1, trie1, l, includeLeft, null, includeRight);
         }
     }
 
@@ -152,7 +154,7 @@ public class SetIntersectionTrieTest
 
                 public Integer content()
                 {
-                    return null;
+                    return -1;
                 }
 
                 @Override
@@ -196,13 +198,134 @@ public class SetIntersectionTrieTest
     }
 
     @Test
-    public void testSimpleIntersection()
+    public void testSimpleIntersectionII()
     {
         Trie<Integer> trie = singleLevelIntTrie(10);
-        assertEquals(asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
 
         Trie<Integer> intersection = trie.subtrie(of(3), true, of(7), true);
-        // Currently returns [4, 5, 6, 7, 8, 9], which "looks" wrong.
         assertEquals(asList(3, 4, 5, 6, 7), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleIntersectionEI()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(of(3), false, of(7), true);
+        assertEquals(asList(4, 5, 6, 7), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleIntersectionIE()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(of(3), true, of(7), false);
+        assertEquals(asList(3, 4, 5, 6), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleIntersectionEE()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(of(3), false, of(7), false);
+        assertEquals(asList(4, 5, 6), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleLeftIntersectionE()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(of(3), false, null, true);
+        assertEquals(asList(4, 5, 6, 7, 8, 9), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleLeftIntersectionI()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(of(3), true, null, true);
+        assertEquals(asList(3, 4, 5, 6, 7, 8, 9), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleRightIntersectionE()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(null, true, of(7), false);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleRightIntersectionI()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(null, true, of(7), true);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleNoIntersection()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(null, true, null, true);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(intersection));
+    }
+
+    @Test
+    public void testSimpleEmptyIntersectionLeft()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(ByteComparable.EMPTY, true, null, true);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, false, null, true);
+        assertEquals(asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, true, of(5), true);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, false, of(5), true);
+        assertEquals(asList(0, 1, 2, 3, 4, 5), toList(intersection));
+
+    }
+
+    @Test
+    public void testSimpleEmptyIntersectionRight()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(10);
+        assertEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), toList(trie));
+
+        Trie<Integer> intersection = trie.subtrie(null, true, ByteComparable.EMPTY, true);
+        assertEquals(asList(-1), toList(intersection));
+
+        intersection = trie.subtrie(null, true, ByteComparable.EMPTY, false);
+        assertEquals(asList(), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, true, ByteComparable.EMPTY, true);
+        assertEquals(asList(-1), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, false, ByteComparable.EMPTY, true);
+        assertEquals(asList(), toList(intersection));
+
+        intersection = trie.subtrie(ByteComparable.EMPTY, false, ByteComparable.EMPTY, false);
+        assertEquals(asList(), toList(intersection));
     }
 }

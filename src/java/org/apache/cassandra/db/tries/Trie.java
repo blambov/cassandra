@@ -241,7 +241,10 @@ public abstract class Trie<T>
         }
 
 //        int advanceTo(int transition); // advance to child with this transition or higher. if none exists, ascend to parent and advance
-//        default int ascend() // ignore the remaining children at this level or below and ascend to parent and advance
+
+        int ascend();
+
+        //        default int ascend() // ignore the remaining children at this level or below and ascend to parent and advance
 //        {
 //            return advanceTo(Integer.MAX_VALUE);
 //        }
@@ -249,6 +252,7 @@ public abstract class Trie<T>
         int level(); // return current state
         int incomingTransition(); // not set in advanceMultiple/ToCursor
         T content();
+
     }
 
     protected Cursor<T> cursor()
@@ -329,8 +333,8 @@ public abstract class Trie<T>
      */
     public Trie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
-        if (left == null && right == null)
-            return this;
+//        if (left == null && right == null)
+//            return this;
 
         return new SetIntersectionTrie<>(this, TrieSet.range(left, includeLeft, right, includeRight));
     }
@@ -504,6 +508,11 @@ public abstract class Trie<T>
             return new Cursor<Object>()
             {
                 public int advance()
+                {
+                    return -1;
+                }
+
+                public int ascend()
                 {
                     return -1;
                 }

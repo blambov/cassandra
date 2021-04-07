@@ -17,7 +17,7 @@
  */
 package org.apache.cassandra.db.tries;
 
-import org.apache.cassandra.utils.AbstractIterator;
+import java.util.Iterator;
 
 /**
  * Convertor of trie contents to flow.
@@ -26,21 +26,35 @@ import org.apache.cassandra.utils.AbstractIterator;
  * Java. Using {@code <>} when instantiating works, but any subclasses will also need to declare this useless type
  * argument.
  */
-class TrieValuesIterator<T> extends AbstractIterator<T>
+class TrieValuesIterator<T> implements Iterator<T>
 {
     private final Trie.Cursor<T> cursor;
+    T next;
+    boolean gotNext = false;
 
     protected TrieValuesIterator(Trie<T> trie)
     {
         cursor = trie.cursor();
+        next = cursor.content();
+        gotNext = next != null;
     }
 
-    protected T computeNext()
+    public boolean hasNext()
     {
-        T value = cursor.advanceToContent(null);
-        if (value == null)
-            return endOfData();
-        else
-            return value;
+        if (!gotNext)
+        {
+            next = cursor.advanceToContent(null);
+            gotNext = true;
+        }
+
+        return next != null;
+    }
+
+    public T next()
+    {
+        gotNext = false;
+        T v = next;
+        next = null;
+        return v;
     }
 }

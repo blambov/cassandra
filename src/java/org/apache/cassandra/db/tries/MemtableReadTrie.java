@@ -869,7 +869,11 @@ public class MemtableReadTrie<T> extends Trie<T>
         @Override
         public int advance()
         {
-            int transition = -1;
+            return advance(-1);
+        }
+
+        private int advance(int transition)
+        {
             while (true)
             {
                 if (advanceToNextChild(currentNode, transition))
@@ -882,6 +886,18 @@ public class MemtableReadTrie<T> extends Trie<T>
                 currentNode = node(backtrackLevel);
                 transition = data(backtrackLevel);
             }
+        }
+
+        @Override
+        public int ascend()
+        {
+            if (--backtrackLevel < 0)
+                return -1;
+
+            level = level(backtrackLevel);
+            currentNode = node(backtrackLevel);
+            int transition = data(backtrackLevel);
+            return advance(transition);
         }
 
         private int descendInto(int child, int transition)

@@ -34,12 +34,12 @@ class SetIntersectionTrie<T> extends Trie<T>
     @Override
     public <L> Node<T, L> root()
     {
-        TrieSet.SetNode sRoot = intersectingSet.root();
+        Node<TrieSet.InSet, Void> sRoot = intersectingSet.root();
         if (sRoot == null)
             return null;
 
         Node<T, L> tRoot = trie.root();
-        if (sRoot == TrieSet.FULL)
+        if (sRoot.content() == TrieSet.InSet.BRANCH)
             return tRoot;
         if (tRoot == null)
             return null;
@@ -50,9 +50,9 @@ class SetIntersectionTrie<T> extends Trie<T>
     static class IntersectionNode<T, L> extends Node<T, L>
     {
         final Node<T, L> tNode;
-        final TrieSet.SetNode sNode;
+        final Node<TrieSet.InSet, Void> sNode;
 
-        public IntersectionNode(Node<T, L> tNode, TrieSet.SetNode sNode)
+        public IntersectionNode(Node<T, L> tNode, Node<TrieSet.InSet, Void> sNode)
         {
             super(tNode.parentLink);
             this.tNode = tNode;
@@ -61,8 +61,8 @@ class SetIntersectionTrie<T> extends Trie<T>
 
         public Remaining startIteration()
         {
-            boolean sHas = sNode.startIteration();
-            if (!sHas)
+            Remaining sHas = sNode.startIteration();
+            if (sHas == null)
                 return null;
 
             return advanceToIntersection(tNode.startIteration());
@@ -70,18 +70,18 @@ class SetIntersectionTrie<T> extends Trie<T>
 
         public Remaining advanceIteration()
         {
-            boolean sHas = sNode.advanceIteration();
-            if (!sHas)
+            Remaining sHas = sNode.advanceIteration();
+            if (sHas == null)
                 return null;
             return advanceToIntersection(tNode.advanceIteration());
         }
 
         public Remaining advanceToIntersection(Remaining tHas)
         {
-            boolean sHas;
+            Remaining sHas;
             if (tHas == null)
                 return null;
-            int sByte = sNode.currentTransition();
+            int sByte = sNode.currentTransition;
             int tByte = tNode.currentTransition;
 
             while (tByte != sByte)
@@ -96,9 +96,9 @@ class SetIntersectionTrie<T> extends Trie<T>
                 else // (tByte > sByte)
                 {
                     sHas = sNode.advanceIteration();
-                    if (!sHas)
+                    if (sHas == null)
                         return null;
-                    sByte = sNode.currentTransition();
+                    sByte = sNode.currentTransition;
                 }
             }
             currentTransition = sByte;
@@ -107,7 +107,7 @@ class SetIntersectionTrie<T> extends Trie<T>
 
         public Node<T, L> getCurrentChild(L parent)
         {
-            TrieSet.SetNode receivedSetNode = sNode.getCurrentChild();
+            Node<TrieSet.InSet, Void> receivedSetNode = sNode.getCurrentChild(null);
 
             if (receivedSetNode == null)
                 return null;    // branch is completely outside the set
@@ -117,7 +117,7 @@ class SetIntersectionTrie<T> extends Trie<T>
             if (nn == null)
                 return null;
 
-            if (receivedSetNode == TrieSet.FULL)
+            if (receivedSetNode.content() == TrieSet.InSet.BRANCH)
                 return nn;     // Branch is fully covered, we no longer need to augment nodes there.
 
             return new IntersectionNode<>(nn, receivedSetNode);
@@ -125,9 +125,102 @@ class SetIntersectionTrie<T> extends Trie<T>
 
         public T content()
         {
-            if (sNode.inSet())
+            if (sNode.content().pointIncluded())
                 return tNode.content();
             return null;
+        }
+    }
+
+    protected Cursor<T> cursor()
+    {
+        return new IntersectionCursor(trie.cursor(), intersectingSet.cursor());
+    }
+
+    private class IntersectionCursor implements Cursor<T>
+    {
+        private final Cursor<T> tCursor;
+        private final Cursor<TrieSet.InSet> sCursor;
+        int branchLevel = Integer.MAX_VALUE;
+
+        public IntersectionCursor(Cursor<T> tCursor,
+                                  Cursor<TrieSet.InSet> sCursor)
+        {
+            this.tCursor = tCursor;
+            this.sCursor = sCursor;
+        }
+
+        public int advance()
+        {
+            int tLevel = tCursor.advance();
+            if (sCursor.content().branchCovered())
+            {
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
+            }
+            int sLevel = sCursor.advance();
+
+            return advanceToIntersection(tLevel, sLevel);
+        }
+
+        public int ascend() // this is not tested ATM
+        {
+            int tLevel = tCursor.ascend();
+            if (sCursor.content().branchCovered())
+            {
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
+            }
+            int sLevel = sCursor.ascend();
+
+            return advanceToIntersection(tLevel, sLevel);
+        }
+
+        private int advanceToIntersection(int tLevel, int sLevel)
+        {
+            while (sLevel != -1 && tLevel != -1)
+            {
+                if (sLevel == tLevel)
+                {
+                    int tIncoming = tCursor.incomingTransition();
+                    int sIncoming = sCursor.incomingTransition();
+                    if (sIncoming == tIncoming)
+                        return tLevel;  // got entry
+                    else if (sIncoming < tIncoming)
+                        sLevel = sCursor.advance();
+                    else // sIncoming > tIncoming
+                        tLevel = tCursor.advance();
+                }
+                else if (sLevel < tLevel)
+                {
+                    if (sCursor.content().branchCovered())
+                        return tLevel;
+                    tLevel = tCursor.ascend();
+                }
+                else // (sLevel > tLevel)
+                    sLevel = sCursor.ascend();
+            }
+            return -1;
+        }
+
+        // TODO: implement advanceMultiple
+
+        public int level()
+        {
+            return tCursor.level();
+        }
+
+        public int incomingTransition()
+        {
+            return tCursor.incomingTransition();
+        }
+
+        public T content()
+        {
+            return sCursor.content().pointIncluded()
+                   ? tCursor.content()
+                   : null;
         }
     }
 }

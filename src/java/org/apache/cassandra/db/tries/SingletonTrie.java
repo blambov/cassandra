@@ -139,6 +139,11 @@ class SingletonTrie<T> extends Trie<T>
                 return currentLevel = -1;
         }
 
+        public int ascend()
+        {
+            return -1;  // no alternatives
+        }
+
         public int level()
         {
             return currentLevel;

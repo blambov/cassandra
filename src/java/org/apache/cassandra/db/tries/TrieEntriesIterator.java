@@ -19,34 +19,48 @@ package org.apache.cassandra.db.tries;
 
 import java.util.AbstractMap;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Map;
 
 import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Convertor of trie entries to iterator where each entry is passed through {@link #mapContent} (to be implemented by
  * descendants).
  */
-public abstract class TrieEntriesIterator<T, V> extends AbstractIterator<V> implements Trie.TransitionsReceiver
+public abstract class TrieEntriesIterator<T, V> implements Iterator<V>, Trie.TransitionsReceiver
 {
     private final Trie.Cursor<T> cursor;
     private byte[] keyBytes = new byte[32];
     private int keyPos = 0;
+    T next;
+    boolean gotNext;
 
     protected TrieEntriesIterator(Trie<T> trie)
     {
-        this.cursor = trie.cursor();
+        cursor = trie.cursor();
+        next = cursor.content();
+        gotNext = next != null;
     }
 
-    public V computeNext()
+    public boolean hasNext()
     {
-        T value = cursor.advanceToContent(this);
-        if (value == null)
-            return endOfData();
+        if (!gotNext)
+        {
+            next = cursor.advanceToContent(this);
+            gotNext = true;
+        }
 
-        return mapContent(value, keyBytes, keyPos);
+        return next != null;
+    }
+
+    public V next()
+    {
+        gotNext = false;
+        T v = next;
+        next = null;
+        return mapContent(v, keyBytes, keyPos);
     }
 
     public void add(int t)
