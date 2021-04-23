@@ -193,8 +193,11 @@ class MergeTrie<T> extends Trie<T>
         @Override
         public int ascend()
         {
-            return checkOrder(atC1 ? c1.ascend() : c1.level(),
-                              atC2 ? c2.ascend() : c2.level());
+            int c1level = c1.level();
+            int c2level = c2.level();
+            int level = Math.max(c1level, c2level);
+            return checkOrder(c1level == level ? c1.ascend() : c1level,
+                              c2level == level ? c2.ascend() : c2level);
         }
 
         @Override
