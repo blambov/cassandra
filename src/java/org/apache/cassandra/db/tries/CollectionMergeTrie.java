@@ -312,52 +312,57 @@ class CollectionMergeTrie<T> extends Trie<T>
     static class CollectionMergeCursor<T> implements Cursor<T>
     {
         private final CollectionMergeResolver<T> resolver;
-        private final Cursor[] heap;
+        private final Cursor<T>[] heap;
+        private Cursor<T> head;
         private final List<T> contents;
 
         public CollectionMergeCursor(CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
         {
             this.resolver = resolver;
             int count = inputs.size();
-            heap = new Cursor[count];
+            heap = new Cursor[count - 1];
             contents = new ArrayList<>(count);
-            int i = 0;
+            int i = -1;
+            --count;
             for (Trie<T> trie : inputs)
             {
                 Cursor<T> cursor = trie.cursor();
-                if (cursor.level() < 0)
+                if (cursor.level() < 0 && count > 0)
                     heap[--count] = cursor;    // empty trie / no root, put it at the end
-                else
+                else if (i >= 0)
                     heap[i++] = cursor;
+                else
+                {
+                    head = cursor;
+                    ++i;
+                }
             }
-            // head is now well-formed, count many cursors are equal and need advancing
         }
 
         @Override
         public int advance()
         {
             advance(0);
-            return level();
+            return maybeSwapHead(head.advance());
         }
 
         /**
          * Advance the state of the input at the given index and any of its descendants that are at the same
          * transition byte and restore the heap invariant for the subtree rooted at the given index.
-         * Calls itself recursively and used by advanceState with index = 0 and transition = state[0].transition
-         * to advance the state of the merge.
+         * Calls itself recursively and used by advance with index = 0 to advance the state of the merge.
          */
         private void advance(int index)
         {
+            if (index >= heap.length)
+                return;
             Cursor<T> item = heap[index];
+            if (head.level() != item.level() || head.incomingTransition() != item.incomingTransition())
+                return;
 
             // If the children are at the same transition byte, they also need advancing and their subheap
             // invariant to be restored.
-            int next = index * 2 + 1;
-            if (next < heap.length && compareCursors(item, heap[next]) == 0)
-                advance(next);
-            ++next;
-            if (next < heap.length && compareCursors(item, heap[next]) == 0)
-                advance(next);
+            advance(index * 2 + 1);
+            advance(index * 2 + 2);
 
             item.advance();
 
@@ -390,87 +395,99 @@ class CollectionMergeTrie<T> extends Trie<T>
             heap[index] = item;
         }
 
-        // TODO: implement advanceMultiple
-        // TODO: add single-source optimization
+        private int maybeSwapHead(int headLevel)
+        {
+            int heap0Level = heap[0].level();
+            if (headLevel > heap0Level ||
+                (headLevel == heap0Level && head.incomingTransition() <= heap[0].incomingTransition()))
+                return headLevel;
+            // otherwise we need to swap heap and heap[0]
+            Cursor<T> newHeap0 = head;
+            head = heap[0];
+            heapifyDown(newHeap0, 0);
+            return heap0Level;
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            Cursor<T> heap0 = heap[0];
+            if (head.level() == heap0.level() && head.incomingTransition() == heap0.incomingTransition())
+                return advance();   // more than one source at current position, can't do multiple.
+
+            return maybeSwapHead(head.advanceMultiple(receiver));
+        }
 
         @Override
         public int ascend()
         {
-            ascend(0, level());
-            return level();
+            ascend(0);
+            return maybeSwapHead(head.ascend());
         }
 
-        /**
-         * Advance the state of the input at the given index and any of its descendants that are at the same
-         * transition byte and restore the heap invariant for the subtree rooted at the given index.
-         * Calls itself recursively and used by advanceState with index = 0 and transition = state[0].transition
-         * to advance the state of the merge.
-         */
-        private void ascend(int index, int level)
+        private void ascend(int index)
         {
+            if (index >= heap.length)
+                return;
             Cursor<T> item = heap[index];
+            if (head.level() != item.level())
+                return;
 
-            // If the children are at the same transition byte, they also need advancing and their subheap
-            // invariant to be restored.
-            int next = index * 2 + 1;
-            if (next < heap.length && heap[next].level() == level)
-                ascend(next, level);
-            ++next;
-            if (next < heap.length && heap[next].level() == level)
-                ascend(next, level);
+            ascend(index * 2 + 1);
+            ascend(index * 2 + 2);
 
             item.ascend();
-
-            // At this point the heaps at both children are advanced and well-formed. Place current node in its
-            // proper position.
             heapifyDown(item, index);
-            // The heap rooted at index is now advanced and well-formed.
         }
 
         @Override
         public int level()
         {
-            return heap[0].level();  // okay also if count == 0
+            return head.level();
         }
 
         @Override
         public int incomingTransition()
         {
-            return heap[0].incomingTransition();
+            return head.incomingTransition();
         }
 
         @Override
         public T content()
         {
-            contents.clear();   // this is preferably done immediately after
+            T itemContent = head.content();
+            if (itemContent != null)
+                contents.add(itemContent);
+
             collectContent(0);
+            T toReturn;
             switch (contents.size())
             {
                 case 0:
-                    return null;
+                    toReturn = null;
                 case 1:
-                    return contents.get(0);
+                    toReturn = contents.get(0);
                 default:
-                    return resolver.resolve(contents);
+                    toReturn = resolver.resolve(contents);
             }
+            contents.clear();
+            return toReturn;
         }
 
         private void collectContent(int index)
         {
+            if (index >= heap.length)
+                return;
             Cursor<T> item = heap[index];
+            if (head.level() != item.level() || head.incomingTransition() != item.incomingTransition())
+                return;
 
             T itemContent = item.content();
             if (itemContent != null)
                 contents.add(itemContent);
 
-            // If the children are at the same transition byte, they also need advancing and their subheap
-            // invariant to be restored.
-            int next = index * 2 + 1;
-            if (next < heap.length && compareCursors(item, heap[next]) == 0)
-                collectContent(next);
-            ++next;
-            if (next < heap.length && compareCursors(item, heap[next]) == 0)
-                collectContent(next);
+            collectContent(index * 2 + 1);
+            collectContent(index * 2 + 2);
         }
     }
 
