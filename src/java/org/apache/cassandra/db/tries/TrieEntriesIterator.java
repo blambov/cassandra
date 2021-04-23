@@ -29,7 +29,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * Convertor of trie entries to iterator where each entry is passed through {@link #mapContent} (to be implemented by
  * descendants).
  */
-public abstract class TrieEntriesIterator<T, V> implements Iterator<V>, Trie.TransitionsReceiver
+public abstract class TrieEntriesIterator<T, V> implements Iterator<V>, Trie.ResettingTransitionsReceiver
 {
     private final Trie.Cursor<T> cursor;
     private byte[] keyBytes = new byte[32];

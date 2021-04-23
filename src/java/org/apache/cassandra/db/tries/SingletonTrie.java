@@ -139,6 +139,26 @@ class SingletonTrie<T> extends Trie<T>
                 return currentLevel = -1;
         }
 
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            int current = src.next();
+            int level = currentLevel;
+            if (current == ByteSource.END_OF_STREAM)
+                return currentLevel = -1;
+            int next = src.next();
+            while (next != ByteSource.END_OF_STREAM)
+            {
+                if (receiver != null)
+                    receiver.add(current);
+                current = next;
+                next = src.next();
+                ++level;
+            }
+            currentTransition = current;
+            return currentLevel = ++level;
+        }
+
         public int ascend()
         {
             return -1;  // no alternatives
@@ -157,22 +177,6 @@ class SingletonTrie<T> extends Trie<T>
         public int incomingTransition()
         {
             return currentTransition;
-        }
-
-        public void retrieveKey(byte[] dest)
-        {
-            ByteSource srcCopy = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
-            for (int i = 0; i < currentLevel; ++i)
-                dest[i] = (byte) srcCopy.next();
-        }
-
-        public int transitionAtLevel(int level)
-        {
-            ByteSource srcCopy = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
-            int next = -1;
-            for (int i = 0; i <= level; ++i)
-                next = (byte) srcCopy.next();
-            return next;
         }
     }
 }

@@ -98,6 +98,10 @@ public abstract class Trie<T>
         void add(int t);
         /** Add the count bytes from position pos at the given buffer. */
         void add(UnsafeBuffer b, int pos, int count);
+    }
+
+    interface ResettingTransitionsReceiver extends TransitionsReceiver
+    {
         /** Delete all bytes beyond the given length. */
         void reset(int newLength);
     }
@@ -206,45 +210,56 @@ public abstract class Trie<T>
     // Cursor-style walks
     interface Cursor<T>
     {
-        int advance(); // returns level (can be prev+1 or <=prev), -1 means done
-        default int advanceMultiple(TransitionsReceiver receiver) // advance, descending multiple levels if that does not require extra work (e.g. chain nodes)
+        /**
+         * Advance one position.
+         * This can be either:
+         * - descending one level
+         * - ascending to the closest parent that has remaining children, and then descending one level
+         * @return level (can be prev+1 or <=prev), -1 means done
+         */
+        int advance();
+
+        /**
+         * Advance, descending multiple levels if that does not require extra work (e.g. chain nodes)
+         * Receiver will be given all transitions taken except the last; i.e. on an ascend it will not receive any
+         *
+         * @param receiver
+         * @return
+         */
+        default int advanceMultiple(TransitionsReceiver receiver)
         {
-            return advanceMultiple(this, receiver);
+            return advance();
         }
 
-        static int advanceMultiple(Cursor c, TransitionsReceiver receiver)
+        default T advanceToContent(ResettingTransitionsReceiver receiver) // advances all the way (to next content)
         {
-            if (receiver == null)
-                return c.advance();
-
-            int prevLevel = c.level();
-            int level = c.advance();
-            if (level < 0)
-                return level;
-            if (level <= prevLevel)
-                receiver.reset(level - 1);
-            receiver.add(c.incomingTransition());
-            return level;
-        }
-
-        default T advanceToContent(TransitionsReceiver receiver) // advances all the way (to next content)
-        {
+            int prevLevel = level();
             while (true)
             {
-                int level = advanceMultiple(receiver);
-                if (level < 0)
+                int currLevel = advanceMultiple(receiver);
+                if (currLevel <= 0)
                     return null;
+                if (receiver != null)
+                {
+                    if (currLevel <= prevLevel)
+                        receiver.reset(currLevel - 1);
+                    receiver.add(incomingTransition());
+                }
                 T content = content();
                 if (content != null)
                     return content;
+                prevLevel = currLevel;
             }
         }
 
 //        int advanceTo(int transition); // advance to child with this transition or higher. if none exists, ascend to parent and advance
 
-        int ascend();
+        /**
+         * ignore the remaining children at this level or below and ascend to parent and advance
+         */
+        int ascend(); // ignore the remaining children at this level or below and ascend to parent and advance
 
-        //        default int ascend() // ignore the remaining children at this level or below and ascend to parent and advance
+        //        default int ascend()
 //        {
 //            return advanceTo(Integer.MAX_VALUE);
 //        }

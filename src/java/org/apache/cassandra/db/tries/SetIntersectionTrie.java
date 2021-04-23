@@ -136,7 +136,7 @@ class SetIntersectionTrie<T> extends Trie<T>
         return new IntersectionCursor(trie.cursor(), intersectingSet.cursor());
     }
 
-    private class IntersectionCursor implements Cursor<T>
+    private static class IntersectionCursor<T> implements Cursor<T>
     {
         private final Cursor<T> tCursor;
         private final Cursor<TrieSet.InSet> sCursor;
@@ -166,21 +166,19 @@ class SetIntersectionTrie<T> extends Trie<T>
         @Override
         public int advanceMultiple(TransitionsReceiver transitionsReceiver)
         {
-            if (!sCursor.content().branchCovered())
-                return Cursor.advanceMultiple(this, transitionsReceiver);
-
-            int tLevel = tCursor.advanceMultiple(transitionsReceiver);  // FIXME this could overwrite a byte
-            if (tLevel > sCursor.level())
-                return tLevel;
+            int tLevel;
+            if (sCursor.content().branchCovered())
+            {
+                tLevel = tCursor.advanceMultiple(transitionsReceiver);
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
+            }
+            else
+                tLevel = tCursor.advance();
 
             int sLevel = sCursor.advance();
-            int rLevel = advanceToIntersection(tLevel, sLevel);
-            if (transitionsReceiver != null && rLevel >= 0)
-            {
-                transitionsReceiver.reset(rLevel - 1);
-                transitionsReceiver.add(incomingTransition());
-            }
-            return rLevel;
+            return advanceToIntersection(tLevel, sLevel);
         }
 
         @Override

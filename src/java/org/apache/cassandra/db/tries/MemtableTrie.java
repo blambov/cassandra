@@ -649,12 +649,8 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             }
 
             ++currentLevel;
-            if (currentLevel > maxDepth)
-            {
-                maxDepth = currentLevel;
-                if (currentLevel * 5 >= data.length)
-                    data = Arrays.copyOf(data, currentLevel * 5 * 2);
-            }
+            if (currentLevel * 5 >= data.length)
+                data = Arrays.copyOf(data, currentLevel * 5 * 2);
             setExistingPreContentNode(existingPreContentNode);
 
             int existingContentIndex = -1;
@@ -881,11 +877,7 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     {
         int transition = key.next();
         if (transition == ByteSource.END_OF_STREAM)
-        {
-            if (depth > maxDepth)
-                maxDepth = depth;
             return applyContent(node, value, transformer);
-        }
 
         int child = NONE;
         if (!isNull(node))

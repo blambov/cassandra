@@ -182,7 +182,6 @@ public class MemtableReadTrie<T> extends Trie<T>
      */
     static final int NONE = 0;
 
-    int maxDepth = 0;
     volatile int root;
 
     /*
@@ -1023,20 +1022,21 @@ public class MemtableReadTrie<T> extends Trie<T>
         public int advanceMultiple(TransitionsReceiver receiver)
         {
             int node = currentNode;
-            if (isNull(node) || offset(node) > CHAIN_MAX_OFFSET)
-                return Cursor.advanceMultiple(this, receiver);
+            if (!isChainNode(node))
+                return advance();
 
             int pointer = chainBlockChildPointer(node);
-            int length = pointer - node;
-            if (receiver != null)
+
+            int length = pointer - node - 1;
+            if (receiver != null && length > 0)
             {
                 UnsafeBuffer buffer = getBuffer(node);
                 int ofs = getOffset(node);
                 receiver.add(buffer, ofs, length);
             }
 
-            level += length - 1; // compensate for increase below
-            return descendInto(getInt(pointer), -1);
+            level += length;
+            return descendInto(getInt(pointer), getByte(pointer - 1));
         }
 
         public int level()
@@ -1053,6 +1053,11 @@ public class MemtableReadTrie<T> extends Trie<T>
         {
             return incomingTransition;
         }
+    }
+
+    private boolean isChainNode(int node)
+    {
+        return !isNullOrLeaf(node) && offset(node) <= CHAIN_MAX_OFFSET;
     }
 
     public MemtableCursor cursor()
