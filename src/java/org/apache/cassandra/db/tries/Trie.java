@@ -264,9 +264,9 @@ public abstract class Trie<T>
 //            return advanceTo(Integer.MAX_VALUE);
 //        }
 
-        int level(); // return current state
-        int incomingTransition(); // not set in advanceMultiple/ToCursor
-        T content();
+        int level(); // return current state; if just starting / on root, return 0
+        int incomingTransition(); // return the last transition taken; if just starting / on root, return -1
+        T content(); // return content -- may be non-null on root
 
     }
 
