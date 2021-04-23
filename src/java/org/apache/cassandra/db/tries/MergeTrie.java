@@ -174,9 +174,6 @@ class MergeTrie<T> extends Trie<T>
 
         boolean atC1;
         boolean atC2;
-        int incomingTransition;
-        int level;
-        T content;
 
         MergeCursor(MergeResolver<T> resolver, Trie<T> t1, Trie<T> t2)
         {
@@ -184,9 +181,6 @@ class MergeTrie<T> extends Trie<T>
             this.c1 = t1.cursor();
             this.c2 = t2.cursor();
             atC1 = atC2 = true;
-            level = 0;
-            incomingTransition = -1;
-            content = null;
         }
 
         @Override
@@ -216,11 +210,7 @@ class MergeTrie<T> extends Trie<T>
                 if (c1level <= c2level)
                     return checkOrder(c1level, c2level);
                 else
-                {
-                    incomingTransition = c1.incomingTransition();
-                    content = c1.content();
-                    return level = c1level;   // atC1 stays true, atC2 false, c2 remains where it is
-                }
+                    return c1level;   // atC1 stays true, atC2 false, c2 remains where it is
             }
             else // atC2
             {
@@ -229,11 +219,7 @@ class MergeTrie<T> extends Trie<T>
                 if (c2level <= c1level)
                     return checkOrder(c1level, c2level);
                 else
-                {
-                    incomingTransition = c2.incomingTransition();
-                    content = c2.content();
-                    return level = c2level;   // atC2 stays true, atC1 false, c1 remains where it is
-                }
+                    return c2level;   // atC2 stays true, atC1 false, c1 remains where it is
             }
         }
 
@@ -243,66 +229,44 @@ class MergeTrie<T> extends Trie<T>
             {
                 atC1 = true;
                 atC2 = false;
-                incomingTransition = c1.incomingTransition();
-                content = c1.content();
-                return level = c1level;
+                return c1level;
             }
             if (c1level < c2level)
             {
                 atC1 = false;
                 atC2 = true;
-                incomingTransition = c2.incomingTransition();
-                content = c2.content();
-                return level = c2level;
+                return c2level;
             }
-
             int c1trans = c1.incomingTransition();
             int c2trans = c2.incomingTransition();
-            if (c1trans < c2trans)
-            {
-                atC1 = true;
-                atC2 = false;
-                incomingTransition = c1trans;
-                content = c1.content();
-                return level = c1level;
-            }
-            if (c1trans > c2trans)
-            {
-                atC1 = false;
-                atC2 = true;
-                incomingTransition = c2trans;
-                content = c2.content();
-                return level = c2level;
-            }
-
-            atC1 = atC2 = true;
-            incomingTransition = c1trans;
-            T c1content = c1.content();
-            T c2content = c2.content();
-            content = c1content == null
-                      ? c2content
-                      : c2content == null
-                        ? c1content
-                        : resolver.resolve(c1content, c2content);
-            return level = c1level;
+            atC1 = c1trans <= c2trans;
+            atC2 = c1trans >= c2trans;
+            assert atC1 | atC2;
+            return c1level;
         }
 
         @Override
         public int level()
         {
-            return level;
+            return atC1 ? c1.level() : c2.level();
         }
 
         @Override
         public int incomingTransition()
         {
-            return incomingTransition;
+            return atC1 ? c1.incomingTransition() : c2.incomingTransition();
         }
 
-        @Override
         public T content()
         {
-            return content;
+            T mc = atC2 ? c2.content() : null;
+            T nc = atC1 ? c1.content() : null;
+            if (mc == null)
+                return nc;
+            else if (nc == null)
+                return mc;
+            else
+                return resolver.resolve(nc, mc);
         }
     }
 
