@@ -1018,6 +1018,10 @@ public class MemtableReadTrie<T> extends Trie<T>
             return true;
         }
 
+        // TODO: don't redo buffer/offset calculations
+        // TODO: use sparse order word
+        // TODO: reexamine backtracking
+
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
@@ -1025,18 +1029,41 @@ public class MemtableReadTrie<T> extends Trie<T>
             if (!isChainNode(node))
                 return advance();
 
-            int pointer = chainBlockChildPointer(node);
-
-            int length = pointer - node - 1;
-            if (receiver != null && length > 0)
+            while (true)
             {
-                UnsafeBuffer buffer = getBuffer(node);
-                int ofs = getOffset(node);
-                receiver.add(buffer, ofs, length);
-            }
+                int pointer = chainBlockChildPointer(node);
+                int child = getInt(pointer);
+                if (isNullOrLeaf(child) || offset(child) == PREFIX_OFFSET)
+                {
+                    int length = pointer - node - 1;
+                    if (receiver != null && length > 0)
+                    {
+                        UnsafeBuffer buffer = getBuffer(node);
+                        int ofs = getOffset(node);
+                        receiver.add(buffer, ofs, length);
+                    }
 
-            level += length;
-            return descendInto(getInt(pointer), getByte(pointer - 1));
+                    level += length;
+                    return descendInto(getInt(pointer), getByte(pointer - 1));
+                }
+
+                int length = pointer - node;
+                if (receiver != null)
+                {
+                    UnsafeBuffer buffer = getBuffer(node);
+                    int ofs = getOffset(node);
+                    receiver.add(buffer, ofs, length);
+                }
+
+                level += length;
+                if (!isChainNode(child))
+                {
+                    boolean success = advanceToNextChild(child, -1);
+                    assert success;
+                    return level;
+                }
+                node = child;
+            }
         }
 
         public int level()
