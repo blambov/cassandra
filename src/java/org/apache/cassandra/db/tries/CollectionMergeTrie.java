@@ -300,13 +300,18 @@ class CollectionMergeTrie<T> extends Trie<T>
         }
     }
 
-    static <T> int compareCursors(Cursor<T> c1, Cursor<T> c2)
+    static <T> boolean greaterCursor(Cursor<T> c1, Cursor<T> c2)
     {
         int c1level = c1.level();
         int c2level = c2.level();
         if (c1level != c2level)
-            return -Integer.compare(c1level, c2level);
-        return Integer.compare(c1.incomingTransition(), c2.incomingTransition());
+            return c1level < c2level;
+        return c1.incomingTransition() > c2.incomingTransition();
+    }
+
+    static <T> boolean equalCursor(Cursor<T> c1, Cursor<T> c2)
+    {
+        return c1.level() == c2.level() && c1.incomingTransition() == c2.incomingTransition();
     }
 
     static class CollectionMergeCursor<T> implements Cursor<T>
@@ -356,7 +361,7 @@ class CollectionMergeTrie<T> extends Trie<T>
             if (index >= heap.length)
                 return;
             Cursor<T> item = heap[index];
-            if (head.level() != item.level() || head.incomingTransition() != item.incomingTransition())
+            if (!equalCursor(item, head))
                 return;
 
             // If the children are at the same transition byte, they also need advancing and their subheap
@@ -384,10 +389,10 @@ class CollectionMergeTrie<T> extends Trie<T>
                 if (next >= heap.length)
                     break;
                 // Select the smaller of the two children to push down to.
-                if (next + 1 < heap.length && compareCursors(heap[next], heap[next + 1]) > 0)
+                if (next + 1 < heap.length && greaterCursor(heap[next], heap[next + 1]))
                     ++next;
-                // If the child is greater, the invariant has been restored.
-                if (compareCursors(heap[next], item) >= 0)
+                // If the child is greater or equal, the invariant has been restored.
+                if (!greaterCursor(item, heap[next]))
                     break;
                 heap[index] = heap[next];
                 index = next;
@@ -411,8 +416,7 @@ class CollectionMergeTrie<T> extends Trie<T>
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
-            Cursor<T> heap0 = heap[0];
-            if (head.level() == heap0.level() && head.incomingTransition() == heap0.incomingTransition())
+            if (equalCursor(heap[0], head))
                 return advance();   // more than one source at current position, can't do multiple.
 
             return maybeSwapHead(head.advanceMultiple(receiver));
@@ -465,10 +469,13 @@ class CollectionMergeTrie<T> extends Trie<T>
             {
                 case 0:
                     toReturn = null;
+                    break;
                 case 1:
                     toReturn = contents.get(0);
+                    break;
                 default:
                     toReturn = resolver.resolve(contents);
+                    break;
             }
             contents.clear();
             return toReturn;
@@ -479,7 +486,7 @@ class CollectionMergeTrie<T> extends Trie<T>
             if (index >= heap.length)
                 return;
             Cursor<T> item = heap[index];
-            if (head.level() != item.level() || head.incomingTransition() != item.incomingTransition())
+            if (!equalCursor(item, head))
                 return;
 
             T itemContent = item.content();
