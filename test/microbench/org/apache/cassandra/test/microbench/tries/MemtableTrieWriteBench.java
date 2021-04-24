@@ -59,7 +59,7 @@ public class MemtableTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
-        System.out.println(trie.valuesCount());
+//        System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
@@ -75,7 +75,7 @@ public class MemtableTrieWriteBench
             rand.nextBytes(buf);
             trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
-        System.out.println(trie.valuesCount());
+//        System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
@@ -91,7 +91,7 @@ public class MemtableTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
-        System.out.println(trie.valuesCount());
+//        System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
@@ -107,7 +107,7 @@ public class MemtableTrieWriteBench
             rand.nextBytes(buf);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
-        System.out.println(trie.valuesCount());
+//        System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 }

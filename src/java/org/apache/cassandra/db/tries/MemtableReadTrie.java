@@ -979,13 +979,15 @@ public class MemtableReadTrie<T> extends Trie<T>
             int minValid = Integer.MAX_VALUE;
             int minChild = NONE;
             int validCount = 0;
+            UnsafeBuffer buffer = getBuffer(node);
+            int ofs = getOffset(node);
 
             for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
             {
-                int child = getInt(node + SPARSE_CHILDREN_OFFSET + i * 4);
+                int child = buffer.getInt(ofs + SPARSE_CHILDREN_OFFSET + i * 4);
                 if (child == NONE)
                     break;
-                int t = getByte(node + SPARSE_BYTES_OFFSET + i);
+                int t = buffer.getByte(ofs + SPARSE_BYTES_OFFSET + i) & 0xFF;
                 if (t >= transition)
                 {
                     if (t < minValid)
@@ -1019,8 +1021,8 @@ public class MemtableReadTrie<T> extends Trie<T>
         }
 
         // TODO: don't redo buffer/offset calculations
-        // TODO: use sparse order word
-        // TODO: reexamine backtracking
+        // TODO: maybe use sparse order word
+        // TODO: reexamine backtracking, separate backtrack positions for dense sub-levels
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
@@ -1031,31 +1033,25 @@ public class MemtableReadTrie<T> extends Trie<T>
 
             while (true)
             {
-                int pointer = chainBlockChildPointer(node);
-                int child = getInt(pointer);
+                UnsafeBuffer buffer = getBuffer(node);
+                int ofs = getOffset(node);
+                int pointer = chainBlockChildPointer(ofs);
+                int child = buffer.getInt(pointer);
+                int length = pointer - ofs;
                 if (isNullOrLeaf(child) || offset(child) == PREFIX_OFFSET)
                 {
-                    int length = pointer - node - 1;
+                    --length;   // leave the last byte for incomingTransition
                     if (receiver != null && length > 0)
-                    {
-                        UnsafeBuffer buffer = getBuffer(node);
-                        int ofs = getOffset(node);
                         receiver.add(buffer, ofs, length);
-                    }
-
                     level += length;
-                    return descendInto(getInt(pointer), getByte(pointer - 1));
+
+                    return descendInto(child, buffer.getByte(pointer - 1) & 0xFF);
                 }
 
-                int length = pointer - node;
                 if (receiver != null)
-                {
-                    UnsafeBuffer buffer = getBuffer(node);
-                    int ofs = getOffset(node);
                     receiver.add(buffer, ofs, length);
-                }
-
                 level += length;
+
                 if (!isChainNode(child))
                 {
                     boolean success = advanceToNextChild(child, -1);
