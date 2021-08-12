@@ -23,14 +23,12 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multiset;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
@@ -138,90 +136,108 @@ public abstract class MemtableTrieTestBase
         }
     }
 
-    static class SpecifiedChildrenNode<L> extends Trie.Node<ByteBuffer, L>
+    static class SpecLevel
     {
-        final Object[] children;
+        Object[] children;
+        int curChild;
+        Object content;
+        SpecLevel parent;
 
-        SpecifiedChildrenNode(L parent, Object[] children)
+        public SpecLevel(Object[] spec, Object content, SpecLevel parent)
         {
-            super(parent);
-            this.children = children;
+            this.children = spec;
+            this.content = content;
+            this.parent = parent;
+            this.curChild = -1;
+        }
+    }
+
+    public static class CursorFromSpec implements Trie.Cursor<ByteBuffer>
+    {
+        SpecLevel stack;
+        int level;
+
+        CursorFromSpec(Object[] spec)
+        {
+            stack = new SpecLevel(spec, null, null);
+            level = 0;
         }
 
-        public Trie.Remaining startIteration()
+        public int advance()
         {
-            currentTransition = 0x30;
-            return remaining();
+            SpecLevel current = stack;
+            while (current != null && ++current.curChild >= current.children.length)
+            {
+                current = current.parent;
+                --level;
+            }
+            if (current == null)
+            {
+                assert level == -1;
+                return level;
+            }
+
+            Object child = current.children[current.curChild];
+            if (child instanceof Object[])
+                stack = new SpecLevel((Object[]) child, null, current);
+            else
+                stack = new SpecLevel(new Object[0], child, current);
+
+            return ++level;
         }
 
-        private Trie.Remaining remaining()
+        public int advanceMultiple()
         {
-            final int left = children.length - (currentTransition - 0x30);
-            return left > 1
-                   ? Trie.Remaining.MULTIPLE
-                   : left == 1
-                     ? Trie.Remaining.ONE
-                     : null;
+            if (++stack.curChild >= stack.children.length)
+                return ascend();
+
+            Object child = stack.children[stack.curChild];
+            while (child instanceof Object[])
+            {
+                stack = new SpecLevel((Object[]) child, null, stack);
+                ++level;
+                if (stack.children.length == 0)
+                    return level;
+                child = stack.children[0];
+            }
+            stack = new SpecLevel(new Object[0], child, stack);
+
+
+            return ++level;
         }
 
-        public Trie.Remaining advanceIteration()
+        public int ascend()
         {
-            ++currentTransition;
-            return remaining();
+            --level;
+            stack = stack.parent;
+            return advance();
         }
 
-        public Trie.Node<ByteBuffer, L> getCurrentChild(L parentLink)
+        public int level()
         {
-            return makeSpecifiedChildrenNode(parentLink, children[currentTransition - 0x30]);
-        }
-
-        public Trie.Node<ByteBuffer, L> getUniqueDescendant(L parentLink, Trie.TransitionsReceiver receiver)
-        {
-            if (children.length != 1)
-                return this;
-
-            if (receiver != null)
-                receiver.add(0x30);
-
-            Object child;
-            for (child = children[0];
-                 child instanceof Object[] && ((Object[]) child).length == 1;
-                 child = ((Object[]) child)[0])
-                if (receiver != null)
-                    receiver.add(0x30);
-
-            return makeSpecifiedChildrenNode(parentLink, child);
+            return level;
         }
 
         public ByteBuffer content()
         {
-            return null;
+            return (ByteBuffer) stack.content;
+        }
+
+        public int incomingTransition()
+        {
+            SpecLevel parent = stack.parent;
+            return parent != null ? parent.curChild + 0x30 : -1;
         }
     }
 
-    static <L> Trie.Node<ByteBuffer, L> makeSpecifiedChildrenNode(L parent, Object nodeDef)
-    {
-        if (nodeDef == null)
-            return null;
-        else if (nodeDef instanceof Object[])
-            return new SpecifiedChildrenNode<>(parent, (Object[]) nodeDef);
-        else
-            return new Trie.NoChildrenNode<ByteBuffer, L>(parent)
-            {
-                public ByteBuffer content()
-                {
-                    return (ByteBuffer) nodeDef;
-                }
-            };
-    }
-
-    static Trie<ByteBuffer> specifiedTrie(Object nodeDef)
+    static Trie<ByteBuffer> specifiedTrie(Object[] nodeDef)
     {
         return new Trie<ByteBuffer>()
         {
-            protected <L> Node<ByteBuffer, L> root()
+            @Override
+            protected Cursor<ByteBuffer> cursor()
             {
-                return makeSpecifiedChildrenNode(null, nodeDef);
+                return new CursorFromSpec(nodeDef);
             }
         };
     }
@@ -289,7 +305,7 @@ public abstract class MemtableTrieTestBase
                           trie.sizeOnHeap(), trie.sizeOffHeap(), onh, keysize, ts);
         System.out.format("per entry on heap %.2f off heap %.2f measured %.2f keys %.2f treemap %.2f\n",
                           trie.sizeOnHeap() * 1.0 / COUNT, trie.sizeOffHeap() * 1.0 / COUNT, onh * 1.0 / COUNT, keysize * 1.0 / COUNT, ts * 1.0 / COUNT);
-        // System.out.println("Trie " + trie.dump(ByteBufferUtil::bytesToHex).get());
+        // System.out.println("Trie " + trie.dump(ByteBufferUtil::bytesToHex));
 
         assertSameContent(trie, content);
         checkGet(trie, content);

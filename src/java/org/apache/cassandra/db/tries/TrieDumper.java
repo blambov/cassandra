@@ -19,58 +19,75 @@ package org.apache.cassandra.db.tries;
 
 import java.util.function.Function;
 
+import org.agrona.concurrent.UnsafeBuffer;
+
 /**
  * Simple utility class for dumping the structure of a trie to string.
  */
-class TrieDumper<T> implements TrieWalker<T, String>
+class TrieDumper<T>
 {
-    private final Function<T, String> contentToString;
-    private final StringBuilder b = new StringBuilder();
-    private int depth = -1;
-    private boolean indented = true;
-
-    TrieDumper(Function<T, String> contentToString)
+    public static <T> String process(Function<T, String> contentToString, Trie<T> trie)
     {
-        this.contentToString = contentToString;
+        return dump(contentToString, trie.cursor());
     }
 
-    public void onNodeEntry(int incomingTransition, T content)
+    static <T> String dump(Function<T, String> contentToString, Trie.Cursor<T> cursor)
     {
-        if (!indented)
+        StringBuilder sb = new StringBuilder();
+        Trie.ResettingTransitionsReceiver receiver = new TransitionsDumper(sb);
+        T content = cursor.content();
+        if (content == null)
+            content = cursor.advanceToContent(receiver);
+        while (content != null)
         {
-            for (int i = 0; i < depth; ++i)
-                b.append("  ");
-            indented = true;
+            sb.append(" -> ");
+            sb.append(contentToString.apply(content));
+            receiver.reset(cursor.level());
+            content = cursor.advanceToContent(receiver);
+        }
+        return sb.toString();
+    }
+
+    private static class TransitionsDumper implements Trie.ResettingTransitionsReceiver
+    {
+        private final StringBuilder b;
+        int needsIndent = -1;
+
+        public TransitionsDumper(StringBuilder b)
+        {
+            this.b = b;
         }
 
-        ++depth;
-        if (incomingTransition != -1)
+        @Override
+        public void reset(int newLength)
+        {
+            needsIndent = newLength;
+        }
+
+        private void maybeIndent()
+        {
+            if (needsIndent >= 0)
+            {
+                b.append('\n');
+                for (int i = 0; i < needsIndent; ++i)
+                    b.append("  ");
+                needsIndent = -1;
+            }
+        }
+
+        @Override
+        public void add(int incomingTransition)
+        {
+            maybeIndent();
             b.append(String.format("%02x", incomingTransition));
-
-        if (content != null)
-        {
-            // Only go to a new line once a payload is reached
-            indented = false;
-            b.append(" -> ");
-            b.append(contentToString.apply(content));
-            b.append('\n');
         }
-    }
 
-    public void onNodeExit()
-    {
-        if (indented)
+        @Override
+        public void add(UnsafeBuffer buf, int pos, int count)
         {
-            // We are backtracking without having printed content or meta. Although unexpected, this can legally happen
-            // (e.g. if an intersection has resulted in an empty node).
-            indented = false;
-            b.append('\n');
+            maybeIndent();
+            for (int i = 0; i < count; ++i)
+                b.append(String.format("%02x", buf.getByte(pos + i) & 0xFF));
         }
-        --depth;
-    }
-
-    public String completion()
-    {
-        return b.toString();
     }
 }

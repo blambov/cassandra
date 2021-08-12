@@ -34,6 +34,26 @@ public interface ByteSource
     /** Get the next byte, unsigned. Must be between 0 and 255, or END_OF_STREAM if there are no more bytes. */
     int next();
 
+    /**
+     * Fill in the next bytes of the source in the given array.
+     *
+     * @return The number of bytes transferred. If equal to the size of the destination, the source may have further
+     *         bytes to consume. Otherwise the source has been fully consumed and it would be an error to call this
+     *         method (or next()) again.
+     */
+    default int nextBytes(byte[] dest)
+    {
+        int i;
+        for (i = 0; i < dest.length; ++i)
+        {
+            int next = next();
+            if (next == END_OF_STREAM)
+                return i;
+            dest[i] = (byte) next;
+        }
+        return i;
+    }
+
     /** Value returned if at the end of the stream. */
     int END_OF_STREAM = -1;
 
@@ -645,6 +665,32 @@ public interface ByteSource
             public int next()
             {
                 return ++pos < offset + length ? b[pos] & 0xFF : END_OF_STREAM;
+            }
+        };
+    }
+
+    /**
+     * Returns the key that is immediately after src in the topology.
+     * @param src
+     * @return src with added 00 byte at the end
+     */
+    public static ByteSource nextKey(ByteSource src)
+    {
+        return new ByteSource()
+        {
+            boolean done = false;
+
+            @Override
+            public int next()
+            {
+                if (done)
+                    return END_OF_STREAM;
+                int n = src.next();
+                if (n != END_OF_STREAM)
+                    return n;
+
+                done = true;
+                return 0;
             }
         };
     }

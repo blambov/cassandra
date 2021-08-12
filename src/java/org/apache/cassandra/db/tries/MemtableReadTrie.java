@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
@@ -247,7 +248,9 @@ public class MemtableReadTrie<T> extends Trie<T>
     }
 
 
-    /** Pointer offset for a node pointer. */
+    /**
+     * Pointer offset for a node pointer.
+     */
     int offset(int pos)
     {
         return pos & (BLOCK_SIZE - 1);
@@ -263,7 +266,10 @@ public class MemtableReadTrie<T> extends Trie<T>
         return getBuffer(pos).getShort(getOffset(pos)) & 0xFFFF;
     }
 
-    final int getInt(int pos) { return getBuffer(pos).getInt(getOffset(pos)); }
+    final int getInt(int pos)
+    {
+        return getBuffer(pos).getInt(getOffset(pos));
+    }
 
     T getContent(int index)
     {
@@ -301,29 +307,9 @@ public class MemtableReadTrie<T> extends Trie<T>
         return (node & -BLOCK_SIZE) | LAST_POINTER_OFFSET;
     }
 
-    /** Create a trie node for the given pointer */
-    <L> BaseNode<L> makeNode(int node, L parent)
-    {
-        if (isNull(node))
-            return null;
-
-        if (isLeaf(node))
-            return new LeafNode<>(node, parent);
-
-        switch (offset(node))
-        {
-            case SPARSE_OFFSET:
-                return new SparseNode<>(node, parent);
-            case SPLIT_OFFSET:
-                return new SplitNode<>(node, parent);
-            case PREFIX_OFFSET:
-                return new PrefixNode<>(node, parent);
-            default:
-                return new ChainNode<>(node, parent);
-        }
-    }
-
-    /** Get a node's child for the given transition character */
+    /**
+     * Get a node's child for the given transition character
+     */
     int getChild(int node, int trans)
     {
         if (isNullOrLeaf(node))
@@ -368,7 +354,7 @@ public class MemtableReadTrie<T> extends Trie<T>
 
     /**
      * Advance as long as the cell pointed to by the given pointer will let you.
-     *
+     * <p>
      * This is the same as getChild(node, first), except for chain nodes where it would walk the fill chain as long as
      * the input source matches.
      */
@@ -402,7 +388,9 @@ public class MemtableReadTrie<T> extends Trie<T>
         }
     }
 
-    /** Get the child for the given transition character, knowing that the node is sparse */
+    /**
+     * Get the child for the given transition character, knowing that the node is sparse
+     */
     int getSparseChild(int node, int trans)
     {
         for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
@@ -422,31 +410,39 @@ public class MemtableReadTrie<T> extends Trie<T>
         return NONE;
     }
 
-    /** Given a transition, returns the corresponding index (within the node block) of the pointer to the mid block of
-     * a split node. */
+    /**
+     * Given a transition, returns the corresponding index (within the node block) of the pointer to the mid block of
+     * a split node.
+     */
     int splitNodeMidIndex(int trans)
     {
         // first 2 bytes of the 2-3-3 split
-        return (trans >> 6) & 0x3;
+        return (trans >> 6);
     }
 
-    /** Given a transition, returns the corresponding index (within the mid block) of the pointer to the tail block of
-     * a split node. */
+    /**
+     * Given a transition, returns the corresponding index (within the mid block) of the pointer to the tail block of
+     * a split node.
+     */
     int splitNodeTailIndex(int trans)
     {
         // second 3 bytes of the 2-3-3 split
         return (trans >> 3) & 0x7;
     }
 
-    /** Given a transition, returns the corresponding index (within the tail block) of the pointer to the child of
-     * a split node. */
+    /**
+     * Given a transition, returns the corresponding index (within the tail block) of the pointer to the child of
+     * a split node.
+     */
     int splitNodeChildIndex(int trans)
     {
         // third 3 bytes of the 2-3-3 split
         return trans & 0x7;
     }
 
-    /** Get the child for the given transition character, knowing that the node is split */
+    /**
+     * Get the child for the given transition character, knowing that the node is split
+     */
     int getSplitChild(int node, int trans)
     {
         int mid = getInt(node + SPLIT_POINTER_OFFSET + splitNodeMidIndex(trans) * 4);
@@ -459,7 +455,9 @@ public class MemtableReadTrie<T> extends Trie<T>
         return getInt(tail + splitNodeChildIndex(trans) * 4);
     }
 
-    /** Get the content for a given node */
+    /**
+     * Get the content for a given node
+     */
     T getNodeContent(int node)
     {
         if (isLeaf(node))
@@ -475,357 +473,297 @@ public class MemtableReadTrie<T> extends Trie<T>
     }
 
     /*
-     Trie.Node implementations
+     Cursor implementation
      */
 
-    abstract class BaseNode<L> extends Node<T, L>
+    class MemtableCursor implements Cursor<T>
     {
-        final int node;
+        private int[] backtrack = new int[48];
+        private int backtrackLevel = 0;
 
-        BaseNode(int node, L parent)
+        private int currentNode;
+
+        private int incomingTransition;
+        private T content;
+        private int level = -1;
+
+        MemtableCursor()
         {
-            super(parent);
-            this.node = node;
+            descendInto(root, -1);
         }
 
-        // MemtableTrie nodes don't throw and always return MemtableTrie nodes.
-        @Override
-        public abstract BaseNode<L> getCurrentChild(L parent);
-
-        @Override
-        public T content()
+        private int node(int backtrackLevel)
         {
-            return null;
+            return backtrack[backtrackLevel * 3 + 0];
         }
 
-        abstract void dump(int indent, StringBuilder b, Function<T, String> contentToString);
-    }
-
-    class SplitNode<L> extends BaseNode<L>
-    {
-        SplitNode(int node, L parent)
+        private int data(int backtrackLevel)
         {
-            super(node, parent);
-            assert offset(node) == SPLIT_OFFSET;
+            return backtrack[backtrackLevel * 3 + 1];
         }
 
-        @Override
-        public BaseNode<L> getCurrentChild(L parent)
+        private int level(int backtrackLevel)
         {
-            int child = getChild(currentTransition);
-            return makeNode(child, parent);
+            return backtrack[backtrackLevel * 3 + 2];
         }
 
-        int getChild(int idx)
+        void addBacktrack(int node, int data, int level)
         {
-            return getSplitChild(node, idx);
-        }
-
-        @Override
-        public Remaining startIteration()
-        {
-            return nextValid(0);
+            if (backtrackLevel * 3 >= backtrack.length)
+                backtrack = Arrays.copyOf(backtrack, backtrack.length * 2);
+            backtrack[backtrackLevel * 3 + 0] = node;
+            backtrack[backtrackLevel * 3 + 1] = data;
+            backtrack[backtrackLevel * 3 + 2] = level;
+            ++backtrackLevel;
         }
 
         @Override
-        public Remaining advanceIteration()
+        public int advance()
         {
-            return nextValid(currentTransition + 1);
+            return advance(0);
         }
 
-        Remaining nextValid(int trans)
+        private int advance(int data)
         {
-            if (trans >= 0x100)
-                return null;
-
-            // Splits the 2-3-3 parts of the transition
-            int midIndex = splitNodeMidIndex(trans);
-            int tailIdx = splitNodeTailIndex(trans);
-            int childIdx = splitNodeChildIndex(trans);
-
-            while (midIndex < 4)
+            while (true)
             {
-                int mid = getInt(node + SPLIT_POINTER_OFFSET + midIndex * 4);
-                if (!isNull(mid))
+                if (advanceToNextChild(currentNode, data))
+                    return level;
+
+                if (--backtrackLevel < 0)
+                    return level = -1;
+
+                level = level(backtrackLevel);
+                currentNode = node(backtrackLevel);
+                data = data(backtrackLevel);
+            }
+        }
+
+        @Override
+        public int ascend()
+        {
+            if (--backtrackLevel < 0)
+                return level = -1;
+
+            level = level(backtrackLevel);
+            currentNode = node(backtrackLevel);
+            int data = data(backtrackLevel);
+            return advance(data);
+        }
+
+        private int descendInto(int child, int transition)
+        {
+            ++level;
+            incomingTransition = transition;
+            content = getNodeContent(child);
+            currentNode = followContentTransition(child);
+            return level;
+        }
+
+        private int descendIntoChain(int child, int transition)
+        {
+            ++level;
+            incomingTransition = transition;
+            content = null;
+            currentNode = child;
+            return level;
+        }
+
+        private boolean advanceToNextChild(int node, int data)
+        {
+            if (isNull(node))
+                return false;
+
+            switch (offset(node))
+            {
+                case SPLIT_OFFSET:
+                    return nextValidSplitTransition(node, data);
+                case SPARSE_OFFSET:
+                    return nextValidSparseTransition(node, data);
+                default:
+                    return getChainTransition(node);
+            }
+        }
+
+        private boolean nextValidSplitTransition(int node, int trans)
+        {
+            assert trans >= 0 && trans <= 0xFF;
+            // To avoid repeatedly following the top transitions, we put backtracking entries for each level of the
+            // split sub-trie and use the bits of `trans` to understand which level the backtracking info points to.
+
+            int childIndex = splitNodeChildIndex(trans);
+            if (childIndex == 0)
+            {
+                int tailIndex = splitNodeTailIndex(trans);
+                if (tailIndex == 0)
                 {
-                    while (tailIdx < 8)
+                    int midIndex = splitNodeMidIndex(trans);
+                    int mid;
+                    while (true)
                     {
-                        int tail = getInt(mid + tailIdx * 4);
-                        if (!isNull(tail))
-                        {
-                            while (childIdx < 8)
-                            {
-                                int child = getInt(tail + childIdx * 4);
-                                if (!isNull(child))
-                                {
-                                    currentTransition = ((midIndex << 6) | (tailIdx << 3) | childIdx);
-                                    return Remaining.MULTIPLE;  // no need to be precise on the count
-                                }
-                                ++childIdx;
-                            }
-                        }
-                        childIdx = 0;
-                        ++tailIdx;
+                        mid = getInt(node + SPLIT_POINTER_OFFSET + midIndex * 4);
+                        if (!isNull(mid))
+                            break;
+                        if (++midIndex == 4)
+                            return false;
                     }
+                    if (midIndex + 1 < 4)
+                        addBacktrack(node, (midIndex + 1) << 6, level); // Store backtracking pos for the top sub-node
+                    trans = midIndex << 6;
+                    node = mid + SPLIT_OFFSET;  // Adjust sub-node pointer so that backtracking can bring us here
                 }
-                tailIdx = 0;
-                ++midIndex;
-            }
-            return null;
-        }
+                else
+                    trans = trans & -(1 << 6);
 
-        @Override
-        void dump(int indent, StringBuilder b, Function<T, String> contentToString)
-        {
-            indent++;
-            b.append(" -> Split\n");
-            for (int idx = 0; idx < 256; ++idx)
-            {
-                BaseNode<L> child = makeNode(getChild(idx), null);
-                if (child != null)
+                int tail;
+                while (true)
                 {
-                    for (int i = 0; i < indent; ++i)
-                        b.append("  ");
-                    b.append(String.format("%02x", idx));
-                    child.dump(indent, b, contentToString);
+                    tail = getInt(node - SPLIT_OFFSET + tailIndex * 4);
+                    if (!isNull(tail))
+                        break;
+                    if (++tailIndex == 8)
+                        return false;
                 }
+                if (tailIndex + 1 < 8)
+                    addBacktrack(node, (tailIndex + 1) << 3 | trans, level); // Store backtracking pos for the mid sub-node
+                trans = tailIndex << 3 | trans;
+                node = tail + SPLIT_OFFSET;
             }
-        }
-    }
+            else
+                trans = trans & -(1 << 3);
 
-    class SparseNode<L> extends BaseNode<L>
-    {
-        int iterationState;
-
-        SparseNode(int node, L parent)
-        {
-            super(node, parent);
-            assert offset(node) == SPARSE_OFFSET;
-        }
-
-        @Override
-        public BaseNode<L> getCurrentChild(L parent)
-        {
-            int child = getInt(node + SPARSE_CHILDREN_OFFSET + 4 * (iterationState % SPARSE_CHILD_COUNT));
-            return makeNode(child, parent);
-        }
-
-        @Override
-        public Remaining startIteration()
-        {
-            iterationState = getShort(node + SPARSE_ORDER_OFFSET);
-            currentTransition = getByte(node + SPARSE_BYTES_OFFSET + iterationState % SPARSE_CHILD_COUNT);
-            return Remaining.MULTIPLE;
-        }
-
-        @Override
-        public Remaining advanceIteration()
-        {
-            iterationState /= SPARSE_CHILD_COUNT;
-            // the last item is never in position 0
-            if (iterationState == 0)
-                return null;
-            currentTransition = getByte(node + SPARSE_BYTES_OFFSET + iterationState % SPARSE_CHILD_COUNT);
-            return iterationState >= SPARSE_CHILD_COUNT ? Remaining.MULTIPLE : Remaining.ONE;
-        }
-
-        @Override
-        void dump(int indent, StringBuilder b, Function<T, String> contentToString)
-        {
-            indent++;
-            b.append(" -> Sparse\n");
-            for (int idx = 0; idx < SPARSE_CHILD_COUNT; ++idx)
+            int child;
+            while (true)
             {
-                BaseNode<L> child = makeNode(getInt(node + SPARSE_CHILDREN_OFFSET + idx * 4), null);
-                if (child != null)
+                child = getInt(node - SPLIT_OFFSET + childIndex * 4);
+                if (!isNull(child))
+                    break;
+                if (++childIndex == 8)
+                    return false;
+            }
+            if (childIndex + 1 < 8)
+                addBacktrack(node, (childIndex + 1) | trans, level);
+            trans = childIndex | trans;
+            descendInto(child, trans);
+            return true;
+        }
+
+        private boolean nextValidSparseTransition(int node, int data)
+        {
+            UnsafeBuffer nodeBuffer = getBuffer(node);
+            int nodeOfs = getOffset(node);
+            if (data <= 0)
+                data = nodeBuffer.getShort(nodeOfs + SPARSE_ORDER_OFFSET) & 0xFFFF;
+            int index = data % SPARSE_CHILD_COUNT;
+            data = data / SPARSE_CHILD_COUNT;
+            if (data > 0)
+                addBacktrack(node, data, level);
+            int child = nodeBuffer.getInt(nodeOfs + SPARSE_CHILDREN_OFFSET + index * 4);
+            int transition = nodeBuffer.getByte(nodeOfs + SPARSE_BYTES_OFFSET + index) & 0xFF;
+            descendInto(child, transition);
+            return true;
+        }
+
+        private boolean getChainTransition(int node)
+        {
+            // no backtracking needed
+            UnsafeBuffer nodeBuffer = getBuffer(node);
+            int nodeOfs = getOffset(node);
+            int transition = nodeBuffer.getByte(nodeOfs) & 0xFF;
+            int next = node + 1;
+            if (offset(next) <= CHAIN_MAX_OFFSET)
+                descendIntoChain(next, transition);
+            else
+                descendInto(nodeBuffer.getInt(nodeOfs + 1), transition);
+            return true;
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            int node = currentNode;
+            if (!isChainNode(node))
+                return advance();
+
+            while (true)
+            {
+                UnsafeBuffer buffer = getBuffer(node);
+                int ofs = getOffset(node);
+                int pointer = chainBlockChildPointer(ofs);
+                int child = buffer.getInt(pointer);
+                int length = pointer - ofs;
+                if (isNullOrLeaf(child) || offset(child) == PREFIX_OFFSET)
                 {
-                    for (int i = 0; i < indent; ++i)
-                        b.append("  ");
-                    b.append(String.format("%02x", getByte(node + SPARSE_BYTES_OFFSET + idx)));
-                    child.dump(indent, b, contentToString);
+                    --length;   // leave the last byte for incomingTransition
+                    if (receiver != null && length > 0)
+                        receiver.add(buffer, ofs, length);
+                    level += length;
+
+                    return descendInto(child, buffer.getByte(pointer - 1) & 0xFF);
                 }
-            }
-        }
-    }
 
-    class ChainNode<L> extends BaseNode<L>
-    {
-        // This node's pos points to the exact character of the next transition. The number of characters left is what
-        // needs to be added to that position to be one int away from the end of the node.
-        ChainNode(int node, L parent)
-        {
-            super(node, parent);
-            assert offset(node) >= CHAIN_MIN_OFFSET && offset(node) <= CHAIN_MAX_OFFSET;
-            currentTransition = getByte(node);
-        }
-
-        @Override
-        public Remaining startIteration()
-        {
-            return Remaining.ONE;
-        }
-
-        @Override
-        public Remaining advanceIteration()
-        {
-            return null;
-        }
-
-        @Override
-        public BaseNode<L> getCurrentChild(L parent)
-        {
-            if (offset(node + 1) == LAST_POINTER_OFFSET)
-                return makeNode(getInt(node + 1), parent);
-            return new ChainNode<>(node + 1, parent);
-        }
-
-        @Override
-        public BaseNode<L> getUniqueDescendant(L parentLink, TransitionsReceiver receiver)
-        {
-            int child = node;
-            do
-            {
-                final int pointerPos = chainBlockChildPointer(child);
                 if (receiver != null)
-                    receiver.add(getBuffer(child), getOffset(child), pointerPos - child);
-                // jump directly to the child at the end of the chain
-                child = getInt(pointerPos);
-                // and continue jumping as long as the resulting node is a chain
-            }
-            while (child > 0 && offset(child) <= CHAIN_MAX_OFFSET);
+                    receiver.add(buffer, ofs, length);
+                level += length;
 
-            return makeNode(child, parentLink);
+                if (!isChainNode(child))
+                {
+                    boolean success = advanceToNextChild(child, 0);
+                    assert success;
+                    return level;
+                }
+                node = child;
+            }
         }
 
-        @Override
-        void dump(int indent, StringBuilder b, Function<T, String> contentToString)
+        int advanceChainPath(TransitionsReceiver receiver)
         {
-            b.append(" -> Chain\n");
-            for (int i = 0; i < indent + 1; ++i)
-                b.append("  ");
-            int limit = chainBlockChildPointer(node);
-            for (int p = node; p < limit; ++p)
-            {
-                indent ++;
-                b.append(String.format("%02x", getByte(p)));
-            }
-            makeNode(getInt(limit), null).dump(indent, b, contentToString);
+            int node = currentNode;
+            if (!isChainNode(node))
+                return advance();
+
+            UnsafeBuffer buffer = getBuffer(node);
+            int ofs = getOffset(node);
+            int pointer = chainBlockChildPointer(ofs);
+            int child = buffer.getInt(pointer);
+            int length = pointer - ofs;
+            --length;   // leave the last byte for incomingTransition
+            if (receiver != null && length > 0)
+                receiver.add(buffer, ofs, length);
+            level += length;
+
+            return descendInto(child, buffer.getByte(pointer - 1) & 0xFF);
+        }
+
+        public int level()
+        {
+            return level;
+        }
+
+        public T content()
+        {
+            return content;
+        }
+
+        public int incomingTransition()
+        {
+            return incomingTransition;
         }
     }
 
-    class PrefixNode<L> extends BaseNode<L>
+    private boolean isChainNode(int node)
     {
-        /**
-         * The augmented node. Prefix nodes are not presented as separate nodes, but instead only add content to
-         * another type of node. To prevent having separate instances for prefix-augmented split/sparse/chain, we
-         * instantiate and wrap a node of that type and only change what content() and getUniqueDescendant() do.
-         */
-        final BaseNode<L> augmentedNode;
-
-        PrefixNode(int node, L parent)
-        {
-            super(node, parent);
-            assert offset(node) == PREFIX_OFFSET;
-            this.augmentedNode = makeNode(followContentTransition(node), parent);
-        }
-
-        @Override
-        public Remaining startIteration()
-        {
-            Remaining result = augmentedNode.startIteration();
-            currentTransition = augmentedNode.currentTransition;
-            return result;
-        }
-
-        @Override
-        public Remaining advanceIteration()
-        {
-            Remaining result = augmentedNode.advanceIteration();
-            currentTransition = augmentedNode.currentTransition;
-            return result;
-        }
-
-        @Override
-        public T content()
-        {
-            return getNodeContent(node);
-        }
-
-        @Override
-        public BaseNode<L> getCurrentChild(L parent)
-        {
-            return augmentedNode.getCurrentChild(parent);
-        }
-
-        // Note: we do not map getUniqueDescendant to the augmented node's method as we want consumers to pay
-        // attention to this node.
-
-        @Override
-        void dump(int indent, StringBuilder b, Function<T, String> contentToString)
-        {
-            T content = content();
-            b.append(" -> ");
-            b.append(contentToString.apply(content));
-            b.append('\n');
-            for (int i = 0; i < indent + 1; ++i)
-                b.append("  ");
-            augmentedNode.dump(indent, b, contentToString);
-        }
+        return !isNullOrLeaf(node) && offset(node) <= CHAIN_MAX_OFFSET;
     }
 
-    class LeafNode<L> extends BaseNode<L>
+    public MemtableCursor cursor()
     {
-        LeafNode(int node, L parent)
-        {
-            super(node, parent);
-            assert node < NONE;
-        }
-
-        IllegalStateException error()
-        {
-            return new IllegalStateException("Node has no children.");
-        }
-
-        @Override
-        public Remaining startIteration()
-        {
-            return null;
-        }
-
-        @Override
-        public Remaining advanceIteration()
-        {
-            throw error();
-        }
-
-        @Override
-        public BaseNode<L> getCurrentChild(L parent)
-        {
-            throw error();
-        }
-
-        @Override
-        public T content()
-        {
-            return getContent(~node);
-        }
-
-        void dump(int indent, StringBuilder b, Function<T, String> contentToString)
-        {
-            b.append(" -> ");
-            b.append(contentToString.apply(content()));
-            b.append("\n");
-        }
+        return new MemtableCursor();
     }
 
     /*
      Direct read methods
      */
-
-    public <L> BaseNode<L> root()
-    {
-        return makeNode(root, null);
-    }
 
     /**
      * Get the content mapped by the specified key.
@@ -852,27 +790,80 @@ public class MemtableReadTrie<T> extends Trie<T>
         return isNull(root);
     }
 
-
     /**
      * Override of dump to provide more detailed printout that includes the type of each node in the trie.
      */
     @Override
     public String dump(Function<T, String> contentToString)
     {
-        StringBuilder b = new StringBuilder();
-        if (!isNull(root))
-            root().dump(0, b, contentToString);
-        else
-            b.append("empty");
-        return b.toString();
-    }
+        MemtableCursor source = cursor();
+        class TypedNodesCursor implements Cursor<String>
+        {
+            @Override
+            public int advance()
+            {
+                return source.advance();
+            }
 
-    /**
-     * Override as non-throwing.
-     */
-    @Override
-    public String dump()
-    {
-        return dump(Object::toString);
+
+            @Override
+            public int advanceMultiple(TransitionsReceiver receiver)
+            {
+                return source.advanceChainPath(receiver);
+            }
+
+            @Override
+            public int ascend()
+            {
+                return source.ascend();
+            }
+
+            @Override
+            public int level()
+            {
+                return source.level();
+            }
+
+            @Override
+            public int incomingTransition()
+            {
+                return source.incomingTransition();
+            }
+
+            @Override
+            public String content()
+            {
+                String type = null;
+                int node = source.currentNode;
+                if (!isNullOrLeaf(node))
+                {
+                    switch (offset(node))
+                    {
+                        case SPARSE_OFFSET:
+                            type = "[SPARSE]";
+                            break;
+                        case SPLIT_OFFSET:
+                            type = "[SPLIT]";
+                            break;
+                        case PREFIX_OFFSET:
+                            throw new AssertionError("Unexpected prefix as cursor currentNode.");
+                        default:
+                            type = "[CHAIN]";
+                            break;
+                    }
+                }
+                T content = source.content();
+                if (content != null)
+                {
+                    if (type != null)
+                        return contentToString.apply(content) + " -> " + type;
+                    else
+                        return contentToString.apply(content);
+                }
+                else
+                    return type;
+            }
+        }
+        return TrieDumper.dump(Object::toString, new TypedNodesCursor());
     }
 }

@@ -25,6 +25,7 @@ import org.apache.cassandra.db.tries.MemtableTrie;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.infra.Blackhole;
 
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -47,7 +48,7 @@ public class MemtableTrieWriteBench
     final static MemtableTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
 
     @Benchmark
-    public void putSequential() throws MemtableTrie.SpaceExhaustedException
+    public void putSequential(Blackhole bh) throws MemtableTrie.SpaceExhaustedException
     {
         MemtableTrie<Byte> trie = new MemtableTrie(bufferType);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
@@ -58,10 +59,12 @@ public class MemtableTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
+//        System.out.println(trie.valuesCount());
+        bh.consume(trie);
     }
 
     @Benchmark
-    public void putRandom() throws MemtableTrie.SpaceExhaustedException
+    public void putRandom(Blackhole bh) throws MemtableTrie.SpaceExhaustedException
     {
         MemtableTrie<Byte> trie = new MemtableTrie(bufferType);
         Random rand = new Random(1);
@@ -70,12 +73,14 @@ public class MemtableTrieWriteBench
         for (long current = 0; current < count; ++current)
         {
             rand.nextBytes(buf);
-            trie.putRecursive(ByteComparable.fixedLength(buf), buf[0], resolver);
+            trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
+//        System.out.println(trie.valuesCount());
+        bh.consume(trie);
     }
 
     @Benchmark
-    public void applySequential() throws MemtableTrie.SpaceExhaustedException
+    public void applySequential(Blackhole bh) throws MemtableTrie.SpaceExhaustedException
     {
         MemtableTrie<Byte> trie = new MemtableTrie(bufferType);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
@@ -86,10 +91,12 @@ public class MemtableTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
+//        System.out.println(trie.valuesCount());
+        bh.consume(trie);
     }
 
     @Benchmark
-    public void applyRandom() throws MemtableTrie.SpaceExhaustedException
+    public void applyRandom(Blackhole bh) throws MemtableTrie.SpaceExhaustedException
     {
         MemtableTrie<Byte> trie = new MemtableTrie(bufferType);
         Random rand = new Random(1);
@@ -100,5 +107,7 @@ public class MemtableTrieWriteBench
             rand.nextBytes(buf);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
+//        System.out.println(trie.valuesCount());
+        bh.consume(trie);
     }
 }

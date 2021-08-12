@@ -35,87 +35,64 @@ class SingletonTrie<T> extends Trie<T>
         this.value = value;
     }
 
-    private class ENode<L> extends NoChildrenNode<T, L>
+    public Cursor cursor()
     {
-        ENode(L parent)
-        {
-            super(parent);
-        }
-
-        @Override
-        public T content()
-        {
-            return value;
-        }
+        return new Cursor();
     }
 
-    private class SNode<L> extends Node<T, L>
+    class Cursor implements Trie.Cursor<T>
     {
-        private final ByteSource source;
-        boolean requested = false;
+        ByteSource.Peekable src = ByteSource.peekable(key.asComparableBytes(BYTE_COMPARABLE_VERSION));
+        int currentLevel = 0;
+        int currentTransition = -1;
 
-        SNode(int trans, L parent, ByteSource source)
+        public int advance()
         {
-            super(parent);
-            this.currentTransition = trans;
-            this.source = source;
+            currentTransition = src.next();
+            if (currentTransition != ByteSource.END_OF_STREAM)
+                return ++currentLevel;
+            else
+                return currentLevel = -1;
         }
 
         @Override
-        public Node<T, L> getCurrentChild(L parent)
+        public int advanceMultiple(TransitionsReceiver receiver)
         {
-            // Requesting more than once will screw up the iteration of source.
-            assert !requested : "getCurrentChild can only be called once for a given transition.";
-            requested = true;
-            return makeNode(parent, source);
-        }
-
-        @Override
-        public Node<T, L> getUniqueDescendant(L parentLink, TransitionsReceiver receiver)
-        {
-            if (receiver != null)
+            int current = src.next();
+            int level = currentLevel;
+            if (current == ByteSource.END_OF_STREAM)
+                return currentLevel = -1;
+            int next = src.next();
+            while (next != ByteSource.END_OF_STREAM)
             {
-                receiver.add(currentTransition);
-                int next;
-                while ((next = source.next()) != ByteSource.END_OF_STREAM)
-                {
-                    receiver.add(next);
-                }
+                if (receiver != null)
+                    receiver.add(current);
+                current = next;
+                next = src.next();
+                ++level;
             }
-
-            return new ENode<>(parentLink);
+            currentTransition = current;
+            return currentLevel = ++level;
         }
 
-        @Override
-        public Remaining startIteration()
+        public int ascend()
         {
-            return Remaining.ONE;
+            return -1;  // no alternatives
         }
 
-        @Override
-        public Remaining advanceIteration()
+        public int level()
         {
-            return null;
+            return currentLevel;
         }
 
-        @Override
         public T content()
         {
-            return null;
+            return src.peek() == ByteSource.END_OF_STREAM ? value : null;
         }
-    }
 
-    private <L> Node<T, L> makeNode(L parent, ByteSource source)
-    {
-        int next = source.next();
-        if (next == ByteSource.END_OF_STREAM)
-            return new ENode<>(parent);
-        else
-            return new SNode<>(next, parent, source);
-    }
-
-    public <L> Node<T, L> root()
-    {
-        return makeNode(null, key.asComparableBytes(BYTE_COMPARABLE_VERSION));
+        public int incomingTransition()
+        {
+            return currentTransition;
+        }
     }
 }

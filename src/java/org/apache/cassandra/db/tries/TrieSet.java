@@ -29,76 +29,54 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * a node (e.g. with asynchronous trie walks), it must enforce a happens-before relationship between calls to the
  * methods of a node.
  */
-public abstract class TrieSet
+public abstract class TrieSet extends Trie<TrieSet.InSet>
 {
-    public abstract SetNode root();
-
-    interface SetNode
+    enum InSet
     {
-        boolean startIteration();
-        boolean advanceIteration();
-        int currentTransition();
-        SetNode getCurrentChild();
-
-        /**
-         * Returns true if this specific position is in the set (i.e. if content in the intersected node should be
-         * returned).
-         *
-         * Note: Having a node produced by the trie set does not necessarily mean the relevant key is in the set.
-         * Imagine a singleton set, e.g. {010203}. It will be represented as the following trie:
-         *     root -01-> node1 -02-> node2 -03-> node3
-         * where only node3 will have inSet() == true. Root (corresponding to empty key), node1 (key 01) and node2 (key
-         * 0102) are not in the set and thus their inSet() will be false.
-         */
-        boolean inSet();
+        // null content value specifies that the specific point is not contained in the set (e.g. points on the left range path)
+        INCLUDED, // this point is contained in the set (e.g. points on the right range path)
+        BRANCH; // the whole branch is contained in the set (e.g. interior nodes for a range)
     }
-
-    protected static final SetNode FULL = new SetNode()
-    {
-        public AssertionError error()
-        {
-            throw new AssertionError("SetNode FULL must be handled explicitly.");
-        }
-
-        public boolean startIteration()
-        {
-            throw error();
-        }
-
-        public boolean advanceIteration()
-        {
-            throw error();
-        }
-
-        public int currentTransition()
-        {
-            throw error();
-        }
-
-        public SetNode getCurrentChild()
-        {
-            throw error();
-        }
-
-        public boolean inSet()
-        {
-            throw error();
-        }
-    };
 
     private static final TrieSet FULL_SET = new TrieSet()
     {
-        public SetNode root()
+        @Override
+        protected Cursor<InSet> cursor()
         {
-            return FULL;
-        }
-    };
+            return new Cursor<InSet>()
+            {
+                int level = 0;
 
-    private static final TrieSet EMPTY_SET = new TrieSet()
-    {
-        public SetNode root()
-        {
-            return null;
+                @Override
+                public int advance()
+                {
+                    return level = -1;
+                }
+
+                @Override
+                public int ascend()
+                {
+                    return level = -1;
+                }
+
+                @Override
+                public int level()
+                {
+                    return level;
+                }
+
+                @Override
+                public int incomingTransition()
+                {
+                    return -1;
+                }
+
+                @Override
+                public InSet content()
+                {
+                    return InSet.BRANCH;
+                }
+            };
         }
     };
 
@@ -117,10 +95,5 @@ public abstract class TrieSet
     public static TrieSet full()
     {
         return FULL_SET;
-    }
-
-    public static TrieSet empty()
-    {
-        return EMPTY_SET;
     }
 }

@@ -114,12 +114,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     private AtomicBoolean switchRequested = new AtomicBoolean(false);
 
 
-    // The boundaries for the keyspace as they were calculated when the memtable is created.
-    // The boundaries will be NONE for system keyspaces or if StorageService is not yet initialized.
-    // The fact this is fixed for the duration of the memtable lifetime, guarantees we'll always pick the same core
-    // for the a given key, even if we race with the StorageService initialization or with topology changes.
-    private final ShardBoundaries boundaries;
-
     /**
      * Core-specific memtable regions. All writes must go through the specific core. The data structures used
      * are concurrent-read safe, thus reads can be carried out from any thread.
@@ -143,9 +137,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     TrieMemtable(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner)
     {
         super(commitLogLowerBound, metadataRef, owner);
-        this.boundaries = owner.localRangeSplits(SHARD_COUNT);
         this.metrics = TrieMemtableMetricsView.getOrCreate(metadataRef.keyspace, metadataRef.name);
-        this.shards = generatePartitionShards(boundaries.shardCount(), metadataRef, metrics);
+        this.shards = generatePartitionShards(SHARD_COUNT, metadataRef, metrics);
         this.mergedTrie = makeMergedTrie(shards);
         logger.debug("Created memtable with {} shards", this.shards.length);
     }
@@ -212,6 +205,11 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
     }
 
+    int getShardForKey(DecoratedKey key)
+    {
+        return Math.floorMod(key.filterHashLowerBits(), SHARD_COUNT);
+    }
+
     /**
      * Should only be called by ColumnFamilyStore.apply via Keyspace.apply, which supplies the appropriate
      * OpOrdering.
@@ -221,7 +219,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
     {
         DecoratedKey key = update.partitionKey();
-        MemtableShard shard = shards[boundaries.getShardForKey(key)];
+        MemtableShard shard = shards[getShardForKey(key)];
         long colUpdateTimeDelta = shard.put(key, update, indexer, opGroup);
 
         if (shard.data.reachedAllocatedSizeThreshold() && !switchRequested.getAndSet(true))
@@ -328,7 +326,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     public Partition getPartition(DecoratedKey key)
     {
-        int shardIndex = boundaries.getShardForKey(key);
+        int shardIndex = getShardForKey(key);
         BTreePartitionData data = shards[shardIndex].data.get(key);
         if (data != null)
             return createPartition(metadata(), allocator.ensureOnHeap(), key, data);

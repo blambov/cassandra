@@ -42,115 +42,109 @@ class MergeTrie<T> extends Trie<T>
     }
 
     @Override
-    public <L> Node<T, L> root()
+    protected Cursor<T> cursor()
     {
-        return makeNode(resolver, t1.root(), t2.root());
+        return new MergeCursor<>(resolver, t1, t2);
     }
 
-    private static <T, L> Node<T, L> makeNode(MergeResolver<T> resolver, Node<T, L> child1, Node<T, L> child2)
-    {
-        if (child1 != null && child2 != null)
-            return new MergeNode<>(resolver, child1, child2);
-
-        if (child1 != null)
-            return child1;
-
-        if (child2 != null)
-            return child2;
-
-        return null;
-    }
-
-    static class MergeNode<T, L> extends Node<T, L>
+    static class MergeCursor<T> implements Cursor<T>
     {
         private final MergeResolver<T> resolver;
-        final Node<T, L> n1;
-        final Node<T, L> n2;
-        int b1;
-        int b2;
+        private final Cursor<T> c1;
+        private final Cursor<T> c2;
 
-        MergeNode(MergeResolver<T> resolver, Node<T, L> n1, Node<T, L> n2)
+        boolean atC1;
+        boolean atC2;
+
+        MergeCursor(MergeResolver<T> resolver, Trie<T> t1, Trie<T> t2)
         {
-            // Both children have the same parent link (passed during getCurrentChild). Use either as ours.
-            super(n1.parentLink);
-            assert n2.parentLink == n1.parentLink;
             this.resolver = resolver;
-            this.n1 = n1;
-            this.n2 = n2;
+            this.c1 = t1.cursor();
+            this.c2 = t2.cursor();
+            atC1 = atC2 = true;
         }
 
-        private Remaining makeState(Remaining has1, Remaining has2)
+        @Override
+        public int advance()
         {
-            Remaining result;
-            if (has1 != null)
-            {
-                b1 = n1.currentTransition;
-                result = Remaining.MULTIPLE;
-            }
-            else
-            {
-                b1 = NOT_PRESENT;
-                result = has2;
-            }
-            currentTransition = b1;
-            if (has2 != null)
-            {
-                b2 = n2.currentTransition;
-                if (b2 < b1)
-                    currentTransition = b2;
-                else if (b1 == b2 && has1 == Remaining.ONE && has2 == Remaining.ONE)
-                    result = Remaining.ONE;
-            }
-            else
-            {
-                b2 = NOT_PRESENT;
-                result = has1;
-            }
-            return result;
+            return checkOrder(atC1 ? c1.advance() : c1.level(),
+                              atC2 ? c2.advance() : c2.level());
         }
 
-        public Remaining startIteration()
+        @Override
+        public int ascend()
         {
-            return makeState(n1.startIteration(), n2.startIteration());
+            int c1level = c1.level();
+            int c2level = c2.level();
+            int level = Math.max(c1level, c2level);
+            return checkOrder(c1level == level ? c1.ascend() : c1level,
+                              c2level == level ? c2.ascend() : c2level);
         }
 
-        public Remaining advanceIteration()
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
         {
-            int prevb1 = b1;
-            int prevb2 = b2;
-            // We must advance the state of the source with the smaller transition byte.
-            // If their transition bytes are equal, we advance both.
-            if (prevb1 <= prevb2)
+            if (atC1 & atC2)
+                return advance();
+
+            if (atC1)
             {
-                boolean has = n1.advanceIteration() != null;
-                b1 = has ? n1.currentTransition : NOT_PRESENT;
+                int c2level = c2.level();
+                int c1level = c1.advanceMultiple(receiver);
+                if (c1level <= c2level)
+                    return checkOrder(c1level, c2level);
+                else
+                    return c1level;   // atC1 stays true, atC2 false, c2 remains where it is
             }
-            if (prevb1 >= prevb2)
+            else // atC2
             {
-                boolean has = n2.advanceIteration() != null;
-                b2 = has ? n2.currentTransition : NOT_PRESENT;
+                int c1level = c1.level();
+                int c2level = c2.advanceMultiple(receiver);
+                if (c2level <= c1level)
+                    return checkOrder(c1level, c2level);
+                else
+                    return c2level;   // atC2 stays true, atC1 false, c1 remains where it is
             }
-            currentTransition = Math.min(b1, b2);
-            return b1 < NOT_PRESENT || b2 < NOT_PRESENT ? Remaining.MULTIPLE : null;
         }
 
-        public Node<T, L> getCurrentChild(L parent)
+        private int checkOrder(int c1level, int c2level)
         {
-            Node<T, L> child1 = null;
-            Node<T, L> child2 = null;
+            if (c1level > c2level)
+            {
+                atC1 = true;
+                atC2 = false;
+                return c1level;
+            }
+            if (c1level < c2level)
+            {
+                atC1 = false;
+                atC2 = true;
+                return c2level;
+            }
+            int c1trans = c1.incomingTransition();
+            int c2trans = c2.incomingTransition();
+            atC1 = c1trans <= c2trans;
+            atC2 = c1trans >= c2trans;
+            assert atC1 | atC2;
+            return c1level;
+        }
 
-            if (b1 <= b2)
-                child1 = n1.getCurrentChild(parent);
-            if (b1 >= b2)
-                child2 = n2.getCurrentChild(parent);
+        @Override
+        public int level()
+        {
+            return atC1 ? c1.level() : c2.level();
+        }
 
-            return makeNode(resolver, child1, child2);
+        @Override
+        public int incomingTransition()
+        {
+            return atC1 ? c1.incomingTransition() : c2.incomingTransition();
         }
 
         public T content()
         {
-            T mc = n2.content();
-            T nc = n1.content();
+            T mc = atC2 ? c2.content() : null;
+            T nc = atC1 ? c1.content() : null;
             if (mc == null)
                 return nc;
             else if (nc == null)

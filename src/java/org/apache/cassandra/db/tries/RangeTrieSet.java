@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.util.Arrays;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -47,106 +49,211 @@ public class RangeTrieSet extends TrieSet
         this.includeRight = includeRight;
     }
 
-    public SetNode root()
+    protected Cursor<InSet> cursor()
     {
-        return makeNode(left == null ? null : left.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION),
-                        left != null,
-                        right == null ? null : right.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION),
-                        right != null);
+        return new RangeCursor(this);
     }
 
-    private SetNode makeNode(ByteSource lLimit, boolean atLLimit, ByteSource rLimit, boolean atRLimit)
+    private static class RangeCursor implements Cursor<InSet>
     {
-        // We only have a constraint on the branch if we are at one or both boundaries.
-        // If the node falls completely between them, the whole branch (at any depth) is in the set.
-        if (!atLLimit && !atRLimit)
-            return FULL;
-
-        return new RangeNode(lLimit, atLLimit, rLimit, atRLimit);
-    }
-
-    class RangeNode implements SetNode
-    {
-        /** Byte at the left boundary, inclusive. */
-        final int llimit;
-        final ByteSource remainingLLimit;
-        /** Byte at the right boundary, inclusive. */
-        final int rlimit;
-        final ByteSource remainingRLimit;
-        /** Whether or not we are descending along the left boundary. */
-        final boolean atLLimit;
-        /** Whether or not we are descending along the right boundary. */
-        final boolean atRLimit;
-
-        /** Whether the current path is in the covered set. */
-        final boolean inSet;
-
-        int currentTransition;
+        private int[] backlog;
+        int backlogPos;
+        private ByteSource remainingLeftLimit;
+        private ByteSource remainingRightLimit;
+        boolean atLeftLimit;
+        boolean atRightLimit;
+        int leftLimitNext;
+        int rightLimitNext;
+        int transitionAtRightLevel;
+        private int incomingTransition;
+        private int level;
+        InSet inSet;
 
 
-        RangeNode(ByteSource remainingLLimit, boolean atLLimit, ByteSource remainingRLimit, boolean atRLimit)
+        private RangeCursor(RangeTrieSet set)
         {
-            int llimit = 0;
-            boolean inSet = true;
-            if (atLLimit)
+            backlog = new int[32];
+            backlogPos = 0;
+            level = 0;
+            transitionAtRightLevel = -1;
+            if (set.left != null)
             {
-                llimit = remainingLLimit.next();
-                if (llimit == ByteSource.END_OF_STREAM)
+                remainingLeftLimit = set.left.asComparableBytes(BYTE_COMPARABLE_VERSION);
+                if (!set.includeLeft)
+                    remainingLeftLimit = ByteSource.nextKey(remainingLeftLimit);
+                leftLimitNext = remainingLeftLimit.next();
+                atLeftLimit = leftLimitNext != ByteSource.END_OF_STREAM;
+            }
+            else
+                atLeftLimit = false;
+
+            atRightLimit = set.right != null;
+            if (atRightLimit)
+            {
+                remainingRightLimit = set.right.asComparableBytes(BYTE_COMPARABLE_VERSION);
+                if (set.includeRight)
+                    remainingRightLimit = ByteSource.nextKey(remainingRightLimit);
+                rightLimitNext = remainingRightLimit.next();
+                if (rightLimitNext == ByteSource.END_OF_STREAM)
                 {
-                    atLLimit = false;
-                    llimit = 0;
-                    inSet &= includeLeft; // The current path matches left boundary
+                    level = -1;
+                    inSet = null;
+                    return;
                 }
+            }
+            else
+                rightLimitNext = 256;
+
+            incomingTransition = -1;
+            inSet = atLeftLimit ? null
+                                : atRightLimit ? InSet.INCLUDED
+                                               : InSet.BRANCH;
+        }
+
+
+        public int advance()
+        {
+            if (atLeftLimit)
+            {
+                if (atRightLimit)
+                    return descendAlongBoth();
                 else
-                    inSet = false;  // The current path is a prefix of the left boundary, ie. smaller.
-            }
-            int rlimit = 255;
-            if (atRLimit)
-            {
-                rlimit = remainingRLimit.next();
-                if (rlimit == ByteSource.END_OF_STREAM)
                 {
-                    atRLimit = false;
-                    rlimit = -1;    // no op, added for clarity. Node should have no children.
-                    inSet &= includeRight; // The current path matches right boundary
+                    addBacklog(leftLimitNext + 1);
+                    return descendAlongLeft();
                 }
             }
-            assert llimit <= rlimit || rlimit == -1 : "Bound " + left + " not <= " + right + " in range " + llimit + " vs " + rlimit;
 
-            this.llimit = llimit;
-            this.remainingLLimit = remainingLLimit;
-            this.rlimit = rlimit;
-            this.remainingRLimit = remainingRLimit;
-            this.atLLimit = atLLimit;
-            this.atRLimit = atRLimit;
-            this.inSet = inSet;
+            if (processBacklog())
+                return level;
+
+            return continueAlongRight();
         }
 
-        public SetNode getCurrentChild()
+        private int descendAlongBoth()
         {
-            return makeNode(remainingLLimit, atLLimit && (currentTransition == llimit),
-                            remainingRLimit, atRLimit && (currentTransition == rlimit));
+            if (rightLimitNext > leftLimitNext)
+            {
+                atRightLimit = false;
+                transitionAtRightLevel = leftLimitNext + 1;
+                return descendAlongLeft();
+            }
+
+            assert rightLimitNext == leftLimitNext;
+            incomingTransition = leftLimitNext;
+            rightLimitNext = remainingRightLimit.next();
+            leftLimitNext = remainingLeftLimit.next();
+            if (leftLimitNext != ByteSource.END_OF_STREAM)
+            {
+                inSet = null;
+                assert rightLimitNext != ByteSource.END_OF_STREAM;
+            }
+            else
+            {
+                atLeftLimit = false;
+                if (rightLimitNext == ByteSource.END_OF_STREAM)
+                    return -1;
+
+                inSet = InSet.INCLUDED;
+            }
+            return ++level;
         }
 
-        public int currentTransition()
+        private int descendAlongLeft()
         {
-            return currentTransition;
+            int next = leftLimitNext;
+            leftLimitNext = remainingLeftLimit.next();
+
+            incomingTransition = next;
+            if (leftLimitNext != ByteSource.END_OF_STREAM)
+            {
+                inSet = null;
+            }
+            else
+            {
+                atLeftLimit = false;
+                inSet = InSet.BRANCH;
+            }
+            return ++level;
         }
 
-        public boolean startIteration()
+        private boolean processBacklog()
         {
-            currentTransition = llimit;
-            return currentTransition <= rlimit;
+            while (backlogPos > 0)
+            {
+                incomingTransition = backlog[backlogPos - 1]++;
+                if (incomingTransition < 256)
+                {
+                    inSet = InSet.BRANCH;
+                    return true;
+                }
+                --backlogPos;
+                --level;
+            }
+            return false;
         }
 
-        public boolean advanceIteration()
+        private int continueAlongRight()
         {
-            return ++currentTransition <= rlimit;
+            if (transitionAtRightLevel < 0)
+            {
+                transitionAtRightLevel = 0;
+                ++level;
+            }
+            incomingTransition = transitionAtRightLevel++;
+
+            if (incomingTransition < rightLimitNext)
+            {
+                inSet = InSet.BRANCH;
+                return level;
+            }
+            else
+            {
+                if (incomingTransition >= 256)  // the no-right-limit case
+                    return -1;
+
+                rightLimitNext = remainingRightLimit.next();
+                if (rightLimitNext == ByteSource.END_OF_STREAM)
+                    return -1;
+                transitionAtRightLevel = -1;
+                inSet = InSet.INCLUDED;
+                return level;
+            }
         }
 
-        public boolean inSet()
+        void addBacklog(int transition)
+        {
+            if (backlogPos == backlog.length)
+                backlog = Arrays.copyOf(backlog, backlogPos * 2);
+            backlog[backlogPos++] = transition;
+        }
+
+        public int ascend()
+        {
+            atLeftLimit = false;
+            if (processBacklog())
+                return level;
+            if (transitionAtRightLevel < 0)
+                return -1;
+            return continueAlongRight();
+        }
+
+        public int level()
+        {
+            return level;
+        }
+
+        public int incomingTransition()
+        {
+            return incomingTransition;
+        }
+
+        public InSet content()
         {
             return inSet;
         }
     }
+
+
+    // TODO: Change to start/stop sets when nodes are taken out of the picture
 }

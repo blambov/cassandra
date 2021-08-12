@@ -31,103 +31,115 @@ class SetIntersectionTrie<T> extends Trie<T>
         this.intersectingSet = intersectingSet;
     }
 
-    @Override
-    public <L> Node<T, L> root()
+    protected Cursor<T> cursor()
     {
-        TrieSet.SetNode sRoot = intersectingSet.root();
-        if (sRoot == null)
-            return null;
-
-        Node<T, L> tRoot = trie.root();
-        if (sRoot == TrieSet.FULL)
-            return tRoot;
-        if (tRoot == null)
-            return null;
-
-        return new IntersectionNode<>(tRoot, sRoot);
+        return new IntersectionCursor(trie.cursor(), intersectingSet.cursor());
     }
 
-    static class IntersectionNode<T, L> extends Node<T, L>
+    private static class IntersectionCursor<T> implements Cursor<T>
     {
-        final Node<T, L> tNode;
-        final TrieSet.SetNode sNode;
+        private final Cursor<T> tCursor;
+        private final Cursor<TrieSet.InSet> sCursor;
 
-        public IntersectionNode(Node<T, L> tNode, TrieSet.SetNode sNode)
+        public IntersectionCursor(Cursor<T> tCursor,
+                                  Cursor<TrieSet.InSet> sCursor)
         {
-            super(tNode.parentLink);
-            this.tNode = tNode;
-            this.sNode = sNode;
+            this.tCursor = tCursor;
+            this.sCursor = sCursor;
         }
 
-        public Remaining startIteration()
+        @Override
+        public int advance()
         {
-            boolean sHas = sNode.startIteration();
-            if (!sHas)
-                return null;
-
-            return advanceToIntersection(tNode.startIteration());
-        }
-
-        public Remaining advanceIteration()
-        {
-            boolean sHas = sNode.advanceIteration();
-            if (!sHas)
-                return null;
-            return advanceToIntersection(tNode.advanceIteration());
-        }
-
-        public Remaining advanceToIntersection(Remaining tHas)
-        {
-            boolean sHas;
-            if (tHas == null)
-                return null;
-            int sByte = sNode.currentTransition();
-            int tByte = tNode.currentTransition;
-
-            while (tByte != sByte)
+            int tLevel = tCursor.advance();
+            if (sCursor.content() == TrieSet.InSet.BRANCH)
             {
-                if (tByte < sByte)
-                {
-                    tHas = tNode.advanceIteration();
-                    if (tHas == null)
-                        return null;
-                    tByte = tNode.currentTransition;
-                }
-                else // (tByte > sByte)
-                {
-                    sHas = sNode.advanceIteration();
-                    if (!sHas)
-                        return null;
-                    sByte = sNode.currentTransition();
-                }
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
             }
-            currentTransition = sByte;
-            return tHas;    // ONE or MULTIPLE
+            int sLevel = sCursor.advance();
+
+            return advanceToIntersection(tLevel, sLevel);
         }
 
-        public Node<T, L> getCurrentChild(L parent)
+        @Override
+        public int advanceMultiple(TransitionsReceiver transitionsReceiver)
         {
-            TrieSet.SetNode receivedSetNode = sNode.getCurrentChild();
+            int tLevel;
+            if (sCursor.content() == TrieSet.InSet.BRANCH)
+            {
+                tLevel = tCursor.advanceMultiple(transitionsReceiver);
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
+            }
+            else
+                tLevel = tCursor.advance();
 
-            if (receivedSetNode == null)
-                return null;    // branch is completely outside the set
+            int sLevel = sCursor.advance();
+            return advanceToIntersection(tLevel, sLevel);
+        }
 
-            Node<T, L> nn = tNode.getCurrentChild(parent);
+        @Override
+        public int ascend() // this is not tested ATM
+        {
+            int tLevel = tCursor.ascend();
+            if (sCursor.content() == TrieSet.InSet.BRANCH)
+            {
+                if (tLevel > sCursor.level())
+                    return tLevel;
+                // otherwise we have left the intersection's covered branch
+            }
+            int sLevel = sCursor.ascend();
 
-            if (nn == null)
-                return null;
+            return advanceToIntersection(tLevel, sLevel);
+        }
 
-            if (receivedSetNode == TrieSet.FULL)
-                return nn;     // Branch is fully covered, we no longer need to augment nodes there.
+        private int advanceToIntersection(int tLevel, int sLevel)
+        {
+            while (sLevel != -1 && tLevel != -1)
+            {
+                if (sLevel == tLevel)
+                {
+                    int tIncoming = tCursor.incomingTransition();
+                    int sIncoming = sCursor.incomingTransition();
+                    if (sIncoming == tIncoming)
+                        return tLevel;  // got entry
+                    else if (sIncoming < tIncoming)
+                        sLevel = sCursor.ascend();
+                    else // sIncoming > tIncoming
+                        tLevel = tCursor.ascend();
+                }
+                else if (sLevel < tLevel)
+                {
+                    if (sCursor.content() == TrieSet.InSet.BRANCH)
+                        return tLevel;
+                    tLevel = tCursor.ascend();
+                }
+                else // (sLevel > tLevel)
+                    sLevel = sCursor.ascend();
+            }
+            return -1;
+        }
 
-            return new IntersectionNode<>(nn, receivedSetNode);
+        // TODO: implement advanceMultiple
+
+        public int level()
+        {
+            return tCursor.level();
+        }
+
+        public int incomingTransition()
+        {
+            return tCursor.incomingTransition();
         }
 
         public T content()
         {
-            if (sNode.inSet())
-                return tNode.content();
-            return null;
+            return sCursor.content() != null
+                   ? tCursor.content()
+                   : null;
         }
     }
 }
