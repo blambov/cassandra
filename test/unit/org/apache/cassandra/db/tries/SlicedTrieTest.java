@@ -321,9 +321,14 @@ public class SlicedTrieTest
                 }
 
                 @Override
-                public int skipChildren()
+                public int skipTo(int depth, int transition)
                 {
-                    return advance();
+                    if (depth > 1)
+                        return advance();
+                    if (depth < 1)
+                        transition = childs;
+                    current = Math.max(0, transition);
+                    return depth();
                 }
 
                 @Override

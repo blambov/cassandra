@@ -191,9 +191,10 @@ public abstract class InMemoryTrieTestBase
 
         public int advanceMultiple()
         {
-            if (++stack.curChild >= stack.children.length)
-                return skipChildren();
+            if (stack.curChild + 1 >= stack.children.length)
+                return advance();
 
+            ++stack.curChild;
             Object child = stack.children[stack.curChild];
             while (child instanceof Object[])
             {
@@ -209,11 +210,25 @@ public abstract class InMemoryTrieTestBase
             return ++depth;
         }
 
-        public int skipChildren()
+        public int skipTo(int skipDepth, int skipTransition)
         {
-            --depth;
-            stack = stack.parent;
-            return advance();
+            assert skipDepth <= depth + 1 : "skipTo descends more than one level";
+
+            while (skipDepth < depth)
+            {
+                --depth;
+                stack = stack.parent;
+            }
+            int index = skipTransition - 0x30;
+            assert index > stack.curChild : "Backwards skipTo";
+            if (index >= stack.children.length)
+            {
+                --depth;
+                stack = stack.parent;
+                return advance();
+            }
+            stack.curChild = index;
+            return depth;
         }
 
         public int depth()

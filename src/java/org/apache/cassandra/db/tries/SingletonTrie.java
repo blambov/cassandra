@@ -83,9 +83,17 @@ class SingletonTrie<T> extends Trie<T>
         }
 
         @Override
-        public int skipChildren()
+        public int skipTo(int depth, int incomingTransition)
         {
-            return currentDepth = -1;  // no alternatives
+            if (depth <= currentDepth)
+            {
+                assert depth < currentDepth || incomingTransition > currentTransition;
+                return currentDepth = -1;  // no alternatives
+            }
+            if (incomingTransition > nextTransition)
+                return currentDepth = -1;   // request is skipping over our path
+
+            return advance();
         }
 
         @Override

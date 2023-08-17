@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -133,34 +135,42 @@ public class SlicedTrie<T> extends Trie<T>
         @Override
         public int advance()
         {
-            assert (state != State.AFTER_RIGHT);
+            int newDepth;
+            int transition;
 
-            int newDepth = source.advance();
-            int transition = source.incomingTransition();
-
-            if (state == State.BEFORE_LEFT)
+            switch (state)
             {
-                // Skip any transitions before the left bound
-                while (newDepth == leftNextDepth && transition < leftNext)
-                {
-                    newDepth = source.skipChildren();
+                case BEFORE_LEFT:
+                    // Skip any transitions before the left bound
+                    newDepth = source.skipTo(leftNextDepth, leftNext);
                     transition = source.incomingTransition();
-                }
-
-                // Check if we are still following the left bound
-                if (newDepth == leftNextDepth && transition == leftNext)
-                {
-                    assert leftNext != ByteSource.END_OF_STREAM;
-                    leftNext = left.next();
-                    ++leftNextDepth;
-                    if (leftNext == ByteSource.END_OF_STREAM && includeLeft)
-                        state = State.INSIDE; // report the content on the left bound
-                }
-                else // otherwise we are beyond it
-                    state = State.INSIDE;
+                    checkStillOnLeftBound(newDepth, transition);
+                    break;
+                case INSIDE:
+                    newDepth = source.advance();
+                    transition = source.incomingTransition();
+                    break;
+                case AFTER_RIGHT:
+                default:
+                    throw new AssertionError("Cursor already exhausted.");
             }
 
             return checkRightBound(newDepth, transition);
+        }
+
+        private void checkStillOnLeftBound(int newDepth, int transition)
+        {
+            // Check if we are still following the left bound
+            if (newDepth == leftNextDepth && transition == leftNext)
+            {
+                assert leftNext != ByteSource.END_OF_STREAM;
+                leftNext = left.next();
+                ++leftNextDepth;
+                if (leftNext == ByteSource.END_OF_STREAM && includeLeft)
+                    state = State.INSIDE; // report the content on the left bound
+            }
+            else // otherwise we are beyond it
+                state = State.INSIDE;
         }
 
         private int markDone()
@@ -212,13 +222,29 @@ public class SlicedTrie<T> extends Trie<T>
         }
 
         @Override
-        public int skipChildren()
+        public int skipTo(int depth, int incomingTransition)
         {
-            assert (state != State.AFTER_RIGHT);
-
-            // We are either inside or following the left bound. In the latter case ascend takes us beyond it.
-            state = State.INSIDE;
-            return checkRightBound(source.skipChildren(), source.incomingTransition());
+            int newDepth;
+            int transition;
+            switch (state)
+            {
+                case BEFORE_LEFT:
+                    Preconditions.checkArgument(depth <= leftNextDepth);
+                    if (depth == leftNextDepth && incomingTransition < leftNext)
+                        incomingTransition = leftNext;
+                    newDepth = source.skipTo(depth, incomingTransition);
+                    transition = source.incomingTransition();
+                    checkStillOnLeftBound(newDepth, transition);
+                    break;
+                case INSIDE:
+                    newDepth = source.skipTo(depth, incomingTransition);
+                    transition = source.incomingTransition();
+                    break;
+                case AFTER_RIGHT:
+                default:
+                    throw new AssertionError("Cursor already exhaused.");
+            }
+            return checkRightBound(newDepth, transition);
         }
 
         @Override
