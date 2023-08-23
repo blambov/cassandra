@@ -33,6 +33,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
@@ -268,7 +270,17 @@ public class SlicedTrieTest
                                                        : content1.subMap(l, includeLeft, r, includeRight);
 
         Trie<ByteBuffer> intersection = t1.subtrie(l, includeLeft, r, includeRight);
-        assertSameContent(intersection, imap);
+        try
+        {
+            assertSameContent(intersection, imap);
+        }
+        catch (AssertionError e)
+        {
+            System.out.println("\n" + t1.dump(ByteBufferUtil::bytesToHex));
+
+            System.out.println("\n" + intersection.dump(ByteBufferUtil::bytesToHex));
+            throw e;
+        }
 
         if (l == null || r == null)
             return;
@@ -527,6 +539,34 @@ public class SlicedTrieTest
         assertEquals(asList(4, 5, 6, 7), toList(intersection));
         // covered 3
         intersection = trie.subtrie(of(1), false, of(4), true).subtrie(of(0), of(8));
+        assertEquals(asList(2, 3, 4), toList(intersection));
+    }
+
+    @Test
+    public void testIntersectedIntersection()
+    {
+        Trie<Integer> trie = singleLevelIntTrie(15);
+
+        // non-overlapping
+        Trie<Integer> intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(4), of(8))));
+        assertEquals(asList(), toList(intersection));
+        // touching
+        intersection = trie.intersect(RangeTrie.create(of(0), true, of(3), true).intersect(RangeTrie.create(of(3), of(8))));
+        assertEquals(asList(3), toList(intersection));
+        // overlapping 1
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(2), of(8))));
+        assertEquals(asList(2, 3), toList(intersection));
+        // overlapping 2
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(1), of(8))));
+        assertEquals(asList(1, 2, 3), toList(intersection));
+        // covered
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(0), of(8))));
+        assertEquals(asList(0, 1, 2, 3), toList(intersection));
+        // covered 2
+        intersection = trie.intersect(RangeTrie.create(of(4), true, of(8), true).intersect(RangeTrie.create(of(0), of(8))));
+        assertEquals(asList(4, 5, 6, 7), toList(intersection));
+        // covered 3
+        intersection = trie.intersect(RangeTrie.create(of(1), false, of(4), true).intersect(RangeTrie.create(of(0), of(8))));
         assertEquals(asList(2, 3, 4), toList(intersection));
     }
 }

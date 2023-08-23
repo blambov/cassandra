@@ -755,7 +755,8 @@ public class InMemoryReadTrie<T> extends Trie<T>
          */
         private int descendInSplitSublevelWithTarget(int node, int limit, int collected, int shift, int minTransition)
         {
-            if (minTransition >= collected + (limit << shift))
+            minTransition -= collected;
+            if (minTransition >= limit << shift)
                 return -1;
 
             while (true)
@@ -764,7 +765,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
                 int childIndex;
                 int child = NONE;
                 // find the first non-null child beyond minTransition
-                for (childIndex = (minTransition >> shift) & (limit - 1); childIndex < limit; ++childIndex)
+                for (childIndex = minTransition >> shift; childIndex < limit; ++childIndex)
                 {
                     child = getSplitBlockPointer(node, childIndex, limit);
                     if (!isNull(child))
@@ -778,6 +779,9 @@ public class InMemoryReadTrie<T> extends Trie<T>
 
                 // add the bits just found
                 collected |= childIndex << shift;
+                minTransition -= childIndex << shift;
+                if (minTransition < 0)
+                    minTransition = 0;
                 // descend to next sub-level or child
                 if (shift == 0)
                     return descendInto(child, collected);
