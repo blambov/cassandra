@@ -18,15 +18,20 @@
 
 package org.apache.cassandra.db.tries;
 
+/**
+ * Intersection of a trie with a set, given as a {@code Trie<Boolean>}, where the presence
+ * of content (regardless true or false) is interpreted to mean presence to the set.
+ * <p>
+ * The latter is the simplest possible definition of a set, which also allows direct application
+ * of merges and intersections to sets. Its main disadvantage is that it does not define
+ * "fully in-set" branches and thus walks the set while walking the source even for fully
+ * covered branches thus adding to iteration time.
+ * <p>
+ * TODO: Consider alternatives of the set definition that can provide region end's
+ * depth+transition so that e.g. advanceMultiple can be fully delegated to the source.
+ */
 public class IntersectionTrie<T> extends Trie<T>
 {
-    enum SetState
-    {
-        PREFIX, // no content()
-        IN_SET; // content() == true
-        // outside of set: no node
-    }
-
     final Trie<T> trie;
     final Trie<Boolean> set;
 
