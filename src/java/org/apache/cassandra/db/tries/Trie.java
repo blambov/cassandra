@@ -404,8 +404,8 @@ public abstract class Trie<T>
     {
         if (left == null && right == null)
             return this;
-        return new IntersectionTrie<>(this, RangeTrie.create(left, includeLeft, right, includeRight));
-//        return new SlicedTrie<>(this, left, includeLeft, right, includeRight);
+//        return new IntersectionTrie<>(this, RangeTrie.create(left, includeLeft, right, includeRight));
+        return new SlicedTrie<>(this, left, includeLeft, right, includeRight);
     }
 
     /**
@@ -425,8 +425,8 @@ public abstract class Trie<T>
      */
     public Trie<T> subtrie(ByteComparable left, ByteComparable right)
     {
-        return new IntersectionTrie<>(this, RangeTrie.create(left, right));
-//        return subtrie(left, true, right, false);
+//        return new IntersectionTrie<>(this, RangeTrie.create(left, right));
+        return subtrie(left, true, right, false);
     }
 
     /**
@@ -434,7 +434,7 @@ public abstract class Trie<T>
      *
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
-    public Trie<T> intersect(Trie<Boolean> set)
+    public Trie<T> intersect(Trie<? extends IntersectionTrie.RegionEnd> set)
     {
         return new IntersectionTrie<>(this, set);
     }
@@ -640,36 +640,17 @@ public abstract class Trie<T>
         return (Trie<T>) EMPTY;
     }
 
-    public static Trie<Boolean> range(ByteComparable left, ByteComparable right)
+    public static Trie<IntersectionTrie.RegionEnd> range(ByteComparable left, ByteComparable right)
     {
         return RangeTrie.create(left, right);
     }
 
-    public static Trie<Boolean> ranges(ByteComparable... boundaries)
+    public static Trie<IntersectionTrie.RegionEnd> ranges(ByteComparable... boundaries)
     {
         assert boundaries.length % 2 == 0;
-        var sets = new ArrayList<Trie<Boolean>>(boundaries.length / 2);
+        var sets = new ArrayList<Trie<IntersectionTrie.RegionEnd>>(boundaries.length / 2);
         for (int i = 0; i < boundaries.length; i += 2)
             sets.add(range(boundaries[i], boundaries[i + 1]));
-        return merge(sets, resolverAny());
-    }
-
-    static final CollectionMergeResolver<Object> RESOLVER_ANY = new CollectionMergeResolver<Object>()
-    {
-        @Override
-        public Object resolve(Object c1, Object c2)
-        {
-            return c1;
-        }
-
-        @Override
-        public Object resolve(Collection<Object> contents)
-        {
-            return contents.iterator().next();
-        }
-    };
-    static <T> CollectionMergeResolver<T> resolverAny()
-    {
-        return (CollectionMergeResolver<T>) RESOLVER_ANY;
+        return mergeDistinct(sets);
     }
 }

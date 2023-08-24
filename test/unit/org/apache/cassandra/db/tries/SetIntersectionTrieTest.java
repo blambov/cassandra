@@ -321,9 +321,9 @@ public class SetIntersectionTrieTest
     {
         testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14), trie);
 
-        Trie<Boolean> set1 = Trie.ranges(null, of(4), of(5), of(9), of(12), null);
-        Trie<Boolean> set2 = Trie.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
-        Trie<Boolean> set3 = Trie.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
+        Trie<IntersectionTrie.RegionEnd> set1 = Trie.ranges(null, of(4), of(5), of(9), of(12), null);
+        Trie<IntersectionTrie.RegionEnd> set2 = Trie.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
+        Trie<IntersectionTrie.RegionEnd> set3 = Trie.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
 
         testIntersection("1", asList(0, 1, 2, 3, 5, 6, 7, 8, 12, 13, 14), trie, set1);
 
@@ -340,7 +340,7 @@ public class SetIntersectionTrieTest
         testIntersection("123", asList(3, 5), trie, set1, set2, set3);
     }
 
-    public void testIntersection(String message, List<Integer> expected, Trie<Integer> trie, Trie<Boolean>... sets)
+    public void testIntersection(String message, List<Integer> expected, Trie<Integer> trie, Trie<IntersectionTrie.RegionEnd>... sets)
     {
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.
@@ -353,7 +353,7 @@ public class SetIntersectionTrieTest
         {
             for (int toRemove = 0; toRemove < sets.length; ++toRemove)
             {
-                Trie<Boolean> set = sets[toRemove];
+                Trie<IntersectionTrie.RegionEnd> set = sets[toRemove];
                 testIntersection(message + " " + toRemove, expected,
                                  trie.intersect(set),
                                  Arrays.stream(sets)

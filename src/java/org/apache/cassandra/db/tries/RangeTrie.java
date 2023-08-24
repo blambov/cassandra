@@ -21,7 +21,7 @@ package org.apache.cassandra.db.tries;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class RangeTrie extends Trie<Boolean>
+public class RangeTrie extends Trie<IntersectionTrie.RegionEnd>
 {
     final ByteComparable left;
     final ByteComparable right;
@@ -32,7 +32,7 @@ public class RangeTrie extends Trie<Boolean>
         this.right = right;
     }
 
-    public static Trie<Boolean> create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    public static Trie<IntersectionTrie.RegionEnd> create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (!includeLeft && left != null)
             left = add0(left);
@@ -41,7 +41,7 @@ public class RangeTrie extends Trie<Boolean>
         return create(left, right);
     }
 
-    public static Trie<Boolean> create(ByteComparable left, ByteComparable right)
+    public static Trie<IntersectionTrie.RegionEnd> create(ByteComparable left, ByteComparable right)
     {
         return new RangeTrie(left, right);
     }
@@ -71,7 +71,7 @@ public class RangeTrie extends Trie<Boolean>
     }
 
     @Override
-    protected Cursor<Boolean> cursor()
+    protected Cursor<IntersectionTrie.RegionEnd> cursor()
     {
         ByteSource lsrc, rsrc;
         int lnext, rnext;
@@ -107,13 +107,13 @@ public class RangeTrie extends Trie<Boolean>
                   right.byteComparableAsString(BYTE_COMPARABLE_VERSION);
             // Because we can't start with -1 depth, the range cursor would always return the root, with true content.
             // To fix this, use an empty cursor to avoid complicating the RangeCursor code.
-            return Trie.<Boolean>empty().cursor();
+            return Trie.<IntersectionTrie.RegionEnd>empty().cursor();
         }
 
         return new RangeCursor(lsrc, lnext, rsrc, rnext);
     }
 
-    private static class RangeCursor implements Cursor<Boolean>
+    private static class RangeCursor implements Cursor<IntersectionTrie.RegionEnd>, IntersectionTrie.RegionEnd
     {
         final ByteSource lsrc;
         final ByteSource rsrc;
@@ -149,9 +149,9 @@ public class RangeTrie extends Trie<Boolean>
         }
 
         @Override
-        public Boolean content()
+        public IntersectionTrie.RegionEnd content()
         {
-            return onLeftPrefix ? null : Boolean.TRUE;
+            return onLeftPrefix ? null : this;
         }
 
         @Override
@@ -213,6 +213,18 @@ public class RangeTrie extends Trie<Boolean>
             if (newDepth < rdepth || newDepth == rdepth && transition > rnext)
                 return depth = -1;  // beyond right bound
             return descendAndCheckRightBound(newDepth, transition);
+        }
+
+        @Override
+        public int endDepth()
+        {
+            return rdepth;
+        }
+
+        @Override
+        public int endTransition()
+        {
+            return rnext;
         }
     }
 }

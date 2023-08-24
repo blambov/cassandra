@@ -19,7 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 /**
- * Intersection of a trie with a set, given as a {@code Trie<Boolean>}, where the presence
+ * Intersection of a trie with a set, given as a {@code Trie<RegionEnd>}, where the presence
  * of content (regardless true or false) is interpreted to mean presence to the set.
  * <p>
  * The latter is the simplest possible definition of a set, which also allows direct application
@@ -32,10 +32,16 @@ package org.apache.cassandra.db.tries;
  */
 public class IntersectionTrie<T> extends Trie<T>
 {
-    final Trie<T> trie;
-    final Trie<Boolean> set;
+    interface RegionEnd
+    {
+        int endDepth(); // cannot be deeper than iterated depth
+        int endTransition();
+    }
 
-    public IntersectionTrie(Trie<T> trie, Trie<Boolean> set)
+    final Trie<T> trie;
+    final Trie<? extends RegionEnd> set;
+
+    public IntersectionTrie(Trie<T> trie, Trie<? extends RegionEnd> set)
     {
         this.trie = trie;
         this.set = set;
@@ -50,12 +56,18 @@ public class IntersectionTrie<T> extends Trie<T>
     private static class IntersectionCursor<T> implements Cursor<T>
     {
         final Cursor<T> source;
-        final Cursor<Boolean> set;
+        final Cursor<? extends RegionEnd> set;
 
-        public IntersectionCursor(Cursor<T> source, Cursor<Boolean> set)
+//        private static final int UNAVAILABLE = Integer.MAX_VALUE;
+        boolean inSet;
+        int endDepth;
+        int endTransition;
+
+        public IntersectionCursor(Cursor<T> source, Cursor<? extends RegionEnd> set)
         {
             this.source = source;
             this.set = set;
+            updateState(0, -1);
         }
 
         @Override
@@ -73,20 +85,48 @@ public class IntersectionTrie<T> extends Trie<T>
         @Override
         public T content()
         {
-            return set.content() != null ? source.content() : null;
+            return inSet ? source.content() : null;
+        }
+
+        void updateState(int depth, int transition)
+        {
+            RegionEnd end = set.content();
+            if (end != null)
+            {
+                inSet = true;
+                endDepth = end.endDepth();
+                endTransition = end.endTransition();
+            }
+            else
+            {
+                inSet = false;
+                endDepth = Integer.MAX_VALUE;
+//                endTransition = transition;
+            }
         }
 
         @Override
         public int advance()
         {
-            // we are starting with both positioned on the same node
-            int depth = source.advance();
-            int transition = source.incomingTransition();
-            return advanceToIntersection(depth, transition);
+            return advanceToIntersection(source.advance());
         }
 
-        private int advanceToIntersection(int depth, int transition)
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
         {
+            int depth = source.depth();
+            if (depth > endDepth || depth == endDepth && source.incomingTransition() < endTransition)
+                return advanceToIntersection(source.advanceMultiple(receiver));
+            else
+                return advanceToIntersection(source.advance());
+        }
+
+        private int advanceToIntersection(int depth)
+        {
+            int transition = source.incomingTransition();
+            if (depth > endDepth || depth == endDepth && transition < endTransition)
+                return depth;   // still inside same covered region
+
             int setDepth = set.skipTo(depth, transition);
             int setTransition = set.incomingTransition();
             while (setDepth != depth || (depth != -1 && setTransition != transition))
@@ -99,15 +139,15 @@ public class IntersectionTrie<T> extends Trie<T>
                 setDepth = set.skipTo(depth, transition);
                 setTransition = set.incomingTransition();
             }
+            if (depth > 0)
+                updateState(depth, transition);
             return depth;
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            int depth = source.skipTo(skipDepth, skipTransition);
-            int transition = source.incomingTransition();
-            return advanceToIntersection(depth, transition);
+            return advanceToIntersection(source.skipTo(skipDepth, skipTransition));
         }
     }
 }
