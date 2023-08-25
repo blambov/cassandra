@@ -75,7 +75,7 @@ public abstract class Trie<T>
      * also to easily compare cursors over different tries that are advanced together. Advancing is always done in
      * order; if one imagines the set of nodes in the trie with their associated paths, a cursor may only advance from a
      * node with a lexicographically smaller path to one with bigger. The {@code advance} operation moves to the immediate
-     * next, it is also possible to skip over some items e.g. all children of the current node ({@code skipChildren}).
+     * next, it is also possible to skip over some items ({@code skipTo}).
      * <p>
      * Moving to the immediate next position in the lexicographic order is accomplished by:<ul>
      * <li>if the current node has children, moving to its first child;</li>
