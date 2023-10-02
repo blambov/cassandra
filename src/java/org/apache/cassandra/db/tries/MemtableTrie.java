@@ -21,13 +21,13 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -54,13 +54,12 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     private static final int ALLOCATED_SIZE_THRESHOLD;
     static
     {
-        String propertyName = "cassandra.trie_size_limit_mb";
-        // Default threshold + 10% == 1 GB. Adjusted slightly up to avoid a tiny final allocation for the 2G max.
-        int limitInMB = Integer.parseInt(System.getProperty(propertyName,
-                                                            Integer.toString(1024 * 10 / 11 + 1)));
-        if (limitInMB < 1 || limitInMB > 2047)
-            throw new AssertionError(propertyName + " must be within 1 and 2047");
-        ALLOCATED_SIZE_THRESHOLD = 1024 * 1024 * limitInMB;
+        String propertyName = "cassandra.trie_size_limit";
+        // Default threshold == 1 GB
+        long limit = FBUtilities.parseHumanReadableBytes(System.getProperty(propertyName, "1GiB"));
+        if (limit < (1024 * 1024) || limit > (2047L << 20))
+            throw new AssertionError(propertyName + " must be within 1 and 2047 MiB");
+        ALLOCATED_SIZE_THRESHOLD = (int) limit;
     }
 
     private int allocatedPos = 0;
@@ -81,8 +80,8 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
 
     public MemtableTrie(BufferType bufferType)
     {
-        super(new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
-              new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+        super(new UnsafeBuffer[1 << (31 - BUF_SHIFT)],  // for a total of 2G bytes
+              new ExpandableAtomicReferenceArray[1 << (29 - CONTENTS_SHIFT)],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
         assert INITIAL_BUFFER_CAPACITY % BLOCK_SIZE == 0;
@@ -133,16 +132,29 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     {
         // Note: If this method is modified, please run MemtableTrieTest.testOver1GSize to verify it acts correctly
         // close to the 2G limit.
+        if (allocatedPos < 0)
+            throw new SpaceExhaustedException();
+
+        int bufIdx = getChunkIdx(allocatedPos, BUF_SHIFT);
         int v = allocatedPos;
         if (inChunkPointer(v) == 0)
         {
-            int leadBit = getChunkIdx(v, BUF_START_SHIFT, BUF_START_SIZE);
-            if (leadBit == 31)
-                throw new SpaceExhaustedException();
+            assert buffers[bufIdx] == null;
+            ByteBuffer newBuffer = bufferType.allocate(BUF_SIZE);
+            buffers[bufIdx] = new UnsafeBuffer(newBuffer);
+            // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
+            // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
+            // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
+            // it must do some volatile write, but that will be in the new buffer and without the line below could
+            // remain unreachable by other cores).
+            root = root;
+        }
+        else if (bufIdx == 0 && v == buffers[0].capacity())
+        {
+            ByteBuffer newBuffer = bufferType.allocate(v * 2);
+            buffers[0].getBytes(0, newBuffer, 0, v);
+            buffers[0].wrap(newBuffer);
 
-            assert buffers[leadBit] == null;
-            ByteBuffer newBuffer = bufferType.allocate(BUF_START_SIZE << leadBit);
-            buffers[leadBit] = new UnsafeBuffer(newBuffer);
             // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
             // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
             // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
@@ -158,13 +170,17 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     private int addContent(T value)
     {
         int index = contentCount++;
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        int bufIdx = getChunkIdx(index, CONTENTS_SHIFT);
+        int ofs = inChunkPointer(index, CONTENTS_SIZE);
+        ExpandableAtomicReferenceArray<T> array = contentArrays[bufIdx];
         if (array == null)
         {
             assert ofs == 0;
-            contentArrays[leadBit] = array = new AtomicReferenceArray<>(CONTENTS_START_SIZE << leadBit);
+            contentArrays[bufIdx] = array = new ExpandableAtomicReferenceArray<>(CONTENTS_SIZE);
+        }
+        else if (ofs == array.length())
+        {
+            array.expand(ofs * 2);
         }
         array.lazySet(ofs, value); // no need for a volatile set here; at this point the item is not referenced
                                    // by any node in the trie, and a volatile set will be made to reference it.
@@ -173,9 +189,9 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
 
     private void setContent(int index, T value)
     {
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        int leadBit = getChunkIdx(index, CONTENTS_SHIFT);
+        int ofs = inChunkPointer(index, CONTENTS_SIZE);
+        ExpandableAtomicReferenceArray<T> array = contentArrays[leadBit];
         array.set(ofs, value);
     }
 

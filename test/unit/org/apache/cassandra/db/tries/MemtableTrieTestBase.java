@@ -45,7 +45,7 @@ public abstract class MemtableTrieTestBase
     // Do not commit the code with VERBOSE = true.
     private static final boolean VERBOSE = false;
 
-    private static final int COUNT = 100000;
+    private static final int COUNT = 1000000;
     private static final int KEY_CHOICE = 25;
     private static final int MIN_LENGTH = 10;
     private static final int MAX_LENGTH = 50;

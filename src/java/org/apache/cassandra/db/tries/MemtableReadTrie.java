@@ -191,35 +191,21 @@ public class MemtableReadTrie<T> extends Trie<T>
     /*
      EXPANDABLE DATA STORAGE
 
-     The tries will need more and more space in buffers and content lists as they grow. Instead of using ArrayList-like
-     reallocation with copying, which may be prohibitively expensive for large buffers, we use a sequence of
-     buffers/content arrays that double in size on every expansion.
-
-     For a given address x the index of the buffer can be found with the following calculation:
-        index_of_most_significant_set_bit(x / min_size + 1)
-     (relying on sum (2^i) for i in [0, n-1] == 2^n - 1) which can be performed quickly on modern hardware.
-
-     Finding the offset within the buffer is then
-        x + min - (min << buffer_index)
-
-     The allocated space starts 256 bytes for the buffer and 16 entries for the content list.
-
-     Note that a buffer is not allowed to split 32-byte blocks (code assumes same buffer can be used for all bytes
-     inside the block).
-
-     TODO: implement delay and retry on space hitting the 2GB barrier.
+     The tries will need more and more space in buffers and content lists as they grow. To store the data, the trie
+     uses a list of slabs with configurable fixed size. To ensure that idle tables don't take up too much space, the
+     first slab will start small and grow by doubling its size until it reaches the configured size.
      */
 
-    static final int BUF_START_SHIFT = 8;
-    static final int BUF_START_SIZE = 1 << BUF_START_SHIFT;
+    static final int BUF_SHIFT = 20;    // 1 MiB
+    static final int BUF_SIZE = 1 << BUF_SHIFT;
 
-    static final int CONTENTS_START_SHIFT = 4;
-    static final int CONTENTS_START_SIZE = 1 << CONTENTS_START_SHIFT;
+    static final int CONTENTS_SHIFT = BUF_SHIFT - 2;   // This will take as much space as a buffer slab for 32-bit pointers
+    static final int CONTENTS_SIZE = 1 << CONTENTS_SHIFT;
 
     final UnsafeBuffer[] buffers;
-    final AtomicReferenceArray<T>[] contentArrays;
+    final ExpandableAtomicReferenceArray<T>[] contentArrays;
 
-    MemtableReadTrie(UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
+    MemtableReadTrie(UnsafeBuffer[] buffers, ExpandableAtomicReferenceArray<T>[] contentArrays, int root)
     {
         this.buffers = buffers;
         this.contentArrays = contentArrays;
@@ -229,26 +215,25 @@ public class MemtableReadTrie<T> extends Trie<T>
     /*
      Buffer, content list and block management
      */
-    int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
+    int getChunkIdx(int pos, int chunkShift)
     {
-        return 31 - minChunkShift - Integer.numberOfLeadingZeros(pos + minChunkSize);
+        return pos >> chunkShift;
     }
 
-    int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
+    int inChunkPointer(int pos, int chunkSize)
     {
-        return pos + minChunkSize - (minChunkSize << chunkIndex);
+        return pos & (chunkSize - 1);
     }
 
     UnsafeBuffer getChunk(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return buffers[leadBit];
+        int bufIdx = getChunkIdx(pos, BUF_SHIFT);
+        return buffers[bufIdx];
     }
 
     int inChunkPointer(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return inChunkPointer(pos, leadBit, BUF_START_SIZE);
+        return inChunkPointer(pos, BUF_SIZE);
     }
 
 
@@ -277,10 +262,7 @@ public class MemtableReadTrie<T> extends Trie<T>
 
     T getContent(int index)
     {
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        return array.get(ofs);
+        return contentArrays[getChunkIdx(index, CONTENTS_SHIFT)].get(inChunkPointer(index, CONTENTS_SIZE));
     }
 
     /*
