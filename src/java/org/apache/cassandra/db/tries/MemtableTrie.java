@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.tries;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -26,11 +25,10 @@ import com.google.common.annotations.VisibleForTesting;
 
 import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.ObjectSizes;
 import org.github.jamm.MemoryLayoutSpecification;
 
 /**
@@ -46,12 +44,24 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
 {
     // See the trie format description in MemtableReadTrie.
 
+    protected static final long EMPTY_SIZE_ON_HEAP; // for space calculations
+    protected static final long EMPTY_SIZE_OFF_HEAP; // for space calculations
+
+    static
+    {
+        MemtableTrie<Object> empty = new MemtableTrie<>(BufferType.ON_HEAP);
+        EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
+        empty = new MemtableTrie<>(BufferType.OFF_HEAP);
+        EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
+    }
+
     /**
      * Trie size limit. This is not enforced, but users must check from time to time that it is not exceeded (using
      * reachedAllocatedSizeThreshold()) and start switching to a new trie if it is.
      * This must be done to avoid tries growing beyond their hard 2GB size limit (due to the 32-bit pointers).
      */
-    private static final int ALLOCATED_SIZE_THRESHOLD;
+    protected static final int ALLOCATED_SIZE_THRESHOLD;
+
     static
     {
         String propertyName = "cassandra.trie_size_limit";
@@ -62,29 +72,12 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         ALLOCATED_SIZE_THRESHOLD = (int) limit;
     }
 
+    protected int contentCount = 0;
     private int allocatedPos = 0;
-    private int contentCount = 0;
-
-    private final BufferType bufferType;    // on or off heap
-
-    private static final long EMPTY_SIZE_ON_HEAP; // for space calculations
-    private static final long EMPTY_SIZE_OFF_HEAP; // for space calculations
-
-    static
-    {
-        MemtableTrie<Object> empty = new MemtableTrie<>(BufferType.ON_HEAP);
-        EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
-        empty = new MemtableTrie<>(BufferType.OFF_HEAP);
-        EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
-    }
 
     public MemtableTrie(BufferType bufferType)
     {
-        super(new UnsafeBuffer[1 << (31 - BUF_SHIFT)],  // for a total of 2G bytes
-              new ExpandableAtomicReferenceArray[1 << (29 - CONTENTS_SHIFT)],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
-              NONE);
-        this.bufferType = bufferType;
-        assert INITIAL_BUFFER_CAPACITY % BLOCK_SIZE == 0;
+        super(bufferType);
     }
 
     // Buffer, content list and block management
@@ -97,114 +90,82 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         }
     }
 
-    final void putInt(int pos, int value)
+    protected int allocateBlock() throws SpaceExhaustedException
     {
-        getChunk(pos).putInt(inChunkPointer(pos), value);
-    }
-
-    final void putIntOrdered(int pos, int value)
-    {
-        getChunk(pos).putIntOrdered(inChunkPointer(pos), value);
-    }
-
-    final void putIntVolatile(int pos, int value)
-    {
-        getChunk(pos).putIntVolatile(inChunkPointer(pos), value);
-    }
-
-    final void putShort(int pos, short value)
-    {
-        getChunk(pos).putShort(inChunkPointer(pos), value);
-    }
-
-    final void putShortVolatile(int pos, short value)
-    {
-        getChunk(pos).putShort(inChunkPointer(pos), value);
-    }
-
-    final void putByte(int pos, byte value)
-    {
-        getChunk(pos).putByte(inChunkPointer(pos), value);
-    }
-
-
-    private int allocateBlock() throws SpaceExhaustedException
-    {
-        // Note: If this method is modified, please run MemtableTrieTest.testOver1GSize to verify it acts correctly
-        // close to the 2G limit.
         if (allocatedPos < 0)
             throw new SpaceExhaustedException();
 
-        int bufIdx = getChunkIdx(allocatedPos, BUF_SHIFT);
+        if (maybeGrow(allocatedPos))
+        {
+            // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
+            // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
+            // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
+            // it must do some volatile write, but that will be in the new buffer and without the line below could
+            // remain unreachable by other cores).
+            root = root;
+        }
+
         int v = allocatedPos;
-        if (inChunkPointer(v) == 0)
-        {
-            assert buffers[bufIdx] == null;
-            ByteBuffer newBuffer = bufferType.allocate(BUF_SIZE);
-            buffers[bufIdx] = new UnsafeBuffer(newBuffer);
-            // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
-            // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
-            // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
-            // it must do some volatile write, but that will be in the new buffer and without the line below could
-            // remain unreachable by other cores).
-            root = root;
-        }
-        else if (bufIdx == 0 && v == buffers[0].capacity())
-        {
-            ByteBuffer newBuffer = bufferType.allocate(v * 2);
-            buffers[0].getBytes(0, newBuffer, 0, v);
-            buffers[0].wrap(newBuffer);
-
-            // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
-            // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
-            // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
-            // it must do some volatile write, but that will be in the new buffer and without the line below could
-            // remain unreachable by other cores).
-            root = root;
-        }
-
         allocatedPos += BLOCK_SIZE;
         return v;
     }
 
-    private int addContent(T value)
+    protected int addContent(T value)
     {
-        int index = contentCount++;
-        int bufIdx = getChunkIdx(index, CONTENTS_SHIFT);
-        int ofs = inChunkPointer(index, CONTENTS_SIZE);
-        ExpandableAtomicReferenceArray<T> array = contentArrays[bufIdx];
-        if (array == null)
-        {
-            assert ofs == 0;
-            contentArrays[bufIdx] = array = new ExpandableAtomicReferenceArray<>(CONTENTS_SIZE);
-        }
-        else if (ofs == array.length())
-        {
-            array.expand(ofs * 2);
-        }
-        array.lazySet(ofs, value); // no need for a volatile set here; at this point the item is not referenced
-                                   // by any node in the trie, and a volatile set will be made to reference it.
-        return index;
+        return addContent(contentCount++, value);
     }
 
-    private void setContent(int index, T value)
+    /**
+     * Returns true if the allocation threshold has been reached. To be called by the the writing thread (ideally, just
+     * after the write completes). When this returns true, the user should switch to a new trie as soon as feasible.
+     *
+     * The trie expects up to 10% growth above this threshold. Any growth beyond that may be done inefficiently, and
+     * the trie will fail altogether when the size grows beyond 2G - 256 bytes.
+     */
+    public boolean reachedAllocatedSizeThreshold()
     {
-        int leadBit = getChunkIdx(index, CONTENTS_SHIFT);
-        int ofs = inChunkPointer(index, CONTENTS_SIZE);
-        ExpandableAtomicReferenceArray<T> array = contentArrays[leadBit];
-        array.set(ofs, value);
+        return allocatedPos >= ALLOCATED_SIZE_THRESHOLD;
     }
 
-    public void discardBuffers()
+    /**
+     * For tests only! Advance the allocation pointer (and allocate space) by this much to test behaviour close to
+     * full.
+     */
+    @VisibleForTesting
+    int advanceAllocatedPos(int wantedPos) throws SpaceExhaustedException
     {
-        if (bufferType == BufferType.ON_HEAP)
-            return; // no cleaning needed
+        while (allocatedPos < wantedPos)
+            allocateBlock();
+        return allocatedPos;
+    }
 
-        for (UnsafeBuffer b : buffers)
-        {
-            if (b != null)
-                FileUtils.clean(b.byteBuffer());
-        }
+    /** Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content. */
+    public long sizeOffHeap()
+    {
+        return bufferType == BufferType.ON_HEAP ? 0 : allocatedPos;
+    }
+
+    /** Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content. */
+    public long sizeOnHeap()
+    {
+        return contentCount * MemoryLayoutSpecification.SPEC.getReferenceSize() +
+               (bufferType == BufferType.ON_HEAP ? allocatedPos + EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP)
+               + allocatorExtraSizeOnHeap(allocatedPos, contentCount);
+    }
+
+    public long unusedReservedMemory()
+    {
+        long unused = 0;
+        int pos = this.allocatedPos;
+        UnsafeBuffer buffer = getChunk(pos);
+        if (buffer != null)
+            unused += buffer.capacity() - inChunkPointer(pos);
+        // else at the boundary, no reserve
+
+        ExpandableAtomicReferenceArray contents = contentArrays[getChunkIdx(contentCount, CONTENTS_SHIFT)];
+        if (contents != null)
+            unused += (contents.length() - inChunkPointer(contentCount, CONTENTS_CAPACITY)) * MemoryLayoutSpecification.SPEC.getReferenceSize();
+        return unused;
     }
 
     // Write methods
@@ -965,43 +926,6 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             return createContentNode(addContent(transformer.apply(null, value)), node, false);
     }
 
-    /**
-     * Returns true if the allocation threshold has been reached. To be called by the the writing thread (ideally, just
-     * after the write completes). When this returns true, the user should switch to a new trie as soon as feasible.
-     *
-     * The trie expects up to 10% growth above this threshold. Any growth beyond that may be done inefficiently, and
-     * the trie will fail altogether when the size grows beyond 2G - 256 bytes.
-     */
-    public boolean reachedAllocatedSizeThreshold()
-    {
-        return allocatedPos >= ALLOCATED_SIZE_THRESHOLD;
-    }
-
-    /**
-     * For tests only! Advance the allocation pointer (and allocate space) by this much to test behaviour close to
-     * full.
-     */
-    @VisibleForTesting
-    int advanceAllocatedPos(int wantedPos) throws SpaceExhaustedException
-    {
-        while (allocatedPos < wantedPos)
-            allocateBlock();
-        return allocatedPos;
-    }
-
-    /** Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content. */
-    public long sizeOffHeap()
-    {
-        return bufferType == BufferType.ON_HEAP ? 0 : allocatedPos;
-    }
-
-    /** Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content. */
-    public long sizeOnHeap()
-    {
-        return contentCount * MemoryLayoutSpecification.SPEC.getReferenceSize() +
-               (bufferType == BufferType.ON_HEAP ? allocatedPos + EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP);
-    }
-
     @Override
     public Iterable<T> valuesUnordered()
     {
@@ -1027,14 +951,5 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
     public int valuesCount()
     {
         return contentCount;
-    }
-
-    public long unusedReservedMemory()
-    {
-        int pos = this.allocatedPos;
-        UnsafeBuffer buffer = getChunk(pos);
-        if (buffer == null)
-            return 0;   // at the boundary, no reserve
-        return buffer.capacity() - inChunkPointer(pos);
     }
 }

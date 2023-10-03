@@ -18,10 +18,10 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
 import org.agrona.concurrent.UnsafeBuffer;
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -31,7 +31,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  *
  * This class provides the read-only functionality, expanded in {@link MemtableTrie} to writes.
  */
-public class MemtableReadTrie<T> extends Trie<T>
+public class MemtableReadTrie<T> extends MemtableAllocator<T>
 {
     /*
     TRIE FORMAT AND NODE TYPES
@@ -125,8 +125,6 @@ public class MemtableReadTrie<T> extends Trie<T>
      For further descriptions and examples of the mechanics of the trie, see MemtableTrie.md.
      */
 
-    static final int BLOCK_SIZE = 32;
-
     // Biggest block offset that can contain a pointer.
     static final int LAST_POINTER_OFFSET = BLOCK_SIZE - 4;
 
@@ -176,9 +174,6 @@ public class MemtableReadTrie<T> extends Trie<T>
     // Offset of the next pointer in a non-shared prefix node
     static final int PREFIX_POINTER_OFFSET = LAST_POINTER_OFFSET - PREFIX_OFFSET;
 
-    // Initial capacity for the node data buffer.
-    static final int INITIAL_BUFFER_CAPACITY = 256;
-
     /**
      * Value used as null for node pointers.
      * No node can use this address (we enforce this by not allowing chain nodes to grow to position 0).
@@ -196,44 +191,10 @@ public class MemtableReadTrie<T> extends Trie<T>
      first slab will start small and grow by doubling its size until it reaches the configured size.
      */
 
-    static final int BUF_SHIFT = 20;    // 1 MiB
-    static final int BUF_SIZE = 1 << BUF_SHIFT;
-
-    static final int CONTENTS_SHIFT = BUF_SHIFT - 2;   // This will take as much space as a buffer slab for 32-bit pointers
-    static final int CONTENTS_SIZE = 1 << CONTENTS_SHIFT;
-
-    final UnsafeBuffer[] buffers;
-    final ExpandableAtomicReferenceArray<T>[] contentArrays;
-
-    MemtableReadTrie(UnsafeBuffer[] buffers, ExpandableAtomicReferenceArray<T>[] contentArrays, int root)
+    MemtableReadTrie(BufferType bufferType)
     {
-        this.buffers = buffers;
-        this.contentArrays = contentArrays;
-        this.root = root;
-    }
-
-    /*
-     Buffer, content list and block management
-     */
-    int getChunkIdx(int pos, int chunkShift)
-    {
-        return pos >> chunkShift;
-    }
-
-    int inChunkPointer(int pos, int chunkSize)
-    {
-        return pos & (chunkSize - 1);
-    }
-
-    UnsafeBuffer getChunk(int pos)
-    {
-        int bufIdx = getChunkIdx(pos, BUF_SHIFT);
-        return buffers[bufIdx];
-    }
-
-    int inChunkPointer(int pos)
-    {
-        return inChunkPointer(pos, BUF_SIZE);
+        super(bufferType);
+        this.root = 0;
     }
 
 
@@ -243,26 +204,6 @@ public class MemtableReadTrie<T> extends Trie<T>
     int offset(int pos)
     {
         return pos & (BLOCK_SIZE - 1);
-    }
-
-    final int getUnsignedByte(int pos)
-    {
-        return getChunk(pos).getByte(inChunkPointer(pos)) & 0xFF;
-    }
-
-    final int getUnsignedShort(int pos)
-    {
-        return getChunk(pos).getShort(inChunkPointer(pos)) & 0xFFFF;
-    }
-
-    final int getInt(int pos)
-    {
-        return getChunk(pos).getInt(inChunkPointer(pos));
-    }
-
-    T getContent(int index)
-    {
-        return contentArrays[getChunkIdx(index, CONTENTS_SHIFT)].get(inChunkPointer(index, CONTENTS_SIZE));
     }
 
     /*
