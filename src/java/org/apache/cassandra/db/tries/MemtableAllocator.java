@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -35,7 +36,7 @@ public abstract class MemtableAllocator<T> extends Trie<T>
     static final int INITIAL_BUFFER_CAPACITY = 256;
     static final int INITIAL_CONTENTS_CAPACITY = 32;
 
-    static final int BUF_SHIFT = 21;    // 2 MiB
+    static final int BUF_SHIFT = 16;    // 2 MiB
     static final int BUF_CAPACITY = 1 << BUF_SHIFT;
     static final int CONTENTS_SHIFT = BUF_SHIFT - 2;   // This will take as much space as a buffer slab for 32-bit pointers
     static final int CONTENTS_CAPACITY = 1 << CONTENTS_SHIFT;
@@ -43,13 +44,13 @@ public abstract class MemtableAllocator<T> extends Trie<T>
     private static final long ATOMIC_REFERENCE_ARRAY_EMPTY_SIZE = ObjectSizes.measureDeep(new ExpandableAtomicReferenceArray<Object>(0));
 
     protected final BufferType bufferType;    // on or off heap
-    final UnsafeBuffer[] buffers;
-    final ExpandableAtomicReferenceArray<T>[] contentArrays;
+    UnsafeBuffer[] buffers;
+    ExpandableAtomicReferenceArray<T>[] contentArrays;
 
     public MemtableAllocator(BufferType bufferType)
     {
-        this.buffers = new UnsafeBuffer[1 << (31 - BUF_SHIFT)];  // for a total of 2G bytes
-        this.contentArrays = new ExpandableAtomicReferenceArray[1 << (29 - CONTENTS_SHIFT)];
+        this.buffers = new UnsafeBuffer[16];  // for a total of 2G bytes
+        this.contentArrays = new ExpandableAtomicReferenceArray[16];
             // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
         this.bufferType = bufferType;
         assert INITIAL_BUFFER_CAPACITY % BLOCK_SIZE == 0;
@@ -129,17 +130,21 @@ public abstract class MemtableAllocator<T> extends Trie<T>
         // Note: If this method is modified, please run MemtableTrieTest.testOver1GSize to verify it acts correctly
         // close to the 2G limit.
         int bufIdx = getChunkIdx(allocatedPos, BUF_SHIFT);
+        if (bufIdx == buffers.length)
+            buffers = Arrays.copyOf(buffers, bufIdx * 2);
         UnsafeBuffer buffer = buffers[bufIdx];
         if (buffer == null)
         {
             assert inChunkPointer(allocatedPos) == 0;
-            ByteBuffer newBuffer = bufferType.allocate(bufIdx == 0 ? INITIAL_BUFFER_CAPACITY : BUF_CAPACITY);
+            ByteBuffer newBuffer = bufIdx == 0 ? BufferType.ON_HEAP.allocate(INITIAL_BUFFER_CAPACITY)
+                                               : bufferType.allocate(BUF_CAPACITY);
             buffers[bufIdx] = new UnsafeBuffer(newBuffer);
             return true;
         }
         else if (bufIdx == 0 && allocatedPos == buffer.capacity())
         {
-            ByteBuffer newBuffer = bufferType.allocate(allocatedPos * 2);
+            int newCapacity = allocatedPos * 2;
+            ByteBuffer newBuffer = (newCapacity < BUF_CAPACITY ? BufferType.ON_HEAP : bufferType).allocate(newCapacity);
             buffer.getBytes(0, newBuffer, 0, allocatedPos);
             buffer.wrap(newBuffer);
             return true;
@@ -156,6 +161,8 @@ public abstract class MemtableAllocator<T> extends Trie<T>
     {
         int bufIdx = getChunkIdx(index, CONTENTS_SHIFT);
         int ofs = inChunkPointer(index, CONTENTS_CAPACITY);
+        if (bufIdx == contentArrays.length)
+            contentArrays = Arrays.copyOf(contentArrays, bufIdx * 2);
         ExpandableAtomicReferenceArray<T> array = contentArrays[bufIdx];
         if (array == null)
         {
@@ -166,8 +173,14 @@ public abstract class MemtableAllocator<T> extends Trie<T>
         {
             array.expand(index * 2);
         }
-        array.lazySet(ofs, value); // no need for a volatile set here; at this point the item is not referenced
-                                   // by any node in the trie, and a volatile set will be made to reference it.
+        array.lazySet(ofs, value);
+
+        // Note: None of the above uses a volatile set. The reason this is okay is that the new information is not
+        // visible to any reader until it finds its index written somewhere in the trie. As long as the write that
+        // attaches that information to the trie is done with a volatile write (which we always ensure), a happens-
+        // before relationship is formed between the read, the attachment write (done by this thread some time after
+        // this call), and the changes to the pointer, content chunk, and content chunk array.
+        // This happens-before relationship ensures that the reader must see the new values as set above.
         return index;
     }
 
