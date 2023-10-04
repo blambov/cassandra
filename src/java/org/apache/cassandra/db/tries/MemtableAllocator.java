@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -36,22 +38,28 @@ public abstract class MemtableAllocator<T> extends Trie<T>
     static final int INITIAL_BUFFER_CAPACITY = 256;
     static final int INITIAL_CONTENTS_CAPACITY = 32;
 
-    static final int BUF_SHIFT = 16;    // 2 MiB
+    static final int LISTS_FIRST_RESIZE = 16;
+
+    // TODO: make configurable
+    static final int BUF_SHIFT = 21;    // 2 MiB
     static final int BUF_CAPACITY = 1 << BUF_SHIFT;
     static final int CONTENTS_SHIFT = BUF_SHIFT - 2;   // This will take as much space as a buffer slab for 32-bit pointers
     static final int CONTENTS_CAPACITY = 1 << CONTENTS_SHIFT;
-    private static final long UNSAFE_BUFFER_EMPTY_SIZE = ObjectSizes.measureDeep(new UnsafeBuffer(ByteBuffer.allocateDirect(0)));
-    private static final long ATOMIC_REFERENCE_ARRAY_EMPTY_SIZE = ObjectSizes.measureDeep(new ExpandableAtomicReferenceArray<Object>(0));
+    private static final long UNSAFE_BUFFER_EMPTY_SIZE = ObjectSizes.measureDeep(new UnsafeBuffer(ByteBuffer.allocateDirect(0))) +
+                                                         MemoryLayoutSpecification.SPEC.getReferenceSize();
+    private static final long REFERENCE_ARRAY_EMPTY_SIZE = ObjectSizes.sizeOfReferenceArray(0) +
+                                                           MemoryLayoutSpecification.SPEC.getReferenceSize();
+
+    private static VarHandle ARRAY_HANDLE = MethodHandles.arrayElementVarHandle(Object[].class);
 
     protected final BufferType bufferType;    // on or off heap
     UnsafeBuffer[] buffers;
-    ExpandableAtomicReferenceArray<T>[] contentArrays;
+    Object[][] contentArrays;
 
     public MemtableAllocator(BufferType bufferType)
     {
-        this.buffers = new UnsafeBuffer[16];  // for a total of 2G bytes
-        this.contentArrays = new ExpandableAtomicReferenceArray[16];
-            // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+        this.buffers = new UnsafeBuffer[1];
+        this.contentArrays = new Object[1][];
         this.bufferType = bufferType;
         assert INITIAL_BUFFER_CAPACITY % BLOCK_SIZE == 0;
     }
@@ -125,13 +133,17 @@ public abstract class MemtableAllocator<T> extends Trie<T>
         getChunk(pos).putByte(inChunkPointer(pos), value);
     }
 
-    protected boolean maybeGrow(int allocatedPos)
+    protected boolean maybeGrowBuffer(int allocatedPos)
     {
         // Note: If this method is modified, please run MemtableTrieTest.testOver1GSize to verify it acts correctly
         // close to the 2G limit.
+        boolean result = false;
         int bufIdx = getChunkIdx(allocatedPos, BUF_SHIFT);
         if (bufIdx == buffers.length)
-            buffers = Arrays.copyOf(buffers, bufIdx * 2);
+        {
+            buffers = Arrays.copyOf(buffers, Math.max(bufIdx * 2, LISTS_FIRST_RESIZE));
+            result = true;
+        }
         UnsafeBuffer buffer = buffers[bufIdx];
         if (buffer == null)
         {
@@ -139,7 +151,7 @@ public abstract class MemtableAllocator<T> extends Trie<T>
             ByteBuffer newBuffer = bufIdx == 0 ? BufferType.ON_HEAP.allocate(INITIAL_BUFFER_CAPACITY)
                                                : bufferType.allocate(BUF_CAPACITY);
             buffers[bufIdx] = new UnsafeBuffer(newBuffer);
-            return true;
+            result = true;
         }
         else if (bufIdx == 0 && allocatedPos == buffer.capacity())
         {
@@ -147,49 +159,52 @@ public abstract class MemtableAllocator<T> extends Trie<T>
             ByteBuffer newBuffer = (newCapacity < BUF_CAPACITY ? BufferType.ON_HEAP : bufferType).allocate(newCapacity);
             buffer.getBytes(0, newBuffer, 0, allocatedPos);
             buffer.wrap(newBuffer);
-            return true;
+            result = true;
         }
-        return false;
+        return result;
     }
 
     T getContent(int index)
     {
-        return contentArrays[getChunkIdx(index, CONTENTS_SHIFT)].get(inChunkPointer(index, CONTENTS_CAPACITY));
+        return (T) ARRAY_HANDLE.getVolatile(contentArrays[getChunkIdx(index, CONTENTS_SHIFT)],
+                                            inChunkPointer(index, CONTENTS_CAPACITY));
     }
 
-    protected int addContent(int index, T value)
+    /**
+     * Add a new content entry, return true if this caused the content arrays to grow (which necessitates global
+     * happens-before enforcement by touching the root).
+     */
+    protected boolean addContentMaybeGrow(int index, T value)
     {
+        boolean result = false;
         int bufIdx = getChunkIdx(index, CONTENTS_SHIFT);
         int ofs = inChunkPointer(index, CONTENTS_CAPACITY);
         if (bufIdx == contentArrays.length)
-            contentArrays = Arrays.copyOf(contentArrays, bufIdx * 2);
-        ExpandableAtomicReferenceArray<T> array = contentArrays[bufIdx];
+        {
+            contentArrays = Arrays.copyOf(contentArrays, Math.max(bufIdx * 2, LISTS_FIRST_RESIZE));
+            result = true;
+        }
+        Object[] array = contentArrays[bufIdx];
         if (array == null)
         {
             assert ofs == 0;
-            contentArrays[bufIdx] = array = new ExpandableAtomicReferenceArray<>(bufIdx == 0 ? INITIAL_CONTENTS_CAPACITY : CONTENTS_CAPACITY);
+            contentArrays[bufIdx] = array = new Object[bufIdx == 0 ? INITIAL_CONTENTS_CAPACITY : CONTENTS_CAPACITY];
+            result = true;
         }
-        else if (bufIdx == 0 && index == array.length())
+        else if (bufIdx == 0 && index == array.length)
         {
-            array.expand(index * 2);
+            contentArrays[bufIdx] = array = Arrays.copyOf(array, index * 2);
+            result = true;
         }
-        array.lazySet(ofs, value);
-
-        // Note: None of the above uses a volatile set. The reason this is okay is that the new information is not
-        // visible to any reader until it finds its index written somewhere in the trie. As long as the write that
-        // attaches that information to the trie is done with a volatile write (which we always ensure), a happens-
-        // before relationship is formed between the read, the attachment write (done by this thread some time after
-        // this call), and the changes to the pointer, content chunk, and content chunk array.
-        // This happens-before relationship ensures that the reader must see the new values as set above.
-        return index;
+        array[ofs] = value;
+        return result;
     }
 
     protected void setContent(int index, T value)
     {
-        int chunkIdx = getChunkIdx(index, CONTENTS_SHIFT);
-        int ofs = inChunkPointer(index, CONTENTS_CAPACITY);
-        ExpandableAtomicReferenceArray<T> array = contentArrays[chunkIdx];
-        array.set(ofs, value);
+        ARRAY_HANDLE.setVolatile(contentArrays[getChunkIdx(index, CONTENTS_SHIFT)],
+                                 inChunkPointer(index, CONTENTS_CAPACITY),
+                                 value);
     }
 
 
@@ -197,7 +212,7 @@ public abstract class MemtableAllocator<T> extends Trie<T>
     public long allocatorExtraSizeOnHeap(int allocatedPos, int contentCount)
     {
         return (getChunkIdx(allocatedPos - 1, BUF_SHIFT) + 1) * UNSAFE_BUFFER_EMPTY_SIZE +
-               (getChunkIdx(contentCount - 1, CONTENTS_SHIFT) + 1) * ATOMIC_REFERENCE_ARRAY_EMPTY_SIZE;
+               (getChunkIdx(contentCount - 1, CONTENTS_SHIFT) + 1) * REFERENCE_ARRAY_EMPTY_SIZE;
     }
 
     public void discardBuffers()

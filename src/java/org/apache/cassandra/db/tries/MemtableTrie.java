@@ -95,15 +95,8 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
         if (allocatedPos < 0)
             throw new SpaceExhaustedException();
 
-        if (maybeGrow(allocatedPos))
-        {
-            // The above does not contain any happens-before enforcing writes, thus at this point the new buffer may be
-            // invisible to any concurrent readers. Touching the volatile root pointer (which any new read must go
-            // through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
-            // it must do some volatile write, but that will be in the new buffer and without the line below could
-            // remain unreachable by other cores).
-            root = root;
-        }
+        if (maybeGrowBuffer(allocatedPos))
+            enforceHappensBefore();
 
         int v = allocatedPos;
         allocatedPos += BLOCK_SIZE;
@@ -112,7 +105,20 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
 
     protected int addContent(T value)
     {
-        return addContent(contentCount++, value);
+        int index = contentCount++;
+        if (addContentMaybeGrow(index, value))
+            enforceHappensBefore();
+        return index;
+    }
+
+    private void enforceHappensBefore()
+    {
+        // Buffer growth does not contain any happens-before enforcing writes, thus the new buffer, content array or
+        // list may be invisible to any concurrent readers. Touching the volatile root pointer (which any new read must
+        // go through) enforces a happens-before that makes it visible to all new reads (note: when the write completes
+        // it must do some volatile write, but that will be in the new buffer/content array and without the line below
+        // could remain unreachable by other cores).
+        root = root;
     }
 
     /**
@@ -162,9 +168,9 @@ public class MemtableTrie<T> extends MemtableReadTrie<T>
             unused += buffer.capacity() - inChunkPointer(pos);
         // else at the boundary, no reserve
 
-        ExpandableAtomicReferenceArray contents = contentArrays[getChunkIdx(contentCount, CONTENTS_SHIFT)];
+        Object[] contents = contentArrays[getChunkIdx(contentCount, CONTENTS_SHIFT)];
         if (contents != null)
-            unused += (contents.length() - inChunkPointer(contentCount, CONTENTS_CAPACITY)) * MemoryLayoutSpecification.SPEC.getReferenceSize();
+            unused += (contents.length - inChunkPointer(contentCount, CONTENTS_CAPACITY)) * MemoryLayoutSpecification.SPEC.getReferenceSize();
         return unused;
     }
 
