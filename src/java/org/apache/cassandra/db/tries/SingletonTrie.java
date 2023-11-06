@@ -87,7 +87,7 @@ class SingletonTrie<T> extends Trie<T>
         {
             if (depth <= currentDepth)
             {
-                assert depth < currentDepth || incomingTransition > currentTransition;
+                assert depth < currentDepth || incomingTransition > currentTransition || depth == -1;
                 return currentDepth = -1;  // no alternatives
             }
             if (incomingTransition > nextTransition)
