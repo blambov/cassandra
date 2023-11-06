@@ -19,15 +19,24 @@
 package org.apache.cassandra.db.tries;
 
 /**
- * Very simple intersection implementation which works with infinite boolean tries as the intersecting sets.
- * Its weakness is lack of support for advanceMultiple.
+ * Intersection implementation which works with {@code Trie<Contained>} as the intersecting set.
+ * <p>
+ * Implemented as a parallel walk over the two tries, skipping over the parts which are not in the set, and skipping
+ * advancing in the set while we know branches are fully contained within the set (i.e. when its {@code content()}
+ * returns FULLY). To do the latter we always examing the set's content, and on receiving FULLY we store the set's
+ * current depth as the lowest depth we need to see on a source advance to be outside of the covered branch. This
+ * allows us to implement {@code advanceMultiple}, and to have a very low overhead on all advances inside the covered
+ * branch.
+ * <p>
+ * As it is expected that the structure of the set is going to be simpler, unless we know that we are inside a fully
+ * covered branch we advance the set first, and skip in the source to the advanced position.
  */
 public class IntersectionTrie<T> extends Trie<T>
 {
     final Trie<T> trie;
-    final Trie<Boolean> set;
+    final Trie<Contained> set;
 
-    public IntersectionTrie(Trie<T> trie, Trie<Boolean> set)
+    public IntersectionTrie(Trie<T> trie, Trie<Contained> set)
     {
         this.trie = trie;
         this.set = set;
@@ -42,12 +51,15 @@ public class IntersectionTrie<T> extends Trie<T>
     private static class IntersectionCursor<T> implements Cursor<T>
     {
         final Cursor<T> source;
-        final Cursor<Boolean> set;
+        final Cursor<Contained> set;
+        int setQueryDepth;
+        Contained contained;
 
-        public IntersectionCursor(Cursor<T> source, Cursor<Boolean> set)
+        public IntersectionCursor(Cursor<T> source, Cursor<Contained> set)
         {
             this.source = source;
             this.set = set;
+            intersectionFound(0, 0);
         }
 
         @Override
@@ -65,44 +77,117 @@ public class IntersectionTrie<T> extends Trie<T>
         @Override
         public T content()
         {
-            T content = source.content();   // start by checking source as it will be null more often
-            if (content == null || set.content() == null)
-                return null;
-            return content;
+            return contained != null
+                   ? source.content()
+                   : null;
         }
 
         @Override
         public int advance()
         {
-            // we are starting with both positioned on the same node
-            int depth = source.advance();
-            int transition = source.incomingTransition();
-            return advanceToIntersection(depth, transition);
-        }
-
-        private int advanceToIntersection(int depth, int transition)
-        {
-            int setDepth, setTransition;
-            while (true)
-            {
-                setDepth = set.skipTo(depth, transition);
-                setTransition = set.incomingTransition();
-                if (setDepth == depth && (depth == -1 || setTransition == transition))
-                    break;
-                depth = source.skipTo(setDepth, setTransition);
-                transition = source.incomingTransition();
-                if (setDepth == depth && (depth == -1 || setTransition == transition))
-                    break;
-            }
-            return depth;
+            return contained == Contained.FULLY
+                   ? advanceSourceFirst(source.advance())
+                   : advanceSetFirst(set.advance());
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            int depth = source.skipTo(skipDepth, skipTransition);
-            int transition = source.incomingTransition();
-            return advanceToIntersection(depth, transition);
+            return contained == Contained.FULLY
+                   ? advanceSourceFirst(source.skipTo(skipDepth, skipTransition))
+                   : advanceSetFirst(set.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return contained == Contained.FULLY
+                   ? advanceSourceFirst(source.advanceMultiple(receiver))
+                   : advanceSetFirst(set.advance());
+        }
+
+        private int advanceSourceFirst(int sourceDepth)
+        {
+            if (sourceDepth > setQueryDepth)
+                return sourceDepth; // still inside a fully-covered branch, no need to advance in set
+
+            int sourceTransition = source.incomingTransition();
+            int setDepth, setTransition;
+            while (true)
+            {
+                setDepth = set.skipTo(sourceDepth, sourceTransition);
+                setTransition = set.incomingTransition();
+                if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
+                    break;
+                sourceDepth = source.skipTo(setDepth, setTransition);
+                sourceTransition = source.incomingTransition();
+                if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
+                    break;
+            }
+            return intersectionFound(setDepth, sourceDepth);
+        }
+
+        private int advanceSetFirst(int setDepth)
+        {
+            int setTransition = set.incomingTransition();
+            int sourceDepth, sourceTransition;
+            while (true)
+            {
+                sourceDepth = source.skipTo(setDepth, setTransition);
+                sourceTransition = source.incomingTransition();
+                if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
+                    break;
+                setDepth = set.skipTo(sourceDepth, sourceTransition);
+                setTransition = set.incomingTransition();
+                if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
+                    break;
+            }
+            return intersectionFound(setDepth, sourceDepth);
+        }
+
+        private int intersectionFound(int setDepth, int sourceDepth)
+        {
+            contained = set.content();
+            if (contained == Contained.FULLY)
+                setQueryDepth = setDepth;
+
+            return sourceDepth;
+        }
+    }
+
+    static class SetIntersectionTrie extends IntersectionTrie<Contained>
+    {
+        public SetIntersectionTrie(Trie<Contained> trie, Trie<Contained> set)
+        {
+            super(trie, set);
+        }
+
+        @Override
+        protected Cursor<Contained> cursor()
+        {
+            return new SetIntersectionCursor(trie.cursor(), set.cursor());
+        }
+    }
+
+    private static class SetIntersectionCursor extends IntersectionCursor<Contained>
+    {
+        public SetIntersectionCursor(Cursor<Contained> source, Cursor<Contained> set)
+        {
+            super(source, set);
+        }
+
+        @Override
+        public Contained content()
+        {
+            final Contained sourceContent = source.content();
+            if (sourceContent == null)
+                return null;
+            if (contained == Contained.FULLY)
+                return sourceContent;
+            else if (contained == Contained.PARTIALLY)
+                return Contained.PARTIALLY;
+            else
+                return null;
         }
     }
 }

@@ -405,7 +405,6 @@ public abstract class Trie<T>
         if (left == null && right == null)
             return this;
         return new IntersectionTrie<>(this, RangeTrie.create(left, includeLeft, right, includeRight));
-//        return new SlicedTrie<>(this, left, includeLeft, right, includeRight);
     }
 
     /**
@@ -426,7 +425,6 @@ public abstract class Trie<T>
     public Trie<T> subtrie(ByteComparable left, ByteComparable right)
     {
         return new IntersectionTrie<>(this, RangeTrie.create(left, right));
-//        return subtrie(left, true, right, false);
     }
 
     /**
@@ -434,7 +432,7 @@ public abstract class Trie<T>
      *
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
-    public Trie<T> intersect(Trie<Boolean> set)
+    public Trie<T> intersect(Trie<Contained> set)
     {
         return new IntersectionTrie<>(this, set);
     }
@@ -640,36 +638,59 @@ public abstract class Trie<T>
         return (Trie<T>) EMPTY;
     }
 
-    public static Trie<Boolean> range(ByteComparable left, ByteComparable right)
+    enum Contained
+    {
+        PARTIALLY,
+        FULLY
+    }
+
+    public static Trie<Contained> range(ByteComparable left, ByteComparable right)
     {
         return RangeTrie.create(left, right);
     }
 
-    public static Trie<Boolean> ranges(ByteComparable... boundaries)
+    public static Trie<Contained> ranges(ByteComparable... boundaries)
     {
         assert boundaries.length % 2 == 0;
-        var sets = new ArrayList<Trie<Boolean>>(boundaries.length / 2);
+        var sets = new ArrayList<Trie<Contained>>(boundaries.length / 2);
         for (int i = 0; i < boundaries.length; i += 2)
             sets.add(range(boundaries[i], boundaries[i + 1]));
-        return merge(sets, resolverAny());
+        return mergeSets(sets);
     }
 
-    static final CollectionMergeResolver<Object> RESOLVER_ANY = new CollectionMergeResolver<Object>()
+    public static Trie<Contained> mergeSets(Trie<Contained> a, Trie<Contained> b)
+    {
+        return a.mergeWith(b, SET_RESOLVER);
+    }
+
+    public static Trie<Contained> mergeSets(Collection<Trie<Contained>> sets)
+    {
+        return merge(sets, SET_RESOLVER);
+    }
+
+    public static Trie<Contained> intersectSets(Trie<Contained> a, Trie<Contained> b)
+    {
+        return new IntersectionTrie.SetIntersectionTrie(a, b);
+    }
+
+    static final CollectionMergeResolver<Contained> SET_RESOLVER = new CollectionMergeResolver<Contained>()
     {
         @Override
-        public Object resolve(Object c1, Object c2)
+        public Contained resolve(Contained c1, Contained c2)
         {
-            return c1;
+            if (c1 == Contained.FULLY || c2 == Contained.FULLY)
+                return Contained.FULLY;
+            return Contained.PARTIALLY;
         }
 
         @Override
-        public Object resolve(Collection<Object> contents)
+        public Contained resolve(Collection<Contained> contents)
         {
-            return contents.iterator().next();
+            for (Contained c : contents)
+                if (c == Contained.FULLY)
+                    return Contained.FULLY;
+
+            return Contained.PARTIALLY;
         }
     };
-    static <T> CollectionMergeResolver<T> resolverAny()
-    {
-        return (CollectionMergeResolver<T>) RESOLVER_ANY;
-    }
 }
