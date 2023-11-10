@@ -120,6 +120,11 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Unmetered
     private final TrieMemtableMetricsView metrics;
 
+    // TODO: trie PartitionUpdate
+    // TODO: conversion to/from (Unfiltered)RowIterator
+    // TODO: maybe SummarizedUnfilteredRowIterator
+    // TODO: extend TrieMemtable to rows
+
     TrieMemtable(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner, Integer shardCountOption)
     {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);

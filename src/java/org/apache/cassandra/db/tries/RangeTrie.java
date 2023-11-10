@@ -115,8 +115,8 @@ public class RangeTrie extends Trie<Trie.Contained>
 
     private static class RangeCursor implements Cursor<Contained>
     {
-        final ByteSource lsrc;
-        final ByteSource rsrc;
+        ByteSource lsrc;
+        ByteSource rsrc;
         int lnext;
         int rnext;
         int rdepth;
@@ -134,6 +134,33 @@ public class RangeTrie extends Trie<Trie.Contained>
             this.rdepth = 1;
             this.depth = 0;
             this.incomingTransition = -1;
+        }
+
+        RangeCursor(RangeCursor copyFrom)
+        {
+            if (copyFrom.lsrc != null && copyFrom.lnext != ByteSource.END_OF_STREAM)
+            {
+                ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.lsrc);
+                copyFrom.lsrc = dupe;
+                this.lsrc = dupe.duplicate();
+            }
+            else
+                this.lsrc = null;
+            if (copyFrom.rsrc != null && copyFrom.rnext != ByteSource.END_OF_STREAM)
+            {
+                ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.rsrc);
+                copyFrom.rsrc = dupe;
+                this.rsrc = dupe.duplicate();
+            }
+            else
+                this.rsrc = null;
+
+            this.lnext = copyFrom.lnext;
+            this.onLeftPrefix = copyFrom.onLeftPrefix;
+            this.rnext = copyFrom.rnext;
+            this.rdepth = copyFrom.rdepth;
+            this.depth = copyFrom.depth;
+            this.incomingTransition = copyFrom.incomingTransition;
         }
 
         @Override
@@ -212,6 +239,12 @@ public class RangeTrie extends Trie<Trie.Contained>
             if (newDepth < rdepth || newDepth == rdepth && transition > rnext)
                 return depth = -1;  // beyond right bound
             return descendAndCheckRightBound(newDepth, transition);
+        }
+
+        @Override
+        public Cursor<Contained> duplicate()
+        {
+            return new RangeCursor(this);
         }
     }
 }

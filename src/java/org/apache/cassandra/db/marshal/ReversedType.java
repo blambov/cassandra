@@ -193,7 +193,7 @@ public class ReversedType<T> extends AbstractType<T>
         return getClass().getName() + "(" + baseType + ")";
     }
 
-    private static final class ReversedPeekableByteSource extends ByteSource.Peekable
+    private static final class ReversedPeekableByteSource implements ByteSource.Peekable
     {
         private final ByteSource.Peekable original;
 
@@ -204,7 +204,6 @@ public class ReversedType<T> extends AbstractType<T>
 
         private ReversedPeekableByteSource(ByteSource.Peekable original)
         {
-            super(null);
             this.original = original;
         }
 

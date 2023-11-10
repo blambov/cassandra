@@ -32,6 +32,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.ObjectSizes;
 
@@ -145,71 +146,102 @@ public abstract class InMemoryTrieTestBase
         int curChild;
         Object content;
         SpecStackEntry parent;
+        Object alternateBranch;
 
-        public SpecStackEntry(Object[] spec, Object content, SpecStackEntry parent)
+        public SpecStackEntry(Object[] spec, Object content, Object alternateBranch, SpecStackEntry parent)
         {
             this.children = spec;
             this.content = content;
             this.parent = parent;
+            this.alternateBranch = alternateBranch;
             this.curChild = -1;
         }
     }
+    static SpecStackEntry makeSpecStackEntry(Object spec, SpecStackEntry parent)
+    {
+        if (spec instanceof Pair)
+            return makeSpecStackEntry(((Pair) spec).left(), ((Pair) spec).right(), parent);
+        else
+            return makeSpecStackEntry(spec, null, parent);
+    }
+    static SpecStackEntry makeSpecStackEntry(Object spec, Object alternateBranch, SpecStackEntry parent)
+    {
+        assert !(spec instanceof Pair);
+        if (spec instanceof Object[])
+            return new SpecStackEntry((Object[]) spec, null, alternateBranch, parent);
+        else
+            return new SpecStackEntry(new Object[0], spec, alternateBranch, parent);
 
-    public static class CursorFromSpec implements Trie.Cursor<ByteBuffer>
+    }
+
+    public static class CursorFromSpec<T> implements Trie.Cursor<T>
     {
         SpecStackEntry stack;
         int depth;
+        int leadingTransition;
 
         CursorFromSpec(Object[] spec)
         {
-            stack = new SpecStackEntry(spec, null, null);
+            stack = makeSpecStackEntry(spec, null, null);
             depth = 0;
+            leadingTransition = -1;
         }
 
+        CursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition)
+        {
+            this.stack = stack;
+            this.depth = depth;
+            this.leadingTransition = leadingTransition;
+        }
+
+        @Override
         public int advance()
         {
+            Object child;
             SpecStackEntry current = stack;
-            while (current != null && ++current.curChild >= current.children.length)
+            do
             {
-                current = current.parent;
-                --depth;
-            }
-            if (current == null)
-            {
-                assert depth == -1;
-                return depth;
-            }
+                while (current != null && ++current.curChild >= current.children.length)
+                {
+                    current = current.parent;
+                    --depth;
+                }
+                if (current == null)
+                    return depth = -1;
 
-            Object child = current.children[current.curChild];
-            if (child instanceof Object[])
-                stack = new SpecStackEntry((Object[]) child, null, current);
-            else
-                stack = new SpecStackEntry(new Object[0], child, current);
+                child = current.children[current.curChild];
+            }
+            while (child == null);
+            stack = makeSpecStackEntry(child, current);
 
             return ++depth;
         }
 
-        public int advanceMultiple()
-        {
-            if (stack.curChild + 1 >= stack.children.length)
-                return advance();
+//        @Override
+//        public int advanceMultiple(Trie.TransitionsReceiver receiver)
+//        {
+//            if (stack == null || stack.curChild + 1 >= stack.children.length)
+//                return advance();
+//
+//            ++stack.curChild;
+//            Object child = stack.children[stack.curChild];
+//            while (child instanceof Object[])
+//            {
+//                stack = new SpecStackEntry((Object[]) child, null, null, stack);
+//                if (receiver != null)
+//                    receiver.addPathByte(0x30);
+//                ++depth;
+//                if (stack.children.length == 0)
+//                    return depth;
+//                child = stack.children[++stack.curChild];
+//            }
+//            stack = makeSpecStackEntry(child, stack);
+//
+//
+//            return ++depth;
+//        }
 
-            ++stack.curChild;
-            Object child = stack.children[stack.curChild];
-            while (child instanceof Object[])
-            {
-                stack = new SpecStackEntry((Object[]) child, null, stack);
-                ++depth;
-                if (stack.children.length == 0)
-                    return depth;
-                child = stack.children[0];
-            }
-            stack = new SpecStackEntry(new Object[0], child, stack);
-
-
-            return ++depth;
-        }
-
+        @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
             assert skipDepth <= depth + 1 : "skipTo descends more than one level";
@@ -219,43 +251,63 @@ public abstract class InMemoryTrieTestBase
                 --depth;
                 stack = stack.parent;
             }
+            if (depth < 0)
+                return depth;
+
             int index = skipTransition - 0x30;
-            assert index > stack.curChild : "Backwards skipTo";
-            if (index >= stack.children.length)
-            {
-                --depth;
-                stack = stack.parent;
-                return advance();
-            }
-            stack.curChild = index;
-            return depth;
+            stack.curChild = index - 1;
+            return advance();
         }
 
+        @Override
         public int depth()
         {
             return depth;
         }
 
-        public ByteBuffer content()
+        @Override
+        public T content()
         {
-            return (ByteBuffer) stack.content;
+            return (T) stack.content;
         }
 
+        @Override
         public int incomingTransition()
         {
-            SpecStackEntry parent = stack.parent;
-            return parent != null ? parent.curChild + 0x30 : -1;
+            SpecStackEntry parent = stack != null ? stack.parent : null;
+            return parent != null ? parent.curChild + 0x30 : leadingTransition;
+        }
+
+        @Override
+        public Trie.Cursor<T> alternateBranch()
+        {
+            if (stack.alternateBranch == null)
+                return null;
+            return new CursorFromSpec<>(makeSpecStackEntry(stack.alternateBranch, null), depth, incomingTransition());
+        }
+
+        @Override
+        public Trie.Cursor<T> duplicate()
+        {
+            return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition);
+        }
+
+        static SpecStackEntry copyStack(SpecStackEntry stack)
+        {
+            if (stack == null)
+                return null;
+            return new SpecStackEntry(stack.children, stack.content, stack.alternateBranch, copyStack(stack.parent));
         }
     }
 
-    static Trie<ByteBuffer> specifiedTrie(Object[] nodeDef)
+    static <T> Trie<T> specifiedTrie(Object[] nodeDef)
     {
-        return new Trie<ByteBuffer>()
+        return new Trie<T>()
         {
             @Override
-            protected Cursor<ByteBuffer> cursor()
+            protected Cursor<T> cursor()
             {
-                return new CursorFromSpec(nodeDef);
+                return new CursorFromSpec<>(nodeDef);
             }
         };
     }
@@ -616,7 +668,7 @@ public abstract class InMemoryTrieTestBase
         return bc != null ? bc.byteComparableAsString(VERSION) : "null";
     }
 
-    <T, M> void putSimpleResolve(InMemoryTrie<T> trie,
+    <T> void putSimpleResolve(InMemoryTrie<T> trie,
                                  ByteComparable key,
                                  T value,
                                  Trie.MergeResolver<T> resolver)
@@ -624,11 +676,11 @@ public abstract class InMemoryTrieTestBase
         putSimpleResolve(trie, key, value, resolver, usePut());
     }
 
-    static <T, M> void putSimpleResolve(InMemoryTrie<T> trie,
-                                        ByteComparable key,
-                                        T value,
-                                        Trie.MergeResolver<T> resolver,
-                                        boolean usePut)
+    static <T> void putSimpleResolve(InMemoryTrie<T> trie,
+                                     ByteComparable key,
+                                     T value,
+                                     Trie.MergeResolver<T> resolver,
+                                     boolean usePut)
     {
         try
         {

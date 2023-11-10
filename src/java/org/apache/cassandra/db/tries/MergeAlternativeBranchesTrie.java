@@ -15,43 +15,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.function.Function;
 
-import com.google.common.collect.Iterables;
-
-/**
- * A merged view of multiple tries.
- * <p>
- * This is accomplished by walking the cursors in parallel; the merged cursor takes the position and features of the
- * smallest and advances with it; when multiple cursors are equal, all of them are advanced. The ordered view of the
- * cursors is maintained using a custom binary min-heap, built for efficiently reforming the heap when the top elements
- * are advanced (see {@link CollectionMergeCursor}).
- * <p>
- * Crucial for the efficiency of this is the fact that when they are advanced like this, we can compare cursors'
- * positions by their depth descending and then incomingTransition ascending.
- * <p>
- * See Trie.md for further details.
- */
-class CollectionMergeTrie<T> extends Trie<T>
+public class MergeAlternativeBranchesTrie<T> extends Trie<T>
 {
-    private final CollectionMergeResolver<T> resolver;  // only called on more than one input
-    protected final Collection<? extends Trie<T>> inputs;
+    final private Trie<T> source;
+    final private CollectionMergeResolver<T> resolver;
 
-    CollectionMergeTrie(Collection<? extends Trie<T>> inputs, CollectionMergeResolver<T> resolver)
+    public MergeAlternativeBranchesTrie(Trie<T> source, CollectionMergeResolver<T> resolver)
     {
+        super();
+        this.source = source;
         this.resolver = resolver;
-        this.inputs = inputs;
     }
 
     @Override
     protected Cursor<T> cursor()
     {
-        return new CollectionMergeCursor<>(resolver, inputs);
+        return new MergeAlternativesCursor<>(resolver, source);
     }
 
     /**
@@ -112,7 +97,7 @@ class CollectionMergeTrie<T> extends Trie<T>
      * Note: This is a simplification of the MergeIterator code from CASSANDRA-8915, without the leading ordered
      * section and equalParent flag since comparisons of cursor positions are cheap.
      */
-    static class CollectionMergeCursor<T> implements Cursor<T>
+    static class MergeAlternativesCursor<T> implements Cursor<T>
     {
         private final CollectionMergeResolver<T> resolver;
 
@@ -126,47 +111,33 @@ class CollectionMergeTrie<T> extends Trie<T>
          * Every element i is smaller than or equal to its two children, i.e.
          *     heap[i] <= heap[i*2 + 1] && heap[i] <= heap[i*2 + 2]
          */
-        private final Cursor<T>[] heap;
+        private final List<Cursor<T>> heap;
 
         /**
          * A list used to collect contents during content() calls.
          */
         private final List<T> contents;
 
-        <L> CollectionMergeCursor(CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, Cursor<T>> getter)
+        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, Trie<T> source)
         {
             this.resolver = resolver;
-            int count = inputs.size();
-            // Get cursors for all inputs. Put one of them in head and the rest in the heap.
-            heap = new Cursor[count - 1];
-            contents = new ArrayList<>(count);
-            int i = -1;
-            for (L trie : inputs)
-            {
-                Cursor<T> cursor = getter.apply(trie);
-                if (i >= 0)
-                    heap[i] = cursor;
-                else
-                    head = cursor;
-                ++i;
-            }
-            // The cursors are all currently positioned on the root and thus in valid heap order.
+            heap = new ArrayList<>();
+            contents = new ArrayList<>();
+            head = source.cursor();
         }
 
-        CollectionMergeCursor(CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
-        {
-            this(resolver, inputs, Trie::cursor);
-        }
-
-        CollectionMergeCursor(CollectionMergeCursor<T> copyFrom)
+        MergeAlternativesCursor(MergeAlternativesCursor<T> copyFrom)
         {
             this.resolver = copyFrom.resolver;
-            this.head = copyFrom.head.duplicate();
-            Cursor<T>[] list = new Cursor[copyFrom.heap.length];
-            for (int i = 0; i < list.length; ++i)
-                list[i] = copyFrom.heap[i].duplicate();
+            List<Cursor<T>> list = new ArrayList<>(copyFrom.heap.size());
+            for (Cursor<T> tCursor : copyFrom.heap)
+            {
+                Cursor<T> duplicate = tCursor.duplicate();
+                list.add(duplicate);
+            }
             this.heap = list;
-            this.contents = new ArrayList<>(copyFrom.contents.size()); // no need to copy
+            this.contents = new ArrayList<>(copyFrom.contents.size()); // no need to copy contents
+            this.head = copyFrom.head.duplicate();
         }
 
         /**
@@ -174,7 +145,7 @@ class CollectionMergeTrie<T> extends Trie<T>
          */
         interface HeapOp<T>
         {
-            void apply(CollectionMergeCursor<T> self, Cursor<T> cursor, int index);
+            void apply(MergeAlternativesCursor<T> self, Cursor<T> cursor, int index);
 
             default boolean shouldContinueWithChild(Cursor<T> child, Cursor<T> head)
             {
@@ -200,7 +171,7 @@ class CollectionMergeTrie<T> extends Trie<T>
         {
             void apply(Cursor<T> cursor);
 
-            default void apply(CollectionMergeCursor<T> self, Cursor<T> cursor, int index)
+            default void apply(MergeAlternativesCursor<T> self, Cursor<T> cursor, int index)
             {
                 // Apply the operation, which should advance the position of the element.
                 apply(cursor);
@@ -235,9 +206,9 @@ class CollectionMergeTrie<T> extends Trie<T>
          */
         private void applyToSelectedElementsInHeap(HeapOp<T> action, int index)
         {
-            if (index >= heap.length)
+            if (index >= heap.size())
                 return;
-            Cursor<T> item = heap[index];
+            Cursor<T> item = heap.get(index);
             if (!action.shouldContinueWithChild(item, head))
                 return;
 
@@ -260,18 +231,34 @@ class CollectionMergeTrie<T> extends Trie<T>
             while (true)
             {
                 int next = index * 2 + 1;
-                if (next >= heap.length)
+                if (next >= heap.size())
                     break;
                 // Select the smaller of the two children to push down to.
-                if (next + 1 < heap.length && greaterCursor(heap[next], heap[next + 1]))
+                if (next + 1 < heap.size() && greaterCursor(heap.get(next), heap.get(next + 1)))
                     ++next;
                 // If the child is greater or equal, the invariant has been restored.
-                if (!greaterCursor(item, heap[next]))
+                if (!greaterCursor(item, heap.get(next)))
                     break;
-                heap[index] = heap[next];
+                heap.set(index, heap.get(next));
                 index = next;
             }
-            heap[index] = item;
+            heap.set(index, item);
+        }
+
+        /**
+         * Pull the given state up in the heap from the given index until it finds its proper place.
+         */
+        private void heapifyUp(Cursor<T> item, int index)
+        {
+            while (index > 0)
+            {
+                int parent = (index - 1) / 2;
+                if (!greaterCursor(heap.get(parent), item))
+                    break;
+                heap.set(index, heap.get(parent));
+                index = parent;
+            }
+            heap.set(index, item);
         }
 
         /**
@@ -282,23 +269,60 @@ class CollectionMergeTrie<T> extends Trie<T>
          */
         private int maybeSwapHead(int headDepth)
         {
-            int heap0Depth = heap[0].depth();
+            if (heap.isEmpty())
+                return headDepth;
+
+            int heap0Depth = heap.get(0).depth();
             if (headDepth > heap0Depth ||
-                (headDepth == heap0Depth && head.incomingTransition() <= heap[0].incomingTransition()))
+                (headDepth == heap0Depth && head.incomingTransition() <= heap.get(0).incomingTransition()))
                 return headDepth;   // head is still smallest
 
-            // otherwise we need to swap heap and heap[0]
+            // otherwise we need to swap heap and heap.get(0)
             Cursor<T> newHeap0 = head;
-            head = heap[0];
+            head = heap.get(0);
             heapifyDown(newHeap0, 0);
             return heap0Depth;
+        }
+
+        private int maybeSwapHeadAndEnterNode(int headDepth)
+        {
+            headDepth = maybeSwapHead(headDepth);
+            int sizeBeforeAlternatives = removeTrailingDoneCursors();
+            addAlternative(head, -1);
+            applyToEqualOnHeap(MergeAlternativesCursor::addAlternative);
+            for (int i = sizeBeforeAlternatives; i < heap.size(); ++i)
+                heapifyUp(heap.get(i), i);
+            return headDepth;
+        }
+
+        private int removeTrailingDoneCursors()
+        {
+            for (int i = heap.size() - 1; i >= 0; --i)
+            {
+                Cursor<T> cursor = heap.get(i);
+                if (cursor.depth() != -1)
+                    return i + 1;
+                heap.remove(i);
+            }
+            return 0;
+        }
+
+        private void addAlternative(Cursor<T> cursor, int index)
+        {
+            Cursor<T> alternative = cursor.alternateBranch();
+            while (alternative != null)
+            {
+                assert equalCursor(head, alternative);
+                heap.add(alternative);
+                alternative = alternative.alternateBranch();
+            }
         }
 
         @Override
         public int advance()
         {
             advanceEqualAndRestoreHeap(Cursor::advance);
-            return maybeSwapHead(head.advance());
+            return maybeSwapHeadAndEnterNode(head.advance());
         }
 
         @Override
@@ -306,12 +330,12 @@ class CollectionMergeTrie<T> extends Trie<T>
         {
             // If the current position is present in just one cursor, we can safely descend multiple levels within
             // its branch as no one of the other tries has content for it.
-            if (equalCursor(heap[0], head))
+            if (!heap.isEmpty() && equalCursor(heap.get(0), head))
                 return advance();   // More than one source at current position, do single-step advance.
 
             // If there are no children, i.e. the cursor ascends, we have to check if it's become larger than some
             // other candidate.
-            return maybeSwapHead(head.advanceMultiple(receiver));
+            return maybeSwapHeadAndEnterNode(head.advanceMultiple(receiver));
         }
 
         @Override
@@ -344,7 +368,7 @@ class CollectionMergeTrie<T> extends Trie<T>
             }
 
             applyToSelectedElementsInHeap(new SkipTo(), 0);
-            return maybeSwapHead(head.skipTo(skipDepth, skipTransition));
+            return maybeSwapHeadAndEnterNode(head.skipTo(skipDepth, skipTransition));
         }
 
         @Override
@@ -362,7 +386,7 @@ class CollectionMergeTrie<T> extends Trie<T>
         @Override
         public T content()
         {
-            applyToEqualOnHeap(CollectionMergeCursor::collectContent);
+            applyToEqualOnHeap(MergeAlternativesCursor::collectContent);
             collectContent(head, -1);
 
             T toReturn;
@@ -392,66 +416,13 @@ class CollectionMergeTrie<T> extends Trie<T>
         @Override
         public Cursor<T> alternateBranch()
         {
-            class Collector implements HeapOp<T>
-            {
-                Cursor<T> first = null;
-                List<Cursor<T>> list = null;
-
-                @Override
-                public void apply(CollectionMergeCursor<T> self, Cursor<T> cursor, int index)
-                {
-                    Cursor<T> alternate = cursor.alternateBranch();
-                    if (alternate != null)
-                    {
-                        if (first == null)
-                            first = alternate;
-                        else
-                        {
-                            if (list == null)
-                            {
-                                list = new ArrayList<>();
-                                list.add(first);
-                            }
-                            list.add(alternate);
-                        }
-                    }
-                }
-            }
-            var collector = new Collector();
-
-            collector.apply(this, head, -1);
-            applyToEqualOnHeap(collector);
-            if (collector.first == null)
-                return null;
-
-            if (collector.list == null)
-                return collector.first;
-
-            return new CollectionMergeCursor<>(resolver, collector.list, x -> x);
+            return null;
         }
 
         @Override
         public Cursor<T> duplicate()
         {
-            return new CollectionMergeCursor<>(this);
-        }
-    }
-
-    /**
-     * Special instance for sources that are guaranteed distinct. The main difference is that we can form unordered
-     * value list by concatenating sources.
-     */
-    static class Distinct<T> extends CollectionMergeTrie<T>
-    {
-        Distinct(Collection<? extends Trie<T>> inputs)
-        {
-            super(inputs, throwingResolver());
-        }
-
-        @Override
-        public Iterable<T> valuesUnordered()
-        {
-            return Iterables.concat(Iterables.transform(inputs, Trie::valuesUnordered));
+            return new MergeAlternativesCursor<>(this);
         }
     }
 }

@@ -21,13 +21,13 @@ import com.google.common.collect.Iterables;
 
 /**
  * A merged view of two tries.
- *
+ * <p>
  * This is accomplished by walking the two cursors in parallel; the merged cursor takes the position and features of the
  * smaller and advances with it; when the two cursors are equal, both are advanced.
- *
+ * <p>
  * Crucial for the efficiency of this is the fact that when they are advanced like this, we can compare cursors'
  * positions by their depth descending and then incomingTransition ascending.
- *
+ * <p>
  * See Trie.md for further details.
  */
 class MergeTrie<T> extends Trie<T>
@@ -66,6 +66,23 @@ class MergeTrie<T> extends Trie<T>
             assert c1.depth() == 0;
             assert c2.depth() == 0;
             atC1 = atC2 = true;
+        }
+
+        MergeCursor(MergeResolver<T> resolver, Cursor<T> c1, Cursor<T> c2)
+        {
+            this.resolver = resolver;
+            this.c1 = c1;
+            this.c2 = c2;
+            atC1 = atC2 = true;
+        }
+
+        public MergeCursor(MergeCursor<T> copyFrom)
+        {
+            this.resolver = copyFrom.resolver;
+            this.c1 = copyFrom.c1.duplicate();
+            this.c2 = copyFrom.c2.duplicate();
+            this.atC1 = copyFrom.atC1;
+            this.atC2 = copyFrom.atC2;
         }
 
         @Override
@@ -140,6 +157,7 @@ class MergeTrie<T> extends Trie<T>
             return atC1 ? c1.incomingTransition() : c2.incomingTransition();
         }
 
+        @Override
         public T content()
         {
             T mc = atC2 ? c2.content() : null;
@@ -150,6 +168,24 @@ class MergeTrie<T> extends Trie<T>
                 return mc;
             else
                 return resolver.resolve(nc, mc);
+        }
+
+        @Override
+        public Cursor<T> alternateBranch()
+        {
+            var ac1 = atC1 ? c1.alternateBranch() : null;
+            var ac2 = atC2 ? c2.alternateBranch() : null;
+            if (ac1 == null)
+                return ac2; // may be null
+            if (ac2 == null)
+                return ac1;
+            return new MergeCursor<>(resolver, ac1, ac2);
+        }
+
+        @Override
+        public Cursor<T> duplicate()
+        {
+            return new MergeCursor<>(this);
         }
     }
 

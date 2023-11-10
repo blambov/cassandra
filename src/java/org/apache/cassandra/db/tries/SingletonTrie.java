@@ -41,10 +41,28 @@ class SingletonTrie<T> extends Trie<T>
 
     class Cursor implements Trie.Cursor<T>
     {
-        private final ByteSource src = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
-        private int currentDepth = 0;
-        private int currentTransition = -1;
-        private int nextTransition = src.next();
+        private ByteSource src;
+        private int currentDepth;
+        private int currentTransition;
+        private int nextTransition;
+
+        Cursor()
+        {
+            src = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
+            currentDepth = 0;
+            currentTransition = -1;
+            nextTransition = src.next();
+        }
+
+        Cursor(Cursor copyFrom)
+        {
+            ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
+            copyFrom.src = dupe;
+            src = dupe.duplicate();
+            currentDepth = copyFrom.currentDepth;
+            currentTransition = copyFrom.currentTransition;
+            nextTransition = copyFrom.nextTransition;
+        }
 
         @Override
         public int advance()
@@ -94,6 +112,12 @@ class SingletonTrie<T> extends Trie<T>
                 return currentDepth = -1;   // request is skipping over our path
 
             return advance();
+        }
+
+        @Override
+        public Trie.Cursor<T> duplicate()
+        {
+            return new Cursor(this);
         }
 
         @Override
