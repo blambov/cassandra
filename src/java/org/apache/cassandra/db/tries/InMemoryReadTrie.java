@@ -617,6 +617,20 @@ public class InMemoryReadTrie<T> extends Trie<T>
         }
 
         @Override
+        public MemtableCursor alternateBranch()
+        {
+            // TODO: implement
+            return null;
+        }
+
+        @Override
+        public MemtableCursor duplicate()
+        {
+            // TODO: implement
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public int depth()
         {
             return depth;
@@ -1025,9 +1039,15 @@ public class InMemoryReadTrie<T> extends Trie<T>
     @Override
     public String dump(Function<T, String> contentToString)
     {
-        MemtableCursor source = cursor();
         class TypedNodesCursor implements Cursor<String>
         {
+            final MemtableCursor source;
+
+            TypedNodesCursor(MemtableCursor source)
+            {
+                this.source = source;
+            }
+
             @Override
             public int advance()
             {
@@ -1045,6 +1065,22 @@ public class InMemoryReadTrie<T> extends Trie<T>
             public int skipTo(int skipDepth, int skipTransition)
             {
                 return source.skipTo(skipDepth, skipTransition);
+            }
+
+            @Override
+            public Cursor<String> alternateBranch()
+            {
+                MemtableCursor alternate = source.alternateBranch();
+                if (alternate != null)
+                    return new TypedNodesCursor(alternate);
+                else
+                    return null;
+            }
+
+            @Override
+            public Cursor<String> duplicate()
+            {
+                return new TypedNodesCursor(source.duplicate());
             }
 
             @Override
@@ -1093,6 +1129,6 @@ public class InMemoryReadTrie<T> extends Trie<T>
                     return type;
             }
         }
-        return process(new TrieDumper<>(Function.identity()), new TypedNodesCursor());
+        return process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(cursor()));
     }
 }

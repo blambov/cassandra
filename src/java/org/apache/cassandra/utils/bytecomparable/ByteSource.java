@@ -19,8 +19,10 @@ package org.apache.cassandra.utils.bytecomparable;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import org.apache.cassandra.db.marshal.ValueAccessor;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable.Version;
 import org.apache.cassandra.utils.memory.MemoryUtil;
 
@@ -750,16 +752,47 @@ public interface ByteSource
      */
     public static <V> ByteSource fixedLength(ValueAccessor<V> accessor, V data)
     {
-        return new ByteSource()
-        {
-            int pos = -1;
+        return new UnencodedBytesByAccessor<>(accessor, data, 0, accessor.size(data));
+    }
 
-            @Override
-            public int next()
-            {
-                return ++pos < accessor.size(data) ? accessor.getByte(data, pos) & 0xFF : END_OF_STREAM;
-            }
-        };
+    class UnencodedBytesByAccessor<V> implements Duplicatable
+    {
+        int pos;
+        final int end;
+        final V data;
+        final ValueAccessor<V> accessor;
+
+        UnencodedBytesByAccessor(ValueAccessor<V> accessor, V data, int start, int end)
+        {
+            this.data = data;
+            this.accessor = accessor;
+            this.pos = start;
+            this.end = end;
+        }
+
+        @Override
+        public int next()
+        {
+            return pos < end ? accessor.getByte(data, pos++) & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public int peek()
+        {
+            return pos < end ? accessor.getByte(data, pos) & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public byte[] remainingBytesToArray()
+        {
+            return accessor.toArray(data, pos, end - pos);
+        }
+
+        @Override
+        public Duplicatable duplicate()
+        {
+            return new UnencodedBytesByAccessor(accessor, data, pos, end);
+        }
     }
 
     /**
@@ -770,16 +803,45 @@ public interface ByteSource
      */
     public static ByteSource fixedLength(ByteBuffer b)
     {
-        return new ByteSource()
-        {
-            int pos = b.position() - 1;
+        return new UnencodedByteBuffer(b, b.position(), b.limit());
+    }
 
-            @Override
-            public int next()
-            {
-                return ++pos < b.limit() ? b.get(pos) & 0xFF : END_OF_STREAM;
-            }
-        };
+    class UnencodedByteBuffer implements Duplicatable
+    {
+        int pos;
+        final int end;
+        final ByteBuffer b;
+
+        UnencodedByteBuffer(ByteBuffer b, int start, int end)
+        {
+            this.b = b;
+            this.pos = start;
+            this.end = end;
+        }
+
+        @Override
+        public int next()
+        {
+            return pos < end ? b.get(pos++) & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public int peek()
+        {
+            return pos < end ? b.get(pos) & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public byte[] remainingBytesToArray()
+        {
+            return ByteBufferUtil.getArray(b, pos, end - pos);
+        }
+
+        @Override
+        public Duplicatable duplicate()
+        {
+            return new UnencodedByteBuffer(b, pos, end);
+        }
     }
 
     /**
@@ -788,36 +850,70 @@ public interface ByteSource
      * underlying type has a fixed length.
      * In tests, this method is also used to generate non-escaped test cases.
      */
-    public static ByteSource fixedLength(byte[] b)
+    public static Duplicatable fixedLength(byte[] b)
     {
         return fixedLength(b, 0, b.length);
     }
 
-    public static ByteSource fixedLength(byte[] b, int offset, int length)
+    public static Duplicatable fixedLength(byte[] b, int offset, int length)
     {
         checkArgument(offset >= 0 && offset <= b.length);
         checkArgument(length >= 0 && offset + length <= b.length);
 
-        return new ByteSource()
-        {
-            int pos = offset - 1;
-
-            @Override
-            public int next()
-            {
-                return ++pos < offset + length ? b[pos] & 0xFF : END_OF_STREAM;
-            }
-        };
+        return new UnencodedBytes(b, offset, offset + length);
     }
 
-    public class Peekable implements ByteSource
+    class UnencodedBytes implements Duplicatable
+    {
+        int pos;
+        final int end;
+        final byte[] b;
+
+        UnencodedBytes(byte[] b, int start, int end)
+        {
+            this.b = b;
+            this.pos = start;
+            this.end = end;
+        }
+
+        @Override
+        public int next()
+        {
+            return pos < end ? b[pos++] & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public int peek()
+        {
+            return pos < end ? b[pos] & 0xFF : END_OF_STREAM;
+        }
+
+        @Override
+        public byte[] remainingBytesToArray()
+        {
+            return Arrays.copyOfRange(b, pos, end);
+        }
+
+        @Override
+        public Duplicatable duplicate()
+        {
+            return new UnencodedBytes(b, pos, end);
+        }
+    }
+
+    interface Peekable extends ByteSource
+    {
+        int peek();
+    }
+
+    public class PeekableImpl implements Peekable
     {
         private static final int NONE = Integer.MIN_VALUE;
 
         private final ByteSource wrapped;
         private int peeked = NONE;
 
-        public Peekable(ByteSource wrapped)
+        public PeekableImpl(ByteSource wrapped)
         {
             this.wrapped = wrapped;
         }
@@ -852,6 +948,24 @@ public interface ByteSource
             return null;
         return (p instanceof Peekable)
                ? (Peekable) p
-               : new Peekable(p);
+               : new PeekableImpl(p);
+    }
+
+    interface ConvertableToArray extends Peekable
+    {
+        byte[] remainingBytesToArray();
+    }
+
+    interface Duplicatable extends ConvertableToArray
+    {
+        Duplicatable duplicate();
+    }
+
+    public static Duplicatable duplicatable(ByteSource src)
+    {
+        if (src instanceof Duplicatable)
+            return (Duplicatable) src;
+
+        return fixedLength(ByteSourceInverse.readBytes(src));
     }
 }

@@ -45,7 +45,7 @@ public class IntersectionTrie<T> extends Trie<T>
     @Override
     protected Cursor<T> cursor()
     {
-        return new IntersectionCursor(trie.cursor(), set.cursor());
+        return new IntersectionCursor<>(trie.cursor(), set.cursor());
     }
 
     private static class IntersectionCursor<T> implements Cursor<T>
@@ -57,9 +57,14 @@ public class IntersectionTrie<T> extends Trie<T>
 
         public IntersectionCursor(Cursor<T> source, Cursor<Contained> set)
         {
+            this(source, set, 0);
+        }
+
+        IntersectionCursor(Cursor<T> source, Cursor<Contained> set, int depth)
+        {
             this.source = source;
             this.set = set;
-            intersectionFound(0, 0);
+            intersectionFound(depth);
         }
 
         @Override
@@ -106,6 +111,26 @@ public class IntersectionTrie<T> extends Trie<T>
                    : advanceSetFirst(set.advance());
         }
 
+        @Override
+        public Cursor<T> alternateBranch()
+        {
+            Cursor<T> alternate = source.alternateBranch();
+            if (alternate == null)
+                return null;
+            return makeCursor(alternate, set.duplicate(), depth());
+        }
+
+        @Override
+        public Cursor<T> duplicate()
+        {
+            return makeCursor(source.duplicate(), set.duplicate(), depth());
+        }
+
+        Cursor<T> makeCursor(Cursor<T> source, Cursor<Contained> set, int depth)
+        {
+            return new IntersectionCursor<>(source, set, depth);
+        }
+
         private int advanceSourceFirst(int sourceDepth)
         {
             if (sourceDepth > setQueryDepth)
@@ -124,7 +149,7 @@ public class IntersectionTrie<T> extends Trie<T>
                 if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
                     break;
             }
-            return intersectionFound(setDepth, sourceDepth);
+            return intersectionFound(setDepth);
         }
 
         private int advanceSetFirst(int setDepth)
@@ -142,16 +167,16 @@ public class IntersectionTrie<T> extends Trie<T>
                 if (setDepth == sourceDepth && (sourceDepth == -1 || setTransition == sourceTransition))
                     break;
             }
-            return intersectionFound(setDepth, sourceDepth);
+            return intersectionFound(setDepth);
         }
 
-        private int intersectionFound(int setDepth, int sourceDepth)
+        private int intersectionFound(int depth)
         {
             contained = set.content();
             if (contained == Contained.FULLY)
-                setQueryDepth = setDepth;
+                setQueryDepth = depth;
 
-            return sourceDepth;
+            return depth;
         }
     }
 
@@ -173,7 +198,12 @@ public class IntersectionTrie<T> extends Trie<T>
     {
         public SetIntersectionCursor(Cursor<Contained> source, Cursor<Contained> set)
         {
-            super(source, set);
+            this(source, set, 0);
+        }
+
+        public SetIntersectionCursor(Cursor<Contained> source, Cursor<Contained> set, int depth)
+        {
+            super(source, set, depth);
         }
 
         @Override
@@ -188,6 +218,12 @@ public class IntersectionTrie<T> extends Trie<T>
                 return Contained.PARTIALLY;
             else
                 return null;
+        }
+
+        @Override
+        Cursor<Contained> makeCursor(Cursor<Contained> source, Cursor<Contained> set, int depth)
+        {
+            return new SetIntersectionCursor(source, set, depth);
         }
     }
 }

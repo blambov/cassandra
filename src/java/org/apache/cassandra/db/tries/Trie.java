@@ -238,7 +238,50 @@ public abstract class Trie<T>
          * @return the new depth, always <= previous depth; -1 if the trie is exhausted
          */
         int skipTo(int depth, int incomingTransition);
+
+        /**
+         * If this node has an alternate branch, returns a Cursor that walks over it.
+         * <p>
+         * Alternate branches are mechanisms for defining an epsilon (i.e. zero-length) transition to another point in
+         * the trie. Theoretically the most useful application for this is to permit non-deterministic variations of
+         * automata, including suffix tries. What is most important for us, however, is that this allows one to have
+         * sections of the trie that are separately queriable. More specifically, we can use an alternate branch to
+         * store deletions; such a branch would not affect normal iteration over the trie, and also enables one to seek
+         * into each of the two branches independently: to find active range deletion for a given boundary, which
+         * would be the closest deletion but may be millions of live data entries away; and similarly to find the first
+         * live item after a boundary in a stream of millions of deletions.
+         * <p>
+         * Most operation implementations only touch alternate branches if they are explicitly asked to. Walks, entry
+         * and value sets will not see any content in alternate branches. Merges will merge and present normal and
+         * alternate branches separately and intersection will use the same intersecting set for both normal and
+         * alternate paths (ignoring any alternate part in the intersecting set).
+         * <p>
+         * To perform a walk or enumeration that includes alternate branches, one must explicitly construct a merged
+         * (in other words, deterministic) trie view by calling {@link Trie#mergeAlternativeBranches}.
+         */
+        default Cursor<T> alternateBranch()
+        {
+            return null;
+        }
+
+        /**
+         * Make a copy of this cursor which can be separately advanced/queried from the current state.
+         */
+        Cursor<T> duplicate();
     }
+
+    // done: determinization / mergeAlternatives (needed to run any tests)
+    // done: alternate branch merge
+    // done: alternate branch intersect
+    // TODO: test duplicate (ByteSource and Cursor)
+    // TODO: adding alternate paths (put) and branches (apply) to InMemoryTrie
+    // TODO: deletion-aware merge (pluggable)
+    // TODO: deletion-aware InMemoryTrie methods (pluggable)
+    // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
+    // TODO: deletion summarization (with timestamps? pluggable)
+    // TODO: consider mayHaveAlternatives flag
+
+    // TODO: reverse iteration
 
     protected abstract Cursor<T> cursor();
 
@@ -334,7 +377,7 @@ public abstract class Trie<T>
      */
     public void forEachEntry(BiConsumer<ByteComparable, T> consumer)
     {
-        process(new TrieEntriesWalker.WithConsumer<T>(consumer));
+        process(new TrieEntriesWalker.WithConsumer<>(consumer));
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
@@ -609,7 +652,7 @@ public abstract class Trie<T>
                     return depth = -1;
                 }
 
-                public int skipTo(int depth, int incomingTransition)
+                public int skipTo(int skipDepth, int skipTransition)
                 {
                     return depth = -1;
                 }
@@ -628,6 +671,11 @@ public abstract class Trie<T>
                 {
                     return -1;
                 }
+
+                public Cursor<Object> duplicate()
+                {
+                    return depth == 0 ? EMPTY.cursor() : this;
+                }
             };
         }
     };
@@ -638,7 +686,7 @@ public abstract class Trie<T>
         return (Trie<T>) EMPTY;
     }
 
-    enum Contained
+    public enum Contained
     {
         PARTIALLY,
         FULLY
@@ -693,4 +741,9 @@ public abstract class Trie<T>
             return Contained.PARTIALLY;
         }
     };
+
+    public Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)
+    {
+        return new MergeAlternativeBranchesTrie<>(this, resolver);
+    }
 }

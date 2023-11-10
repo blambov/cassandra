@@ -367,6 +367,9 @@ public final class ByteSourceInverse
      */
     public static byte[] readBytes(ByteSource byteSource, final int initialBufferCapacity)
     {
+        if (byteSource instanceof ByteSource.ConvertableToArray)
+            return ((ByteSource.ConvertableToArray) byteSource).remainingBytesToArray();
+
         Preconditions.checkNotNull(byteSource);
 
         int readBytes = 0;

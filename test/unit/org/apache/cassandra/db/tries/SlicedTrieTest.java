@@ -34,7 +34,6 @@ import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
@@ -57,13 +56,13 @@ public class SlicedTrieTest
     "s",
     "q",
     "\000",
-    "\777",
-    "\777\000",
-    "\000\777",
+    "\377",
+    "\377\000",
+    "\000\377",
     "\000\000",
     "\000\000\000",
-    "\000\000\777",
-    "\777\777"
+    "\000\000\377",
+    "\377\377"
     });
     public static final ByteComparable[] KEYS = toByteComparable(new String[]{
     "test1",
@@ -77,12 +76,12 @@ public class SlicedTrieTest
     "sort",
     "sorting",
     "square",
-    "\777\000",
-    "\000\777",
+    "\377\000",
+    "\000\377",
     "\000\000",
     "\000\000\000",
-    "\000\000\777",
-    "\777\777"
+    "\000\000\377",
+    "\377\377"
     });
     public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, Trie.BYTE_COMPARABLE_VERSION);
     private static final int COUNT = 15000;
@@ -318,10 +317,10 @@ public class SlicedTrieTest
             @Override
             protected Cursor<Integer> cursor()
             {
-                return new singleLevelCursor();
+                return new SingleLevelCursor();
             }
 
-            class singleLevelCursor implements Cursor<Integer>
+            class SingleLevelCursor implements Cursor<Integer>
             {
                 int current = -1;
 
@@ -363,6 +362,14 @@ public class SlicedTrieTest
                 public Integer content()
                 {
                     return current;
+                }
+
+                @Override
+                public Cursor<Integer> duplicate()
+                {
+                    SingleLevelCursor copy = new SingleLevelCursor();
+                    copy.current = current;
+                    return copy;
                 }
             }
         };
