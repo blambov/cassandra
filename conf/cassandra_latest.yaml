@@ -6,6 +6,24 @@
 #   full explanations of configuration directives
 # /NOTE
 
+# NOTE:
+#   This file is provided in two versions:
+#     - cassandra.yaml: Contains configuration defaults for a "compatible"
+#       configuration that operates using settings that are backwards-compatible
+#       and interoperable with machines running older versions of Cassandra.
+#       This version is provided to facilitate pain-free upgrades for existing
+#       users of Cassandra running in production who want to gradually and
+#       carefully introduce new features.
+#     - cassandra_latest.yaml: Contains configuration defaults that enable
+#       the latest features of Cassandra, including improved functionality as
+#       well as higher performance. This version is provided for new users of
+#       Cassandra who want to get the most out of their cluster, and for users
+#       evaluating the technology.
+#       To use this version, simply copy this file over cassandra.yaml, or specify
+#       it using the -Dcassandra.config system property, e.g. by running
+#         cassandra -Dcassandra.config=file:/$CASSANDRA_HOME/conf/cassandra_latest.yaml
+# /NOTE
+
 # The name of the cluster. This is mainly used to prevent machines in
 # one logical cluster from joining another.
 cluster_name: 'Test Cluster'
@@ -461,7 +479,7 @@ prepared_statements_cache_size:
 #
 # This is only relevant to SSTable formats that use key cache, e.g. BIG.
 # Min unit: MiB
-key_cache_size:
+key_cache_size: 0MiB
 
 # Duration in seconds after which Cassandra should
 # save the key cache. Caches are saved to saved_caches_directory as
@@ -474,7 +492,7 @@ key_cache_size:
 # This is only relevant to SSTable formats that use key cache, e.g. BIG.
 # Default is 14400 or 4 hours.
 # Min unit: s
-key_cache_save_period: 4h
+# key_cache_save_period: 4h
 
 # Number of keys from the key cache to save
 # Disabled by default, meaning all keys are going to be saved
@@ -605,6 +623,8 @@ commitlog_segment_size: 32MiB
 #   - class_name: LZ4Compressor
 #     parameters:
 #         -
+# TODO: Add commitlog_access_mode: direct
+
 
 # Set the disk access mode for writing commitlog segments. The allowed values are:
 # - auto: version dependent optimal setting
@@ -614,7 +634,7 @@ commitlog_segment_size: 32MiB
 # - direct: use direct I/O - available only when the commitlog is neither compressed nor encrypted
 # - standard: use standard I/O - available only when the commitlog is compressed or encrypted
 # The default setting is legacy when the storage compatibility is set to 4 or auto otherwise.
-commitlog_disk_access_mode: legacy
+commitlog_disk_access_mode: direct
 
 # Compression to apply to SSTables as they flush for compressed tables.
 # Note that tables without compression enabled do not respect this flag.
@@ -703,6 +723,31 @@ concurrent_materialized_view_writes: 32
 # spinning (for spinning disks)
 # disk_optimization_strategy: ssd
 
+# Supported memtable implementations and selected default.
+# Currently Cassandra offers two memtable implementations:
+# - SkipListMemtable is the legacy memtable implementation provided by earlier
+#   versions of Cassandra.
+# - TrieMemtable is a new memtable that utilizes a trie data structure. This
+#   implementation significantly reduces garbage collection load by moving
+#   more of the sstable metadata off-heap, fits more data in the same allocation
+#   and can reliably handle higher write throughput.
+#   Because the trie memtable is a sharded single-writer solution, it can perform
+#   worse when the load is very unevenly distributed, e.g. when most of the writes
+#   access a very small number of partitions or with legacy secondary indexes.
+# The memtable implementation can be selected per table by setting memtable
+# property in the table definition to one of the configurations specified below.
+# If the memtable property is not set, the "default" configuration will be used.
+# See src/java/org/apache/cassandra/db/memtable/Memtable_API.md for further
+# information.
+memtable:
+  configurations:
+    skiplist:
+      class_name: SkipListMemtable
+    trie:
+      class_name: TrieMemtable
+    default:
+      inherits: trie
+
 # Total permitted memory to use for memtables. Cassandra will stop
 # accepting writes when the limit is exceeded until a flush completes,
 # and will trigger a flush based on memtable_cleanup_threshold
@@ -736,7 +781,7 @@ concurrent_materialized_view_writes: 32
 #
 # offheap_objects
 #    off heap objects
-memtable_allocation_type: heap_buffers
+memtable_allocation_type: offheap_objects
 
 # Limit memory usage for Merkle tree calculations during repairs of a certain
 # table and common token range. Repair commands targetting multiple tables or
@@ -841,22 +886,6 @@ memtable_allocation_type: heap_buffers
 # new space for cdc-tracked tables has been made available. Default to 250ms
 # Min unit: ms
 # cdc_free_space_check_interval: 250ms
-
-# A fixed memory pool size in MB for for SSTable index summaries. If left
-# empty, this will default to 5% of the heap size. If the memory usage of
-# all index summaries exceeds this limit, SSTables with low read rates will
-# shrink their index summaries in order to meet this limit.  However, this
-# is a best-effort process. In extreme conditions Cassandra may need to use
-# more than this amount of memory.
-# Min unit: KiB
-index_summary_capacity:
-
-# How frequently index summaries should be resampled.  This is done
-# periodically to redistribute memory from the fixed-size pool to sstables
-# proportional their recent read rates.  Setting to null value will disable this
-# process, leaving existing index summaries at their current sampling level.
-# Min unit: m
-index_summary_resize_interval: 60m
 
 # Whether to, when doing sequential writing, fsync() at intervals in
 # order to force the operating system to flush the dirty
@@ -1077,8 +1106,8 @@ snapshot_links_per_second: 0
 # The default format is "big", the legacy SSTable format in use since Cassandra 3.0.
 # Cassandra versions 5.0 and later also support the trie-indexed "bti" format,
 # which offers better performance.
-#sstable:
-#  selected_format: big
+sstable:
+  selected_format: bti
 
 # Granularity of the collation index of rows within a partition.
 # Applies to both BIG and BTI SSTable formats. In both formats,
@@ -1094,19 +1123,7 @@ snapshot_links_per_second: 0
 # Leave undefined to use a default suitable for the SSTable format
 # in use (64 KiB for BIG, 16KiB for BTI).
 # Min unit: KiB
-# column_index_size: 4KiB
-
-# Per sstable indexed key cache entries (the collation index in memory
-# mentioned above) exceeding this size will not be held on heap.
-# This means that only partition information is held on heap and the
-# index entries are read from disk.
-#
-# Note that this size refers to the size of the
-# serialized index information and not the size of the partition.
-#
-# This is only relevant to SSTable formats that use key cache, e.g. BIG.
-# Min unit: KiB
-column_index_cache_size: 2KiB
+column_index_size: 4KiB
 
 # Default compaction strategy, applied when a table's parameters do not
 # specify compaction.
@@ -1115,11 +1132,14 @@ column_index_cache_size: 2KiB
 # The default is to use SizeTieredCompactionStrategy, with its default
 # compaction parameters.
 #
-# default_compaction:
-#   class_name: UnifiedCompactionStrategy
-#   parameters:
-#     scaling_parameters: T4
-#     target_sstable_size: 1GiB
+default_compaction:
+  class_name: UnifiedCompactionStrategy
+  parameters:
+    scaling_parameters: T4
+    max_sstables_to_compact: 64
+    target_sstable_size: 1GiB
+    sstable_growth: 0.3333333333333333
+    min_sstable_size: 100MiB
 
 
 # Number of simultaneous compactions to allow, NOT including
@@ -1136,7 +1156,7 @@ column_index_cache_size: 2KiB
 #
 # If your data directories are backed by SSD, you should increase this
 # to the number of cores.
-# concurrent_compactors: 1
+concurrent_compactors: 8
 
 # Number of simultaneous repair validations to allow. If not set or set to
 # a value less than 1, it defaults to the value of concurrent_compactors.
@@ -1185,7 +1205,7 @@ uuid_sstable_identifiers_enabled: false
 # When unset, the default is enabled. While this feature tries to keep the
 # disks balanced, it cannot guarantee it. This feature will be automatically
 # disabled if internode encryption is enabled.
-# stream_entire_sstables: true
+stream_entire_sstables: true
 
 # Throttles entire SSTable outbound streaming file transfers on
 # this node to the given total throughput in Mbps.
@@ -2113,11 +2133,11 @@ drop_compact_storage_enabled: false
 # The default secondary index implementation when CREATE INDEX does not specify one via USING.
 # ex. "legacy_local_table" - (default) legacy secondary index, implemented as a hidden table
 # ex. "sai" - "storage-attched" index, implemented via optimized SSTable/Memtable-attached indexes
-#default_secondary_index: legacy_local_table
+default_secondary_index: sai
 
 # Whether a default secondary index implementation is allowed. If this is "false", CREATE INDEX must
 # specify an index implementation via USING.
-#default_secondary_index_enabled: true
+default_secondary_index_enabled: true
 
 # Startup Checks are executed as part of Cassandra startup process, not all of them
 # are configurable (so you can disable them) but these which are enumerated bellow.
@@ -2170,4 +2190,8 @@ drop_compact_storage_enabled: false
 #   and ensures stability. If Cassandra was started at the previous version by accident, a node with disabled
 #   compatibility mode would no longer toggle behaviors as when it was running in the UPGRADING mode.
 #
-storage_compatibility_mode: CASSANDRA_4
+storage_compatibility_mode: NONE
+
+# Enable lightweight transaction improvements.
+paxos_variant: v2
+paxos_state_purging: repaired
