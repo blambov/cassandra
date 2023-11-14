@@ -33,6 +33,8 @@ memtable_allocation_type: offheap_objects
 
 commitlog_disk_access_mode: direct
 
+trickle_fsync: true
+
 sstable:
   selected_format: bti
 

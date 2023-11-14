@@ -1131,14 +1131,14 @@ column_index_cache_size: 2KiB
 # specify compaction.
 # The selected compaction strategy will also apply to system tables.
 #
-# The default is to use SizeTieredCompactionStrategy, with its default
-# compaction parameters.
+# If no value is specified, the default is to use SizeTieredCompactionStrategy,
+# with its default compaction parameters.
 #
 # default_compaction:
-#   class_name: UnifiedCompactionStrategy
+#   class_name: SizeTieredCompactionStrategy
 #   parameters:
-#     scaling_parameters: T4
-#     target_sstable_size: 1GiB
+#     min_threshold: 4
+#     max_threshold: 32
 
 
 # Number of simultaneous compactions to allow, NOT including

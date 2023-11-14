@@ -891,7 +891,7 @@ memtable_allocation_type: offheap_objects
 # buffers. Enable this to avoid sudden dirty buffer flushing from
 # impacting read latencies. Almost always a good idea on SSDs; not
 # necessarily on platters.
-trickle_fsync: false
+trickle_fsync: true
 # Min unit: KiB
 trickle_fsync_interval: 10240KiB
 
@@ -1128,8 +1128,8 @@ column_index_size: 4KiB
 # specify compaction.
 # The selected compaction strategy will also apply to system tables.
 #
-# The default is to use SizeTieredCompactionStrategy, with its default
-# compaction parameters.
+# If no value is specified, the default is to use SizeTieredCompactionStrategy,
+# with its default compaction parameters.
 #
 default_compaction:
   class_name: UnifiedCompactionStrategy
