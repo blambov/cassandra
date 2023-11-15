@@ -292,7 +292,7 @@ pipeline {
                     sleep(60 * attempt)
                   }
                   attempt = attempt + 1
-                  trie = build job: "${env.JOB_NAME}-test-trie", propagate: false
+                  trie = build job: "${env.JOB_NAME}-test-latest", propagate: false
                   if (trie.result != 'FAILURE') break
               }
               if (trie.result != 'SUCCESS') unstable('trie failures')
@@ -303,7 +303,7 @@ pipeline {
             always {
                 warnError('missing test xml files') {
                     script {
-                        copyTestResults('test-trie', trie.getNumber())
+                        copyTestResults('test-latest', trie.getNumber())
                     }
                 }
             }
