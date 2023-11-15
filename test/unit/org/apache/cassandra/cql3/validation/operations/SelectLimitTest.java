@@ -27,6 +27,7 @@ import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.service.StorageService;
 
 public class SelectLimitTest extends CQLTester
@@ -39,6 +40,7 @@ public class SelectLimitTest extends CQLTester
 
         StorageService.instance.setPartitionerUnsafe(ByteOrderedPartitioner.instance);
         DatabaseDescriptor.setPartitionerUnsafe(ByteOrderedPartitioner.instance);
+        DatabaseDescriptor.setDefaultSecondaryIndex(CassandraIndex.NAME);
 
         prepareServer();
     }

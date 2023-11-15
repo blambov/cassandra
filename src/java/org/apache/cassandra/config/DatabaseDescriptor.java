@@ -175,7 +175,7 @@ public class DatabaseDescriptor
 
     /* Hashing strategy Random or OPHF */
     private static IPartitioner partitioner;
-    private static String paritionerName;
+    private static String partitionerName;
 
     private static DiskAccessMode indexAccessMode;
 
@@ -1421,7 +1421,7 @@ public class DatabaseDescriptor
             throw new ConfigurationException("Invalid partitioner class " + name, e);
         }
 
-        paritionerName = partitioner.getClass().getCanonicalName();
+        partitionerName = partitioner.getClass().getCanonicalName();
     }
 
     private static DiskAccessMode resolveCommitLogWriteDiskAccessMode(DiskAccessMode providedDiskAccessMode)
@@ -1922,7 +1922,7 @@ public class DatabaseDescriptor
 
     public static String getPartitionerName()
     {
-        return paritionerName;
+        return partitionerName;
     }
 
     /* For tests ONLY, don't use otherwise or all hell will break loose. Tests should restore value at the end. */
@@ -1930,6 +1930,7 @@ public class DatabaseDescriptor
     {
         IPartitioner old = partitioner;
         partitioner = newPartitioner;
+        partitionerName = partitioner.getClass().getCanonicalName();
         return old;
     }
 

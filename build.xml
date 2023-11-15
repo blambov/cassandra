@@ -1293,19 +1293,19 @@
     <macrodef name="testlist-latest">
         <attribute name="test.file.list" />
         <sequential>
-            <property name="trie_yaml" value="${build.test.dir}/cassandra.trie.yaml"/>
-            <concat destfile="${trie_yaml}">
+            <property name="latest_yaml" value="${build.test.dir}/cassandra.latest.yaml"/>
+            <concat destfile="${latest_yaml}">
                 <fileset file="${test.conf}/cassandra.yaml"/>
                 <fileset file="${test.conf}/latest_diff.yaml"/>
                 <fileset file="${test.conf}/storage_compatibility_mode_none.yaml"/>
             </concat>
             <testmacrohelper inputdir="${test.unit.src}" filelist="@{test.file.list}"
-                             exclude="**/*.java" timeout="${test.timeout}" testtag="trie">
+                             exclude="**/*.java" timeout="${test.timeout}" testtag="latest">
                 <jvmarg value="-Dlegacy-sstable-root=${test.data}/legacy-sstables"/>
                 <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
                 <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
                 <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
-                <jvmarg value="-Dcassandra.config=file:///${trie_yaml}"/>
+                <jvmarg value="-Dcassandra.config=file:///${latest_yaml}"/>
                 <jvmarg value="-Dcassandra.junit_storage_compatibility_mode=NONE"/>
                 <jvmarg value="-Dcassandra.skip_sync=true" />
             </testmacrohelper>
@@ -1423,7 +1423,7 @@
     <testhelper testdelegate="testlist-cdc" />
   </target>
 
-  <target name="test-latest" depends="maybe-build-test" description="Execute unit tests with trie memtables">
+  <target name="test-latest" depends="maybe-build-test" description="Execute unit tests with configuration matching cassandra_latest.yaml">
     <path id="all-test-classes-path">
       <fileset dir="${test.unit.src}" includes="**/${test.name}.java" />
     </path>
