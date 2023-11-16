@@ -27,9 +27,6 @@
         default:
             inherits: trie
 
-# Use hashing partitioner
-partitioner: Murmur3Partitioner
-
 key_cache_size: 0MiB
 
 memtable_allocation_type: offheap_objects
