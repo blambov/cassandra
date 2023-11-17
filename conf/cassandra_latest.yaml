@@ -478,6 +478,10 @@ prepared_statements_cache_size:
 # Default value is empty to make it "auto" (min(5% of Heap (in MiB), 100MiB)). Set to 0 to disable key cache.
 #
 # This is only relevant to SSTable formats that use key cache, e.g. BIG.
+#
+# This version of the configuration is intended for new installs and disables
+# the key cache. Do not do this if you are upgrading from an older Cassandra
+# version and still have sstables in BIG format as it can degrade performance.
 # Min unit: MiB
 key_cache_size: 0MiB
 
@@ -2160,3 +2164,4 @@ storage_compatibility_mode: NONE
 # Enable lightweight transaction improvements.
 paxos_variant: v2
 paxos_state_purging: repaired
+# TODO: document, maybe switch to gc_grace

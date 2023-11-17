@@ -28,10 +28,13 @@ import java.nio.file.Files;
 import java.util.UUID;
 
 import com.google.common.base.StandardSystemProperty;
+import org.junit.Assume;
 import org.junit.Test;
 
 import com.datastax.driver.core.exceptions.InvalidQueryException;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.tools.ToolRunner;
 import org.apache.cassandra.utils.FBUtilities;
@@ -145,6 +148,8 @@ public class InsertInvalidateSizedRecordsTest extends CQLTester
     @Test
     public void singleValueIndex()
     {
+        Assume.assumeTrue("Test only valid for legacy secondary index",
+                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
         createTable(KEYSPACE, "CREATE TABLE %s (a blob, b blob, PRIMARY KEY (a))");
         String table = KEYSPACE + "." + currentTable();
         execute("CREATE INDEX single_value_index ON %s (b)");

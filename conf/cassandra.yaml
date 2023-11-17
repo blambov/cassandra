@@ -868,6 +868,7 @@ memtable_allocation_type: heap_buffers
 # shrink their index summaries in order to meet this limit.  However, this
 # is a best-effort process. In extreme conditions Cassandra may need to use
 # more than this amount of memory.
+# Only relevant to formats that use an index summary, e.g. BIG.
 # Min unit: KiB
 index_summary_capacity:
 
@@ -875,6 +876,7 @@ index_summary_capacity:
 # periodically to redistribute memory from the fixed-size pool to sstables
 # proportional their recent read rates.  Setting to null value will disable this
 # process, leaving existing index summaries at their current sampling level.
+# Only relevant to formats that use an index summary, e.g. BIG.
 # Min unit: m
 index_summary_resize_interval: 60m
 
