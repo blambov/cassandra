@@ -25,8 +25,10 @@ import java.util.stream.StreamSupport;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.*;
+import org.junit.Assume;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
@@ -480,6 +482,8 @@ public class CassandraIndexTest extends CQLTester
     @Test
     public void updateTTLOnIndexedClusteringValue() throws Throwable
     {
+        Assume.assumeTrue("Test only valid for legacy secondary index",
+                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
         int basePk = 1;
         int indexedVal = 2;
         int initialTtl = 3600;

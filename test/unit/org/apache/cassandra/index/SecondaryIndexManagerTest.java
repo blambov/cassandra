@@ -29,13 +29,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.Sets;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.schema.IndexMetadata;
@@ -109,6 +112,8 @@ public class SecondaryIndexManagerTest extends CQLTester
     @Test
     public void addingSSTablesMarksTheIndexAsBuilt()
     {
+        Assume.assumeTrue("Test only valid for legacy secondary index",
+                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
         createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
         String indexName = createIndex("CREATE INDEX ON %s(c)");
 

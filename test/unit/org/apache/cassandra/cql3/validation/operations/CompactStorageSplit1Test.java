@@ -22,10 +22,13 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.UUID;
 
+import org.junit.Assume;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.validation.entities.SecondaryIndexTest;
+import org.apache.cassandra.index.internal.CassandraIndex;
 
 import static org.apache.cassandra.utils.ByteBufferUtil.EMPTY_BYTE_BUFFER;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
@@ -722,6 +725,8 @@ public class CompactStorageSplit1Test extends CQLTester
     @Test
     public void testCompactTableWithValueOver64k() throws Throwable
     {
+        Assume.assumeTrue("Test only valid for legacy secondary index",
+                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
         createTable("CREATE TABLE %s(a int, b blob, PRIMARY KEY (a)) WITH COMPACT STORAGE");
         createIndex("CREATE INDEX ON %s(b)");
         failInsert("INSERT INTO %s (a, b) VALUES (0, ?)", ByteBuffer.allocate(SecondaryIndexTest.TOO_BIG));
@@ -768,6 +773,8 @@ public class CompactStorageSplit1Test extends CQLTester
     @Test
     public void testEmptyRestrictionValueWithSecondaryIndexAndCompactTables() throws Throwable
     {
+        Assume.assumeTrue("Test only valid for legacy secondary index",
+                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
         createTable("CREATE TABLE %s (pk blob, c blob, v blob, PRIMARY KEY ((pk), c)) WITH COMPACT STORAGE");
         assertInvalidMessage("Secondary indexes are not supported on PRIMARY KEY columns in COMPACT STORAGE tables",
                              "CREATE INDEX on %s(c)");
