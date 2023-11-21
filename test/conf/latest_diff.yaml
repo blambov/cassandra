@@ -59,4 +59,4 @@ default_secondary_index_enabled: true
 storage_compatibility_mode: NONE
 
 paxos_variant: v2
-paxos_state_purging: gc_grace
+paxos_state_purging: repaired
