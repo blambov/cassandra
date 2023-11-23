@@ -1772,7 +1772,17 @@
     </testmacro>
   </target>
 
-  <property name="simulator.asm.print" value="none"/> <!-- Supports: NONE, CLASS_SUMMARY, CLASS_DETAIL, METHOD_SUMMARY, METHOD_DETAIL, ASM; see org.apache.cassandra.simulator.asm.MethodLogger.Level -->
+  <target name="test-jvm-dtest-latest" depends="maybe-build-test" description="Execute in-jvm dtests with latest configuration">
+    <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/${test.name}.java">
+      <jvmarg value="-Djvm_dtests.latest=true"/>
+      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
+      <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+      <jvmarg value="-Dcassandra.skip_sync=true" />
+    </testmacro>
+  </target>
+
+    <property name="simulator.asm.print" value="none"/> <!-- Supports: NONE, CLASS_SUMMARY, CLASS_DETAIL, METHOD_SUMMARY, METHOD_DETAIL, ASM; see org.apache.cassandra.simulator.asm.MethodLogger.Level -->
   <target name="test-simulator-dtest" depends="maybe-build-test" description="Execute simulator dtests">
     <testmacro inputdir="${test.simulator-test.src}" timeout="${test.simulation.timeout}" forkmode="perTest" showoutput="true" filter="**/test/${test.name}.java">
       <jvmarg value="-Dlogback.configurationFile=test/conf/logback-simulator.xml"/>
@@ -1825,7 +1835,20 @@
     </testmacro>
   </target>
 
-  <target name="generate-unified-test-report" description="Merge all unit xml files into one, generate html pages, and print summary test numbers">
+  <target name="test-jvm-dtest-latest-some" depends="maybe-build-test" description="Execute some in-jvm dtests with latest configuration">
+    <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true">
+      <test unless:blank="${test.methods}" name="${test.name}" methods="${test.methods}" todir="${build.test.dir}/output/" outfile="TEST-${test.name}-${test.methods}"/>
+      <test if:blank="${test.methods}" name="${test.name}" todir="${build.test.dir}/output/" outfile="TEST-${test.name}"/>
+      <jvmarg value="-Djvm_dtests.latest=true"/>
+      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
+      <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+      <jvmarg value="-Dcassandra.skip_sync=true" />
+    </testmacro>
+  </target>
+
+
+    <target name="generate-unified-test-report" description="Merge all unit xml files into one, generate html pages, and print summary test numbers">
       <junitreport todir="${build.dir}">
           <fileset dir="${build.test.dir}/output">
               <include name="**/TEST*.xml"/>

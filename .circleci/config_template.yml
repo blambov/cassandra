@@ -149,7 +149,7 @@ default_env_vars: &default_env_vars
     REPEATED_ANT_TEST_METHODS:
     # Whether the test iteration should use vnodes for JVM dtests (-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16').
     # This will only be applied as a default to JVM dtests that don't provide their own initial tokens or token count,
-    # in the same way that it's done for *_jvm_dtests_vnode jobs. Ant targets other than JVM dtests will ignore this.
+    # in the same way that it's done for *_jvm_dtests_latest_vnode jobs. Ant targets other than JVM dtests will ignore this.
     REPEATED_ANT_TEST_VNODES: false
     # The number of times that the repeated JUnit test should be run.
     REPEATED_ANT_TEST_COUNT: 500
@@ -277,11 +277,11 @@ j11_separate_jobs: &j11_separate_jobs
         requires:
           - start_j11_jvm_dtests
           - j11_build
-    - start_j11_jvm_dtests_vnode:
+    - start_j11_jvm_dtests_latest_vnode:
         type: approval
-    - j11_jvm_dtests_vnode:
+    - j11_jvm_dtests_latest_vnode:
         requires:
-          - start_j11_jvm_dtests_vnode
+          - start_j11_jvm_dtests_latest_vnode
           - j11_build
     - start_j11_jvm_dtests_repeat:
         type: approval
@@ -289,11 +289,11 @@ j11_separate_jobs: &j11_separate_jobs
         requires:
           - start_j11_jvm_dtests_repeat
           - j11_build
-    - start_j11_jvm_dtests_vnode_repeat:
+    - start_j11_jvm_dtests_latest_vnode_repeat:
         type: approval
-    - j11_jvm_dtests_vnode_repeat:
+    - j11_jvm_dtests_latest_vnode_repeat:
         requires:
-          - start_j11_jvm_dtests_vnode_repeat
+          - start_j11_jvm_dtests_latest_vnode_repeat
           - j11_build
     - start_j17_jvm_dtests:
         type: approval
@@ -301,11 +301,11 @@ j11_separate_jobs: &j11_separate_jobs
         requires:
           - start_j17_jvm_dtests
           - j11_build
-    - start_j17_jvm_dtests_vnode:
+    - start_j17_jvm_dtests_latest_vnode:
         type: approval
-    - j17_jvm_dtests_vnode:
+    - j17_jvm_dtests_latest_vnode:
         requires:
-          - start_j17_jvm_dtests_vnode
+          - start_j17_jvm_dtests_latest_vnode
           - j11_build
     - start_j17_jvm_dtests_repeat:
         type: approval
@@ -313,11 +313,11 @@ j11_separate_jobs: &j11_separate_jobs
         requires:
           - start_j17_jvm_dtests_repeat
           - j11_build
-    - start_j17_jvm_dtests_vnode_repeat:
+    - start_j17_jvm_dtests_latest_vnode_repeat:
         type: approval
-    - j17_jvm_dtests_vnode_repeat:
+    - j17_jvm_dtests_latest_vnode_repeat:
         requires:
-          - start_j17_jvm_dtests_vnode_repeat
+          - start_j17_jvm_dtests_latest_vnode_repeat
           - j11_build
     - start_j11_simulator_dtests:
         type: approval
@@ -837,10 +837,10 @@ j11_pre-commit_jobs: &j11_pre-commit_jobs
     - j11_jvm_dtests_repeat:
         requires:
           - j11_build
-    - j11_jvm_dtests_vnode:
+    - j11_jvm_dtests_latest_vnode:
         requires:
           - j11_build
-    - j11_jvm_dtests_vnode_repeat:
+    - j11_jvm_dtests_latest_vnode_repeat:
         requires:
           - j11_build
     - j17_jvm_dtests:
@@ -849,10 +849,10 @@ j11_pre-commit_jobs: &j11_pre-commit_jobs
     - j17_jvm_dtests_repeat:
         requires:
           - j11_build
-    - j17_jvm_dtests_vnode:
+    - j17_jvm_dtests_latest_vnode:
         requires:
           - j11_build
-    - j17_jvm_dtests_vnode_repeat:
+    - j17_jvm_dtests_latest_vnode_repeat:
         requires:
           - j11_build
     - j11_cqlshlib_tests:
@@ -1164,11 +1164,11 @@ j17_separate_jobs: &j17_separate_jobs
         requires:
           - start_j17_jvm_dtests
           - j17_build
-    - start_j17_jvm_dtests_vnode:
+    - start_j17_jvm_dtests_latest_vnode:
         type: approval
-    - j17_jvm_dtests_vnode:
+    - j17_jvm_dtests_latest_vnode:
         requires:
-          - start_j17_jvm_dtests_vnode
+          - start_j17_jvm_dtests_latest_vnode
           - j17_build
     - start_j17_jvm_dtests_repeat:
         type: approval
@@ -1176,11 +1176,11 @@ j17_separate_jobs: &j17_separate_jobs
         requires:
           - start_j17_jvm_dtests_repeat
           - j17_build
-    - start_j17_jvm_dtests_vnode_repeat:
+    - start_j17_jvm_dtests_latest_vnode_repeat:
         type: approval
-    - j17_jvm_dtests_vnode_repeat:
+    - j17_jvm_dtests_latest_vnode_repeat:
         requires:
-          - start_j17_jvm_dtests_vnode_repeat
+          - start_j17_jvm_dtests_latest_vnode_repeat
           - j17_build
     - start_j17_cqlshlib_tests:
         type: approval
@@ -1420,10 +1420,10 @@ j17_pre-commit_jobs: &j17_pre-commit_jobs
     - j17_jvm_dtests_repeat:
         requires:
           - j17_build
-    - j17_jvm_dtests_vnode:
+    - j17_jvm_dtests_latest_vnode:
         requires:
           - j17_build
-    - j17_jvm_dtests_vnode_repeat:
+    - j17_jvm_dtests_latest_vnode_repeat:
         requires:
           - j17_build
     - j17_cqlshlib_tests:
@@ -1666,7 +1666,7 @@ jobs:
           classlistprefix: distributed
           target: "testclasslist"
 
-  j11_jvm_dtests_vnode:
+  j11_jvm_dtests_latest_vnode:
     <<: *j11_small_par_executor
     steps:
       - attach_workspace:
@@ -1678,7 +1678,7 @@ jobs:
       - run_parallel_junit_tests:
           classlistprefix: distributed
           target: "testclasslist"
-          arguments: "-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'"
+          arguments: "-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16 -Djvm_dtests.latest=true'"
 
   j17_jvm_dtests:
     <<: *j17_small_par_executor
@@ -1706,7 +1706,7 @@ jobs:
           classlistprefix: distributed
           target: "testclasslist"
 
-  j17_jvm_dtests_vnode:
+  j17_jvm_dtests_latest_vnode:
     <<: *j17_small_par_executor
     steps:
       - attach_workspace:
@@ -1718,7 +1718,7 @@ jobs:
       - run_parallel_junit_tests:
           classlistprefix: distributed
           target: "testclasslist"
-          arguments: "-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16'"
+          arguments: "-Dtest.jvm.args='-Dcassandra.dtest.num_tokens=16 -Djvm_dtests.latest=true'"
 
   j17_unit_tests:
     <<: *j17_par_executor
@@ -2428,13 +2428,13 @@ jobs:
       - log_environment
       - run_jvm_dtests_repeat
 
-  j11_jvm_dtests_vnode_repeat:
+  j11_jvm_dtests_latest_vnode_repeat:
     <<: *j11_repeated_utest_executor
     steps:
       - attach_workspace:
           at: /home/cassandra
       - log_environment
-      - run_jvm_dtests_vnode_repeat
+      - run_jvm_dtests_latest_vnode_repeat
 
   j11_simulator_dtests_repeat:
     <<: *j11_repeated_utest_executor
@@ -2452,13 +2452,13 @@ jobs:
       - log_environment
       - run_jvm_dtests_repeat
 
-  j17_jvm_dtests_vnode_repeat:
+  j17_jvm_dtests_latest_vnode_repeat:
     <<: *j17_repeated_utest_executor
     steps:
       - attach_workspace:
           at: /home/cassandra
       - log_environment
-      - run_jvm_dtests_vnode_repeat
+      - run_jvm_dtests_latest_vnode_repeat
 
   j11_repeated_ant_test:
     <<: *j11_repeated_utest_executor
@@ -3139,7 +3139,7 @@ commands:
           count: ${REPEATED_SIMULATOR_DTESTS_COUNT}
           stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
-  run_jvm_dtests_vnode_repeat:
+  run_jvm_dtests_latest_vnode_repeat:
     steps:
       - run_repeated_utests:
           target: test-jvm-dtest-some
