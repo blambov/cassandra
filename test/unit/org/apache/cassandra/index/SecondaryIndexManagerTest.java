@@ -32,6 +32,7 @@ import org.junit.After;
 import org.junit.Assume;
 import org.junit.Test;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -100,8 +101,7 @@ public class SecondaryIndexManagerTest extends CQLTester
     @Test
     public void addingSSTablesMarksTheIndexAsBuilt()
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
         String indexName = createIndex("CREATE INDEX ON %s(c)");
 

@@ -26,6 +26,7 @@ import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -42,8 +43,7 @@ public class SecondaryIndexOnMapEntriesTest extends CQLTester
     public static void setUp()
     {
         DatabaseDescriptor.setPartitionerUnsafe(ByteOrderedPartitioner.instance);
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
     }
 
     @Test

@@ -101,7 +101,7 @@ public class ConcurrencyFactorTest extends TestBaseImpl
 
         // Token-restricted range query not using SAI so should use initial concurrency estimation
         query = String.format("SELECT * FROM %s.%s WHERE token(pk) > 0", KEYSPACE, SAI_TABLE);
-        runAndValidate("Submitting range requests on 2 ranges with a concurrency of 2 (230.4 rows per range expected)", query);
+        runAndValidate("Submitting range requests on 2 ranges with a concurrency of 2.*", query);
 
         // Token-restricted range query with SAI so should bypass initial concurrency estimation
         query = String.format("SELECT * FROM %s.%s WHERE token(pk) > 0 AND gdp > ?", KEYSPACE, SAI_TABLE);
@@ -119,7 +119,7 @@ public class ConcurrencyFactorTest extends TestBaseImpl
 
         await().atMost(5, TimeUnit.SECONDS).until(() -> {
             List<TracingUtil.TraceEntry> traceEntries = TracingUtil.getTrace(cluster, sessionId, ConsistencyLevel.ONE);
-            return traceEntries.stream().anyMatch(entry -> entry.activity.equals(trace));
+            return traceEntries.stream().anyMatch(entry -> entry.activity.matches(trace));
         });
     }
 

@@ -59,8 +59,8 @@ public class UpgradeSSTablesTest extends TestBaseImpl
             cluster.get(1).acceptsOnInstance((String ks) -> {
                 ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
                 cfs.disableAutoCompaction();
-                CompactionManager.instance.setMaximumCompactorThreads(1);
                 CompactionManager.instance.setCoreCompactorThreads(1);
+                CompactionManager.instance.setMaximumCompactorThreads(1);
             }).accept(KEYSPACE);
 
             String blob = "blob";
@@ -98,8 +98,8 @@ public class UpgradeSSTablesTest extends TestBaseImpl
             cluster.get(1).acceptsOnInstance((String ks) -> {
                 ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
                 cfs.disableAutoCompaction();
-                CompactionManager.instance.setMaximumCompactorThreads(1);
                 CompactionManager.instance.setCoreCompactorThreads(1);
+                CompactionManager.instance.setMaximumCompactorThreads(1);
             }).accept(KEYSPACE);
 
             String blob = "blob";
@@ -192,8 +192,8 @@ public class UpgradeSSTablesTest extends TestBaseImpl
             cluster.get(1).acceptsOnInstance((String ks) -> {
                 ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
                 cfs.disableAutoCompaction();
-                CompactionManager.instance.setMaximumCompactorThreads(1);
                 CompactionManager.instance.setCoreCompactorThreads(1);
+                CompactionManager.instance.setMaximumCompactorThreads(1);
             }).accept(KEYSPACE);
 
             String blob = "blob";

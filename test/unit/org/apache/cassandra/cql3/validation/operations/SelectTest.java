@@ -24,6 +24,7 @@ import org.junit.Assume;
 import org.junit.Test;
 import org.junit.Assert;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.Duration;
@@ -1616,8 +1617,7 @@ public class SelectTest extends CQLTester
     @Test
     public void testIndexQueryWithValueOver64K() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (a int, b int, c blob, PRIMARY KEY (a, b))");
         String idx = createIndex("CREATE INDEX ON %s (c)");
 

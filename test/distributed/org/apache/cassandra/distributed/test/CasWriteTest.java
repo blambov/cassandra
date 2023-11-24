@@ -47,6 +47,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
 import org.apache.cassandra.exceptions.CasWriteTimeoutException;
 import org.apache.cassandra.exceptions.CasWriteUnknownResultException;
@@ -55,8 +56,9 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.hamcrest.CoreMatchers.containsString;
-import static org.apache.cassandra.distributed.shared.AssertUtils.*;
 
 // TODO: this test should be removed after running in-jvm dtests is set up via the shared API repository
 public class CasWriteTest extends TestBaseImpl
@@ -110,6 +112,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_PREPARE_REQ.id).from(1).to(2, 3).drop().on(); // drop the internode messages to acceptors
+        cluster.filters().verbs(Verb.PAXOS2_PREPARE_REQ.id).from(1).to(2, 3).drop().on(); // drop the internode messages to acceptors
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -118,6 +121,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_PREPARE_RSP.id).from(2, 3).to(1).drop().on(); // drop the internode messages to acceptors
+        cluster.filters().verbs(Verb.PAXOS2_PREPARE_RSP.id).from(2, 3).to(1).drop().on(); // drop the internode messages to acceptors
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -126,6 +130,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_PROPOSE_REQ.id).from(1).to(2, 3).drop().on();
+        cluster.filters().verbs(Verb.PAXOS2_PROPOSE_REQ.id).from(1).to(2, 3).drop().on();
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -134,6 +139,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_PROPOSE_RSP.id).from(2, 3).to(1).drop().on();
+        cluster.filters().verbs(Verb.PAXOS2_PROPOSE_RSP.id).from(2, 3).to(1).drop().on();
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -142,6 +148,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_COMMIT_REQ.id).from(1).to(2, 3).drop().on();
+        cluster.filters().verbs(Verb.PAXOS2_COMMIT_AND_PREPARE_REQ.id).from(1).to(2, 3).drop().on();
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -150,6 +157,7 @@ public class CasWriteTest extends TestBaseImpl
     {
         expectCasWriteTimeout();
         cluster.filters().verbs(Verb.PAXOS_COMMIT_RSP.id).from(2, 3).to(1).drop().on();
+        cluster.filters().verbs(Verb.PAXOS2_COMMIT_REMOTE_RSP.id).from(2, 3).to(1).drop().on();
         cluster.coordinator(1).execute(mkUniqueCasInsertQuery(1), ConsistencyLevel.QUORUM);
     }
 
@@ -164,6 +172,8 @@ public class CasWriteTest extends TestBaseImpl
                                c.filters().reset();
                                c.filters().verbs(Verb.PAXOS_PREPARE_REQ.id).from(1).to(3).drop();
                                c.filters().verbs(Verb.PAXOS_PROPOSE_REQ.id).from(1).to(2).drop();
+                               c.filters().verbs(Verb.PAXOS2_PREPARE_REQ.id).from(1).to(3).drop();
+                               c.filters().verbs(Verb.PAXOS2_PROPOSE_REQ.id).from(1).to(2).drop();
                            },
                            failure ->
                                failure.get() != null &&
@@ -253,18 +263,22 @@ public class CasWriteTest extends TestBaseImpl
         cluster.filters().reset();
         int pk = pkGen.getAndIncrement();
         CountDownLatch ready = new CountDownLatch(1);
-        cluster.filters().verbs(Verb.PAXOS_PROPOSE_REQ.id).from(1).to(2, 3).messagesMatching((from, to, msg) -> {
+        final IMessageFilters.Matcher matcher = (from, to, msg) -> {
             if (to == 2)
             {
                 // Inject a single CAS request in-between prepare and propose phases
                 cluster.coordinator(2).execute(mkCasInsertQuery((a) -> pk, 1, 2),
                                                ConsistencyLevel.QUORUM);
                 ready.countDown();
-            } else {
+            }
+            else
+            {
                 Uninterruptibles.awaitUninterruptibly(ready);
             }
             return false;
-        }).drop();
+        };
+        cluster.filters().verbs(Verb.PAXOS_PROPOSE_REQ.id).from(1).to(2, 3).messagesMatching(matcher).drop();
+        cluster.filters().verbs(Verb.PAXOS2_PROPOSE_REQ.id).from(1).to(2, 3).messagesMatching(matcher).drop();
 
         try
         {
@@ -272,11 +286,17 @@ public class CasWriteTest extends TestBaseImpl
         }
         catch (Throwable t)
         {
-            Assert.assertEquals("Expecting cause to be CasWriteUnknownResultException",
-                                CasWriteUnknownResultException.class.getCanonicalName(), t.getClass().getCanonicalName());
+            final Class<?> exceptionClass = isPaxosVariant2() ? CasWriteTimeoutException.class : CasWriteUnknownResultException.class;
+            Assert.assertEquals("Expecting cause to be " + exceptionClass.getSimpleName(),
+                                exceptionClass.getCanonicalName(), t.getClass().getCanonicalName());
             return;
         }
         Assert.fail("Expecting test to throw a CasWriteUnknownResultException");
+    }
+
+    private static boolean isPaxosVariant2()
+    {
+        return "v2".equals(cluster.coordinator(1).instance().config().getString("paxos_variant"));
     }
 
     // every invokation returns a query with an unique pk

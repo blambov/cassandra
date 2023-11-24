@@ -26,6 +26,7 @@ import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
@@ -49,8 +50,7 @@ public class SelectOrderedPartitionerTest extends CQLTester
     @Test
     public void testTokenAndIndex() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a, b, c))");
         createIndex("CREATE INDEX ON %s(c)");
 
@@ -90,8 +90,7 @@ public class SelectOrderedPartitionerTest extends CQLTester
     @Test
     public void testFilteringOnPartitionKeyWithToken() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY ((a, b), c))");
         createIndex("CREATE INDEX ON %s(d)");
 
@@ -322,8 +321,7 @@ public class SelectOrderedPartitionerTest extends CQLTester
     @Test
     public void testMultiColumnPartitionKeyWithIndexAndTokenNonTokenRestrictionsMix() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (a int, b int, c int, primary key((a, b)))");
         createIndex("CREATE INDEX ON %s(b)");
         createIndex("CREATE INDEX ON %s(c)");
@@ -410,8 +408,7 @@ public class SelectOrderedPartitionerTest extends CQLTester
     @Test
     public void testCompositeIndexWithPK() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (blog_id int, time1 int, time2 int, author text, content text, PRIMARY KEY (blog_id, time1, time2))");
 
         createIndex("CREATE INDEX ON %s(author)");
@@ -543,8 +540,7 @@ public class SelectOrderedPartitionerTest extends CQLTester
     @Test
     public void testIndexOnCompositeWithCollections() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (blog_id int, time1 int, time2 int, author text, content set<text>, PRIMARY KEY (blog_id, time1, time2))");
 
         createIndex("CREATE INDEX ON %s (author)");
