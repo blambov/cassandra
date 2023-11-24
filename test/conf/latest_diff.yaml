@@ -21,6 +21,8 @@
 # This file was constructed by running:
 # `diff conf/cassandra.yaml conf/cassandra_latest.yaml  | grep '^>' | cut -c 3-`
 # and moving the `default: inherits: trie` lines to the start of the file.
+# On any change to this file, please also update
+# test/distributed/org/apache/cassandra/distributed/impl/InstanceConfig.java
 
 # Change default memtable implementation to TrieMemtable
 # Note: this attaches at the end of cassandra.yaml, where the memtable configuration setting must be.

@@ -36,6 +36,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assume;
 import org.junit.Test;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.AutoSavingCache;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
@@ -110,8 +111,7 @@ public class ActiveCompactionsTest extends CQLTester
     @Test
     public void testSecondaryIndexTracking() throws Throwable
     {
-        Assume.assumeTrue("Test only valid for legacy secondary index",
-                          DatabaseDescriptor.getDefaultSecondaryIndex().equals(CassandraIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
         createTable("CREATE TABLE %s (pk int, ck int, a int, b int, PRIMARY KEY (pk, ck))");
         String idxName = createIndex("CREATE INDEX on %s(a)");
         getCurrentColumnFamilyStore().disableAutoCompaction();
