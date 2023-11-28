@@ -22,7 +22,6 @@ package org.apache.cassandra.cql3.validation.operations;
 
 import java.util.Arrays;
 
-import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -31,7 +30,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
-import org.apache.cassandra.index.internal.CassandraIndex;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;

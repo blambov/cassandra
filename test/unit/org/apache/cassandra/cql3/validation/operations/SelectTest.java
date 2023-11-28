@@ -20,7 +20,6 @@ package org.apache.cassandra.cql3.validation.operations;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.Assert;
 

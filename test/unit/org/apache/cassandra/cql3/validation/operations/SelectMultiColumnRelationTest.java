@@ -17,16 +17,13 @@
  */
 package org.apache.cassandra.cql3.validation.operations;
 
-import org.junit.Assume;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.Util;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
-import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class SelectMultiColumnRelationTest extends CQLTester
