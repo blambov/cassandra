@@ -33,7 +33,7 @@ key_cache_size: 0MiB
 
 memtable_allocation_type: offheap_objects
 
-commitlog_disk_access_mode: direct
+commitlog_disk_access_mode: auto
 
 trickle_fsync: true
 

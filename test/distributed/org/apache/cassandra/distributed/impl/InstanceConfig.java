@@ -102,7 +102,6 @@ public class InstanceConfig implements IInstanceConfig
                 .set("concurrent_compactors", 1)
                 .set("memtable_heap_space", "10MiB")
                 .set("commitlog_sync", "batch")
-                .set("commitlog_disk_access_mode", "legacy")
                 .set("storage_port", storage_port)
                 .set("native_transport_port", native_transport_port)
                 .set("endpoint_snitch", DistributedTestSnitch.class.getName())
@@ -127,7 +126,7 @@ public class InstanceConfig implements IInstanceConfig
 
                 .set("memtable_allocation_type", "offheap_objects")
 
-                .set("commitlog_disk_access_mode", "direct")
+                .set("commitlog_disk_access_mode", "auto")
 
                 .set("trickle_fsync", "true")
 
