@@ -19,9 +19,6 @@
 #       well as higher performance. This version is provided for new users of
 #       Cassandra who want to get the most out of their cluster, and for users
 #       evaluating the technology.
-#       To use this version, simply copy this file over cassandra.yaml, or specify
-#       it using the -Dcassandra.config system property, e.g. by running
-#         cassandra -Dcassandra.config=file:/$CASSANDRA_HOME/conf/cassandra_latest.yaml
 # /NOTE
 
 # The name of the cluster. This is mainly used to prevent machines in

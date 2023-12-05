@@ -2161,7 +2161,6 @@ default_secondary_index_enabled: true
 #
 storage_compatibility_mode: NONE
 
-# Enable lightweight transaction improvements.
+# Enable lightweight transaction improvements. See NEWS.txt for details.
 paxos_variant: v2
 paxos_state_purging: repaired
-# TODO: document, maybe switch to gc_grace
