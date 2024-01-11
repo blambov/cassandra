@@ -44,6 +44,7 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
@@ -296,7 +297,7 @@ public class CasWriteTest extends TestBaseImpl
 
     private static boolean isPaxosVariant2()
     {
-        return "v2".equals(cluster.coordinator(1).instance().config().getString("paxos_variant"));
+        return Config.PaxosVariant.v2.name().equals(cluster.coordinator(1).instance().config().getString("paxos_variant"));
     }
 
     // every invokation returns a query with an unique pk
