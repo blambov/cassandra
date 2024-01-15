@@ -17,10 +17,9 @@
  */
 package org.apache.cassandra.index.sai.cql;
 
-import org.junit.Assume;
 import org.junit.Test;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.Util;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
 import org.apache.cassandra.index.sai.SAITester;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
@@ -83,8 +82,8 @@ public class MixedIndexImplementationsTest extends SAITester
     @Test
     public void shouldRequireAllowFilteringWithOtherIndex() throws Throwable
     {
-        Assume.assumeFalse("Mixed test only makes sense if SAI is not default",
-                           DatabaseDescriptor.getDefaultSecondaryIndex().equals(StorageAttachedIndex.NAME));
+        Util.assumeLegacySecondaryIndex();
+
         createTable("CREATE TABLE %s (" +
                     "k1 int, k2 int, " +
                     "s1 int static, " +

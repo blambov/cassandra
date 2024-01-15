@@ -21,13 +21,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
+import org.junit.Test;
+
+import org.apache.cassandra.Util;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
-import org.apache.cassandra.index.sai.StorageAttachedIndex;
-
-import org.junit.Assume;
-import org.junit.Test;
 
 public class SelectSingleColumnRelationTest extends CQLTester
 {
@@ -459,8 +457,8 @@ public class SelectSingleColumnRelationTest extends CQLTester
     @Test
     public void testMultiplePartitionKeyWithIndex() throws Throwable
     {
-        Assume.assumeFalse("SAI does not allow multi-column slice restrictions",
-                           DatabaseDescriptor.getDefaultSecondaryIndex().equals(StorageAttachedIndex.NAME));
+        Util.assumeLegacySecondaryIndex(); // SAI does not allow multi-column slice restrictions
+
         createTable("CREATE TABLE %s (a int, b int, c int, d int, e int, f int, PRIMARY KEY ((a, b), c, d, e))");
         createIndex("CREATE INDEX ON %s (c)");
         createIndex("CREATE INDEX ON %s (f)");
