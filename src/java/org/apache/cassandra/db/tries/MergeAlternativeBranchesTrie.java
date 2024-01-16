@@ -124,6 +124,7 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
             heap = new ArrayList<>();
             contents = new ArrayList<>();
             head = source.cursor();
+            maybeSwapHeadAndEnterNode(head.depth());
         }
 
         MergeAlternativesCursor(MergeAlternativesCursor<T> copyFrom)

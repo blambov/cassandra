@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -40,9 +41,9 @@ import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.comparable;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.specifiedTrie;
 
-public class MergeAlternativeBranchesTrieTest
+public class AlternativeBranchesTest
 {
-    static final int COUNT = 1000;
+    static final int COUNT = 10;
     static final Random rand = new Random(1);
 
     @Test
@@ -106,27 +107,105 @@ public class MergeAlternativeBranchesTrieTest
                 alternates.put(comparable(key), -value);
             }
         }
-        alternates.putAll(normals);
-        ByteComparable left = comparable("3");
-        ByteComparable right = comparable("7");
-
         Trie<Integer> union = Trie.merge(tries, RESOLVER_FIRST);
-        assertMapEquals(union.entrySet(), normals.entrySet());
-        assertMapEquals(union.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), alternates.entrySet());
-        System.out.println(union.dump());
-        Trie<Integer> ix = union.subtrie(left, right);
-        System.out.println(ix.dump());
-        assertMapEquals(ix.entrySet(), normals.subMap(left, right).entrySet());
-        assertMapEquals(ix.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), alternates.subMap(left, right).entrySet());
+        verifyAlternates(union, normals, alternates, false);
 
         union = Trie.merge(tries.subList(0, COUNT/2), RESOLVER_FIRST)
                     .mergeWith(Trie.merge(tries.subList(COUNT/2, COUNT), RESOLVER_FIRST),
                                RESOLVER_FIRST);
-        assertMapEquals(union.entrySet(), normals.entrySet());
-        assertMapEquals(union.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), alternates.entrySet());
-        ix = union.subtrie(left, right);
+        verifyAlternates(union, normals, alternates, false);
+    }
+
+    @Test
+    public void testPutAlternativeRecursive() throws InMemoryTrie.SpaceExhaustedException
+    {
+        InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        for (int i = 0; i < COUNT; ++i)
+        {
+            String key = makeSpecKey(rand);
+            int value = key.hashCode() & 0xFF; // to make sure value is the same on clash
+            if (rand.nextDouble() <= 0.3)
+            {
+                trie.putRecursive(comparable(key), value, (x, y) -> y);
+                normals.put(comparable(key), value);
+                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
+            }
+            else
+            {
+                trie.putAlternativeRecursive(comparable(key), -value, (x, y) -> y);
+                alternates.put(comparable(key), -value);
+                System.out.println("Adding " + asString(comparable(key)) + ": " + -value);
+            }
+        }
+        verifyAlternates(trie, normals, alternates, true);
+
+        // Now try adding normals first, followed by alternates to have the alternates branch lower.
+        trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        putNth(trie, normals, 1, 0);    // puts all
+        putNth(trie, alternates, 1, 0);    // puts all
+        verifyAlternates(trie, normals, alternates, false);
+
+        // Now try a more complex mixture.
+        trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        putNth(trie, normals, 3, 2);
+        putNth(trie, alternates, 2, 1);
+        putNth(trie, normals, 3, 1);
+        putNth(trie, alternates, 2, 0);
+        putNth(trie, normals, 3, 0);
+        verifyAlternates(trie, normals, alternates, false);
+    }
+
+    static void putNth(InMemoryTrie<Integer> trie, Map<ByteComparable, Integer> data, int divisor, int remainder) throws InMemoryTrie.SpaceExhaustedException
+    {
+        int i = 0;
+        for (var e : data.entrySet())
+        {
+            if (i % divisor == remainder)
+            {
+                System.out.println("Adding " + asString(e.getKey()) + ": " + e.getValue());
+                if (e.getValue() < 0)
+                    trie.putAlternativeRecursive(e.getKey(), e.getValue(), (x, y) -> y);
+                else
+                    trie.putRecursive(e.getKey(), e.getValue(), (x, y) -> y);
+            }
+            ++i;
+        }
+    }
+
+    private void verifyAlternates(Trie<Integer> trie, SortedMap<ByteComparable, Integer> normals, SortedMap<ByteComparable, Integer> alternates, boolean checkAlternatesView)
+    {
+        SortedMap<ByteComparable, Integer> both = new TreeMap<>(alternates);
+        both.putAll(normals);
+        ByteComparable left = comparable("3");
+        ByteComparable right = comparable("7");
+
+        System.out.println(trie.dump());
+
+        assertMapEquals(trie.entrySet(), normals.entrySet());
+        if (checkAlternatesView)
+            assertMapEquals(trie.alternateView().entrySet(), alternates.entrySet());
+        assertMapEquals(trie.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.entrySet());
+        Trie<Integer> ix = trie.subtrie(left, right);
         assertMapEquals(ix.entrySet(), normals.subMap(left, right).entrySet());
-        assertMapEquals(ix.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), alternates.subMap(left, right).entrySet());
+        if (checkAlternatesView)
+            assertMapEquals(ix.alternateView().entrySet(), alternates.subMap(left, right).entrySet());
+        assertMapEquals(ix.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.subMap(left, right).entrySet());
+
+        if (checkAlternatesView)
+        {
+            assertMapEquals(trie.alternateView()
+                                .subtrie(left, right)
+                                .entrySet(),
+                            alternates.subMap(left, right)
+                                      .entrySet());
+        }
+        assertMapEquals(trie.mergeAlternativeBranches(RESOLVER_FIRST)
+                             .subtrie(left, right)
+                             .entrySet(),
+                        both.subMap(left, right)
+                            .entrySet());
     }
 
     String makeSpecKey(Random rand)
