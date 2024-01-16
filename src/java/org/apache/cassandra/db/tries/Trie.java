@@ -183,7 +183,7 @@ public abstract class Trie<T>
          * is exactly the same as advance(), otherwise it may take multiple steps down (but will not necessarily, even
          * if they exist).
          * <p>
-         * Note that if any positions are skipped, their content must be null.
+         * Note that if any positions are passed over, their content or any other feature must be null.
          * <p>
          * This is an optional optimization; the default implementation falls back to calling advance.
          * <p>
@@ -241,6 +241,8 @@ public abstract class Trie<T>
 
         /**
          * If this node has an alternate branch, returns a Cursor that walks over it.
+         * The constructed cursor will only list an alternate branch rooted at this node, but it will retain the depth
+         * to make position comparisons easier.
          * <p>
          * Alternate branches are mechanisms for defining an epsilon (i.e. zero-length) transition to another point in
          * the trie. Theoretically the most useful application for this is to permit non-deterministic variations of
@@ -745,5 +747,10 @@ public abstract class Trie<T>
     public Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)
     {
         return new MergeAlternativeBranchesTrie<>(this, resolver);
+    }
+
+    public Trie<T> alternateView()
+    {
+        return new AlternateViewTrie<>(this);
     }
 }

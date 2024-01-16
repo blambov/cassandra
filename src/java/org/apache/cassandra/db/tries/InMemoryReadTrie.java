@@ -168,12 +168,18 @@ public class InMemoryReadTrie<T> extends Trie<T>
     // Offset to the order word of a sparse node (laid out after the children (pointer + transition byte))
     static final int SPARSE_ORDER_OFFSET = SPARSE_CHILD_COUNT * 5 - SPARSE_OFFSET;  // 0
 
-    // Offset of the flag byte in a prefix node. In shared blocks, this contains the offset of the next node.
+    // Offset of the flag byte in a prefix node. In shared blocks (i.e. embedded prefix nodes), this also contains the
+    // offset of the next node.
     static final int PREFIX_FLAGS_OFFSET = 4 - PREFIX_OFFSET;
     // Offset of the content id
     static final int PREFIX_CONTENT_OFFSET = 0 - PREFIX_OFFSET;
     // Offset of the next pointer in a non-shared prefix node
     static final int PREFIX_POINTER_OFFSET = LAST_POINTER_OFFSET - PREFIX_OFFSET;
+
+    // When true, this means that the stored value is an alternate path pointer.
+    // Unlike content, an alternate path prefix can be followed by NONE, as well as a leaf or content prefix node.
+    static final int PREFIX_ALTERNATE_PATH_FLAG = 0x80;
+    static final int PREFIX_EMBEDDED_FLAG = 0x20;
 
     /**
      * Value used as null for node pointers.
@@ -317,7 +323,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
         if (isNullOrLeaf(node))
             return NONE;
 
-        node = followContentTransition(node);
+        node = followPrefixTransition(node);
 
         switch (offset(node))
         {
@@ -336,21 +342,29 @@ public class InMemoryReadTrie<T> extends Trie<T>
         }
     }
 
-    protected int followContentTransition(int node)
+    protected int followPrefixTransition(int node)
     {
-        if (isNullOrLeaf(node))
-            return NONE;
-
-        if (offset(node) == PREFIX_OFFSET)
+        while (true)
         {
-            int b = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
-            if (b < BLOCK_SIZE)
-                node = node - PREFIX_OFFSET + b;
-            else
-                node = getInt(node + PREFIX_POINTER_OFFSET);
+            if (isNullOrLeaf(node))
+                return NONE;
 
-            assert node >= 0 && offset(node) != PREFIX_OFFSET;
+            if (offset(node) != PREFIX_OFFSET)
+                return node;
+
+            node = getPrefixChild(node, getUnsignedByte(node + PREFIX_FLAGS_OFFSET));
         }
+    }
+
+    protected int getPrefixChild(int node, int flags)
+    {
+        if ((flags & PREFIX_EMBEDDED_FLAG) != 0)
+            node = node - PREFIX_OFFSET + offset(flags);
+        else
+            node = getInt(node + PREFIX_POINTER_OFFSET);
+
+        // FIXME: drop this
+        assert !isNullOrLeaf(node) && offset(node) != PREFIX_OFFSET || (flags & PREFIX_ALTERNATE_PATH_FLAG) != 0;
         return node;
     }
 
@@ -365,7 +379,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
         if (isNullOrLeaf(node))
             return NONE;
 
-        node = followContentTransition(node);
+        node = followPrefixTransition(node);
 
         switch (offset(node))
         {
@@ -473,6 +487,17 @@ public class InMemoryReadTrie<T> extends Trie<T>
                : null;
     }
 
+    int getAlternateBranch(int node)
+    {
+        if (isNullOrLeaf(node))
+            return NONE;
+        if (offset(node) != PREFIX_OFFSET)
+            return NONE;
+        if ((getUnsignedByte(node + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) == 0)
+            return NONE;
+        return getInt(node + PREFIX_CONTENT_OFFSET);
+    }
+
     int splitBlockPointerAddress(int node, int childIndex, int subLevelLimit)
     {
         return node - SPLIT_OFFSET + (8 - subLevelLimit + childIndex) * 4;
@@ -493,8 +518,20 @@ public class InMemoryReadTrie<T> extends Trie<T>
     {
         static final int BACKTRACK_INTS_PER_ENTRY = 3;
         static final int BACKTRACK_INITIAL_SIZE = 16;
-        private int[] backtrack = new int[BACKTRACK_INITIAL_SIZE * BACKTRACK_INTS_PER_ENTRY];
-        int backtrackDepth = 0;
+        private int[] backtrack;
+        int backtrackDepth;
+
+        CursorBacktrackingState()
+        {
+            backtrack = new int[BACKTRACK_INITIAL_SIZE * BACKTRACK_INTS_PER_ENTRY];
+            backtrackDepth = 0;
+        }
+
+        CursorBacktrackingState(CursorBacktrackingState copyFrom)
+        {
+            backtrack = Arrays.copyOf(copyFrom.backtrack, copyFrom.backtrack.length);
+            backtrackDepth = copyFrom.backtrackDepth;
+        }
 
         void addBacktrack(int node, int data, int depth)
         {
@@ -542,11 +579,23 @@ public class InMemoryReadTrie<T> extends Trie<T>
         private int currentNode;
         private int incomingTransition;
         private T content;
-        private int depth = -1;
+        private int alternateBranch;
+        private int depth;
 
-        MemtableCursor()
+        MemtableCursor(int root, int depth, int incomingTransition)
         {
-            descendInto(root, -1);
+            this.depth = depth;
+            descendInto(root, incomingTransition);
+        }
+
+        MemtableCursor(MemtableCursor copyFrom)
+        {
+            super(copyFrom);
+            this.currentNode = copyFrom.currentNode;
+            this.incomingTransition = copyFrom.incomingTransition;
+            this.content = copyFrom.content;
+            this.alternateBranch = copyFrom.alternateBranch;
+            this.depth = copyFrom.depth;
         }
 
         @Override
@@ -619,15 +668,13 @@ public class InMemoryReadTrie<T> extends Trie<T>
         @Override
         public MemtableCursor alternateBranch()
         {
-            // TODO: implement
-            return null;
+            return isNull(alternateBranch) ? null : new MemtableCursor(alternateBranch, depth - 1, incomingTransition);
         }
 
         @Override
         public MemtableCursor duplicate()
         {
-            // TODO: implement
-            throw new UnsupportedOperationException();
+            return new MemtableCursor(this);
         }
 
         @Override
@@ -978,8 +1025,34 @@ public class InMemoryReadTrie<T> extends Trie<T>
         {
             ++depth;
             incomingTransition = transition;
-            content = getNodeContent(child);
-            currentNode = followContentTransition(child);
+            if (isNullOrLeaf(child))
+            {
+                content = getNodeContent(child);
+                alternateBranch = NONE;
+                currentNode = NONE;
+            }
+            else if (offset(child) == PREFIX_OFFSET)
+            {
+                int b = getUnsignedByte(child + PREFIX_FLAGS_OFFSET);
+                int index = getInt(child + PREFIX_CONTENT_OFFSET);
+                if ((b & PREFIX_ALTERNATE_PATH_FLAG) == 0)
+                {
+                    content = (index >= 0) ? getContent(index) : null;
+                    alternateBranch = NONE;
+                }
+                else
+                {
+                    content = null;
+                    alternateBranch = index;
+                }
+                currentNode = getPrefixChild(child, b);
+            }
+            else
+            {
+                content = null;
+                alternateBranch = NONE;
+                currentNode = child;
+            }
             return depth;
         }
 
@@ -1000,7 +1073,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
 
     public MemtableCursor cursor()
     {
-        return new MemtableCursor();
+        return new MemtableCursor(root, -1, -1);
     }
 
     /*

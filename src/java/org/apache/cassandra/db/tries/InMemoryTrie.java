@@ -476,26 +476,30 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return allocateBlock() + SPLIT_OFFSET;
     }
 
-    private int createPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
+    private int createContentPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
     {
-        assert !isNullOrLeaf(child) : "Prefix node cannot reference a childless node.";
+        assert !isNullOrLeaf(child) : "Content prefix node cannot reference a childless node.";
+        return createPrefixNode(contentIndex, child, isSafeChain, 0);
+    }
 
+    private int createPrefixNode(int contentIndex, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
+    {
         int offset = offset(child);
         int node;
-        if (offset == SPLIT_OFFSET || isSafeChain && offset > (PREFIX_FLAGS_OFFSET + PREFIX_OFFSET) && offset <= CHAIN_MAX_OFFSET)
+        if (!isNullOrLeaf(child) && (offset == SPLIT_OFFSET || isSafeChain && offset > (PREFIX_FLAGS_OFFSET + PREFIX_OFFSET) && offset <= CHAIN_MAX_OFFSET))
         {
             // We can do an embedded prefix node
             // Note: for chain nodes we have a risk that the node continues beyond the current point, in which case
             // creating the embedded node may overwrite information that is still needed by concurrent readers or the
             // mutation process itself.
             node = (child & -BLOCK_SIZE) | PREFIX_OFFSET;
-            putByte(node + PREFIX_FLAGS_OFFSET, (byte) offset);
+            putByte(node + PREFIX_FLAGS_OFFSET, (byte) (offset | PREFIX_EMBEDDED_FLAG | additionalFlags));
         }
         else
         {
             // Full prefix node
             node = allocateBlock() + PREFIX_OFFSET;
-            putByte(node + PREFIX_FLAGS_OFFSET, (byte) 0xFF);
+            putByte(node + PREFIX_FLAGS_OFFSET, (byte) additionalFlags);
             putInt(node + PREFIX_POINTER_OFFSET, child);
         }
 
@@ -518,13 +522,13 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         else
         {
             int contentIndex = getInt(node + PREFIX_CONTENT_OFFSET);
-            return createPrefixNode(contentIndex, child, true);
+            return createContentPrefixNode(contentIndex, child, true);
         }
     }
 
     private boolean isEmbeddedPrefixNode(int node)
     {
-        return getUnsignedByte(node + PREFIX_FLAGS_OFFSET) < BLOCK_SIZE;
+        return (getUnsignedByte(node + PREFIX_FLAGS_OFFSET) & PREFIX_EMBEDDED_FLAG) != 0;
     }
 
     /**
@@ -542,9 +546,9 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * @return a node which has the children of updatedPostContentNode combined with the content of
      *         existingPreContentNode
      */
-    private int preserveContent(int existingPreContentNode,
-                                int existingPostContentNode,
-                                int updatedPostContentNode) throws SpaceExhaustedException
+    private int preservePrefix(int existingPreContentNode,
+                               int existingPostContentNode,
+                               int updatedPostContentNode) throws SpaceExhaustedException
     {
         if (existingPreContentNode == existingPostContentNode)
             return updatedPostContentNode;     // no content to preserve
@@ -555,7 +559,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         // else we have existing prefix node, and we need to reference a new child
         if (isLeaf(existingPreContentNode))
         {
-            return createPrefixNode(~existingPreContentNode, updatedPostContentNode, true);
+            return createContentPrefixNode(~existingPreContentNode, updatedPostContentNode, true);
         }
 
         assert offset(existingPreContentNode) == PREFIX_OFFSET : "Unexpected content in non-prefix and non-leaf node.";
@@ -681,7 +685,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             else if (offset(existingPreContentNode) == PREFIX_OFFSET)
             {
                 existingContentIndex = getInt(existingPreContentNode + PREFIX_CONTENT_OFFSET);
-                existingPostContentNode = followContentTransition(existingPreContentNode);
+                existingPostContentNode = followPrefixTransition(existingPreContentNode);
             }
             else
                 existingPostContentNode = existingPreContentNode;
@@ -754,7 +758,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (existingPreContentNode == existingPostContentNode ||
                 isNull(existingPostContentNode) ||
                 isEmbeddedPrefixNode(existingPreContentNode) && updatedPostContentNode != existingPostContentNode)
-                return createPrefixNode(contentIndex, updatedPostContentNode, isNull(existingPostContentNode));
+                return createContentPrefixNode(contentIndex, updatedPostContentNode, isNull(existingPostContentNode));
 
             // Otherwise modify in place
             if (updatedPostContentNode != existingPostContentNode) // to use volatile write but also ensure we don't corrupt embedded nodes
@@ -911,13 +915,73 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         if (newChild == child)
             return node;
 
-        int skippedContent = followContentTransition(node);
+        int skippedContent = followPrefixTransition(node);
         int attachedChild = !isNull(skippedContent)
                             ? attachChild(skippedContent, transition, newChild)  // Single path, no copying required
                             : expandOrCreateChainNode(transition, newChild);
 
-        return preserveContent(node, skippedContent, attachedChild);
+        return preservePrefix(node, skippedContent, attachedChild);
     }
+
+    public <R> void putAlternativeRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        final ByteSource keyComparableBytes = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        if (isNull(root)) // special case for empty trie
+        {
+            int newAlternateBranch = putRecursive(NONE, keyComparableBytes, value, transformer);
+            root = createPrefixNode(newAlternateBranch, NONE, true, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+        else
+        {
+            int newRoot = putAlternativeRecursive(root, keyComparableBytes, value, transformer);
+            if (newRoot != root)
+                root = newRoot;
+        }
+    }
+
+    private <R> int putAlternativeRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        // FIXME: If we have to open a branching point somewhere, we need to bring all covered alternates up to that level.
+        // FIXME: The alternate branching point should be pushed down when live data is added -- means changing putRecursive :(
+        // Define alternates only where there is no normal branch?
+        int alternateBranch = getAlternateBranch(node);
+        if (alternateBranch != NONE)
+        {
+            int newAlternateBranch = putRecursive(alternateBranch, key, value, transformer);
+            if (newAlternateBranch == alternateBranch)
+                return node;
+            assert !isNullOrLeaf(node) && offset(node) == PREFIX_OFFSET;
+            putInt(node + PREFIX_CONTENT_OFFSET, newAlternateBranch);
+            return node;
+        }
+
+        int transition = key.next();
+        if (transition == ByteSource.END_OF_STREAM)
+        {
+            // Reached a match for the alternative in the normal path. Create an alternative here.
+            int alternate = ~addContent(transformer.apply(null, value));
+            return createPrefixNode(alternate, node, false, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+
+        int child = getChild(node, transition);
+        if (isNull(child))
+        {
+            int newAlternateBranch = putRecursive(NONE, key, value, transformer);
+            return createPrefixNode(newAlternateBranch, node, false, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+
+        int newChild = putAlternativeRecursive(child, key, value, transformer);
+        if (newChild == child)
+            return node;
+
+        int skippedContent = followPrefixTransition(node);
+        int attachedChild = !isNull(skippedContent)
+                            ? attachChild(skippedContent, transition, newChild)  // Single path, no copying required
+                            : expandOrCreateChainNode(transition, newChild);
+
+        return preservePrefix(node, skippedContent, attachedChild);
+    }
+
 
     private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
@@ -938,7 +1002,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return node;
         }
         else
-            return createPrefixNode(addContent(transformer.apply(null, value)), node, false);
+            return createContentPrefixNode(addContent(transformer.apply(null, value)), node, false);
     }
 
     /**
