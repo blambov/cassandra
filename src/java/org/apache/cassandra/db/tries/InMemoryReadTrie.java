@@ -1062,6 +1062,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
             incomingTransition = transition;
             content = null;
             currentNode = child;
+            alternateBranch = NONE;
             return depth;
         }
     }
@@ -1111,6 +1112,11 @@ public class InMemoryReadTrie<T> extends Trie<T>
      */
     @Override
     public String dump(Function<T, String> contentToString)
+    {
+        return dump(contentToString, root);
+    }
+
+    private String dump(Function<T, String> contentToString, int root)
     {
         class TypedNodesCursor implements Cursor<String>
         {
@@ -1202,6 +1208,78 @@ public class InMemoryReadTrie<T> extends Trie<T>
                     return type;
             }
         }
-        return process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(cursor()));
+        return process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(new MemtableCursor(root, -1, -1)));
+    }
+
+    /**
+     * For use in debugging.
+     */
+    @SuppressWarnings("unused")
+    String dumpNode(int node)
+    {
+        if (isNull(node))
+            return "NONE";
+        else if (isLeaf(node))
+            return "~" + (~node);
+        else
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.append(node + " ");
+            switch (offset(node))
+            {
+                case SPARSE_OFFSET:
+                {
+                    builder.append("Sparse: ");
+                    for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
+                    {
+                        int child = getInt(node + SPARSE_CHILDREN_OFFSET + i * 4);
+                        if (child != NONE)
+                            builder.append(String.format("%02x", getUnsignedByte(node + SPARSE_BYTES_OFFSET + i)))
+                                   .append(" -> ")
+                                   .append(child)
+                                   .append(";  ");
+                    }
+                    break;
+                }
+                case SPLIT_OFFSET:
+                {
+                    builder.append("Split: ");
+                    for (int i = 0; i < SPLIT_START_LEVEL_LIMIT; ++i)
+                    {
+                        int child = getInt(node - (SPLIT_START_LEVEL_LIMIT - 1 - i) * 4);
+                        if (child != NONE)
+                            builder.append(Integer.toBinaryString(i))
+                                   .append(" -> ")
+                                   .append(child)
+                                   .append(";  ");
+                    }
+                    break;
+                }
+                case PREFIX_OFFSET:
+                {
+                    builder.append("Prefix: ");
+                    int flags = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
+                    builder.append(getInt(node + PREFIX_CONTENT_OFFSET));
+                    if ((flags & PREFIX_ALTERNATE_PATH_FLAG) != 0)
+                        builder.append(" alternate");
+                    if ((flags & PREFIX_EMBEDDED_FLAG) != 0)
+                        builder.append(" embedded");
+                    int child = getPrefixChild(node, flags);
+                    builder.append(" -> ")
+                           .append(child);
+                    break;
+                }
+                default:
+                {
+                    builder.append("Chain: ");
+                    for (int i = 0; i < chainBlockLength(node); ++i)
+                        builder.append(String.format("%02x", getUnsignedByte(node + i)));
+                    builder.append(" -> ")
+                           .append(getInt(node + chainBlockLength(node)));
+                    break;
+                }
+            }
+            return builder.toString();
+        }
     }
 }

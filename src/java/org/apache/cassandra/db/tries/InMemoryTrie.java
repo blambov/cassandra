@@ -966,7 +966,8 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int child = getChild(node, transition);
         if (isNull(child))
         {
-            int newAlternateBranch = putRecursive(NONE, key, value, transformer);
+            int newChild = putRecursive(NONE, key, value, transformer);
+            int newAlternateBranch = expandOrCreateChainNode(transition, newChild);
             return createPrefixNode(newAlternateBranch, node, false, PREFIX_ALTERNATE_PATH_FLAG);
         }
 
