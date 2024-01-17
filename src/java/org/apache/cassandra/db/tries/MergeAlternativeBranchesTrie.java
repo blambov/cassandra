@@ -25,18 +25,20 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
 {
     final private Trie<T> source;
     final private CollectionMergeResolver<T> resolver;
+    final private boolean omitMain;
 
-    public MergeAlternativeBranchesTrie(Trie<T> source, CollectionMergeResolver<T> resolver)
+    MergeAlternativeBranchesTrie(Trie<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
     {
         super();
         this.source = source;
         this.resolver = resolver;
+        this.omitMain = omitMain;
     }
 
     @Override
     protected Cursor<T> cursor()
     {
-        return new MergeAlternativesCursor<>(resolver, source);
+        return new MergeAlternativesCursor<>(resolver, source, omitMain);
     }
 
     /**
@@ -100,6 +102,7 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
     static class MergeAlternativesCursor<T> implements Cursor<T>
     {
         private final CollectionMergeResolver<T> resolver;
+        private final Cursor<T> cursorToOmit;
 
         /**
          * The smallest cursor, tracked separately to improve performance in single-source sections of the trie.
@@ -118,12 +121,13 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
          */
         private final List<T> contents;
 
-        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, Trie<T> source)
+        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, Trie<T> source, boolean omitMain)
         {
             this.resolver = resolver;
+            head = source.cursor();
+            cursorToOmit = omitMain ? head : null;
             heap = new ArrayList<>();
             contents = new ArrayList<>();
-            head = source.cursor();
             maybeSwapHeadAndEnterNode(head.depth());
         }
 
@@ -131,14 +135,20 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
         {
             this.resolver = copyFrom.resolver;
             List<Cursor<T>> list = new ArrayList<>(copyFrom.heap.size());
+            Cursor<T> toOmit = null;
             for (Cursor<T> tCursor : copyFrom.heap)
             {
                 Cursor<T> duplicate = tCursor.duplicate();
                 list.add(duplicate);
+                if (tCursor == copyFrom.cursorToOmit)
+                    toOmit = duplicate;
             }
             this.heap = list;
             this.contents = new ArrayList<>(copyFrom.contents.size()); // no need to copy contents
             this.head = copyFrom.head.duplicate();
+            if (copyFrom.head == copyFrom.cursorToOmit)
+                toOmit = this.head;
+            this.cursorToOmit = toOmit;
         }
 
         /**
@@ -409,6 +419,9 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
 
         private void collectContent(Cursor<T> item, int index)
         {
+            if (item == cursorToOmit)
+                return;
+
             T itemContent = item.content();
             if (itemContent != null)
                 contents.add(itemContent);

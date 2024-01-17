@@ -275,15 +275,21 @@ public abstract class Trie<T>
     // done: determinization / mergeAlternatives (needed to run any tests)
     // done: alternate branch merge
     // done: alternate branch intersect
-    // TODO: test duplicate (ByteSource and Cursor)
-    // TODO: adding alternate paths (put) and branches (apply) to InMemoryTrie
+    // done: alternateView
+    // TODO: no-content branch removal (for alternateView)
+    // TODO: adding alternate paths (put) to InMemoryTrie; depth of switch should be supplied as argument
+    // TODO: figure out if duplicate should only cover branch or full backtrack
+    // TODO: test duplicate impl (ByteSource and Cursor)
+    // TODO: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
     // TODO: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)
+    // TODO: simplification of alternate path for flush (pluggable?)
     // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion summarization (with timestamps? pluggable)
     // TODO: consider mayHaveAlternatives flag
 
     // TODO: reverse iteration
+    // TODO: consistency levels / copy on write + node reuse
 
     protected abstract Cursor<T> cursor();
 
@@ -746,11 +752,11 @@ public abstract class Trie<T>
 
     public Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)
     {
-        return new MergeAlternativeBranchesTrie<>(this, resolver);
+        return new MergeAlternativeBranchesTrie<>(this, resolver, false);
     }
 
-    public Trie<T> alternateView()
+    public Trie<T> alternateView(CollectionMergeResolver<T> resolver)
     {
-        return new AlternateViewTrie<>(this);
+        return new MergeAlternativeBranchesTrie<>(this, resolver, true);
     }
 }

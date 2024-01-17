@@ -19,17 +19,18 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Random;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import org.junit.Assert;
+import com.google.common.collect.Sets;
 import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
@@ -40,10 +41,11 @@ import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.VERSION;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.comparable;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.specifiedTrie;
+import static org.junit.Assert.fail;
 
 public class AlternativeBranchesTest
 {
-    static final int COUNT = 10;
+    static final int COUNT = 10000;
     static final Random rand = new Random(1);
 
     @Test
@@ -84,7 +86,7 @@ public class AlternativeBranchesTest
                                     .entrySet());
     }
 
-    final Trie.CollectionMergeResolver<Integer> RESOLVER_FIRST = c -> c.iterator().next();
+    final static Trie.CollectionMergeResolver<Integer> RESOLVER_FIRST = c -> c.iterator().next();
 
     @Test
     public void testRandomSingletons()
@@ -108,12 +110,12 @@ public class AlternativeBranchesTest
             }
         }
         Trie<Integer> union = Trie.merge(tries, RESOLVER_FIRST);
-        verifyAlternates(union, normals, alternates, false);
+        verifyAlternates(union, normals, alternates);
 
         union = Trie.merge(tries.subList(0, COUNT/2), RESOLVER_FIRST)
                     .mergeWith(Trie.merge(tries.subList(COUNT/2, COUNT), RESOLVER_FIRST),
                                RESOLVER_FIRST);
-        verifyAlternates(union, normals, alternates, false);
+        verifyAlternates(union, normals, alternates);
     }
 
     @Test
@@ -130,22 +132,22 @@ public class AlternativeBranchesTest
             {
                 trie.putRecursive(comparable(key), value, (x, y) -> y);
                 normals.put(comparable(key), value);
-                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
             }
             else
             {
-                trie.putAlternativeRecursive(comparable(key), -value, (x, y) -> y);
-                alternates.put(comparable(key), -value);
-                System.out.println("Adding " + asString(comparable(key)) + ": " + -value);
+                trie.putAlternativeRecursive(comparable(key), ~value, (x, y) -> y);
+                alternates.put(comparable(key), ~value);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
             }
         }
-        verifyAlternates(trie, normals, alternates, true);
+        verifyAlternates(trie, normals, alternates);
 
         // Now try adding normals first, followed by alternates to have the alternates branch lower.
         trie = new InMemoryTrie<>(BufferType.ON_HEAP);
         putNth(trie, normals, 1, 0);    // puts all
         putNth(trie, alternates, 1, 0);    // puts all
-        verifyAlternates(trie, normals, alternates, false);
+        verifyAlternates(trie, normals, alternates);
 
         // Now try a more complex mixture.
         trie = new InMemoryTrie<>(BufferType.ON_HEAP);
@@ -154,17 +156,18 @@ public class AlternativeBranchesTest
         putNth(trie, normals, 3, 1);
         putNth(trie, alternates, 2, 0);
         putNth(trie, normals, 3, 0);
-        verifyAlternates(trie, normals, alternates, false);
+        verifyAlternates(trie, normals, alternates);
     }
 
     static void putNth(InMemoryTrie<Integer> trie, Map<ByteComparable, Integer> data, int divisor, int remainder) throws InMemoryTrie.SpaceExhaustedException
     {
+//        System.out.println();
         int i = 0;
         for (var e : data.entrySet())
         {
             if (i % divisor == remainder)
             {
-                System.out.println("Adding " + asString(e.getKey()) + ": " + e.getValue());
+//                System.out.println("Adding " + asString(e.getKey()) + ": " + e.getValue());
                 if (e.getValue() < 0)
                     trie.putAlternativeRecursive(e.getKey(), e.getValue(), (x, y) -> y);
                 else
@@ -174,33 +177,29 @@ public class AlternativeBranchesTest
         }
     }
 
-    private void verifyAlternates(Trie<Integer> trie, SortedMap<ByteComparable, Integer> normals, SortedMap<ByteComparable, Integer> alternates, boolean checkAlternatesView)
+    private void verifyAlternates(Trie<Integer> trie, SortedMap<ByteComparable, Integer> normals, SortedMap<ByteComparable, Integer> alternates)
     {
         SortedMap<ByteComparable, Integer> both = new TreeMap<>(alternates);
         both.putAll(normals);
         ByteComparable left = comparable("3");
         ByteComparable right = comparable("7");
 
-        System.out.println(trie.dump());
+//        System.out.println(trie.dump());
+//        System.out.println(trie.mergeAlternativeBranches(RESOLVER_FIRST).dump());
 
         assertMapEquals(trie.entrySet(), normals.entrySet());
-        if (checkAlternatesView)
-            assertMapEquals(trie.alternateView().entrySet(), alternates.entrySet());
+        assertMapEquals(trie.alternateView(RESOLVER_FIRST).entrySet(), alternates.entrySet());
         assertMapEquals(trie.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.entrySet());
         Trie<Integer> ix = trie.subtrie(left, right);
         assertMapEquals(ix.entrySet(), normals.subMap(left, right).entrySet());
-        if (checkAlternatesView)
-            assertMapEquals(ix.alternateView().entrySet(), alternates.subMap(left, right).entrySet());
+        assertMapEquals(ix.alternateView(RESOLVER_FIRST).entrySet(), alternates.subMap(left, right).entrySet());
         assertMapEquals(ix.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.subMap(left, right).entrySet());
 
-        if (checkAlternatesView)
-        {
-            assertMapEquals(trie.alternateView()
-                                .subtrie(left, right)
-                                .entrySet(),
-                            alternates.subMap(left, right)
-                                      .entrySet());
-        }
+        assertMapEquals(trie.alternateView(RESOLVER_FIRST)
+                            .subtrie(left, right)
+                            .entrySet(),
+                        alternates.subMap(left, right)
+                                  .entrySet());
         assertMapEquals(trie.mergeAlternativeBranches(RESOLVER_FIRST)
                              .subtrie(left, right)
                              .entrySet(),
@@ -232,37 +231,48 @@ public class AlternativeBranchesTest
     static <T> void assertMapEquals(Iterable<Map.Entry<ByteComparable, T>> container1,
                                     Iterable<Map.Entry<ByteComparable, T>> container2)
     {
-        Iterator<Map.Entry<ByteComparable, T>> it1 = container1.iterator();
-        Iterator<Map.Entry<ByteComparable, T>> it2 = container2.iterator();
-        List<ByteComparable> failedAt = new ArrayList<>();
-        StringBuilder b = new StringBuilder();
-        while (it1.hasNext() && it2.hasNext())
+        NavigableMap<String, String> values1 = collectAsStrings(container1);
+        NavigableMap<String, String> values2 = collectAsStrings(container2);
+        if (values1.equals(values2))
+            return;
+
+        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
+        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
+        Set<String> keyDifference = allKeys.stream()
+                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
+                                           .collect(Collectors.toSet());
+        System.err.println("All data");
+        dumpDiff(values1, values2, allKeys);
+        System.err.println("\nDifferences");
+        dumpDiff(values1, values2, keyDifference);
+        fail("Maps are not equal at " + keyDifference);
+    }
+
+    private static void dumpDiff(NavigableMap<String, String> values1, NavigableMap<String, String> values2, Set<String> set)
+    {
+        for (String key : set)
         {
-            Map.Entry<ByteComparable, T> en1 = it1.next();
-            Map.Entry<ByteComparable, T> en2 = it2.next();
-            b.append(String.format("TreeSet %s:%s\n", asString(en2.getKey()), (en2.getValue())));
-            b.append(String.format("Trie    %s:%s\n", asString(en1.getKey()), (en1.getValue())));
-            if (ByteComparable.compare(en1.getKey(), en2.getKey(), VERSION) != 0 || !Objects.equal(en1.getValue(), en2.getValue()))
-                failedAt.add(en1.getKey());
+            String v1 = values1.get(key);
+            if (v1 != null)
+                System.err.println(String.format("Trie    %s:%s", key, v1));
+            String v2 = values2.get(key);
+            if (v2 != null)
+                System.err.println(String.format("TreeSet %s:%s", key, v2));
         }
-        while (it1.hasNext())
+    }
+
+    private static <T> TreeMap<String, String> collectAsStrings(Iterable<Map.Entry<ByteComparable, T>> container1)
+    {
+        var map = new TreeMap<String, String>();
+        ByteComparable prevKey = null;
+        for (var e : container1)
         {
-            Map.Entry<ByteComparable, T> en1 = it1.next();
-            b.append(String.format("Trie    %s:%s\n", asString(en1.getKey()), (en1.getValue())));
-            failedAt.add(en1.getKey());
+            var key = e.getKey();
+            if (prevKey != null && ByteComparable.compare(prevKey, key, VERSION) >= 0)
+                fail("Keys are not sorted: " + prevKey + " >= " + key);
+            prevKey = key;
+            map.put(asString(key), e.getValue().toString());
         }
-        while (it2.hasNext())
-        {
-            Map.Entry<ByteComparable, T> en2 = it2.next();
-            b.append(String.format("TreeSet %s:%s\n", asString(en2.getKey()), (en2.getValue())));
-            failedAt.add(en2.getKey());
-        }
-        if (!failedAt.isEmpty())
-        {
-            String message = "Failed at " + Lists.transform(failedAt, InMemoryTrieTestBase::asString);
-            System.err.println(message);
-            System.err.println(b);
-            Assert.fail(message);
-        }
+        return map;
     }
 }
