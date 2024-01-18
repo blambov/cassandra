@@ -181,15 +181,17 @@ public class AlternativeBranchesTest
     {
         SortedMap<ByteComparable, Integer> both = new TreeMap<>(alternates);
         both.putAll(normals);
-        ByteComparable left = comparable("3");
-        ByteComparable right = comparable("7");
+        ByteComparable left = comparable("3" + makeSpecKey(rand));
+        ByteComparable right = comparable("7" + makeSpecKey(rand));
 
-//        System.out.println(trie.dump());
-//        System.out.println(trie.mergeAlternativeBranches(RESOLVER_FIRST).dump());
+//        System.out.println("Normal:\n" + trie.dump());
+//        System.out.println("Merged:\n" + trie.mergeAlternativeBranches(RESOLVER_FIRST).dump());
+//        System.out.println("Alt   :\n" + trie.alternateView(RESOLVER_FIRST).dump());
 
         assertMapEquals(trie.entrySet(), normals.entrySet());
         assertMapEquals(trie.alternateView(RESOLVER_FIRST).entrySet(), alternates.entrySet());
         assertMapEquals(trie.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.entrySet());
+
         Trie<Integer> ix = trie.subtrie(left, right);
         assertMapEquals(ix.entrySet(), normals.subMap(left, right).entrySet());
         assertMapEquals(ix.alternateView(RESOLVER_FIRST).entrySet(), alternates.subMap(left, right).entrySet());

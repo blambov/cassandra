@@ -38,7 +38,10 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
     @Override
     protected Cursor<T> cursor()
     {
-        return new MergeAlternativesCursor<>(resolver, source, omitMain);
+        Cursor<T> cursor = new MergeAlternativesCursor<>(resolver, source, omitMain);
+        if (omitMain)
+            cursor = DeadBranchRemoval.apply(cursor);
+        return cursor;
     }
 
     /**
