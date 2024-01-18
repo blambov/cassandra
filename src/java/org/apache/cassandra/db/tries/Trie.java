@@ -232,12 +232,12 @@ public abstract class Trie<T>
         /**
          * Advance to the specified depth and incoming transition or the first valid position that is after the specified
          * position. The inputs must be something that could be returned by a single call to {@link #advance} (i.e.
-         * {@code depth} must be <= current depth + 1, and {@code incomingTransition} must be higher than what the
+         * {@code skipDepth} must be <= current depth + 1, and {@code skipTransition} must be higher than what the
          * current state saw at the requested depth.
          *
          * @return the new depth, always <= previous depth; -1 if the trie is exhausted
          */
-        int skipTo(int depth, int incomingTransition);
+        int skipTo(int skipDepth, int skipTransition);
 
         /**
          * If this node has an alternate branch, returns a Cursor that walks over it.
@@ -276,8 +276,9 @@ public abstract class Trie<T>
     // done: alternate branch merge
     // done: alternate branch intersect
     // done: alternateView
-    // TODO: no-content branch removal (for alternateView)
-    // TODO: adding alternate paths (put) to InMemoryTrie; depth of switch should be supplied as argument
+    // done: no-content branch removal (for alternateView)
+    // done: adding alternate paths (put) to InMemoryTrie
+    // TODO: depth of switch should be supplied as argument to putAlternateRecursive
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: test duplicate impl (ByteSource and Cursor)
     // TODO: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary

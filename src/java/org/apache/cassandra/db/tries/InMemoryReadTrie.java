@@ -1116,6 +1116,15 @@ public class InMemoryReadTrie<T> extends Trie<T>
         return dump(contentToString, root);
     }
 
+    /**
+     * For use in debugging, dump the branch rooted at the given argument.
+     */
+    @SuppressWarnings("unused")
+    String dump(int root)
+    {
+        return dump(Object::toString, root);
+    }
+
     private String dump(Function<T, String> contentToString, int root)
     {
         class TypedNodesCursor implements Cursor<String>
@@ -1212,7 +1221,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
     }
 
     /**
-     * For use in debugging.
+     * For use in debugging, dump info about the given node.
      */
     @SuppressWarnings("unused")
     String dumpNode(int node)
@@ -1237,7 +1246,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
                             builder.append(String.format("%02x", getUnsignedByte(node + SPARSE_BYTES_OFFSET + i)))
                                    .append(" -> ")
                                    .append(child)
-                                   .append(";  ");
+                                   .append('\n');
                     }
                     break;
                 }
@@ -1251,7 +1260,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
                             builder.append(Integer.toBinaryString(i))
                                    .append(" -> ")
                                    .append(child)
-                                   .append(";  ");
+                                   .append('\n');
                     }
                     break;
                 }
