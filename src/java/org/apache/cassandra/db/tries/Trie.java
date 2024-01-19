@@ -278,14 +278,16 @@ public abstract class Trie<T>
     // done: alternateView
     // done: no-content branch removal (for alternateView)
     // done: adding alternate paths (put) to InMemoryTrie
-    // TODO: depth of switch should be supplied as argument to putAlternateRecursive
-    // TODO: figure out if duplicate should only cover branch or full backtrack
-    // TODO: test duplicate impl (ByteSource and Cursor)
+    // done: putAlternateRange for range tombstones, should place alternate branch at LCA of start and end (or higher if no live branch exists there)
     // TODO: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
+    // TODO: alternate range trie constructor for apply-version of putAlternateRange
+    // TODO: test apply alternate range
+    // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)
     // TODO: simplification of alternate path for flush (pluggable?)
-    // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
+    // TODO: figure out if duplicate should only cover branch or full backtrack
+    // TODO: test duplicate impl (ByteSource and Cursor)
     // TODO: deletion summarization (with timestamps? pluggable)
     // TODO: consider mayHaveAlternatives flag
 

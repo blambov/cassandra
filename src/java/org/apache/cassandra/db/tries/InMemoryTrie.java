@@ -910,17 +910,8 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return applyContent(node, value, transformer);
 
         int child = getChild(node, transition);
-
         int newChild = putRecursive(child, key, value, transformer);
-        if (newChild == child)
-            return node;
-
-        int skippedContent = followPrefixTransition(node);
-        int attachedChild = !isNull(skippedContent)
-                            ? attachChild(skippedContent, transition, newChild)  // Single path, no copying required
-                            : expandOrCreateChainNode(transition, newChild);
-
-        return preservePrefix(node, skippedContent, attachedChild);
+        return completeUpdate(node, transition, child, newChild);
     }
 
     public <R> void putAlternativeRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
@@ -941,9 +932,6 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     private <R> int putAlternativeRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
-        // FIXME: If we have to open a branching point somewhere, we need to bring all covered alternates up to that level.
-        // FIXME: The alternate branching point should be pushed down when live data is added -- means changing putRecursive :(
-        // Define alternates only where there is no normal branch?
         int alternateBranch = getAlternateBranch(node);
         if (alternateBranch != NONE)
         {
@@ -972,7 +960,104 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
 
         int newChild = putAlternativeRecursive(child, key, value, transformer);
-        if (newChild == child)
+        return completeUpdate(node, transition, child, newChild);
+    }
+
+
+    public <R> void putAlternativeRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        final ByteSource startComparableBytes = start.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        final ByteSource endComparableBytes = end.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        if (isNull(root)) // special case for empty trie
+        {
+            int newAlternateBranch = putRangeRecursive(NONE, startComparableBytes, startValue, endComparableBytes, endValue, transformer);
+            root = createPrefixNode(newAlternateBranch, NONE, true, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+        else
+        {
+            int newRoot = putAlternativeRangeRecursive(root, startComparableBytes, startValue, endComparableBytes, endValue, transformer);
+            if (newRoot != root)
+                root = newRoot;
+        }
+    }
+
+    // Testing only
+    <R> void putRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        final ByteSource startComparableBytes = start.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        final ByteSource endComparableBytes = end.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        int newRoot = putRangeRecursive(root, startComparableBytes, startValue, endComparableBytes, endValue, transformer);
+        if (newRoot != root)
+            root = newRoot;
+    }
+
+    private <R> int putRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        int stransition = start.next();
+        int etransition = end.next();
+        if (stransition != etransition || stransition == ByteSource.END_OF_STREAM)
+        {
+            node = putRecursive(node, stransition, start, startValue, transformer);
+            node = putRecursive(node, etransition, end, endValue, transformer);
+            return node;
+        }
+        else
+        {
+            int oldChild = getChild(node, stransition);
+            int newChild = putRangeRecursive(oldChild, start, startValue, end, endValue, transformer);
+            return completeUpdate(node, stransition, oldChild, newChild);
+        }
+    }
+
+    private <R> int putAlternativeRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        int alternateBranch = getAlternateBranch(node);
+        if (alternateBranch != NONE)
+        {
+            int newAlternateBranch = putRangeRecursive(alternateBranch, start, startValue, end, endValue, transformer);
+            if (newAlternateBranch == alternateBranch)
+                return node;
+            assert !isNullOrLeaf(node) && offset(node) == PREFIX_OFFSET;
+            putInt(node + PREFIX_CONTENT_OFFSET, newAlternateBranch);
+            return node;
+        }
+
+        int stransition = start.next();
+        int etransition = end.next();
+        if (stransition != etransition || stransition == ByteSource.END_OF_STREAM)
+        {
+            // Reached the lowest common ancestor. Time to go into alternate branch.
+            int alternate = NONE;
+            alternate = putRecursive(alternate, stransition, start, startValue, transformer);
+            alternate = putRecursive(alternate, etransition, end, endValue, transformer);
+            return createPrefixNode(alternate, node, false, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+
+        int oldChild = getChild(node, stransition);
+        if (isNull(oldChild))
+        {
+            int newChild = putRangeRecursive(NONE, start, startValue, end, endValue, transformer);
+            int newAlternateBranch = expandOrCreateChainNode(stransition, newChild);
+            return createPrefixNode(newAlternateBranch, node, false, PREFIX_ALTERNATE_PATH_FLAG);
+        }
+
+        int newChild = putAlternativeRangeRecursive(oldChild, start, startValue, end, endValue, transformer);
+        return completeUpdate(node, stransition, oldChild, newChild);
+    }
+
+    private <R> int putRecursive(int node, int keyHead, ByteSource keyTail, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    {
+        if (keyHead == ByteSource.END_OF_STREAM)
+            return applyContent(node, value, transformer);
+
+        int oldChild = getChild(node, keyHead);
+        int newChild = putRecursive(oldChild, keyTail, value, transformer);
+        return completeUpdate(node, keyHead, getChild(node, keyHead), newChild);
+    }
+
+    private int completeUpdate(int node, int transition, int oldChild, int newChild) throws SpaceExhaustedException
+    {
+        if (newChild == oldChild)
             return node;
 
         int skippedContent = followPrefixTransition(node);
@@ -982,7 +1067,6 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
         return preservePrefix(node, skippedContent, attachedChild);
     }
-
 
     private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {

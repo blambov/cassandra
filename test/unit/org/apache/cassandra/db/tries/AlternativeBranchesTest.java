@@ -26,6 +26,8 @@ import java.util.Random;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.IntPredicate;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Objects;
@@ -36,17 +38,20 @@ import org.junit.Test;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.VERSION;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.comparable;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.specifiedTrie;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class AlternativeBranchesTest
 {
     static final int COUNT = 10000;
-    static final Random rand = new Random(1);
+    static final Random rand = ThreadLocalRandom.current();//new Random(111);
 
     @Test
     public void testSpecifiedSimple()
@@ -177,6 +182,129 @@ public class AlternativeBranchesTest
         }
     }
 
+    @Test
+    public void testPutAlternativeRangeRecursive() throws InMemoryTrie.SpaceExhaustedException
+    {
+        testPutAlternativeRangeRecursive(i -> rand.nextDouble() < 0.7);
+        testPutAlternativeRangeRecursive(i -> rand.nextDouble() < 0.5);
+        testPutAlternativeRangeRecursive(i -> rand.nextDouble() < 0.3);
+
+        testPutAlternativeRangeRecursive(i -> i >= COUNT / 2);  // normal first
+        testPutAlternativeRangeRecursive(i -> i >= COUNT / 5 && rand.nextDouble() < 0.4);
+    }
+
+    public void testPutAlternativeRangeRecursive(IntPredicate alternateChooser) throws InMemoryTrie.SpaceExhaustedException
+    {
+        InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        for (int i = 0; i < COUNT; ++i)
+        {
+            String skey = makeSpecKey(rand);
+            int svalue = skey.hashCode() & 0xFF; // to make sure value is the same on clash
+            String ekey = makeSpecKey(rand);
+            int evalue = ekey.hashCode() & 0xFF; // to make sure value is the same on clash
+            if (!alternateChooser.test(i))
+            {
+                trie.putRangeRecursive(comparable(skey), svalue, comparable(ekey), evalue, (x, y) -> y);
+                normals.put(comparable(skey), svalue);
+                normals.put(comparable(ekey), evalue);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
+            }
+            else
+            {
+                trie.putAlternativeRangeRecursive(comparable(skey), ~svalue, comparable(ekey), ~evalue, (x, y) -> y);
+                alternates.put(comparable(skey), ~svalue);
+                alternates.put(comparable(ekey), ~evalue);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
+            }
+        }
+        verifyAlternates(trie, normals, alternates);
+    }
+
+    @Test
+    public void testCoveredVisitsRange() throws InMemoryTrie.SpaceExhaustedException
+    {
+        InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        NavigableMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        for (int i = 0; i < COUNT; ++i)
+        {
+            String key = makeSpecKey(rand);
+            int value = key.hashCode() & 0xFF; // to make sure value is the same on clash
+            trie.putRecursive(comparable(key), value, (x, y) -> y);
+            if (i % 10 != 1)    // leave some out of the trie to also test non-present covered keys
+                normals.put(comparable(key), value);
+        }
+
+        for (int i = 0; i < Math.max(10, COUNT / 4); ++i)
+        {
+            String skey = makeSpecKey(rand);
+            String ekey = skey.substring(0, rand.nextInt(9) + 1) + makeSpecKey(rand);  // make sure keys share a prefix
+            if (skey.compareTo(ekey) > 0)
+            {
+                String tmp = skey;
+                skey = ekey;
+                ekey = tmp;
+            }
+            int svalue = skey.hashCode() & 0xFF;
+            int evalue = ekey.hashCode() & 0xFF;
+            final ByteComparable sComparable = comparable(skey);
+            final ByteComparable eComparable = comparable(ekey);
+            trie.putAlternativeRangeRecursive(sComparable, ~svalue, eComparable, ~evalue, (x, y) -> y);
+
+            for (ByteComparable coveredKey : Sets.union(normals.subMap(sComparable, true, eComparable, true).keySet(), Set.of(sComparable, eComparable)))
+            {
+                Trie.Cursor<Integer> c = trie.cursor();
+                var key = coveredKey.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION);
+                var start = ByteSource.duplicatable(sComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
+                var end = ByteSource.duplicatable(eComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
+                boolean foundStart = false;
+                boolean foundEnd = false;
+                int next = key.next();
+                int depth = c.depth();
+                while (next != ByteSource.END_OF_STREAM)
+                {
+                    Trie.Cursor<Integer> alt = c.alternateBranch();
+                    if (alt != null)
+                    {
+                        foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), ~svalue);
+                        foundEnd = foundEnd || end != null && checkMatch(alt.duplicate(), end.duplicate(), ~evalue);
+                    }
+                    int snext = start != null ? start.next() : ByteSource.END_OF_STREAM;
+                    int enext = end != null ? end.next() : ByteSource.END_OF_STREAM;
+                    if (snext != next)
+                        start = null;
+                    if (enext != next)
+                        end = null;
+                    c.skipTo(++depth, next);
+                    if (c.depth() != depth || c.incomingTransition() != next)
+                        break;  // key isn't in the trie
+
+                    next = key.next();
+                }
+                if (next == ByteSource.END_OF_STREAM && c.content() != null)
+                    assertEquals(normals.get(coveredKey), c.content());
+                assertTrue(foundStart);
+                assertTrue(foundEnd);
+            }
+
+        }
+    }
+
+    boolean checkMatch(Trie.Cursor<Integer> c, ByteSource key, int value)
+    {
+        int next = key.next();
+        int depth = c.depth();
+        while (next != ByteSource.END_OF_STREAM)
+        {
+            c.skipTo(++depth, next);
+            if (c.depth() != depth || c.incomingTransition() != next)
+                return false;
+            next = key.next();
+        }
+        return (c.content().intValue() == value);
+    }
+
     private void verifyAlternates(Trie<Integer> trie, SortedMap<ByteComparable, Integer> normals, SortedMap<ByteComparable, Integer> alternates)
     {
         SortedMap<ByteComparable, Integer> both = new TreeMap<>(alternates);
@@ -214,7 +342,7 @@ public class AlternativeBranchesTest
         int len = rand.nextInt(10) + 10;
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < len; ++i)
-            b.append(rand.nextInt(10) + '0');
+            b.append((char) (rand.nextInt(10) + '0'));
         return b.toString();
     }
 
