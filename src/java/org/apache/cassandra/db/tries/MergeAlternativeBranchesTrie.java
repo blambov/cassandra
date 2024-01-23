@@ -301,6 +301,9 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
         private int maybeSwapHeadAndEnterNode(int headDepth)
         {
             headDepth = maybeSwapHead(headDepth);
+            if (headDepth < 0)
+                return headDepth;   // we are done
+
             int sizeBeforeAlternatives = removeTrailingDoneCursors();
             addAlternative(head, -1);
             applyToEqualOnHeap(MergeAlternativesCursor::addAlternative);

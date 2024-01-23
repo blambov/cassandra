@@ -246,16 +246,16 @@ public abstract class InMemoryTrieTestBase
         {
             assert skipDepth <= depth + 1 : "skipTo descends more than one level";
 
-            while (skipDepth < depth)
+            while (stack != null && skipDepth < depth)
             {
                 --depth;
                 stack = stack.parent;
             }
-            if (depth < 0)
-                return depth;
+            if (stack == null)
+                return depth = -1;
 
             int index = skipTransition - 0x30;
-            stack.curChild = index - 1;
+            stack.curChild = Math.max(stack.curChild, index - 1);
             return advance();
         }
 
