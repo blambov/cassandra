@@ -26,12 +26,12 @@ import java.util.Random;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.IntPredicate;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.Test;
 
@@ -51,7 +51,7 @@ import static org.junit.Assert.fail;
 public class AlternativeBranchesTest
 {
     static final int COUNT = 10000;
-    static final Random rand = ThreadLocalRandom.current();//new Random(111);
+    static final Random rand = new Random(111);
 
     @Test
     public void testSpecifiedSimple()
@@ -223,7 +223,27 @@ public class AlternativeBranchesTest
     }
 
     @Test
-    public void testCoveredVisitsRange() throws InMemoryTrie.SpaceExhaustedException
+    public void testCoveredVisitsRangePut() throws InMemoryTrie.SpaceExhaustedException
+    {
+        testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
+            trie.putAlternativeRangeRecursive(sComparable, svalue, eComparable, evalue, (x, y) -> y);
+            return trie;
+        });
+    }
+
+    @Test
+    public void testCoveredVisitsRangeTrie() throws InMemoryTrie.SpaceExhaustedException
+    {
+        testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) ->
+                               new AlternateRangeTrie<>(sComparable, svalue, eComparable, evalue));
+    }
+
+    interface CoveredRangeAdder
+    {
+        Trie<Integer> addAndReturnTrie(InMemoryTrie<Integer> trie, ByteComparable sComparable, int svalue, ByteComparable eComparable, int evalue) throws InMemoryTrie.SpaceExhaustedException;
+    }
+
+    void testCoveredVisitsRange(CoveredRangeAdder adder) throws InMemoryTrie.SpaceExhaustedException
     {
         InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
         NavigableMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
@@ -231,9 +251,9 @@ public class AlternativeBranchesTest
         {
             String key = makeSpecKey(rand);
             int value = key.hashCode() & 0xFF; // to make sure value is the same on clash
-            trie.putRecursive(comparable(key), value, (x, y) -> y);
+            normals.put(comparable(key), value);
             if (i % 10 != 1)    // leave some out of the trie to also test non-present covered keys
-                normals.put(comparable(key), value);
+                trie.putRecursive(comparable(key), value, (x, y) -> y);
         }
 
         for (int i = 0; i < Math.max(10, COUNT / 4); ++i)
@@ -246,48 +266,56 @@ public class AlternativeBranchesTest
                 skey = ekey;
                 ekey = tmp;
             }
-            int svalue = skey.hashCode() & 0xFF;
-            int evalue = ekey.hashCode() & 0xFF;
+            int svalue = ~(skey.hashCode() & 0xFF);
+            int evalue = ~(ekey.hashCode() & 0xFF);
             final ByteComparable sComparable = comparable(skey);
             final ByteComparable eComparable = comparable(ekey);
-            trie.putAlternativeRangeRecursive(sComparable, ~svalue, eComparable, ~evalue, (x, y) -> y);
+            Trie<Integer> testTrie = adder.addAndReturnTrie(trie, sComparable, svalue, eComparable, evalue);
+            checkAlternateCoverage(normals, sComparable, eComparable, testTrie, svalue, evalue);
+        }
+    }
 
-            for (ByteComparable coveredKey : Sets.union(normals.subMap(sComparable, true, eComparable, true).keySet(), Set.of(sComparable, eComparable)))
+    private void checkAlternateCoverage(NavigableMap<ByteComparable, Integer> normals, ByteComparable sComparable, ByteComparable eComparable, Trie<Integer> trie, int svalue, int evalue)
+    {
+        Map<ByteComparable, Integer> covered = Maps.newHashMap();
+        covered.putAll(normals.subMap(sComparable, true, eComparable, true));
+        // also test start and end but make sure they are not found in the non-alternate path
+        covered.putIfAbsent(sComparable, null);
+        covered.putIfAbsent(eComparable, null);
+        for (var entry : covered.entrySet())
+        {
+            Trie.Cursor<Integer> c = trie.cursor();
+            var key = entry.getKey().asComparableBytes(Trie.BYTE_COMPARABLE_VERSION);
+            var start = ByteSource.duplicatable(sComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
+            var end = ByteSource.duplicatable(eComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
+            boolean foundStart = false;
+            boolean foundEnd = false;
+            int next = key.next();
+            int depth = c.depth();
+            while (next != ByteSource.END_OF_STREAM)
             {
-                Trie.Cursor<Integer> c = trie.cursor();
-                var key = coveredKey.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION);
-                var start = ByteSource.duplicatable(sComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
-                var end = ByteSource.duplicatable(eComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
-                boolean foundStart = false;
-                boolean foundEnd = false;
-                int next = key.next();
-                int depth = c.depth();
-                while (next != ByteSource.END_OF_STREAM)
+                Trie.Cursor<Integer> alt = c.alternateBranch();
+                if (alt != null)
                 {
-                    Trie.Cursor<Integer> alt = c.alternateBranch();
-                    if (alt != null)
-                    {
-                        foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), ~svalue);
-                        foundEnd = foundEnd || end != null && checkMatch(alt.duplicate(), end.duplicate(), ~evalue);
-                    }
-                    int snext = start != null ? start.next() : ByteSource.END_OF_STREAM;
-                    int enext = end != null ? end.next() : ByteSource.END_OF_STREAM;
-                    if (snext != next)
-                        start = null;
-                    if (enext != next)
-                        end = null;
-                    c.skipTo(++depth, next);
-                    if (c.depth() != depth || c.incomingTransition() != next)
-                        break;  // key isn't in the trie
-
-                    next = key.next();
+                    foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), svalue);
+                    foundEnd = foundEnd || end != null && checkMatch(alt.duplicate(), end.duplicate(), evalue);
                 }
-                if (next == ByteSource.END_OF_STREAM && c.content() != null)
-                    assertEquals(normals.get(coveredKey), c.content());
-                assertTrue(foundStart);
-                assertTrue(foundEnd);
-            }
+                int snext = start != null ? start.next() : ByteSource.END_OF_STREAM;
+                int enext = end != null ? end.next() : ByteSource.END_OF_STREAM;
+                if (snext != next)
+                    start = null;
+                if (enext != next)
+                    end = null;
+                c.skipTo(++depth, next);
+                if (c.depth() != depth || c.incomingTransition() != next)
+                    break;  // key isn't in the trie
 
+                next = key.next();
+            }
+            if (next == ByteSource.END_OF_STREAM && c.content() != null)
+                assertEquals(entry.getValue(), c.content());
+            assertTrue(foundStart);
+            assertTrue(foundEnd);
         }
     }
 
