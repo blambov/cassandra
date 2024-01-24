@@ -110,8 +110,8 @@ public class AlternativeBranchesTest
             }
             else
             {
-                tries.add(specifiedTrie((Object[]) makeSpec(key, rand.nextInt(key.length()), -value)));
-                alternates.put(comparable(key), -value);
+                tries.add(specifiedTrie((Object[]) makeSpec(key, rand.nextInt(key.length()), ~value)));
+                alternates.put(comparable(key), ~value);
             }
         }
         Trie<Integer> union = Trie.merge(tries, RESOLVER_FIRST);
@@ -290,9 +290,9 @@ public class AlternativeBranchesTest
             var end = ByteSource.duplicatable(eComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
             boolean foundStart = false;
             boolean foundEnd = false;
-            int next = key.next();
+            int next;
             int depth = c.depth();
-            while (next != ByteSource.END_OF_STREAM)
+            while (true)
             {
                 Trie.Cursor<Integer> alt = c.alternateBranch();
                 if (alt != null)
@@ -300,22 +300,30 @@ public class AlternativeBranchesTest
                     foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), svalue);
                     foundEnd = foundEnd || end != null && checkMatch(alt.duplicate(), end.duplicate(), evalue);
                 }
+                next = key.next();
                 int snext = start != null ? start.next() : ByteSource.END_OF_STREAM;
                 int enext = end != null ? end.next() : ByteSource.END_OF_STREAM;
                 if (snext != next)
                     start = null;
                 if (enext != next)
                     end = null;
+                if (next == ByteSource.END_OF_STREAM)
+                {
+                    if (c.content() != null)
+                        assertEquals(entry.getValue(), c.content());
+                    break;
+                }
                 c.skipTo(++depth, next);
                 if (c.depth() != depth || c.incomingTransition() != next)
                     break;  // key isn't in the trie
-
-                next = key.next();
             }
-            if (next == ByteSource.END_OF_STREAM && c.content() != null)
-                assertEquals(entry.getValue(), c.content());
-            assertTrue(foundStart);
-            assertTrue(foundEnd);
+            if (!foundStart || !foundEnd)
+            {
+                System.err.println("Failed to find " + (foundStart ? "" : "start ") + (foundEnd ? "" : "end ") + "for " + asString(entry.getKey()) + " in " + asString(sComparable) + ":" + asString(eComparable));
+                System.err.println("Trie section:\n" + trie.subtrie(sComparable, true, eComparable, true).mergeAlternativeBranches(RESOLVER_FIRST).dump());
+                assertTrue(foundStart);
+                assertTrue(foundEnd);
+            }
         }
     }
 
@@ -352,6 +360,11 @@ public class AlternativeBranchesTest
         assertMapEquals(ix.entrySet(), normals.subMap(left, right).entrySet());
         assertMapEquals(ix.alternateView(RESOLVER_FIRST).entrySet(), alternates.subMap(left, right).entrySet());
         assertMapEquals(ix.mergeAlternativeBranches(RESOLVER_FIRST).entrySet(), both.subMap(left, right).entrySet());
+
+//        System.out.println("Bounds " + asString(left) + " to " + asString(right));
+//        System.out.println("IX Normal:\n" + ix.dump());
+//        System.out.println("IX Merged:\n" + ix.mergeAlternativeBranches(RESOLVER_FIRST).dump());
+//        System.out.println("IX Alt   :\n" + ix.alternateView(RESOLVER_FIRST).dump());
 
         assertMapEquals(trie.alternateView(RESOLVER_FIRST)
                             .subtrie(left, right)
@@ -427,7 +440,7 @@ public class AlternativeBranchesTest
         {
             var key = e.getKey();
             if (prevKey != null && ByteComparable.compare(prevKey, key, VERSION) >= 0)
-                fail("Keys are not sorted: " + prevKey + " >= " + key);
+                fail("Keys are not sorted: " + asString(prevKey) + " >= " + asString(key));
             prevKey = key;
             map.put(asString(key), e.getValue().toString());
         }

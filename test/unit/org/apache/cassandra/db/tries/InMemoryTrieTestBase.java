@@ -19,8 +19,17 @@
 package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.HashMultiset;
@@ -32,9 +41,9 @@ import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.ObjectSizes;
 
 import static org.junit.Assert.assertEquals;
 
@@ -246,7 +255,7 @@ public abstract class InMemoryTrieTestBase
         {
             assert skipDepth <= depth + 1 : "skipTo descends more than one level";
 
-            while (stack != null && skipDepth < depth)
+            while (stack != null && skipDepth <= depth)
             {
                 --depth;
                 stack = stack.parent;
@@ -297,6 +306,26 @@ public abstract class InMemoryTrieTestBase
             if (stack == null)
                 return null;
             return new SpecStackEntry(stack.children, stack.content, stack.alternateBranch, copyStack(stack.parent));
+        }
+
+        @Override
+        public String toString()
+        {
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append(incomingTransition())
+                         .append("@")
+                         .append(depth);
+            if (stack.alternateBranch != null)
+                stringBuilder.append(" alt");
+            if (stack.content != null)
+                stringBuilder.append(" content ")
+                             .append(stack.content);
+            stringBuilder.append(" children ");
+            stringBuilder.append(IntStream.range(0, stack.children.length)
+                                          .filter(i -> stack.children[i] != null)
+                                          .mapToObj(i -> (i + 1 == stack.curChild ? "*" : "") + (char) (i + 0x30))
+                                          .reduce("", (x, y) -> x + y));
+            return stringBuilder.toString();
         }
     }
 
