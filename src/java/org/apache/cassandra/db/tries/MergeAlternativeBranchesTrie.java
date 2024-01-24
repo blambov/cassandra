@@ -366,7 +366,7 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
                 @Override
                 public boolean shouldContinueWithChild(Cursor<T> child, Cursor<T> head)
                 {
-                    // When the requested position descends, the inplicit prefix bytes are those of the head cursor,
+                    // When the requested position descends, the implicit prefix bytes are those of the head cursor,
                     // and thus we need to check against that if it is a match.
                     if (equalCursor(child, head))
                         return true;

@@ -279,8 +279,8 @@ public abstract class Trie<T>
     // done: no-content branch removal (for alternateView)
     // done: adding alternate paths (put) to InMemoryTrie
     // done: putAlternateRange for range tombstones, should place alternate branch at LCA of start and end (or higher if no live branch exists there)
+    // done: alternate range trie constructor for apply-version of putAlternateRange
     // TODO: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
-    // TODO: alternate range trie constructor for apply-version of putAlternateRange
     // TODO: test apply alternate range
     // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion-aware merge (pluggable)
