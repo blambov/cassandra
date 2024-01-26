@@ -280,8 +280,8 @@ public abstract class Trie<T>
     // done: adding alternate paths (put) to InMemoryTrie
     // done: putAlternateRange for range tombstones, should place alternate branch at LCA of start and end (or higher if no live branch exists there)
     // done: alternate range trie constructor for apply-version of putAlternateRange
-    // TODO: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
-    // TODO: test apply alternate range
+    // done: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
+    // done: test put/apply alternate range with LCA test
     // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)

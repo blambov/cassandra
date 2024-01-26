@@ -534,7 +534,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Copy the content from an existing node, if it has any, to a newly-prepared update for its child.
      *
-     * @param existingPreContentNode pointer to the existing node before skipping over content nodes, i.e. this is
+     * @param existingFullNode pointer to the existing node before skipping over content nodes, i.e. this is
      *                               either the same as existingPostContentNode or a pointer to a prefix or leaf node
      *                               whose child is existingPostContentNode
      * @param existingPostContentNode pointer to the existing node being updated, after any content nodes have been
@@ -544,26 +544,26 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      *                               existingPostContentNode, otherwise a completely different pointer; always a non-
      *                               content node
      * @return a node which has the children of updatedPostContentNode combined with the content of
-     *         existingPreContentNode
+     *         existingFullNode
      */
-    private int preservePrefix(int existingPreContentNode,
+    private int preservePrefix(int existingFullNode,
                                int existingPostContentNode,
                                int updatedPostContentNode) throws SpaceExhaustedException
     {
-        if (existingPreContentNode == existingPostContentNode)
+        if (existingFullNode == existingPostContentNode)
             return updatedPostContentNode;     // no content to preserve
 
         if (existingPostContentNode == updatedPostContentNode)
-            return existingPreContentNode;     // child didn't change, no update necessary
+            return existingFullNode;     // child didn't change, no update necessary
 
         // else we have existing prefix node, and we need to reference a new child
-        if (isLeaf(existingPreContentNode))
+        if (isLeaf(existingFullNode))
         {
-            return createContentPrefixNode(~existingPreContentNode, updatedPostContentNode, true);
+            return createContentPrefixNode(~existingFullNode, updatedPostContentNode, true);
         }
 
-        assert offset(existingPreContentNode) == PREFIX_OFFSET : "Unexpected content in non-prefix and non-leaf node.";
-        return updatePrefixNodeChild(existingPreContentNode, updatedPostContentNode);
+        assert offset(existingFullNode) == PREFIX_OFFSET : "Unexpected content in non-prefix and non-leaf node.";
+        return updatePrefixNodeChild(existingFullNode, updatedPostContentNode);
     }
 
     final ApplyState applyState = new ApplyState();
@@ -579,10 +579,12 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     class ApplyState
     {
         int[] data = new int[16 * 5];
+        int stackDepth = -1;
         int currentDepth = -1;
 
         void reset()
         {
+            stackDepth = -1;
             currentDepth = -1;
         }
 
@@ -590,13 +592,13 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * Pointer to the existing node before skipping over content nodes, i.e. this is either the same as
          * existingPostContentNode or a pointer to a prefix or leaf node whose child is existingPostContentNode.
          */
-        int existingPreContentNode()
+        int existingFullNode()
         {
-            return data[currentDepth * 5 + 0];
+            return data[stackDepth * 5 + 0];
         }
-        void setExistingPreContentNode(int value)
+        void setExistingFullNode(int value)
         {
-            data[currentDepth * 5 + 0] = value;
+            data[stackDepth * 5 + 0] = value;
         }
 
         /**
@@ -605,11 +607,20 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         int existingPostContentNode()
         {
-            return data[currentDepth * 5 + 1];
+            return followPrefixTransition(existingFullNode());
         }
-        void setExistingPostContentNode(int value)
+
+        /**
+         * Pointer to the existing node after any alternative prefix. May be a content-carrying prefix, a leaf or a
+         * normal node, but cannot be an alternative prefix.
+         */
+        int existingPostAlternateNode()
         {
-            data[currentDepth * 5 + 1] = value;
+            final int node = existingFullNode();
+            if (getAlternateBranch(node) != NONE)
+                return getPrefixChild(node, getUnsignedByte(node + PREFIX_FLAGS_OFFSET));
+            else
+                return node;
         }
 
         /**
@@ -622,11 +633,11 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         int updatedPostContentNode()
         {
-            return data[currentDepth * 5 + 2];
+            return data[stackDepth * 5 + 1];
         }
         void setUpdatedPostContentNode(int value)
         {
-            data[currentDepth * 5 + 2] = value;
+            data[stackDepth * 5 + 1] = value;
         }
 
         /**
@@ -634,11 +645,11 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         int transition()
         {
-            return data[currentDepth * 5 + 3];
+            return data[stackDepth * 5 + 2];
         }
         void setTransition(int transition)
         {
-            data[currentDepth * 5 + 3] = transition;
+            data[stackDepth * 5 + 2] = transition;
         }
 
         /**
@@ -647,11 +658,23 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         int contentIndex()
         {
-            return data[currentDepth * 5 + 4];
+            return data[stackDepth * 5 + 3];
         }
         void setContentIndex(int value)
         {
-            data[currentDepth * 5 + 4] = value;
+            data[stackDepth * 5 + 3] = value;
+        }
+
+        /**
+         * The alternate branch of this node. Updated by alternate branch processing (descendTo/attachAlternate).
+         */
+        int alternateBranch()
+        {
+            return data[stackDepth * 5 + 4];
+        }
+        void setAlternateBranch(int value)
+        {
+            data[stackDepth * 5 + 4] = value;
         }
 
         /**
@@ -659,37 +682,61 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         <U> void descend(int transition, U mutationContent, final UpsertTransformer<T, U> transformer)
         {
-            int existingPreContentNode;
-            if (currentDepth < 0)
-                existingPreContentNode = root;
+            int existingFullNode;
+            if (stackDepth < 0)
+                existingFullNode = root;
             else
             {
                 setTransition(transition);
-                existingPreContentNode = isNull(existingPostContentNode())
+                existingFullNode = isNull(existingPostContentNode())
                                          ? NONE
                                          : getChild(existingPostContentNode(), transition);
             }
-
             ++currentDepth;
-            if (currentDepth * 5 >= data.length)
-                data = Arrays.copyOf(data, currentDepth * 5 * 2);
-            setExistingPreContentNode(existingPreContentNode);
+
+            descendInto(existingFullNode, mutationContent, transformer);
+        }
+
+        /**
+         * Descend to the alternate (ie. 𝜀-transition) path of this node. Adds an entry to the stack but does not
+         * increase the descent depth.
+         */
+        <U> void descendToAlternate(U mutationContent, final UpsertTransformer<T, U> transformer)
+        {
+            // We are positioned on the corresponding normal node. Create a stack entry but do not increase
+            // currentDepth.
+            int existingFullNode = getAlternateBranch(existingFullNode());
+            assert stackDepth >= 0;
+            descendInto(existingFullNode, mutationContent, transformer);
+        }
+
+        private <U> void descendInto(int existingFullNode, U mutationContent, UpsertTransformer<T, U> transformer)
+        {
+            ++stackDepth;
+            if (stackDepth * 5 >= data.length)
+                data = Arrays.copyOf(data, stackDepth * 5 * 2);
+            setExistingFullNode(existingFullNode);
+            int node = existingFullNode;
+
+            int existingAlternateBranch = getAlternateBranch(node);
+            setAlternateBranch(existingAlternateBranch);
+            if (existingAlternateBranch != NONE)
+                node = getPrefixChild(node, getUnsignedByte(node + PREFIX_FLAGS_OFFSET));
 
             int existingContentIndex = -1;
             int existingPostContentNode;
-            if (isLeaf(existingPreContentNode))
+            if (isLeaf(node))
             {
-                existingContentIndex = ~existingPreContentNode;
+                existingContentIndex = ~node;
                 existingPostContentNode = NONE;
             }
-            else if (offset(existingPreContentNode) == PREFIX_OFFSET)
+            else if (offset(node) == PREFIX_OFFSET)
             {
-                existingContentIndex = getInt(existingPreContentNode + PREFIX_CONTENT_OFFSET);
-                existingPostContentNode = followPrefixTransition(existingPreContentNode);
+                existingContentIndex = getInt(node + PREFIX_CONTENT_OFFSET);
+                existingPostContentNode = followPrefixTransition(node);
             }
             else
-                existingPostContentNode = existingPreContentNode;
-            setExistingPostContentNode(existingPostContentNode);
+                existingPostContentNode = node;
             setUpdatedPostContentNode(existingPostContentNode);
 
             int contentIndex = updateContentIndex(mutationContent, existingContentIndex, transformer);
@@ -740,58 +787,111 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * Apply the collected content to a node. Converts NONE to a leaf node, and adds or updates a prefix for all
          * others.
          */
-        private int applyContent() throws SpaceExhaustedException
+        private int applyContent(int updatedPostContentNode) throws SpaceExhaustedException
         {
             int contentIndex = contentIndex();
-            int updatedPostContentNode = updatedPostContentNode();
             if (contentIndex == -1)
                 return updatedPostContentNode;
 
             if (isNull(updatedPostContentNode))
                 return ~contentIndex;
 
-            int existingPreContentNode = existingPreContentNode();
+            int existingFullNode = existingPostAlternateNode();
             int existingPostContentNode = existingPostContentNode();
 
             // We can't update in-place if there was no preexisting prefix, or if the prefix was embedded and the target
             // node must change.
-            if (existingPreContentNode == existingPostContentNode ||
+            if (existingFullNode == existingPostContentNode ||
                 isNull(existingPostContentNode) ||
-                isEmbeddedPrefixNode(existingPreContentNode) && updatedPostContentNode != existingPostContentNode)
+                isEmbeddedPrefixNode(existingFullNode) && updatedPostContentNode != existingPostContentNode)
                 return createContentPrefixNode(contentIndex, updatedPostContentNode, isNull(existingPostContentNode));
 
             // Otherwise modify in place
+            assert (getUnsignedByte(existingFullNode + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) == 0;
             if (updatedPostContentNode != existingPostContentNode) // to use volatile write but also ensure we don't corrupt embedded nodes
-                putIntVolatile(existingPreContentNode + PREFIX_POINTER_OFFSET, updatedPostContentNode);
-            assert contentIndex == getInt(existingPreContentNode + PREFIX_CONTENT_OFFSET) : "Unexpected change of content index.";
-            return existingPreContentNode;
+                putIntVolatile(existingFullNode + PREFIX_POINTER_OFFSET, updatedPostContentNode);
+            assert contentIndex == getInt(existingFullNode + PREFIX_CONTENT_OFFSET) : "Unexpected change of content index.";
+            return existingFullNode;
+        }
+
+        /**
+         * Apply any updates to the alternate branch of the node.
+         */
+        private int applyAlternateBranch(int updatedPostAlternateNode) throws SpaceExhaustedException
+        {
+            int alternateBranch = alternateBranch();
+            if (alternateBranch == NONE)
+                return updatedPostAlternateNode;
+
+            int existingFullNode = existingFullNode();
+            int existingPostAlternateNode = existingPostAlternateNode();
+
+            // We can't update in-place if there was no preexisting prefix, or if the prefix was embedded and the target
+            // node must change.
+            if (existingFullNode == existingPostAlternateNode ||
+                isNull(existingPostAlternateNode) ||
+                isEmbeddedPrefixNode(existingFullNode) && updatedPostAlternateNode != existingPostAlternateNode)
+                return createPrefixNode(alternateBranch, updatedPostAlternateNode, isNull(existingPostAlternateNode), PREFIX_ALTERNATE_PATH_FLAG);
+
+            // Otherwise modify in place
+            assert (getUnsignedByte(existingFullNode + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) != 0;
+            if (updatedPostAlternateNode != existingPostAlternateNode) // to use volatile write but also ensure we don't corrupt embedded nodes
+                putIntVolatile(existingFullNode + PREFIX_POINTER_OFFSET, updatedPostAlternateNode);
+            if (alternateBranch != getInt(existingFullNode + PREFIX_CONTENT_OFFSET))
+                putIntVolatile(existingFullNode + PREFIX_CONTENT_OFFSET, alternateBranch);
+            return existingFullNode;
+        }
+
+        private int applyPrefixes() throws SpaceExhaustedException
+        {
+            return applyAlternateBranch(applyContent(updatedPostContentNode()));
         }
 
         /**
          * After a node's children are processed, this is called to ascend from it. This means applying the collected
          * content to the compiled updatedPostContentNode and creating a mapping in the parent to it (or updating if
          * one already exists).
-         * Returns true if still have work to do, false if the operation is completed.
          */
-        private boolean attachAndMoveToParentState() throws SpaceExhaustedException
+        private void attachAndMoveToParentState() throws SpaceExhaustedException
         {
-            int updatedPreContentNode = applyContent();
-            int existingPreContentNode = existingPreContentNode();
+            int updatedFullNode = applyPrefixes();
+            int existingFullNode = existingFullNode();
             --currentDepth;
-            if (currentDepth == -1)
+            --stackDepth;
+            assert stackDepth >= 0;
+
+            if (updatedFullNode != existingFullNode)
+                attachChild(transition(), updatedFullNode);
+        }
+
+        /**
+         * Ascend and update the root at the end of processing.
+         */
+        private void attachRoot() throws SpaceExhaustedException
+        {
+            int updatedFullNode = applyPrefixes();
+            int existingFullNode = existingFullNode();
+            assert root == existingFullNode : "Unexpected change to root. Concurrent trie modification?";
+            if (updatedFullNode != existingFullNode)
             {
-                assert root == existingPreContentNode : "Unexpected change to root. Concurrent trie modification?";
-                if (updatedPreContentNode != existingPreContentNode)
-                {
-                    // Only write to root if they are different (value doesn't change, but
-                    // we don't want to invalidate the value in other cores' caches unnecessarily).
-                    root = updatedPreContentNode;
-                }
-                return false;
+                // Only write to root if they are different (value doesn't change, but
+                // we don't want to invalidate the value in other cores' caches unnecessarily).
+                root = updatedFullNode;
             }
-            if (updatedPreContentNode != existingPreContentNode)
-                attachChild(transition(), updatedPreContentNode);
-            return true;
+        }
+
+        /**
+         * Ascend and update the alternate link at the end of alternate branch processing.
+         */
+        private void attachAlternate() throws SpaceExhaustedException
+        {
+            int updatedFullNode = applyPrefixes();
+            int existingFullNode = existingFullNode();
+            // currentDepth does not change
+            --stackDepth;
+            assert stackDepth >= 0;
+            assert existingFullNode == alternateBranch();
+            setAlternateBranch(updatedFullNode);
         }
     }
 
@@ -831,19 +931,34 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         state.reset();
         state.descend(-1, mutationCursor.content(), transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        apply(state, mutationCursor, transformer);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        state.attachRoot();
+    }
 
+    private <U> void apply(ApplyState state, Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        int finalDepthToDescend = state.currentDepth + 1;
         while (true)
         {
+            Cursor<U> alternate = mutationCursor.alternateBranch();
+            if (alternate != null)
+            {
+                // Note: This will blow if we can have deep chain of alternates of alternates.
+                // The latter is not something we need to support.
+                state.descendToAlternate(alternate.content(), transformer);
+                apply(state, alternate, transformer);
+                state.attachAlternate();
+            }
+
             int depth = mutationCursor.advance();
-            while (state.currentDepth >= depth)
+            while (state.currentDepth >= Math.max(finalDepthToDescend, depth))
             {
                 // There are no more children. Ascend to the parent state to continue walk.
-                if (!state.attachAndMoveToParentState())
-                {
-                    assert depth == -1 : "Unexpected change to applyState. Concurrent trie modification?";
-                    return;
-                }
+                state.attachAndMoveToParentState();
             }
+            if (depth == -1)
+                return;
 
             // We have a transition, get child to descend into
             state.descend(mutationCursor.incomingTransition(), mutationCursor.content(), transformer);

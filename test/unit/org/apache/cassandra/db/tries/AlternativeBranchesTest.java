@@ -222,6 +222,49 @@ public class AlternativeBranchesTest
         verifyAlternates(trie, normals, alternates);
     }
 
+
+    @Test
+    public void testApplyAlternativeRange() throws InMemoryTrie.SpaceExhaustedException
+    {
+        testApplyAlternativeRange(i -> rand.nextDouble() < 0.7);
+        testApplyAlternativeRange(i -> rand.nextDouble() < 0.5);
+        testApplyAlternativeRange(i -> rand.nextDouble() < 0.3);
+
+        testApplyAlternativeRange(i -> i >= COUNT / 2);  // normal first
+        testApplyAlternativeRange(i -> i >= COUNT / 5 && rand.nextDouble() < 0.4);
+    }
+
+    public void testApplyAlternativeRange(IntPredicate alternateChooser) throws InMemoryTrie.SpaceExhaustedException
+    {
+        InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        for (int i = 0; i < COUNT; ++i)
+        {
+            String skey = makeSpecKey(rand);
+            int svalue = skey.hashCode() & 0xFF; // to make sure value is the same on clash
+            String ekey = makeSpecKey(rand);
+            int evalue = ekey.hashCode() & 0xFF; // to make sure value is the same on clash
+            if (!alternateChooser.test(i))
+            {
+                trie.apply(Trie.singleton(comparable(skey), svalue)
+                               .mergeWith(Trie.singleton(comparable(ekey), evalue), (x, y) -> y),
+                           (x, y) -> y);
+                normals.put(comparable(skey), svalue);
+                normals.put(comparable(ekey), evalue);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
+            }
+            else
+            {
+                trie.apply(new AlternateRangeTrie<>(comparable(skey), ~svalue, comparable(ekey), ~evalue), (x, y) -> y);
+                alternates.put(comparable(skey), ~svalue);
+                alternates.put(comparable(ekey), ~evalue);
+//                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
+            }
+        }
+        verifyAlternates(trie, normals, alternates);
+    }
+
     @Test
     public void testCoveredVisitsRangePut() throws InMemoryTrie.SpaceExhaustedException
     {
@@ -236,6 +279,15 @@ public class AlternativeBranchesTest
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) ->
                                new AlternateRangeTrie<>(sComparable, svalue, eComparable, evalue));
+    }
+
+    @Test
+    public void testCoveredVisitsRangeApply() throws InMemoryTrie.SpaceExhaustedException
+    {
+        testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
+            trie.apply(new AlternateRangeTrie<>(sComparable, svalue, eComparable, evalue), (x, y) -> y);
+            return trie;
+        });
     }
 
     interface CoveredRangeAdder
@@ -259,7 +311,7 @@ public class AlternativeBranchesTest
         for (int i = 0; i < Math.max(10, COUNT / 4); ++i)
         {
             String skey = makeSpecKey(rand);
-            String ekey = skey.substring(0, rand.nextInt(9) + 1) + makeSpecKey(rand);  // make sure keys share a prefix
+            String ekey = skey.substring(0, rand.nextInt(9)) + makeSpecKey(rand);  // make sure keys share a prefix
             if (skey.compareTo(ekey) > 0)
             {
                 String tmp = skey;
