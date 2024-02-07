@@ -41,7 +41,9 @@ import org.apache.cassandra.utils.TimeUUID;
 
 public class ByteSourceTestBase
 {
+    public static
     String[] testStrings = new String[]{ "", "\0", "\0\0", "\001", "A\0\0B", "A\0B\0", "0", "0\0", "00", "1", "\377" };
+    public static
     Integer[] testInts = new Integer[]{ null,
                                         Integer.MIN_VALUE,
                                         Integer.MIN_VALUE + 1,
@@ -62,7 +64,9 @@ public class ByteSourceTestBase
                                         256,
                                         Integer.MAX_VALUE - 1,
                                         Integer.MAX_VALUE };
+    public static
     Byte[] testBytes = new Byte[]{ -128, -127, -1, 0, 1, 127 };
+    public static
     Short[] testShorts = new Short[]{ Short.MIN_VALUE,
                                       Short.MIN_VALUE + 1,
                                       -256,
@@ -81,6 +85,7 @@ public class ByteSourceTestBase
                                       256,
                                       Short.MAX_VALUE - 1,
                                       Short.MAX_VALUE };
+    public static
     Long[] testLongs = new Long[]{ null,
                                    Long.MIN_VALUE,
                                    Long.MIN_VALUE + 1,
@@ -351,6 +356,7 @@ public class ByteSourceTestBase
                                    ~((1L << 62)),
                                    ~((1L << 63) - 1),
                                    };
+    public static
     Double[] testDoubles = new Double[]{ null,
                                          Double.NEGATIVE_INFINITY,
                                          -Double.MAX_VALUE,
@@ -371,6 +377,7 @@ public class ByteSourceTestBase
                                          Double.MAX_VALUE,
                                          Double.POSITIVE_INFINITY,
                                          Double.NaN };
+    public static
     Float[] testFloats = new Float[]{ null,
                                       Float.NEGATIVE_INFINITY,
                                       -Float.MAX_VALUE,
@@ -391,7 +398,9 @@ public class ByteSourceTestBase
                                       Float.MAX_VALUE,
                                       Float.POSITIVE_INFINITY,
                                       Float.NaN };
+    public static
     Boolean[] testBools = new Boolean[]{ null, false, true };
+    public static
     UUID[] testUUIDs = new UUID[]{ null,
                                    TimeUUID.Generator.nextTimeAsUUID(),
                                    UUID.randomUUID(),
@@ -408,6 +417,7 @@ public class ByteSourceTestBase
                                    UUID.fromString("52df1bb0-6a2f-11e6-362d-aff2143498ea"),
                                    UUID.fromString("52df1bb0-6a2f-11e6-b62d-aff2143498ea") };
     // Instant.MIN/MAX fail Date.from.
+    public static
     Date[] testDates = new Date[]{ null,
                                    Date.from(Instant.ofEpochSecond(Integer.MIN_VALUE)),
                                    Date.from(Instant.ofEpochSecond(Short.MIN_VALUE)),
@@ -416,7 +426,9 @@ public class ByteSourceTestBase
                                    Date.from(Instant.ofEpochMilli(2000)),
                                    Date.from(Instant.ofEpochSecond(Integer.MAX_VALUE)),
                                    Date.from(Instant.now()) };
+    public static
     InetAddress[] testInets;
+    static
     {
         try
         {
@@ -436,8 +448,9 @@ public class ByteSourceTestBase
         }
     }
 
+    public static
     BigInteger[] testBigInts;
-
+    static
     {
         Set<BigInteger> bigs = new TreeSet<>();
         for (Long l : testLongs)
@@ -480,7 +493,9 @@ public class ByteSourceTestBase
         return builder.toString();
     }
 
+    public static
     BigDecimal[] testBigDecimals;
+    static
     {
         String vals = "0, 1, 1.1, 21, 98.9, 99, 99.9, 100, 100.1, 101, 331, 0.4, 0.07, 0.0700, 0.005, " +
                       "6e4, 7e200, 6e-300, 8.1e2000, 8.1e-2000, 9e2000000000, " +
@@ -495,6 +510,7 @@ public class ByteSourceTestBase
         testBigDecimals = decs.toArray(new BigDecimal[0]);
     }
 
+    public static
     Object[][] testValues = new Object[][]{ testStrings,
                                             testInts,
                                             testBools,
@@ -502,6 +518,7 @@ public class ByteSourceTestBase
                                             testBigInts,
                                             testBigDecimals };
 
+    public static
     AbstractType[] testTypes = new AbstractType[]{ UTF8Type.instance,
                                                    Int32Type.instance,
                                                    BooleanType.instance,

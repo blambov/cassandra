@@ -216,7 +216,7 @@ public class RangeTrie extends Trie<Trie.Contained>
         private int descendAndCheckRightBound(int transition)
         {
             // called when we descend along left -- we are guaranteed to be before right
-            assert rdepth <= depth || rdepth == depth + 1 && transition <= rnext;
+            assert rdepth <= depth || rdepth == depth + 1 && transition <= rnext : "Invalid range (right before left?)";
             return descendAndCheckRightBound(depth + 1, transition);
         }
 
