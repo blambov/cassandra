@@ -46,8 +46,8 @@ public class AlternateRangeTrie<T> extends Trie<T>
 
     private class HeadCursor implements Cursor<T>
     {
-        final ByteSource lsrc;
-        final ByteSource rsrc;
+        ByteSource lsrc;
+        ByteSource rsrc;
 
         int lnext;
         int rnext;
@@ -64,8 +64,12 @@ public class AlternateRangeTrie<T> extends Trie<T>
 
         HeadCursor(HeadCursor copyFrom)
         {
-            lsrc = ByteSource.duplicatable(copyFrom.lsrc).duplicate();
-            rsrc = ByteSource.duplicatable(copyFrom.rsrc).duplicate();
+            ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.lsrc);
+            copyFrom.lsrc = dupe;
+            lsrc = dupe.duplicate();
+            dupe = ByteSource.duplicatable(copyFrom.rsrc);
+            copyFrom.rsrc = dupe;
+            rsrc = dupe.duplicate();
             lnext = copyFrom.lnext;
             rnext = copyFrom.rnext;
             incomingTransition = copyFrom.incomingTransition;
@@ -165,7 +169,7 @@ public class AlternateRangeTrie<T> extends Trie<T>
         int incomingTransition;
         T value;
 
-        final ByteSource otherSrc;
+        ByteSource otherSrc;
         int otherNext;
         int otherDepth;
 
@@ -183,11 +187,25 @@ public class AlternateRangeTrie<T> extends Trie<T>
 
         TailCursor(TailCursor copyFrom)
         {
-            this.src = ByteSource.duplicatable(copyFrom.src).duplicate();
+            boolean copyFromSwitched = copyFrom.src == copyFrom.otherSrc;
+            ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
+            copyFrom.src = dupe;
+            this.src = dupe.duplicate();
+            if (!copyFromSwitched)
+            {
+                dupe = ByteSource.duplicatable(copyFrom.otherSrc);
+                copyFrom.otherSrc = dupe;
+                this.otherSrc = dupe.duplicate();
+            }
+            else
+            {
+                this.otherSrc = this.src;
+                copyFrom.otherSrc = copyFrom.src;
+            }
+
             this.next = copyFrom.next;
             this.depth = copyFrom.depth;
             this.incomingTransition = copyFrom.incomingTransition;
-            this.otherSrc = ByteSource.duplicatable(copyFrom.otherSrc).duplicate();
             this.otherNext = copyFrom.otherNext;
             this.otherDepth = copyFrom.otherDepth;
             this.value = copyFrom.value;
