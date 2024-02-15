@@ -48,12 +48,18 @@ public class IntersectionTrie<T> extends Trie<T>
         return new IntersectionCursor<>(trie.cursor(), set.cursor());
     }
 
+    enum State
+    {
+        OUTSIDE_MATCHING,
+        INSIDE_MATCHING,
+        INSIDE_SET_AHEAD;
+    }
+
     static class IntersectionCursor<T> implements Cursor<T>
     {
         final Cursor<T> source;
         final Cursor<Contained> set;
-        boolean setAhead;
-        boolean reportContent;
+        State state;
 
         public IntersectionCursor(Cursor<T> source, Cursor<Contained> set)
         {
@@ -62,12 +68,11 @@ public class IntersectionTrie<T> extends Trie<T>
             onMatchingPosition(depth());
         }
 
-        public IntersectionCursor(Cursor<T> source, Cursor<Contained> set, boolean setAhead, boolean reportContent)
+        public IntersectionCursor(IntersectionCursor<T> copyFrom, Cursor<T> withSource)
         {
-            this.source = source;
-            this.set = set;
-            this.setAhead = setAhead;
-            this.reportContent = reportContent;
+            this.source = withSource;
+            this.set = copyFrom.set.duplicate();
+            this.state = copyFrom.state;
         }
 
         @Override
@@ -85,7 +90,7 @@ public class IntersectionTrie<T> extends Trie<T>
         @Override
         public T content()
         {
-            return reportContent
+            return state != State.OUTSIDE_MATCHING
                    ? source.content()
                    : null;
         }
@@ -93,40 +98,40 @@ public class IntersectionTrie<T> extends Trie<T>
         @Override
         public int advance()
         {
-            if (setAhead)
+            if (state == State.INSIDE_SET_AHEAD)
                 return advanceInCoveredBranch(set.depth(), source.advance());
 
             int setDepth = set.advance();
             if (inSetCoveredArea())
                 return advanceInCoveredBranch(setDepth, source.advance());
             else
-                return advanceWithSetAhead(setDepth, set.incomingTransition());
+                return advanceSourceToIntersection(setDepth, set.incomingTransition());
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            if (setAhead)
+            if (state == State.INSIDE_SET_AHEAD)
                 return advanceInCoveredBranch(set.depth(), source.skipTo(skipDepth, skipTransition));
 
             int setDepth = set.skipTo(skipDepth, skipTransition);
             if (inSetCoveredArea())
                 return advanceInCoveredBranch(setDepth, source.skipTo(skipDepth, skipTransition));
             else
-                return advanceWithSetAhead(setDepth, set.incomingTransition());
+                return advanceSourceToIntersection(setDepth, set.incomingTransition());
         }
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
-            if (setAhead)
+            if (state == State.INSIDE_SET_AHEAD)
                 return advanceInCoveredBranch(set.depth(), source.advanceMultiple(receiver));
 
             int setDepth = set.advance();
             if (inSetCoveredArea())
                 return advanceInCoveredBranch(setDepth, source.advance());
             else
-                return advanceWithSetAhead(setDepth, set.incomingTransition());
+                return advanceSourceToIntersection(setDepth, set.incomingTransition());
         }
 
         private int advanceInCoveredBranch(int setDepth, int sourceDepth)
@@ -134,21 +139,21 @@ public class IntersectionTrie<T> extends Trie<T>
             if (sourceDepth < 0)
                 return sourceDepth; // exhausted
             if (sourceDepth > setDepth)
-                return markSetAheadAndCovered(sourceDepth);
+                return markInsideSetAhead(sourceDepth);
             int setTransition = set.incomingTransition();
             int sourceTransition = source.incomingTransition();
             if (sourceDepth == setDepth)
             {
                 if (sourceTransition < setTransition)
-                    return markSetAheadAndCovered(sourceDepth);
+                    return markInsideSetAhead(sourceDepth);
                 if (sourceTransition == setTransition)
                     return onMatchingPosition(setDepth);
             }
 
-            return advanceWithSourceAhead(sourceDepth, sourceTransition);
+            return advanceSetToIntersection(sourceDepth, sourceTransition);
         }
 
-        private int advanceWithSetAhead(int setDepth, int setTransition)
+        private int advanceSourceToIntersection(int setDepth, int setTransition)
         {
             int sourceDepth = source.skipTo(setDepth, setTransition);
             if (sourceDepth < 0)
@@ -158,10 +163,10 @@ public class IntersectionTrie<T> extends Trie<T>
             if (sourceDepth == setDepth && sourceTransition == setTransition)
                 return onMatchingPosition(setDepth);
             else
-                return advanceWithSourceAhead(sourceDepth, sourceTransition);
+                return advanceSetToIntersection(sourceDepth, sourceTransition);
         }
 
-        private int advanceWithSourceAhead(int sourceDepth, int sourceTransition)
+        private int advanceSetToIntersection(int sourceDepth, int sourceTransition)
         {
             int setDepth;
             int setTransition;
@@ -170,14 +175,12 @@ public class IntersectionTrie<T> extends Trie<T>
                 // source is now ahead of the set
                 setDepth = set.skipTo(sourceDepth, sourceTransition);
                 setTransition = set.incomingTransition();
-//                if (setDepth < 0)
-//                    return source.skipTo(-1, 0);    // exhausted
                 if (setDepth == sourceDepth && setTransition == sourceTransition)
                     return onMatchingPosition(setDepth);
 
                 // At this point set is ahead. Check content to see if we are in a covered branch.
                 if (inSetCoveredArea())
-                    return markSetAheadAndCovered(sourceDepth);
+                    return markInsideSetAhead(sourceDepth);
 
                 // Otherwise we need to skip the source as well and repeat the process
                 sourceDepth = source.skipTo(setDepth, setTransition);
@@ -195,10 +198,9 @@ public class IntersectionTrie<T> extends Trie<T>
             return (contained == Contained.INSIDE_PREFIX || contained == Contained.END);
         }
 
-        private int markSetAheadAndCovered(int depth)
+        private int markInsideSetAhead(int depth)
         {
-            setAhead = true;
-            reportContent = true;
+            state = State.INSIDE_SET_AHEAD;
             return depth;
         }
 
@@ -208,68 +210,23 @@ public class IntersectionTrie<T> extends Trie<T>
             Cursor<T> alternate = source.alternateBranch();
             if (alternate == null)
                 return null;
-            return makeCursor(alternate, set.duplicate(), setAhead, reportContent);
+            return new IntersectionCursor<>(this, alternate);
         }
 
         @Override
         public Cursor<T> duplicate()
         {
-            return makeCursor(source.duplicate(), set.duplicate(), setAhead, reportContent);
-        }
-
-        Cursor<T> makeCursor(Cursor<T> source, Cursor<Contained> set, boolean setAhead, boolean reportContent)
-        {
-            return new IntersectionCursor<>(source, set, setAhead, reportContent);
+            return new IntersectionCursor<>(this, source.duplicate());
         }
 
         private int onMatchingPosition(int depth)
         {
             Contained contained = set.content();
-            reportContent = contained == Contained.START || contained == Contained.INSIDE_PREFIX;
-            setAhead = false;
+            if (contained == Contained.START || contained == Contained.INSIDE_PREFIX)
+                state = State.INSIDE_MATCHING;
+            else
+                state = State.OUTSIDE_MATCHING;
             return depth;
         }
     }
-
-//    static class SetIntersectionTrie extends IntersectionTrie<Contained>
-//    {
-//        public SetIntersectionTrie(Trie<Contained> trie, Trie<Contained> set)
-//        {
-//            super(trie, set);
-//        }
-//
-//        @Override
-//        protected Cursor<Contained> cursor()
-//        {
-//            return new SetIntersectionCursor(trie.cursor(), set.cursor());
-//        }
-//    }
-//
-//    private static class SetIntersectionCursor extends IntersectionCursor<Contained>
-//    {
-//        public SetIntersectionCursor(Cursor<Contained> source, Cursor<Contained> set)
-//        {
-//            super(source, set);
-//        }
-//
-//        @Override
-//        public Contained content()
-//        {
-//            final Contained sourceContent = source.content();
-//            if (sourceContent == null)
-//                return null;
-//            if (contained == Contained.FULLY)
-//                return sourceContent;
-//            else if (contained == Contained.PARTIALLY)
-//                return Contained.PARTIALLY;
-//            else
-//                return null;
-//        }
-//
-//        @Override
-//        Cursor<Contained> makeCursor(Cursor<Contained> source, Cursor<Contained> set)
-//        {
-//            return new SetIntersectionCursor(source, set);
-//        }
-//    }
 }

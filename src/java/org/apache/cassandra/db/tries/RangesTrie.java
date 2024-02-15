@@ -76,6 +76,14 @@ public class RangesTrie extends Trie<Trie.Contained>
         return new RangesCursor(boundaries);
     }
 
+    static final Contained CONTENT_SELECTIONS[] = new Contained[]
+    {
+        null,                     // even index, no match: before a start
+        Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
+        Contained.END,            // even index, match: went over an end
+        Contained.START           // odd index, match: went over a start
+    };
+
     private static class RangesCursor implements Cursor<Contained>
     {
         ByteSource[] sources;
@@ -84,6 +92,7 @@ public class RangesTrie extends Trie<Trie.Contained>
         int currentIdx;
         int currentDepth;
         int currentTransition;
+        Contained currentContent;
 
         public RangesCursor(ByteComparable[] boundaries)
         {
@@ -100,6 +109,7 @@ public class RangesTrie extends Trie<Trie.Contained>
             nexts = new int[length];
             depths = new int[length];
             sources = new ByteSource[length];
+            currentIdx = 0;
             for (int i = 0; i < length; ++i)
             {
                 depths[i] = 1;
@@ -118,7 +128,7 @@ public class RangesTrie extends Trie<Trie.Contained>
             }
             currentDepth = 0;
             currentTransition = -1;
-            currentIdx = 0;
+            skipCompletedAndSelectContent(nexts[0], length);
         }
 
         RangesCursor(RangesCursor copyFrom)
@@ -129,15 +139,15 @@ public class RangesTrie extends Trie<Trie.Contained>
             this.depths = Arrays.copyOfRange(copyFrom.depths, toDrop, copyFrom.depths.length);
             this.sources = new ByteSource[copyFrom.sources.length - toDrop];
             for (int i = currentIdx; i < sources.length; i++)
-                if (nexts[i] != ByteSource.END_OF_STREAM)
-                {
-                    ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
-                    copyFrom.sources[i] = dupe;
-                    sources[i - toDrop] = dupe.duplicate();
-                }
+            {
+                ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
+                copyFrom.sources[i] = dupe;
+                sources[i - toDrop] = dupe.duplicate();
+            }
             this.currentIdx = copyFrom.currentIdx - toDrop;
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
+            this.currentContent = copyFrom.currentContent;
         }
 
         @Override
@@ -155,24 +165,40 @@ public class RangesTrie extends Trie<Trie.Contained>
         @Override
         public Contained content()
         {
-            // there may be multiple sources that end on the same position; the last is the one that tells us our state
-            int firstNonEnding = currentIdx;    // this may be length
-            while (firstNonEnding < nexts.length && nexts[firstNonEnding] == ByteSource.END_OF_STREAM)
-                ++firstNonEnding;
-
-            if (firstNonEnding > currentIdx)
-                return (firstNonEnding & 1) == 1 ? Contained.START : Contained.END;
-            else
-                return (firstNonEnding & 1) == 1 ? Contained.INSIDE_PREFIX : null;
-
+            return currentContent;
         }
 
         @Override
         public int advance()
         {
-            while (currentIdx < nexts.length && nexts[currentIdx] == ByteSource.END_OF_STREAM)
-                ++currentIdx;
-            return completeAdvance();
+            if (currentIdx >= nexts.length)
+                return exhausted();
+            currentTransition = nexts[currentIdx];
+            currentDepth = depths[currentIdx]++;
+            int next = nexts[currentIdx] = sources[currentIdx].next();
+            int endIdx = currentIdx + 1;
+            while (endIdx < nexts.length && depths[endIdx] == currentDepth && nexts[endIdx] == currentTransition)
+            {
+                depths[endIdx]++;
+                nexts[endIdx] = sources[endIdx].next();
+                ++endIdx;
+            }
+
+            return skipCompletedAndSelectContent(next, endIdx);
+        }
+
+        private int skipCompletedAndSelectContent(int next, int endIdx)
+        {
+            int contentSelection = 0;
+            if (next == ByteSource.END_OF_STREAM)
+            {
+                contentSelection = 2;
+                while (currentIdx < endIdx && nexts[currentIdx] == ByteSource.END_OF_STREAM)
+                    ++currentIdx;
+            }
+            contentSelection |= currentIdx & 1; // 1 if odd index
+            currentContent = CONTENT_SELECTIONS[contentSelection];
+            return currentDepth;
         }
 
         @Override
@@ -182,29 +208,13 @@ public class RangesTrie extends Trie<Trie.Contained>
                     (depths[currentIdx] > skipDepth ||
                      depths[currentIdx] == skipDepth && nexts[currentIdx] < skipTransition))
                 ++currentIdx;
-            return completeAdvance();
-        }
-
-        private int completeAdvance()
-        {
-            if (currentIdx == nexts.length)
-                return exhausted();
-            currentTransition = nexts[currentIdx];
-            currentDepth = depths[currentIdx]++;
-            nexts[currentIdx] = sources[currentIdx].next();
-            int endIdx = currentIdx + 1;
-            while (endIdx < nexts.length && depths[endIdx] == currentDepth && nexts[endIdx] == currentTransition)
-            {
-                depths[endIdx]++;
-                nexts[endIdx] = sources[endIdx].next();
-                ++endIdx;
-            }
-            return currentDepth;
+            return advance();
         }
 
         private int exhausted()
         {
-            return currentDepth = -1;
+            currentDepth = -1;
+            return skipCompletedAndSelectContent(0, nexts.length);
         }
 
         @Override

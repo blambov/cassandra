@@ -17,15 +17,12 @@
  */
 package org.apache.cassandra.db.tries;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableList;
 
@@ -710,69 +707,22 @@ public abstract class Trie<T>
         END            // Exact end position.
     }
     // TODO: For reverse iteration this should still work (assuming reverse is lexicographic on negated transitions)
-    // TODO: Merging cannot work with this definition.
+    // TODO: Normal trie merging and intersection do not work with this definition.
 
     public static Trie<Contained> range(ByteComparable left, ByteComparable right)
     {
         return RangesTrie.create(left, right);
     }
 
-    public static Trie<Contained> ranges(ByteComparable... boundaries)
+    public static Trie<Contained> range(ByteComparable left, boolean leftInclusive, ByteComparable right, boolean rightInclusive)
     {
-        RangesTrie r = new RangesTrie(boundaries);
-        System.out.println(String.format("Trie.subtrie(%s):",
-                                         Arrays.stream(boundaries)
-                                               .map(x -> x != null ? x.byteComparableAsString(BYTE_COMPARABLE_VERSION) : null)
-                                               .collect(Collectors.joining(", "))));
-        System.out.println(r.dump());
-
-        return new RangesTrie(boundaries);
-//        assert boundaries.length % 2 == 0;
-//        var sets = new ArrayList<Trie<Contained>>(boundaries.length / 2);
-//        for (int i = 0; i < boundaries.length; i += 2)
-//            sets.add(range(boundaries[i], boundaries[i + 1]));
-//        return mergeSets(sets);
+        return RangesTrie.create(left, leftInclusive, right, rightInclusive);
     }
 
-//    public static Trie<Contained> mergeSets(Trie<Contained> a, Trie<Contained> b)
-//    {
-//        return a.mergeWith(b, SET_RESOLVER);
-//    }
-//
-//    public static Trie<Contained> mergeSets(Collection<Trie<Contained>> sets)
-//    {
-//        return merge(sets, SET_RESOLVER);
-//    }
-//
-//    public static Trie<Contained> intersectSets(Trie<Contained> a, Trie<Contained> b)
-//    {
-//        return new IntersectionTrie.SetIntersectionTrie(a, b);
-//    }
-//
-//    static final CollectionMergeResolver<Contained> SET_RESOLVER = new CollectionMergeResolver<Contained>()
-//    {
-//        @Override
-//        public Contained resolve(Contained c1, Contained c2)
-//        {
-//            if (c1 == c2)
-//                return c1;
-//            if (c1 == Contained.INSIDE || c2 == Contained.INSIDE)   // seek, we are inside a region
-//                return Contained.INSIDE;
-//            // Start and end meet. This does not need to be reported, but if we end up at a start after a skip,
-//            // we need to report the position as INSIDE. Do so to be certain.
-//            return Contained.INSIDE;
-//        }
-//
-//        @Override
-//        public Contained resolve(Collection<Contained> contents)
-//        {
-//            for (Contained c : contents)
-//                if (c == Contained.FULLY)
-//                    return Contained.FULLY;
-//
-//            return Contained.PARTIALLY;
-//        }
-//    };
+    public static Trie<Contained> ranges(ByteComparable... boundaries)
+    {
+        return new RangesTrie(boundaries);
+    }
 
     public Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)
     {
