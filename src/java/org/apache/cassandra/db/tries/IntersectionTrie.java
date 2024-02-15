@@ -101,6 +101,7 @@ public class IntersectionTrie<T> extends Trie<T>
             if (state == State.INSIDE_SET_AHEAD)
                 return advanceInCoveredBranch(set.depth(), source.advance());
 
+            // The set is assumed sparser, so we advance that first.
             int setDepth = set.advance();
             if (inSetCoveredArea())
                 return advanceInCoveredBranch(setDepth, source.advance());
@@ -134,45 +135,50 @@ public class IntersectionTrie<T> extends Trie<T>
                 return advanceSourceToIntersection(setDepth, set.incomingTransition());
         }
 
-        private int advanceInCoveredBranch(int setDepth, int sourceDepth)
+        private int advanceInCoveredBranch(int setDepth, int advancedSourceDepth)
         {
-            if (sourceDepth < 0)
-                return sourceDepth; // exhausted
-            if (sourceDepth > setDepth)
-                return markInsideSetAhead(sourceDepth);
-            int setTransition = set.incomingTransition();
+            // Check if the advanced source is still in the covered area.
+            if (advancedSourceDepth > setDepth) // most common fast path
+                return onCoveredAreaWithSetAhead(advancedSourceDepth);
+            if (advancedSourceDepth < 0)
+                return advancedSourceDepth; // exhausted
             int sourceTransition = source.incomingTransition();
-            if (sourceDepth == setDepth)
+            if (advancedSourceDepth == setDepth)
             {
+                int setTransition = set.incomingTransition();
                 if (sourceTransition < setTransition)
-                    return markInsideSetAhead(sourceDepth);
+                    return onCoveredAreaWithSetAhead(advancedSourceDepth);
                 if (sourceTransition == setTransition)
-                    return onMatchingPosition(setDepth);
+                    return onMatchingPosition(advancedSourceDepth);
             }
 
-            return advanceSetToIntersection(sourceDepth, sourceTransition);
+            // Source moved beyond the set position. Advance the set too.
+            setDepth = set.skipTo(advancedSourceDepth, sourceTransition);
+            int setTransition = set.incomingTransition();
+            if (setDepth == advancedSourceDepth && setTransition == sourceTransition)
+                return onMatchingPosition(advancedSourceDepth);
+
+            // At this point set is ahead. Check content to see if we are in a covered branch.
+            // If not, we need to skip the source as well and repeat the process.
+            if (inSetCoveredArea())
+                return onCoveredAreaWithSetAhead(advancedSourceDepth);
+            else
+                return advanceSourceToIntersection(setDepth, setTransition);
         }
 
         private int advanceSourceToIntersection(int setDepth, int setTransition)
         {
-            int sourceDepth = source.skipTo(setDepth, setTransition);
-            if (sourceDepth < 0)
-                return sourceDepth; // exhausted
-            int sourceTransition = source.incomingTransition();
-
-            if (sourceDepth == setDepth && sourceTransition == setTransition)
-                return onMatchingPosition(setDepth);
-            else
-                return advanceSetToIntersection(sourceDepth, sourceTransition);
-        }
-
-        private int advanceSetToIntersection(int sourceDepth, int sourceTransition)
-        {
-            int setDepth;
-            int setTransition;
             while (true)
             {
-                // source is now ahead of the set
+                // Set is ahead of source, but outside the covered area. Skip source to the set's position.
+                int sourceDepth = source.skipTo(setDepth, setTransition);
+                int sourceTransition = source.incomingTransition();
+                if (sourceDepth < 0)
+                    return sourceDepth;
+                if (sourceDepth == setDepth && sourceTransition == setTransition)
+                    return onMatchingPosition(setDepth);
+
+                // Source is now ahead of the set.
                 setDepth = set.skipTo(sourceDepth, sourceTransition);
                 setTransition = set.incomingTransition();
                 if (setDepth == sourceDepth && setTransition == sourceTransition)
@@ -180,15 +186,7 @@ public class IntersectionTrie<T> extends Trie<T>
 
                 // At this point set is ahead. Check content to see if we are in a covered branch.
                 if (inSetCoveredArea())
-                    return markInsideSetAhead(sourceDepth);
-
-                // Otherwise we need to skip the source as well and repeat the process
-                sourceDepth = source.skipTo(setDepth, setTransition);
-                sourceTransition = source.incomingTransition();
-                if (sourceDepth < 0)
-                    return sourceDepth;
-                if (sourceDepth == setDepth && sourceTransition == setTransition)
-                    return onMatchingPosition(setDepth);
+                    return onCoveredAreaWithSetAhead(sourceDepth);
             }
         }
 
@@ -198,9 +196,19 @@ public class IntersectionTrie<T> extends Trie<T>
             return (contained == Contained.INSIDE_PREFIX || contained == Contained.END);
         }
 
-        private int markInsideSetAhead(int depth)
+        private int onCoveredAreaWithSetAhead(int depth)
         {
             state = State.INSIDE_SET_AHEAD;
+            return depth;
+        }
+
+        private int onMatchingPosition(int depth)
+        {
+            Contained contained = set.content();
+            if (contained == Contained.START || contained == Contained.INSIDE_PREFIX)
+                state = State.INSIDE_MATCHING;
+            else
+                state = State.OUTSIDE_MATCHING;
             return depth;
         }
 
@@ -217,16 +225,6 @@ public class IntersectionTrie<T> extends Trie<T>
         public Cursor<T> duplicate()
         {
             return new IntersectionCursor<>(this, source.duplicate());
-        }
-
-        private int onMatchingPosition(int depth)
-        {
-            Contained contained = set.content();
-            if (contained == Contained.START || contained == Contained.INSIDE_PREFIX)
-                state = State.INSIDE_MATCHING;
-            else
-                state = State.OUTSIDE_MATCHING;
-            return depth;
         }
     }
 }
