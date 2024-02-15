@@ -555,25 +555,25 @@ public class SlicedTrieTest
         Trie<Integer> trie = singleLevelIntTrie(15);
 
         // non-overlapping
-        Trie<Integer> intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(4), of(8))));
+        Trie<Integer> intersection = trie.intersect(RangeTrie.create(of(0), of(4))).intersect(RangeTrie.create(of(4), of(8)));
         assertEquals(asList(), toList(intersection));
         // touching
-        intersection = trie.intersect(RangeTrie.create(of(0), true, of(3), true).intersect(RangeTrie.create(of(3), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(0), true, of(3), true)).intersect(RangeTrie.create(of(3), of(8)));
         assertEquals(asList(3), toList(intersection));
         // overlapping 1
-        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(2), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4))).intersect(RangeTrie.create(of(2), of(8)));
         assertEquals(asList(2, 3), toList(intersection));
         // overlapping 2
-        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(1), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4))).intersect(RangeTrie.create(of(1), of(8)));
         assertEquals(asList(1, 2, 3), toList(intersection));
         // covered
-        intersection = trie.intersect(RangeTrie.create(of(0), of(4)).intersect(RangeTrie.create(of(0), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(0), of(4))).intersect(RangeTrie.create(of(0), of(8)));
         assertEquals(asList(0, 1, 2, 3), toList(intersection));
         // covered 2
-        intersection = trie.intersect(RangeTrie.create(of(4), true, of(8), true).intersect(RangeTrie.create(of(0), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(4), true, of(8), true)).intersect(RangeTrie.create(of(0), of(8)));
         assertEquals(asList(4, 5, 6, 7), toList(intersection));
         // covered 3
-        intersection = trie.intersect(RangeTrie.create(of(1), false, of(4), true).intersect(RangeTrie.create(of(0), of(8))));
+        intersection = trie.intersect(RangeTrie.create(of(1), false, of(4), true)).intersect(RangeTrie.create(of(0), of(8)));
         assertEquals(asList(2, 3, 4), toList(intersection));
     }
 }
