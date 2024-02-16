@@ -23,7 +23,7 @@ import java.util.Arrays;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class RangesTrie extends Trie<Trie.Contained>
+public class RangesTrie extends TrieSet
 {
     final ByteComparable[] boundaries;  // start, end, start, end, ...
 
@@ -32,7 +32,7 @@ public class RangesTrie extends Trie<Trie.Contained>
         this.boundaries = boundaries;
     }
 
-    public static Trie<Contained> create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    public static TrieSet create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (!includeLeft && left != null)
             left = add0(left);
@@ -41,7 +41,7 @@ public class RangesTrie extends Trie<Trie.Contained>
         return create(left, right);
     }
 
-    public static Trie<Contained> create(ByteComparable left, ByteComparable right)
+    public static TrieSet create(ByteComparable left, ByteComparable right)
     {
         return new RangesTrie(left, right);
     }
@@ -71,20 +71,20 @@ public class RangesTrie extends Trie<Trie.Contained>
     }
 
     @Override
-    protected Cursor<Contained> cursor()
+    protected Cursor cursor()
     {
         return new RangesCursor(boundaries);
     }
 
-    static final Contained CONTENT_SELECTIONS[] = new Contained[]
+    static final Contained CONTAINED_SELECTIONS[] = new Contained[]
     {
-        null,                     // even index, no match: before a start
+        Contained.OUSIDE_PREFIX,  // even index, no match: before a start
         Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
         Contained.END,            // even index, match: went over an end
         Contained.START           // odd index, match: went over a start
     };
 
-    private static class RangesCursor implements Cursor<Contained>
+    private static class RangesCursor implements Cursor
     {
         ByteSource[] sources;
         int[] nexts;
@@ -92,7 +92,7 @@ public class RangesTrie extends Trie<Trie.Contained>
         int currentIdx;
         int currentDepth;
         int currentTransition;
-        Contained currentContent;
+        Contained currentContained;
 
         public RangesCursor(ByteComparable[] boundaries)
         {
@@ -128,7 +128,7 @@ public class RangesTrie extends Trie<Trie.Contained>
             }
             currentDepth = 0;
             currentTransition = -1;
-            skipCompletedAndSelectContent(nexts[0], length);
+            skipCompletedAndSelectContained(nexts[0], length);
         }
 
         RangesCursor(RangesCursor copyFrom)
@@ -147,7 +147,7 @@ public class RangesTrie extends Trie<Trie.Contained>
             this.currentIdx = copyFrom.currentIdx - toDrop;
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
-            this.currentContent = copyFrom.currentContent;
+            this.currentContained = copyFrom.currentContained;
         }
 
         @Override
@@ -163,9 +163,9 @@ public class RangesTrie extends Trie<Trie.Contained>
         }
 
         @Override
-        public Contained content()
+        public Contained contained()
         {
-            return currentContent;
+            return currentContained;
         }
 
         @Override
@@ -184,20 +184,20 @@ public class RangesTrie extends Trie<Trie.Contained>
                 ++endIdx;
             }
 
-            return skipCompletedAndSelectContent(next, endIdx);
+            return skipCompletedAndSelectContained(next, endIdx);
         }
 
-        private int skipCompletedAndSelectContent(int next, int endIdx)
+        private int skipCompletedAndSelectContained(int next, int endIdx)
         {
-            int contentSelection = 0;
+            int containedSelection = 0;
             if (next == ByteSource.END_OF_STREAM)
             {
-                contentSelection = 2;
+                containedSelection = 2;
                 while (currentIdx < endIdx && nexts[currentIdx] == ByteSource.END_OF_STREAM)
                     ++currentIdx;
             }
-            contentSelection |= currentIdx & 1; // 1 if odd index
-            currentContent = CONTENT_SELECTIONS[contentSelection];
+            containedSelection |= currentIdx & 1; // 1 if odd index
+            currentContained = CONTAINED_SELECTIONS[containedSelection];
             return currentDepth;
         }
 
@@ -214,11 +214,11 @@ public class RangesTrie extends Trie<Trie.Contained>
         private int exhausted()
         {
             currentDepth = -1;
-            return skipCompletedAndSelectContent(0, nexts.length);
+            return skipCompletedAndSelectContained(0, nexts.length);
         }
 
         @Override
-        public Cursor<Contained> duplicate()
+        public Cursor duplicate()
         {
             return new RangesCursor(this);
         }
