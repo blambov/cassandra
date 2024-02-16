@@ -485,7 +485,7 @@ public abstract class Trie<T>
      *
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
-    public Trie<T> intersect(Trie<Contained> set)
+    public Trie<T> intersect(TrieSet set)
     {
         return new IntersectionTrie<>(this, set);
     }
@@ -694,34 +694,6 @@ public abstract class Trie<T>
     public static <T> Trie<T> empty()
     {
         return (Trie<T>) EMPTY;
-    }
-
-    public enum Contained
-    {
-        START,         // Exact start position (intersector to determine inclusion). If the start position is also a
-                       // prefix of END, this will be reported as INSIDE_PREFIX/END instead.
-        INSIDE_PREFIX, // Prefix of the end position, inside the covered set (i.e. not a prefix of a START). This is
-                       // reported after advancing past START, but also when skipping to a position inside the set.
-                       // Indicates that all positions between that start position or skipTo location are completely
-                       // inside the set.
-        END            // Exact end position.
-    }
-    // TODO: For reverse iteration this should still work (assuming reverse is lexicographic on negated transitions)
-    // TODO: Normal trie merging and intersection do not work with this definition.
-
-    public static Trie<Contained> range(ByteComparable left, ByteComparable right)
-    {
-        return RangesTrie.create(left, right);
-    }
-
-    public static Trie<Contained> range(ByteComparable left, boolean leftInclusive, ByteComparable right, boolean rightInclusive)
-    {
-        return RangesTrie.create(left, leftInclusive, right, rightInclusive);
-    }
-
-    public static Trie<Contained> ranges(ByteComparable... boundaries)
-    {
-        return new RangesTrie(boundaries);
     }
 
     public Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)

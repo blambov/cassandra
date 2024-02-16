@@ -19,14 +19,12 @@
 package org.apache.cassandra.db.tries;
 
 /**
- * Intersection implementation which works with {@code Trie<Contained>} as the intersecting set.
+ * Intersection implementation which works with {@code TrieSet} as the intersecting set.
  * <p>
- * Implemented as a parallel walk over the two tries, skipping over the parts which are not in the set, and skipping
- * advancing in the set while we know branches are fully contained within the set (i.e. when its {@code content()}
- * returns FULLY). To do the latter we always examing the set's content, and on receiving FULLY we store the set's
- * current depth as the lowest depth we need to see on a source advance to be outside of the covered branch. This
- * allows us to implement {@code advanceMultiple}, and to have a very low overhead on all advances inside the covered
- * branch.
+ * Walks the two tries in parallel until it finds a matching position, or a skip to a position in the source takes us
+ * to a region that is fully covered by the set. The trie set makes the latter known by returning true for
+ * {@code contained().lesserInSet()} for a position. In that case we advance the source individually (also permitting
+ * {@code advanceMultiple}) until the source reaches the set's position, after which we return to the parallel walk.
  * <p>
  * As it is expected that the structure of the set is going to be simpler, unless we know that we are inside a fully
  * covered branch we advance the set first, and skip in the source to the advanced position.
@@ -34,9 +32,9 @@ package org.apache.cassandra.db.tries;
 public class IntersectionTrie<T> extends Trie<T>
 {
     final Trie<T> trie;
-    final Trie<Contained> set;
+    final TrieSet set;
 
-    public IntersectionTrie(Trie<T> trie, Trie<Contained> set)
+    public IntersectionTrie(Trie<T> trie, TrieSet set)
     {
         this.trie = trie;
         this.set = set;
@@ -50,22 +48,25 @@ public class IntersectionTrie<T> extends Trie<T>
 
     enum State
     {
+        /** The exact position is outside the set, source and set cursors are at the same position. */
         OUTSIDE_MATCHING,
+        /** The exact position is inside the set, source and set cursors are at the same position. */
         INSIDE_MATCHING,
+        /** The set cursor is ahead; the current position, as well as any before the set cursor's are inside the set. */
         INSIDE_SET_AHEAD;
     }
 
     static class IntersectionCursor<T> implements Cursor<T>
     {
         final Cursor<T> source;
-        final Cursor<Contained> set;
+        final TrieSet.Cursor set;
         State state;
 
-        public IntersectionCursor(Cursor<T> source, Cursor<Contained> set)
+        public IntersectionCursor(Cursor<T> source, TrieSet.Cursor set)
         {
             this.source = source;
             this.set = set;
-            onMatchingPosition(depth());
+            matchingPosition(depth());
         }
 
         public IntersectionCursor(IntersectionCursor<T> copyFrom, Cursor<T> withSource)
@@ -135,33 +136,33 @@ public class IntersectionTrie<T> extends Trie<T>
                 return advanceSourceToIntersection(setDepth, set.incomingTransition());
         }
 
-        private int advanceInCoveredBranch(int setDepth, int advancedSourceDepth)
+        private int advanceInCoveredBranch(int setDepth, int sourceDepth)
         {
             // Check if the advanced source is still in the covered area.
-            if (advancedSourceDepth > setDepth) // most common fast path
-                return onCoveredAreaWithSetAhead(advancedSourceDepth);
-            if (advancedSourceDepth < 0)
-                return advancedSourceDepth; // exhausted
+            if (sourceDepth > setDepth) // most common fast path
+                return coveredAreaWithSetAhead(sourceDepth);
+            if (sourceDepth < 0)
+                return exhausted();
             int sourceTransition = source.incomingTransition();
-            if (advancedSourceDepth == setDepth)
+            if (sourceDepth == setDepth)
             {
                 int setTransition = set.incomingTransition();
                 if (sourceTransition < setTransition)
-                    return onCoveredAreaWithSetAhead(advancedSourceDepth);
+                    return coveredAreaWithSetAhead(sourceDepth);
                 if (sourceTransition == setTransition)
-                    return onMatchingPosition(advancedSourceDepth);
+                    return matchingPosition(sourceDepth);
             }
 
             // Source moved beyond the set position. Advance the set too.
-            setDepth = set.skipTo(advancedSourceDepth, sourceTransition);
+            setDepth = set.skipTo(sourceDepth, sourceTransition);
             int setTransition = set.incomingTransition();
-            if (setDepth == advancedSourceDepth && setTransition == sourceTransition)
-                return onMatchingPosition(advancedSourceDepth);
+            if (setDepth == sourceDepth && setTransition == sourceTransition)
+                return matchingPosition(sourceDepth);
 
             // At this point set is ahead. Check content to see if we are in a covered branch.
             // If not, we need to skip the source as well and repeat the process.
             if (inSetCoveredArea())
-                return onCoveredAreaWithSetAhead(advancedSourceDepth);
+                return coveredAreaWithSetAhead(sourceDepth);
             else
                 return advanceSourceToIntersection(setDepth, setTransition);
         }
@@ -174,42 +175,43 @@ public class IntersectionTrie<T> extends Trie<T>
                 int sourceDepth = source.skipTo(setDepth, setTransition);
                 int sourceTransition = source.incomingTransition();
                 if (sourceDepth < 0)
-                    return sourceDepth;
+                    return exhausted();
                 if (sourceDepth == setDepth && sourceTransition == setTransition)
-                    return onMatchingPosition(setDepth);
+                    return matchingPosition(setDepth);
 
                 // Source is now ahead of the set.
                 setDepth = set.skipTo(sourceDepth, sourceTransition);
                 setTransition = set.incomingTransition();
                 if (setDepth == sourceDepth && setTransition == sourceTransition)
-                    return onMatchingPosition(setDepth);
+                    return matchingPosition(setDepth);
 
                 // At this point set is ahead. Check content to see if we are in a covered branch.
                 if (inSetCoveredArea())
-                    return onCoveredAreaWithSetAhead(sourceDepth);
+                    return coveredAreaWithSetAhead(sourceDepth);
             }
         }
 
         private boolean inSetCoveredArea()
         {
-            Contained contained = set.content();
-            return (contained == Contained.INSIDE_PREFIX || contained == Contained.END);
+            return set.contained().lesserInSet();
         }
 
-        private int onCoveredAreaWithSetAhead(int depth)
+        private int coveredAreaWithSetAhead(int depth)
         {
             state = State.INSIDE_SET_AHEAD;
             return depth;
         }
 
-        private int onMatchingPosition(int depth)
+        private int matchingPosition(int depth)
         {
-            Contained contained = set.content();
-            if (contained == Contained.START || contained == Contained.INSIDE_PREFIX)
-                state = State.INSIDE_MATCHING;
-            else
-                state = State.OUTSIDE_MATCHING;
+            state = set.contained().isInSet() ? State.INSIDE_MATCHING : State.OUTSIDE_MATCHING;
             return depth;
+        }
+
+        private int exhausted()
+        {
+            state = State.OUTSIDE_MATCHING;
+            return -1;
         }
 
         @Override
