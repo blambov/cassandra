@@ -18,6 +18,11 @@
 
 package org.apache.cassandra.db.tries;
 
+/**
+ * Negation of trie sets.
+ *
+ * Achieved by simply inverting the contained() values.
+ */
 public class NegatedTrieSet extends TrieSet
 {
     final TrieSet source;

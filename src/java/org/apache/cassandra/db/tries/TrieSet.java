@@ -18,19 +18,33 @@
 
 package org.apache.cassandra.db.tries;
 
+import javax.annotation.Nonnull;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 public abstract class TrieSet
 {
     public enum Contained
     {
-        OUTSIDE_PREFIX, // Prefix of the start position or both start and end, outside the covered set.
-        START,         // Exact start position (intersector to determine inclusion).
-        INSIDE_PREFIX, // Prefix of the end position, inside the covered set (i.e. not a prefix of a START). This is
-        // reported after advancing past START, but also when skipping to a position inside the set.
-        // Indicates that all positions between that start position or skipTo location and the current are completely
-        // inside the set.
-        END;            // Exact end position.
+        /**
+         * Prefix of the start position, outside the covered set.
+         */
+        OUTSIDE_PREFIX,
+        /**
+         * Exact start position.
+         */
+        START,
+        /**
+         * Prefix of the end position, inside the covered set (i.e. not a prefix of a START). This is
+         * reported after advancing past START, but also when skipping to a position inside the set.
+         * Indicates that all positions between that start position or skipTo location and the current are completely
+         * inside the set.
+         */
+        INSIDE_PREFIX,
+        /**
+         * Exact end position.
+         */
+        END;
 
         /**
          * @return True if the exact position is in the set.
@@ -55,8 +69,10 @@ public abstract class TrieSet
     }
     // TODO: For reverse iteration this should still work (assuming reverse is lexicographic on negated transitions)
     // Note: Cursor will report different Contained values for forward and reverse iteration.
-    // Note: TrieSet will report a contained() value when exhausted. This will be INSIDE_PREFIX if the set has no upper
-    // limit.
+    // Note: At the start of the iteration (when the cursor is positioned at the root), START and INSIDE_PREFIX are
+    // equivalent (since there are no positions to the left which can be in the set).
+    // Note: TrieSet will report a contained() value when exhausted. This will be INSIDE_PREFIX (or, equivalently, END)
+    // if the set has no upper limit.
 
     protected interface Cursor
     {
@@ -64,8 +80,9 @@ public abstract class TrieSet
         int incomingTransition();
 
         /**
-         * @return @NotNull Relationship of the current position to the set. Cannot be null.
+         * @return Relationship of the current position to the set. Cannot be null.
          */
+        @Nonnull
         Contained contained();
         int advance();
         int skipTo(int skipDepth, int skipTransition);

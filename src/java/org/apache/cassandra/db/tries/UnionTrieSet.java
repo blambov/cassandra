@@ -18,6 +18,12 @@
 
 package org.apache.cassandra.db.tries;
 
+/**
+ * TrieSet union.
+ *
+ * The implementation is an application of De Morgan's law: an intersection with changed interpretation of the
+ * contained() values to apply negation to both inputs and the output.
+ */
 public class UnionTrieSet extends TrieSet
 {
     final TrieSet set1;
@@ -35,7 +41,7 @@ public class UnionTrieSet extends TrieSet
         return new UnionCursor(set1.cursor(), set2.cursor());
     }
 
-    static class UnionCursor extends CombinationTrieSetCursor
+    static class UnionCursor extends IntersectionTrieSet.IntersectionCursor
     {
         public UnionCursor(Cursor c1, Cursor c2)
         {
@@ -47,12 +53,14 @@ public class UnionTrieSet extends TrieSet
             super(copyFrom);
         }
 
+        @Override
         boolean lesserInSet(Cursor cursor)
         {
             return !cursor.contained().lesserInSet();
         }
 
-        protected Contained combineContained(Contained cl, Contained cr)
+        @Override
+        Contained combineContained(Contained cl, Contained cr)
         {
             if (cl == Contained.INSIDE_PREFIX || cr == Contained.INSIDE_PREFIX)
                 return Contained.INSIDE_PREFIX;
