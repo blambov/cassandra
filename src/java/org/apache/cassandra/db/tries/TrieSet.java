@@ -140,12 +140,17 @@ public abstract class TrieSet
         return new RangesTrieSet(boundaries);
     }
 
-    public TrieSet mergeWith(TrieSet other)
+    public TrieSet negation()
     {
-        throw new AssertionError("Not implemented");
+        return new NegatedTrieSet(this);
     }
 
-    public TrieSet intersect(TrieSet other)
+    public TrieSet union(TrieSet other)
+    {
+        return new UnionTrieSet(this, other);
+    }
+
+    public TrieSet intersection(TrieSet other)
     {
         return new IntersectionTrieSet(this, other);
     }

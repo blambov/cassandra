@@ -18,12 +18,12 @@
 
 package org.apache.cassandra.db.tries;
 
-public class IntersectionTrieSet extends TrieSet
+public class UnionTrieSet extends TrieSet
 {
     final TrieSet set1;
     final TrieSet set2;
 
-    public IntersectionTrieSet(TrieSet set1, TrieSet set2)
+    public UnionTrieSet(TrieSet set1, TrieSet set2)
     {
         this.set1 = set1;
         this.set2 = set2;
@@ -32,44 +32,44 @@ public class IntersectionTrieSet extends TrieSet
     @Override
     protected Cursor cursor()
     {
-        return new IntersectionCursor(set1.cursor(), set2.cursor());
+        return new UnionCursor(set1.cursor(), set2.cursor());
     }
 
-    static class IntersectionCursor extends CombinationTrieSetCursor
+    static class UnionCursor extends CombinationTrieSetCursor
     {
-        public IntersectionCursor(Cursor c1, Cursor c2)
+        public UnionCursor(Cursor c1, Cursor c2)
         {
             super(c1, c2);
         }
 
-        public IntersectionCursor(IntersectionCursor copyFrom)
+        public UnionCursor(UnionCursor copyFrom)
         {
             super(copyFrom);
         }
 
         boolean lesserInSet(Cursor cursor)
         {
-            return cursor.contained().lesserInSet();
+            return !cursor.contained().lesserInSet();
         }
 
         protected Contained combineContained(Contained cl, Contained cr)
         {
-            if (cl == Contained.OUTSIDE_PREFIX || cr == Contained.OUTSIDE_PREFIX)
-                return Contained.OUTSIDE_PREFIX;
-            else if (cl == Contained.INSIDE_PREFIX)
+            if (cl == Contained.INSIDE_PREFIX || cr == Contained.INSIDE_PREFIX)
+                return Contained.INSIDE_PREFIX;
+            else if (cl == Contained.OUTSIDE_PREFIX)
                 return cr;
-            else if (cr == Contained.INSIDE_PREFIX)
+            else if (cr == Contained.OUTSIDE_PREFIX)
                 return cl;
             else if (cl == cr)
                 return cl;
             else // start and end combination
-                return Contained.OUTSIDE_PREFIX;
+                return Contained.INSIDE_PREFIX;
         }
 
         @Override
         public Cursor duplicate()
         {
-            return new IntersectionCursor(this);
+            return new UnionCursor(this);
         }
     }
 }

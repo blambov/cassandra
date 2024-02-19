@@ -325,6 +325,33 @@ public class IntersectionTrieTest
         TrieSet set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
         TrieSet set3 = TrieSet.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
 
+        testIntersections(trie, set1, set2, set3);
+
+        testSetAlgebraIntersection(trie);
+    }
+
+    private void testSetAlgebraIntersection(Trie<Integer> trie)
+    {
+        TrieSet set1 = TrieSet.range(null, of(3))
+                              .union(TrieSet.range(of(2), of(4)))
+                              .union(TrieSet.range(of(5), of(7)))
+                              .union(TrieSet.range(of(7), of(9)))
+                              .union(TrieSet.range(of(14), of(16)))
+                              .union(TrieSet.range(of(12), null));
+        TrieSet set2 = TrieSet.range(of(2), of(7))
+                              .union(TrieSet.ranges(null, of(8), of(10), null).negation())
+                              .union(TrieSet.ranges(of(8), of(10), of(12), of(14)));
+        TrieSet set3 = TrieSet.range(of(1), of(2))
+                              .union(TrieSet.range(of(3), of(4)))
+                              .union(TrieSet.range(of(5), of(6)))
+                              .union(TrieSet.range(of(7), of(8)))
+                              .union(TrieSet.range(of(9), of(10)));
+
+        testIntersections(trie, set1, set2, set3);
+    }
+
+    private void testIntersections(Trie<Integer> trie, TrieSet set1, TrieSet set2, TrieSet set3)
+    {
         testIntersection("1", asList(0, 1, 2, 3, 5, 6, 7, 8, 12, 13, 14), trie, set1);
 
         testIntersection("2", asList(2, 3, 4, 5, 6, 8, 9, 12, 13), trie, set2);
@@ -361,7 +388,7 @@ public class IntersectionTrieTest
                 TrieSet set = sets[toRemove];
                 testIntersectionSets(message + " " + toRemove, expected,
                                       trie,
-                                      intersectedSet.intersect(set),
+                                      intersectedSet.intersection(set),
                                       Arrays.stream(sets)
                                             .filter(x -> x != set)
                                             .toArray(TrieSet[]::new)
