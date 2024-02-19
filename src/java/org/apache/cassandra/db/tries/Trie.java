@@ -457,7 +457,7 @@ public abstract class Trie<T>
     {
         if (left == null && right == null)
             return this;
-        return new IntersectionTrie<>(this, RangesTrie.create(left, includeLeft, right, includeRight));
+        return new IntersectionTrie<>(this, RangesTrieSet.create(left, includeLeft, right, includeRight));
     }
 
     /**
@@ -477,7 +477,7 @@ public abstract class Trie<T>
      */
     public Trie<T> subtrie(ByteComparable left, ByteComparable right)
     {
-        return new IntersectionTrie<>(this, RangesTrie.create(left, right));
+        return new IntersectionTrie<>(this, RangesTrieSet.create(left, right));
     }
 
     /**

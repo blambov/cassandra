@@ -60,12 +60,9 @@ class MergeTrie<T> extends Trie<T>
 
         MergeCursor(MergeResolver<T> resolver, Trie<T> t1, Trie<T> t2)
         {
-            this.resolver = resolver;
-            this.c1 = t1.cursor();
-            this.c2 = t2.cursor();
+            this(resolver, t1.cursor(), t2.cursor());
             assert c1.depth() == 0;
             assert c2.depth() == 0;
-            atC1 = atC2 = true;
         }
 
         MergeCursor(MergeResolver<T> resolver, Cursor<T> c1, Cursor<T> c2)
