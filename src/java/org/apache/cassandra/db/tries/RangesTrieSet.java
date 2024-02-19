@@ -23,11 +23,11 @@ import java.util.Arrays;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class RangesTrie extends TrieSet
+public class RangesTrieSet extends TrieSet
 {
     final ByteComparable[] boundaries;  // start, end, start, end, ...
 
-    public RangesTrie(ByteComparable... boundaries)
+    public RangesTrieSet(ByteComparable... boundaries)
     {
         this.boundaries = boundaries;
     }
@@ -43,7 +43,7 @@ public class RangesTrie extends TrieSet
 
     public static TrieSet create(ByteComparable left, ByteComparable right)
     {
-        return new RangesTrie(left, right);
+        return new RangesTrieSet(left, right);
     }
 
     private static ByteComparable add0(ByteComparable v)
@@ -78,10 +78,10 @@ public class RangesTrie extends TrieSet
 
     static final Contained CONTAINED_SELECTIONS[] = new Contained[]
     {
-        Contained.OUSIDE_PREFIX,  // even index, no match: before a start
-        Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
-        Contained.END,            // even index, match: went over an end
-        Contained.START           // odd index, match: went over a start
+    Contained.OUTSIDE_PREFIX,  // even index, no match: before a start
+    Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
+    Contained.END,            // even index, match: went over an end
+    Contained.START           // odd index, match: went over a start
     };
 
     private static class RangesCursor implements Cursor
@@ -214,6 +214,7 @@ public class RangesTrie extends TrieSet
         private int exhausted()
         {
             currentDepth = -1;
+            currentTransition = 0;
             return skipCompletedAndSelectContained(0, nexts.length);
         }
 

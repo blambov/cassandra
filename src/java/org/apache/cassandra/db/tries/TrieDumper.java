@@ -80,6 +80,7 @@ class TrieDumper<T> implements Trie.Walker<T, String>
     @Override
     public void content(T content)
     {
+        maybeIndent();
         b.append(" -> ");
         b.append(contentToString.apply(content));
         endLineAndSetIndent(currentLength);

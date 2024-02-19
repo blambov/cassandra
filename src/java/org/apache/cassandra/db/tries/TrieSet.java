@@ -24,7 +24,7 @@ public abstract class TrieSet
 {
     public enum Contained
     {
-        OUSIDE_PREFIX, // Prefix of the start position or both start and end, outside the covered set.
+        OUTSIDE_PREFIX, // Prefix of the start position or both start and end, outside the covered set.
         START,         // Exact start position (intersector to determine inclusion).
         INSIDE_PREFIX, // Prefix of the end position, inside the covered set (i.e. not a prefix of a START). This is
         // reported after advancing past START, but also when skipping to a position inside the set.
@@ -50,12 +50,13 @@ public abstract class TrieSet
 
         boolean isPrefix()
         {
-            return this == OUSIDE_PREFIX || this == INSIDE_PREFIX;
+            return this == OUTSIDE_PREFIX || this == INSIDE_PREFIX;
         }
     }
     // TODO: For reverse iteration this should still work (assuming reverse is lexicographic on negated transitions)
     // Note: Cursor will report different Contained values for forward and reverse iteration.
-    // TODO: Normal trie merging and intersection do not work with this definition.
+    // Note: TrieSet will report a contained() value when exhausted. This will be INSIDE_PREFIX if the set has no upper
+    // limit.
 
     protected interface Cursor
     {
@@ -90,16 +91,23 @@ public abstract class TrieSet
         int prevDepth = cursor.depth();
         while (true)
         {
+            Contained contained = cursor.contained();
+            if (!contained.isPrefix())
+                walker.content(contained);
+
             int currDepth = cursor.advance();
             if (currDepth <= 0)
                 break;
             if (currDepth <= prevDepth)
                 walker.resetPathLength(currDepth - 1);
             walker.addPathByte(cursor.incomingTransition());
-            Contained contained = cursor.contained();
-            if (!contained.isPrefix())
-                walker.content(contained);
             prevDepth = currDepth;
+        }
+        Contained contained = cursor.contained();
+        if (!contained.isPrefix())
+        {
+            walker.resetPathLength(0);
+            walker.content(contained);
         }
         return walker.complete();
     }
@@ -114,22 +122,22 @@ public abstract class TrieSet
 
     public static TrieSet singleton(ByteComparable b)
     {
-        return RangesTrie.create(b, true, b, true);
+        return RangesTrieSet.create(b, true, b, true);
     }
 
     public static TrieSet range(ByteComparable left, ByteComparable right)
     {
-        return RangesTrie.create(left, right);
+        return RangesTrieSet.create(left, right);
     }
 
     public static TrieSet range(ByteComparable left, boolean leftInclusive, ByteComparable right, boolean rightInclusive)
     {
-        return RangesTrie.create(left, leftInclusive, right, rightInclusive);
+        return RangesTrieSet.create(left, leftInclusive, right, rightInclusive);
     }
 
     public static TrieSet ranges(ByteComparable... boundaries)
     {
-        return new RangesTrie(boundaries);
+        return new RangesTrieSet(boundaries);
     }
 
     public TrieSet mergeWith(TrieSet other)
@@ -139,6 +147,6 @@ public abstract class TrieSet
 
     public TrieSet intersect(TrieSet other)
     {
-        throw new AssertionError("Not implemented");
+        return new IntersectionTrieSet(this, other);
     }
 }
