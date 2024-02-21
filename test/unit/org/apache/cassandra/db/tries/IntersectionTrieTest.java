@@ -175,6 +175,8 @@ public class IntersectionTrieTest
             testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie, TrieSet.range(of(3), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie, TrieSet.range(null, null));
+
+            testIntersection("", asList(), trie, TrieSet.range(of(7), of(7)));
         }
     }
 
@@ -234,6 +236,10 @@ public class IntersectionTrieTest
             testIntersection("", asList(3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(of(3), of(6), of(7), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(null, of(6), of(7), null));
+
+            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie, TrieSet.ranges(of(3), of(6), of(6), of(9)));
+
+            testIntersection("", asList(3, 4, 5, 7, 8), trie, TrieSet.ranges(of(3), of(6), of(6), of(6), of(7), of(9)));
         }
     }
 

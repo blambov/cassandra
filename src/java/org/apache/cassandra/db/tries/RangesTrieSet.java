@@ -139,11 +139,12 @@ public class RangesTrieSet extends TrieSet
             this.depths = Arrays.copyOfRange(copyFrom.depths, toDrop, copyFrom.depths.length);
             this.sources = new ByteSource[copyFrom.sources.length - toDrop];
             for (int i = currentIdx; i < sources.length; i++)
-            {
-                ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
-                copyFrom.sources[i] = dupe;
-                sources[i - toDrop] = dupe.duplicate();
-            }
+                if (copyFrom.sources[i] != null)
+                {
+                    ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
+                    copyFrom.sources[i] = dupe;
+                    sources[i - toDrop] = dupe.duplicate();
+                }
             this.currentIdx = copyFrom.currentIdx - toDrop;
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
@@ -192,9 +193,11 @@ public class RangesTrieSet extends TrieSet
             int containedSelection = 0;
             if (next == ByteSource.END_OF_STREAM)
             {
-                containedSelection = 2;
                 while (currentIdx < endIdx && nexts[currentIdx] == ByteSource.END_OF_STREAM)
+                {
                     ++currentIdx;
+                    containedSelection ^= 2;    // only an odd number of completed sources has any effect
+                }
             }
             containedSelection |= currentIdx & 1; // 1 if odd index
             currentContained = CONTAINED_SELECTIONS[containedSelection];
