@@ -296,111 +296,104 @@ public class DeletionAwareIntersectionTrieTest
         }
     }
 
-    // Test intersection of intersection
+    @Test
+    public void testRangeOnSubtrie() throws InMemoryTrie.SpaceExhaustedException
+    {
+        for (bits = bitsNeeded; bits > 0; --bits)
+        {
+            Trie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13));
 
-//    @Test
-//    public void testRangeOnSubtrie() throws InMemoryTrie.SpaceExhaustedException
-//    {
-//        for (bits = bitsNeeded; bits > 0; --bits)
-//        {
-//            Trie<DeletionMarker> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
-//
-//            // non-overlapping
+            // non-overlapping
 //            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
-//            // touching, i.e. still non-overlapping
-//            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(3), of(7)));
-//            // overlapping 1
-//            testIntersection("", asList(2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(2), of(7)));
-//            // overlapping 2
-//            testIntersection("", asList(1, 2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(1), of(7)));
-//            // covered
-//            testIntersection("", asList(0, 1, 2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(0), of(7)));
-//            // covered 2
-//            testIntersection("", asList(1, 2), trie, TrieSet.range(of(1), of(3)), TrieSet.range(of(0), of(7)));
-//        }
-//    }
-//
-//    @Test
-//    public void testRangesOnRangesOne() throws InMemoryTrie.SpaceExhaustedException
-//    {
-//        for (bits = bitsNeeded; bits > 0; --bits)
-//        {
-//            Trie<DeletionMarker> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
-//
-//            // non-overlapping
-//            testIntersection("non-overlapping", asList(), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(4), of(8)));
-//            // touching
-//            testIntersection("touching", asList(3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(3), of(8)));
-//            // overlapping 1
-//            testIntersection("overlapping A", asList(2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(2), of(8)));
-//            // overlapping 2
-//            testIntersection("overlapping B", asList(1, 2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(1), of(8)));
-//            // covered
-//            testIntersection("covered same end A", asList(0, 1, 2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(0), of(8)));
-//            // covered 2
-//            testIntersection("covered same end B", asList(4, 5, 6, 7), trie, TrieSet.ranges(of(4), of(8)), TrieSet.ranges(of(0), of(8)));
-//            // covered 3
-//            testIntersection("covered", asList(1, 2, 3), trie, TrieSet.ranges(of(1), of(4)), TrieSet.ranges(of(0), of(8)));
-//        }
-//    }
-//
-//    @Test
-//    public void testRangesOnRanges() throws InMemoryTrie.SpaceExhaustedException
-//    {
-//        for (bits = bitsNeeded; bits > 0; --bits)
-//            testIntersections(fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
-//    }
-//
-//
-//    private void testIntersections(Trie<DeletionMarker> trie)
-//    {
-//        testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14), trie);
-//
-//        TrieSet set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
-//        TrieSet set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
-//        TrieSet set3 = TrieSet.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
-//
-//        testIntersections(trie, set1, set2, set3);
-//
-//        testSetAlgebraIntersection(trie);
-//    }
-//
-//    private void testSetAlgebraIntersection(Trie<DeletionMarker> trie)
-//    {
-//        TrieSet set1 = TrieSet.range(null, of(3))
-//                              .union(TrieSet.range(of(2), of(4)))
-//                              .union(TrieSet.range(of(5), of(7)))
-//                              .union(TrieSet.range(of(7), of(9)))
-//                              .union(TrieSet.range(of(14), of(16)))
-//                              .union(TrieSet.range(of(12), null));
-//        TrieSet set2 = TrieSet.range(of(2), of(7))
-//                              .union(TrieSet.ranges(null, of(8), of(10), null).negation())
-//                              .union(TrieSet.ranges(of(8), of(10), of(12), of(14)));
-//        TrieSet set3 = TrieSet.range(of(1), of(2))
-//                              .union(TrieSet.range(of(3), of(4)))
-//                              .union(TrieSet.range(of(5), of(6)))
-//                              .union(TrieSet.range(of(7), of(8)))
-//                              .union(TrieSet.range(of(9), of(10)));
-//
-//        testIntersections(trie, set1, set2, set3);
-//    }
-//
-//    private void testIntersections(Trie<DeletionMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
-//    {
-//        testIntersection("1", asList(0, 1, 2, 3, 5, 6, 7, 8, 12, 13, 14), trie, set1);
-//
-//        testIntersection("2", asList(2, 3, 4, 5, 6, 8, 9, 12, 13), trie, set2);
-//
-//        testIntersection("3", asList(1, 3, 5, 7, 9), trie, set3);
-//
-//        testIntersection("12", asList(2, 3, 5, 6, 8, 12, 13), trie, set1, set2);
-//
-//        testIntersection("13", asList(1, 3, 5, 7), trie, set1, set3);
-//
-//        testIntersection("23", asList(3, 5, 9), trie, set2, set3);
-//
-//        testIntersection("123", asList(3, 5), trie, set1, set2, set3);
-//    }
+            // touching, i.e. still non-overlapping
+            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(3), of(7)));
+            // overlapping 1
+            testIntersection("", asList(from(2, 10), to(3, 10)), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(2), of(7)));
+            // overlapping 2
+            testIntersection("", asList(from(1, 10), to(3, 10)), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(1), of(7)));
+            // covered
+            testIntersection("", asList(from(1, 10), to(3, 10)), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(0), of(7)));
+            // covered
+            testIntersection("", asList(from(3, 10), to(4, 10), from(6, 11), to(7, 11)), trie, TrieSet.range(of(3), of(7)), TrieSet.range(of(0), of(7)));
+            // covered 2
+            testIntersection("", asList(from(1, 10), to(3, 10)), trie, TrieSet.range(of(1), of(3)), TrieSet.range(of(0), of(7)));
+        }
+    }
+
+    @Test
+    public void testRangesOnRanges() throws InMemoryTrie.SpaceExhaustedException
+    {
+        for (bits = bitsNeeded; bits > 0; --bits)
+            testIntersections(fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
+    }
+
+    private void testIntersections(Trie<DeletionMarker> trie)
+    {
+        testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
+
+        TrieSet set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
+        TrieSet set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
+        TrieSet set3 = TrieSet.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
+
+        testIntersections(trie, set1, set2, set3);
+
+        testSetAlgebraIntersection(trie);
+    }
+
+    private void testSetAlgebraIntersection(Trie<DeletionMarker> trie)
+    {
+        TrieSet set1 = TrieSet.range(null, of(3))
+                              .union(TrieSet.range(of(2), of(4)))
+                              .union(TrieSet.range(of(5), of(7)))
+                              .union(TrieSet.range(of(7), of(9)))
+                              .union(TrieSet.range(of(14), of(16)))
+                              .union(TrieSet.range(of(12), null));
+        TrieSet set2 = TrieSet.range(of(2), of(7))
+                              .union(TrieSet.ranges(null, of(8), of(10), null).negation())
+                              .union(TrieSet.ranges(of(8), of(10), of(12), of(14)));
+        TrieSet set3 = TrieSet.range(of(1), of(2))
+                              .union(TrieSet.range(of(3), of(4)))
+                              .union(TrieSet.range(of(5), of(6)))
+                              .union(TrieSet.range(of(7), of(8)))
+                              .union(TrieSet.range(of(9), of(10)));
+
+        testIntersections(trie, set1, set2, set3);
+    }
+
+    private void testIntersections(Trie<DeletionMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
+    {
+        // set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
+        // set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
+        // set3 = TrieSet.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
+        // from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)
+        testIntersection("1", asList(from(1, 10), to(4, 10),
+                                     from(6, 11), change(8, 11, 12), to(9, 12),
+                                     from(13, 13), to(14,13)), trie, set1);
+
+        testIntersection("2", asList(from(2, 10), to(4, 10),
+                                     from(6, 11), to(7, 11),
+                                     from(8, 12), to(10, 12),
+                                     from(13, 13), to(14, 13)), trie, set2);
+
+        testIntersection("3", asList(from(1, 10), to(2, 10),
+                                     from(3, 10), to(4, 10),
+                                     from(7, 11), to(8, 11),
+                                     from(9, 12), to(10, 12)), trie, set3);
+
+        testIntersection("12", asList(from(2, 10), to(4, 10),
+                                      from(6, 11), to(7, 11),
+                                      from(8, 12), to(9, 12),
+                                      from(13, 13), to(14, 13)), trie, set1, set2);
+
+        testIntersection("13", asList(from(1, 10), to(2, 10),
+                                      from(3, 10), to(4, 10),
+                                      from(7, 11), to(8, 11)), trie, set1, set3);
+
+        testIntersection("23", asList(from(3, 10), to(4, 10),
+                                      from(9, 12), to(10, 12)), trie, set2, set3);
+
+        testIntersection("123", asList(from(3, 10), to(4, 10)), trie, set1, set2, set3);
+    }
 
     public void testIntersection(String message, List<DeletionMarker> expected, Trie<DeletionMarker> trie, TrieSet... sets)
     {

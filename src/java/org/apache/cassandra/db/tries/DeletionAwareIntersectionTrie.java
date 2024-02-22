@@ -26,6 +26,16 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
 
     public DeletionAwareIntersectionTrie(Trie<T> trie, TrieSet set, DeletionHandler<T, D> handler)
     {
+        // If the source is already an intersection, intersect the sets. This easier to do than handling skipTo calls
+        // in this cursor.
+        if (trie instanceof DeletionAwareIntersectionTrie)
+        {
+            DeletionAwareIntersectionTrie<T, D> other = (DeletionAwareIntersectionTrie<T, D>) trie;
+            trie = other.trie;
+            set = other.set.intersection(set);
+            assert handler == other.handler : "Cannot use different handlers for deletion-aware tries";
+        }
+
         this.trie = trie;
         this.set = set;
         this.handler = handler;
@@ -114,6 +124,10 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
             this.activeDeletion = copyFrom.activeDeletion;
             this.coveringDeletion = copyFrom.coveringDeletion;
             this.handler = copyFrom.handler;
+            this.currentDepth = copyFrom.currentDepth;
+            this.currentTransition = copyFrom.currentTransition;
+            this.currentContent = copyFrom.currentContent;
+            this.state = copyFrom.state;
         }
 
         @Override
@@ -157,53 +171,27 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
             }
         }
 
-//        @Override
-//        public int advanceMultiple(TransitionsReceiver receiver)
-//        {
-//            switch (state)
-//            {
-//                case MATCHING_POSITION:
-//                {
-//                    // assume set is more restrictive
-//                    int setDepth = set.advance();
-//                    if (set.contained().lesserInSet())
-//                        return advanceInCoveredBranch(setDepth, source.advance());
-//                    else
-//                        return advanceSourceToIntersection(setDepth, set.incomingTransition());
-//                }
-//                case SET_AHEAD:
-//                    return advanceInCoveredBranch(set.depth(), source.advanceMultiple(receiver));
-//                case SOURCE_AHEAD:
-//                    return advanceWithCoveringDeletion(set.advance());  // TODO: maybe introduce advanceMultiple for set?
-//                default:
-//                    throw new AssertionError();
-//            }
-//        }
-
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public int advanceMultiple(TransitionsReceiver receiver)
         {
             switch (state)
             {
                 case MATCHING_POSITION:
-                {
-                    // assume set is more restrictive
-                    int setDepth = set.skipTo(skipDepth, skipTransition);
-                    if (set.contained().lesserInSet())
-                        return advanceInCoveredBranch(setDepth, source.skipTo(skipDepth, skipTransition));
-                    else
-                        return advanceSourceToIntersection(setDepth, set.incomingTransition());
-                }
+                    return advance();
                 case SET_AHEAD:
-                    return advanceInCoveredBranch(set.depth(), source.skipTo(skipDepth, skipTransition));
+                    return advanceInCoveredBranch(set.depth(), source.advanceMultiple(receiver));
                 case SOURCE_AHEAD:
-                    return advanceWithCoveringDeletion(set.skipTo(skipDepth, skipTransition));
+                    return advanceWithCoveringDeletion(set.advance());  // TODO: maybe introduce advanceMultiple for set?
                 default:
                     throw new AssertionError();
             }
         }
 
-
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            throw new AssertionError("Intersections of intersections should be handled by set operations.");
+        }
 
         private int advanceInCoveredBranch(int setDepth, int sourceDepth)
         {

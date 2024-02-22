@@ -282,7 +282,7 @@ public abstract class Trie<T>
     // done: adding alternate branches (apply) to InMemoryTrie -- no resolution/simplification of alternate necessary
     // done: test put/apply alternate range with LCA test
     // done: test duplicate impl (ByteSource and Cursor)
-    // TODO: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
+    // done: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)
     // TODO: simplification of alternate path for flush (pluggable?)
