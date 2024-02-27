@@ -45,7 +45,7 @@ public class IntersectionTrieTest
     private static final int COUNT = 15000;
     Random rand = new Random();
     int seed = rand.nextInt();
-    final int bitsNeeded = 4;
+    final static int bitsNeeded = 4;
     int bits = bitsNeeded;
 
 

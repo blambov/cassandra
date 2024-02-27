@@ -31,10 +31,10 @@ package org.apache.cassandra.db.tries;
  */
 public class IntersectionTrie<T> implements TrieWithImpl<T>
 {
-    final TrieWithImpl<T> trie;
+    final TrieImpl<T> trie;
     final TrieSetImpl set;
 
-    public IntersectionTrie(TrieWithImpl<T> trie, TrieSetImpl set)
+    IntersectionTrie(TrieImpl<T> trie, TrieSetImpl set)
     {
         this.trie = trie;
         this.set = set;

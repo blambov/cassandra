@@ -31,30 +31,30 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Base class for tries.
- *
+ * <p>
  * Normal users of tries will only use the public methods, which provide various transformations of the trie, conversion
  * of its content to other formats (e.g. iterable of values), and several forms of processing.
- *
+ * <p>
  * For any unimplemented data extraction operations one can build on the {@link TrieEntriesWalker} (for-each processing)
  * and {@link TrieEntriesIterator} (to iterator) base classes, which provide the necessary mechanisms to handle walking
  * the trie.
- *
- * The internal representation of tries using this interface is defined in the {@link Cursor} interface.
- *
+ * <p>
+ * The internal representation of tries using this interface is defined in the {@link TrieImpl.Cursor} interface.
+ * <p>
  * Cursors are a method of presenting the internal structure of a trie without representing nodes as objects, which is
  * still useful for performing the basic operations on tries (iteration, slicing/intersection and merging). A cursor
  * will list the nodes of a trie in order, together with information about the path that was taken to reach them.
- *
+ * <p>
  * To begin traversal over a trie, one must retrieve a cursor by calling {@link #cursor()}. Because cursors are
  * stateful, the traversal must always proceed from one thread. Should concurrent reads be required, separate calls to
- * {@link #cursor()} must be made. Any modification that has completed before the construction of a cursor must be
- * visible, but any later concurrent modifications may be presented fully, partially or not at all; this also means that
- * if multiple are made, the cursor may see any part of any subset of them.
- *
+ * {@link TrieImpl#cursor()} must be made. Any modification that has completed before the construction of a cursor must
+ * be visible, but any later concurrent modifications may be presented fully, partially or not at all; this also means
+ * that if multiple are made, the cursor may see any part of any subset of them.
+ * <p>
  * Note: This model only supports depth-first traversals. We do not currently have a need for breadth-first walks.
- *
+ * <p>
  * See Trie.md for further description of the trie representation model.
- *
+ * <p>
  * @param <T> The content type of the trie.
  */
 public interface Trie<T>
@@ -167,10 +167,10 @@ public interface Trie<T>
     /**
      * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries.
      * The view is live, i.e. any write to the source will be reflected in the subtrie.
-     *
+     * <p>
      * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
      * if the right bound is smaller than the left.
-     *
+     * <p>
      * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
      * @param includeLeft whether {@code left} is an inclusive bound of not.
      * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
@@ -189,12 +189,12 @@ public interface Trie<T>
      * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries,
      * left-inclusive and right-exclusive.
      * The view is live, i.e. any write to the source will be reflected in the subtrie.
-     *
+     * <p>
      * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
      * if the right bound is smaller than the left.
-     *
+     * <p>
      * Equivalent to calling subtrie(left, true, right, false).
-     *
+     * <p>
      * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
      * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
      * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
@@ -207,7 +207,7 @@ public interface Trie<T>
 
     /**
      * Returns a view of this trie that is an intersection of its content with the given set.
-     *
+     * <p>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
     default Trie<T> intersect(TrieSet set)
@@ -268,7 +268,7 @@ public interface Trie<T>
     /**
      * Constructs a view of the merge of this trie with the given one. The view is live, i.e. any write to any of the
      * sources will be reflected in the merged view.
-     *
+     * <p>
      * If there is content for a given key in both sources, the resolver will be called to obtain the combination.
      * (The resolver will not be called if there's content from only one source.)
      */
@@ -279,11 +279,11 @@ public interface Trie<T>
 
     /**
      * Resolver of content of merged nodes.
-     *
+     * <p>
      * The resolver's methods are only called if more than one of the merged nodes contain content, and the
      * order in which the arguments are given is not defined. Only present non-null values will be included in the
      * collection passed to the resolving methods.
-     *
+     * <p>
      * Can also be used as a two-source resolver.
      */
     interface CollectionMergeResolver<T> extends MergeResolver<T>
@@ -310,7 +310,7 @@ public interface Trie<T>
     /**
      * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
      * sources will be reflected in the merged view.
-     *
+     * <p>
      * If there is content for a given key in more than one sources, the resolver will be called to obtain the
      * combination. (The resolver will not be called if there's content from only one source.)
      */
@@ -337,7 +337,7 @@ public interface Trie<T>
     /**
      * Constructs a view of the merge of multiple tries, where each source must have distinct keys. The view is live,
      * i.e. any write to any of the sources will be reflected in the merged view.
-     *
+     * <p>
      * If there is content for a given key in more than one sources, the merge will throw an assertion error.
      */
     static <T> Trie<T> mergeDistinct(Collection<? extends Trie<T>> sources)

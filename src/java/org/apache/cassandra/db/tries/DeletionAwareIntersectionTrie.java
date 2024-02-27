@@ -65,7 +65,7 @@ public class DeletionAwareIntersectionTrie<T, D extends T> implements DeletionAw
             Cursor<T> alternate = source.alternateBranch();
             if (alternate == null)
                 return null;
-            return new DeletionCursor<T, D>(alternate, set.duplicate(), handler);
+            return new DeletionCursor<>(alternate, set.duplicate(), handler);
         }
     }
 
@@ -85,7 +85,7 @@ public class DeletionAwareIntersectionTrie<T, D extends T> implements DeletionAw
      * side, we return this (as AFTER side) at the left bound of the current branch of the set. We also keep track of
      * the active range deletion (i.e. for every marker we encounter during interation, we take its AFTER side) and
      * produce it (as a BEFORE side) when we encounter a set branch's right bound.
-     *
+     * <p>
      * If we are inside the set, our view of it must be one step ahead, so that we can report its end correctly.
      */
     static class DeletionCursor<T, D extends T> implements Cursor<T>

@@ -86,7 +86,7 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
     }
 
     /**
-     * Used by {@link Trie.Cursor#advanceMultiple} to feed the transitions taken.
+     * Used by {@link TrieImpl.Cursor#advanceMultiple} to feed the transitions taken.
      */
     interface TransitionsReceiver
     {

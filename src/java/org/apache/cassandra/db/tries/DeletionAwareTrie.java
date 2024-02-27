@@ -22,12 +22,12 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 public interface DeletionAwareTrie<T, D extends T>
 {
-    public enum BoundSide
+    enum BoundSide
     {
         BEFORE, AFTER, AT
     }
 
-    public interface DeletionHandler<T, D extends T>
+    interface DeletionHandler<T, D extends T>
     {
         boolean has(D deletionMarker, BoundSide side);
         T delete(T content, D deletionMarker, BoundSide contentRelativeToDeletion);
@@ -46,6 +46,8 @@ public interface DeletionAwareTrie<T, D extends T>
          */
         boolean closes(D deletionMarker, D activeMarker);
     }
+
+    DeletionHandler<T, D> deletionHandler();
 
     default DeletionAwareTrie<T, D> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {

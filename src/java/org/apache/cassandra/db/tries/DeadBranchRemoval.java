@@ -23,9 +23,9 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 public class DeadBranchRemoval<T> implements TrieWithImpl<T>
 {
-    private final TrieWithImpl<T> source;
+    private final TrieImpl<T> source;
 
-    public DeadBranchRemoval(TrieWithImpl<T> source)
+    private DeadBranchRemoval(TrieImpl<T> source)
     {
         this.source = source;
     }
@@ -38,7 +38,7 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
 
     public static <T> Cursor<T> apply(Cursor<T> source)
     {
-        return new DeadBranchRemovalCursor(source);
+        return new DeadBranchRemovalCursor<>(source);
     }
 
     private static class DeadBranchRemovalCursor<T> implements Cursor<T>, TransitionsReceiver

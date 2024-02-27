@@ -37,12 +37,12 @@ import org.github.jamm.MemoryMeterStrategy;
 
 /**
  * In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
- *
+ * <p>
  * This class can currently only provide atomicity (i.e. reads seeing either the content before a write, or the
  * content after it; any read seeing the write enforcing any subsequent (i.e. started after it completed) reads to
  * also see it) for singleton writes (i.e. calls to {@link #putRecursive}, {@link #putSingleton} or {@link #apply}
  * with a singleton trie as argument).
- *
+ * <p>
  * Because it uses 32-bit pointers in byte buffers, this trie has a fixed size limit of 2GB.
  */
 public class InMemoryTrie<T> extends InMemoryReadTrie<T>
@@ -98,7 +98,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Because we use buffers and 32-bit pointers, the trie cannot grow over 2GB of size. This exception is thrown if
      * a trie operation needs it to grow over that limit.
-     *
+     * <p>
      * To avoid this problem, users should query {@link #reachedAllocatedSizeThreshold} from time to time. If the call
      * returns true, they should switch to a new trie (e.g. by flushing a memtable) as soon as possible. The threshold
      * is configurable, and is set by default to 10% under the 2GB limit to give ample time for the switch to happen.
@@ -333,7 +333,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     /**
      * Insert the given newIndex in the base-6 encoded order word in the correct position with respect to the ordering.
-     *
+     * <p>
      * E.g.
      *   - insertOrderWord(120, 3, 0) must return 1203 (decimal 48*6 + 3)
      *   - insertOrderWord(120, 3, 1, ptr) must return 1230 (decimal 8*36 + 3*6 + 0)
@@ -571,7 +571,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Represents the state for an {@link #apply} operation. Contains a stack of all nodes we descended through
      * and used to update the nodes with any new data during ascent.
-     *
+     * <p>
      * To make this as efficient and GC-friendly as possible, we use an integer array (instead of is an object stack)
      * and we reuse the same object. The latter is safe because memtable tries cannot be mutated in parallel by multiple
      * writers.
@@ -1208,7 +1208,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Returns true if the allocation threshold has been reached. To be called by the the writing thread (ideally, just
      * after the write completes). When this returns true, the user should switch to a new trie as soon as feasible.
-     *
+     * <p>
      * The trie expects up to 10% growth above this threshold. Any growth beyond that may be done inefficiently, and
      * the trie will fail altogether when the size grows beyond 2G - 256 bytes.
      */

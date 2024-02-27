@@ -78,7 +78,7 @@ public class RangesTrieSet implements TrieSetImpl
 
     static final Contained CONTAINED_SELECTIONS[] = new Contained[]
     {
-    Contained.OUTSIDE_PREFIX,  // even index, no match: before a start
+    Contained.OUTSIDE_PREFIX, // even index, no match: before a start
     Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
     Contained.END,            // even index, match: went over an end
     Contained.START           // odd index, match: went over a start

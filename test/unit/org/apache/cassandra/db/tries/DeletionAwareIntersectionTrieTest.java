@@ -34,7 +34,7 @@ import static org.junit.Assert.assertEquals;
 
 public class DeletionAwareIntersectionTrieTest
 {
-    final int bitsNeeded = 4;
+    static final int bitsNeeded = 4;
     int bits = bitsNeeded;
 
     class DeletionMarker
@@ -83,7 +83,7 @@ public class DeletionAwareIntersectionTrieTest
     }
 
     DeletionAwareTrie.DeletionHandler<DeletionMarker, DeletionMarker> DELETION_HANDLER =
-    new DeletionAwareTrie.DeletionHandler<DeletionMarker, DeletionMarker>()
+    new DeletionAwareTrie.DeletionHandler<>()
     {
         @Override
         public boolean has(DeletionMarker deletionMarker, DeletionAwareTrie.BoundSide side)
@@ -126,9 +126,9 @@ public class DeletionAwareIntersectionTrieTest
 
     class DeletionMarkerTrie implements DeletionAwareTrieImpl<DeletionMarker, DeletionMarker>
     {
-        final TrieWithImpl<DeletionMarker> trie;
+        final TrieImpl<DeletionMarker> trie;
 
-        DeletionMarkerTrie(TrieWithImpl<DeletionMarker> trie)
+        DeletionMarkerTrie(TrieImpl<DeletionMarker> trie)
         {
             this.trie = trie;
         }
@@ -182,7 +182,7 @@ public class DeletionAwareIntersectionTrieTest
         for (int i = bitsNeeded - bits; i > 0; i -= bits)
             splitBytes[pos++] = (byte) ((value >> i) & mask);
 
-        splitBytes[pos++] = (byte) (value & mask);
+        splitBytes[pos] = (byte) (value & mask);
         return ByteComparable.fixedLength(splitBytes);
     }
 

@@ -33,10 +33,10 @@ import com.google.common.collect.Iterables;
 class MergeTrie<T> implements TrieWithImpl<T>
 {
     private final MergeResolver<T> resolver;
-    protected final TrieWithImpl<T> t1;
-    protected final TrieWithImpl<T> t2;
+    protected final TrieImpl<T> t1;
+    protected final TrieImpl<T> t2;
 
-    MergeTrie(MergeResolver<T> resolver, TrieWithImpl<T> t1, TrieWithImpl<T> t2)
+    MergeTrie(MergeResolver<T> resolver, TrieImpl<T> t1, TrieImpl<T> t2)
     {
         this.resolver = resolver;
         this.t1 = t1;
@@ -58,7 +58,7 @@ class MergeTrie<T> implements TrieWithImpl<T>
         boolean atC1;
         boolean atC2;
 
-        MergeCursor(MergeResolver<T> resolver, TrieWithImpl<T> t1, TrieWithImpl<T> t2)
+        MergeCursor(MergeResolver<T> resolver, TrieImpl<T> t1, TrieImpl<T> t2)
         {
             this(resolver, t1.cursor(), t2.cursor());
             assert c1.depth() == 0;
@@ -190,11 +190,21 @@ class MergeTrie<T> implements TrieWithImpl<T>
      * Special instance for sources that are guaranteed (by the caller) distinct. The main difference is that we can
      * form unordered value list by concatenating sources.
      */
-    static class Distinct<T> extends MergeTrie<T>
+    static class Distinct<T> implements TrieWithImpl<T>
     {
-        Distinct(TrieWithImpl<T> input1, TrieWithImpl<T> input2)
+        final TrieWithImpl<T> t1;
+        final TrieWithImpl<T> t2;
+
+        Distinct(TrieWithImpl<T> t1, TrieWithImpl<T> t2)
         {
-            super(Trie.throwingResolver(), input1, input2);
+            this.t1 = t1;
+            this.t2 = t2;
+        }
+
+        @Override
+        public Cursor<T> cursor()
+        {
+            return new MergeCursor<>(Trie.throwingResolver(), t1, t2);
         }
 
         @Override
