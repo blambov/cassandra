@@ -25,7 +25,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * Walker of trie entries, used with Trie.process to walk all content in order and provide the path through which values
  * are reached.
  */
-public abstract class TrieEntriesWalker<T, V> extends TriePathReconstructor implements Trie.Walker<T, V>
+public abstract class TrieEntriesWalker<T, V> extends TriePathReconstructor implements TrieImpl.Walker<T, V>
 {
     @Override
     public void content(T content)

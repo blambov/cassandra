@@ -18,13 +18,12 @@
 
 package org.apache.cassandra.db.tries;
 
-public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAwareTrie<T, D>
+public class DeletionAwareIntersectionTrie<T, D extends T> implements DeletionAwareTrieImpl<T, D>
 {
-    final Trie<T> trie;
-    final TrieSet set;
-    final DeletionHandler<T, D> handler;
+    final DeletionAwareTrieImpl<T, D> trie;
+    final TrieSetImpl set;
 
-    public DeletionAwareIntersectionTrie(Trie<T> trie, TrieSet set, DeletionHandler<T, D> handler)
+    public DeletionAwareIntersectionTrie(DeletionAwareTrieImpl<T, D> trie, TrieSetImpl set)
     {
         // If the source is already an intersection, intersect the sets. This easier to do than handling skipTo calls
         // in this cursor.
@@ -32,32 +31,30 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
         {
             DeletionAwareIntersectionTrie<T, D> other = (DeletionAwareIntersectionTrie<T, D>) trie;
             trie = other.trie;
-            set = other.set.intersection(set);
-            assert handler == other.handler : "Cannot use different handlers for deletion-aware tries";
+            set = new IntersectionTrieSet(set, other.set);
         }
 
         this.trie = trie;
         this.set = set;
-        this.handler = handler;
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
-        return new DeletionAwareIntersectionCursor<>(trie.cursor(), set.cursor(), deletionHandler());
+        return new DeletionAwareIntersectionCursor<>(trie.cursor(), set.cursor(), trie.deletionHandler());
     }
 
     @Override
-    DeletionHandler<T, D> deletionHandler()
+    public DeletionHandler<T, D> deletionHandler()
     {
-        return handler;
+        return trie.deletionHandler();
     }
 
     static class DeletionAwareIntersectionCursor<T, D extends T> extends IntersectionTrie.IntersectionCursor<T>
     {
         final DeletionHandler<T, D> handler;
 
-        public DeletionAwareIntersectionCursor(Cursor<T> source, TrieSet.Cursor set, DeletionHandler<T, D> handler)
+        public DeletionAwareIntersectionCursor(Cursor<T> source, TrieSetImpl.Cursor set, DeletionHandler<T, D> handler)
         {
             super(source, set);
             this.handler = handler;
@@ -94,7 +91,7 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
     static class DeletionCursor<T, D extends T> implements Cursor<T>
     {
         private final Cursor<T> source;
-        private final TrieSet.Cursor set;
+        private final TrieSetImpl.Cursor set;
         final DeletionHandler<T, D> handler;
 
         CursorState state;
@@ -106,7 +103,7 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
         D coveringDeletion;  // set when source skips over a set branch, from the BEFORE side of the next marker
 
 
-        public DeletionCursor(Cursor<T> source, TrieSet.Cursor set, DeletionHandler<T, D> handler)
+        public DeletionCursor(Cursor<T> source, TrieSetImpl.Cursor set, DeletionHandler<T, D> handler)
         {
             this.source = source;
             this.set = set;
@@ -331,9 +328,9 @@ public class DeletionAwareIntersectionTrie<T, D extends T> extends DeletionAware
             return -1;
         }
 
-        private D applyMatchingContent(TrieSet.Contained contained)
+        private D applyMatchingContent(TrieSetImpl.Contained contained)
         {
-            if (contained == TrieSet.Contained.OUTSIDE_PREFIX)
+            if (contained == TrieSetImpl.Contained.OUTSIDE_PREFIX)
                 return null;
             D deletion = (D) source.content();
             if (deletion == null)

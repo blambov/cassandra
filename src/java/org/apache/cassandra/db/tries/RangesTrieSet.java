@@ -23,7 +23,7 @@ import java.util.Arrays;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class RangesTrieSet extends TrieSet
+public class RangesTrieSet implements TrieSetImpl
 {
     final ByteComparable[] boundaries;  // start, end, start, end, ...
 
@@ -32,7 +32,7 @@ public class RangesTrieSet extends TrieSet
         this.boundaries = boundaries;
     }
 
-    public static TrieSet create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    public static TrieSetImpl create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (!includeLeft && left != null)
             left = add0(left);
@@ -41,7 +41,7 @@ public class RangesTrieSet extends TrieSet
         return create(left, right);
     }
 
-    public static TrieSet create(ByteComparable left, ByteComparable right)
+    public static TrieSetImpl create(ByteComparable left, ByteComparable right)
     {
         return new RangesTrieSet(left, right);
     }
@@ -71,7 +71,7 @@ public class RangesTrieSet extends TrieSet
     }
 
     @Override
-    protected Cursor cursor()
+    public Cursor cursor()
     {
         return new RangesCursor(boundaries);
     }

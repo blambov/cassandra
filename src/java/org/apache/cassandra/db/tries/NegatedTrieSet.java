@@ -23,17 +23,17 @@ package org.apache.cassandra.db.tries;
  *
  * Achieved by simply inverting the contained() values.
  */
-public class NegatedTrieSet extends TrieSet
+public class NegatedTrieSet implements TrieSetImpl
 {
-    final TrieSet source;
+    final TrieSetImpl source;
 
-    public NegatedTrieSet(TrieSet source)
+    public NegatedTrieSet(TrieSetImpl source)
     {
         this.source = source;
     }
 
     @Override
-    protected Cursor cursor()
+    public Cursor cursor()
     {
         return new NegatedCursor(source.cursor());
     }

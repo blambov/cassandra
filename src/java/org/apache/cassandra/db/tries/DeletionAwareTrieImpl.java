@@ -15,43 +15,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.db.tries;
 
-import java.util.Iterator;
-
-/**
- * Ordered iterator of trie content.
- */
-class TrieValuesIterator<T> implements Iterator<T>
+public interface DeletionAwareTrieImpl<T, D extends T> extends TrieImpl<T>, DeletionAwareTrie<T, D>
 {
-    private final TrieImpl.Cursor<T> cursor;
-    T next;
-    boolean gotNext;
+    DeletionHandler<T, D> deletionHandler();
 
-    protected TrieValuesIterator(TrieWithImpl<T> trie)
+    static <D extends T, T> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie trie)
     {
-        cursor = trie.cursor();
-        assert cursor.depth() == 0;
-        next = cursor.content();
-        gotNext = next != null;
-    }
-
-    public boolean hasNext()
-    {
-        if (!gotNext)
-        {
-            next = cursor.advanceToContent(null);
-            gotNext = true;
-        }
-
-        return next != null;
-    }
-
-    public T next()
-    {
-        gotNext = false;
-        T v = next;
-        next = null;
-        return v;
+        return (DeletionAwareTrieImpl<T, D>) trie;
     }
 }

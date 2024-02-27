@@ -185,14 +185,14 @@ public class TrieDuplicationTest
         int incomingTransition;
         T content;
 
-        WalkState(Trie.Cursor<T> cursor)
+        WalkState(TrieImpl.Cursor<T> cursor)
         {
             depth = cursor.depth();
             incomingTransition = cursor.incomingTransition();
             content = cursor.content();
         }
 
-        void verify(Trie.Cursor<T> cursor, String msg)
+        void verify(TrieImpl.Cursor<T> cursor, String msg)
         {
             assertEquals(msg + " Depth", depth, cursor.depth());
             assertEquals(msg + " Incoming transition", incomingTransition, cursor.incomingTransition());
@@ -207,15 +207,15 @@ public class TrieDuplicationTest
                                msg + " with alternates");
         ByteComparable left = typeToComparable(IntegerType.instance, randomBigInt());
         ByteComparable right = typeToComparable(IntegerType.instance, randomBigInt());
-        if (ByteComparable.compare(left, right, Trie.BYTE_COMPARABLE_VERSION) > 0)
+        if (ByteComparable.compare(left, right, TrieImpl.BYTE_COMPARABLE_VERSION) > 0)
         {
             ByteComparable tmp = left;
             left = right;
             right = tmp;
         }
         msg += " subtrie " +
-               left.byteComparableAsString(Trie.BYTE_COMPARABLE_VERSION) + ":" +
-               right.byteComparableAsString(Trie.BYTE_COMPARABLE_VERSION);
+               left.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION) + ":" +
+               right.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION);
         testDuplicationVersion(trie.subtrie(left,
                                             right),
                                msg);
@@ -226,7 +226,7 @@ public class TrieDuplicationTest
     private <T> void testDuplicationVersion(Trie<T> trie, String msg)
     {
         List<WalkState<T>> walk = new ArrayList<>();
-        Trie.Cursor<T> cursor = trie.cursor();
+        TrieImpl.Cursor<T> cursor = TrieImpl.impl(trie).cursor();
         walk.add(new WalkState<>(cursor));
         while (cursor.advance() >= 0)
             walk.add(new WalkState<>(cursor));
@@ -234,21 +234,21 @@ public class TrieDuplicationTest
         double dupeProbability = Math.min(0.6, TARGET_DUPES_PER_TRY / walk.size()); // A few duplications per entry on average
 
         IntArrayList positions = new IntArrayList();
-        List<Trie.Cursor<T>> sources = new ArrayList<>();
+        List<TrieImpl.Cursor<T>> sources = new ArrayList<>();
         for (int test = 0; test < Math.max(1, TRIES / walk.size()); ++test)
         {
-            sources.add(trie.cursor());
+            sources.add(TrieImpl.impl(trie).cursor());
             positions.add(0);
 
             while (!sources.isEmpty())
             {
                 int index = rand.nextInt(sources.size());
                 int pos = positions.getInt(index);
-                Trie.Cursor<T> source = sources.get(index);
+                TrieImpl.Cursor<T> source = sources.get(index);
                 walk.get(pos).verify(source, msg);
                 if (rand.nextDouble() <= dupeProbability)
                 {
-                    Trie.Cursor<T> duplicate = source.duplicate();
+                    TrieImpl.Cursor<T> duplicate = source.duplicate();
                     sources.add(duplicate);
                     positions.add(pos);
                 }

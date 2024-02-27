@@ -24,7 +24,7 @@ import org.agrona.DirectBuffer;
 /**
  * A class for dumping the structure of a trie to a graphviz/dot representation for making trie graphs.
  */
-class TrieToMermaid<T> extends TriePathReconstructor implements Trie.Walker<T, String>
+class TrieToMermaid<T> extends TriePathReconstructor implements TrieImpl.Walker<T, String>
 {
     private final StringBuilder b;
     private final Function<T, String> contentToString;

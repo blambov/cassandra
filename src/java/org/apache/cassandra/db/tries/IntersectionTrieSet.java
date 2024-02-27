@@ -18,19 +18,19 @@
 
 package org.apache.cassandra.db.tries;
 
-public class IntersectionTrieSet extends TrieSet
+public class IntersectionTrieSet implements TrieSetImpl
 {
-    final TrieSet set1;
-    final TrieSet set2;
+    final TrieSetImpl set1;
+    final TrieSetImpl set2;
 
-    public IntersectionTrieSet(TrieSet set1, TrieSet set2)
+    public IntersectionTrieSet(TrieSetImpl set1, TrieSetImpl set2)
     {
         this.set1 = set1;
         this.set2 = set2;
     }
 
     @Override
-    protected Cursor cursor()
+    public Cursor cursor()
     {
         return new IntersectionCursor(set1.cursor(), set2.cursor());
     }

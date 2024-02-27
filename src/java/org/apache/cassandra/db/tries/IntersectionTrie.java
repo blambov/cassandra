@@ -29,19 +29,19 @@ package org.apache.cassandra.db.tries;
  * As it is expected that the structure of the set is going to be simpler, unless we know that we are inside a fully
  * covered branch we advance the set first, and skip in the source to the advanced position.
  */
-public class IntersectionTrie<T> extends Trie<T>
+public class IntersectionTrie<T> implements TrieWithImpl<T>
 {
-    final Trie<T> trie;
-    final TrieSet set;
+    final TrieWithImpl<T> trie;
+    final TrieSetImpl set;
 
-    public IntersectionTrie(Trie<T> trie, TrieSet set)
+    public IntersectionTrie(TrieWithImpl<T> trie, TrieSetImpl set)
     {
         this.trie = trie;
         this.set = set;
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
         return new IntersectionCursor<>(trie.cursor(), set.cursor());
     }
@@ -59,10 +59,10 @@ public class IntersectionTrie<T> extends Trie<T>
     static class IntersectionCursor<T> implements Cursor<T>
     {
         final Cursor<T> source;
-        final TrieSet.Cursor set;
+        final TrieSetImpl.Cursor set;
         State state;
 
-        public IntersectionCursor(Cursor<T> source, TrieSet.Cursor set)
+        public IntersectionCursor(Cursor<T> source, TrieSetImpl.Cursor set)
         {
             this.source = source;
             this.set = set;

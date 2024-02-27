@@ -925,7 +925,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     public <U> void apply(Trie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
-        Cursor<U> mutationCursor = mutation.cursor();
+        Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor();
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState;
         state.reset();

@@ -83,7 +83,7 @@ public class SlicedTrieTest
     "\000\000\377",
     "\377\377"
     });
-    public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, Trie.BYTE_COMPARABLE_VERSION);
+    public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, TrieImpl.BYTE_COMPARABLE_VERSION);
     private static final int COUNT = 15000;
     Random rand = new Random();
 
@@ -96,7 +96,7 @@ public class SlicedTrieTest
     public void testIntersectRange(int count)
     {
         ByteComparable[] src1 = generateKeys(rand, count);
-        NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, Trie.BYTE_COMPARABLE_VERSION));
+        NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, TrieImpl.BYTE_COMPARABLE_VERSION));
 
         InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
 
@@ -107,7 +107,7 @@ public class SlicedTrieTest
         {
             ByteComparable l = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
             ByteComparable r = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
-            int cmp = ByteComparable.compare(l, r, Trie.BYTE_COMPARABLE_VERSION);
+            int cmp = ByteComparable.compare(l, r, TrieImpl.BYTE_COMPARABLE_VERSION);
             if (cmp > 0)
             {
                 ByteComparable t = l;
@@ -312,10 +312,10 @@ public class SlicedTrieTest
      */
     private static Trie<Integer> singleLevelIntTrie(int childs)
     {
-        return new Trie<Integer>()
+        return new TrieWithImpl<Integer>()
         {
             @Override
-            protected Cursor<Integer> cursor()
+            public Cursor<Integer> cursor()
             {
                 return new SingleLevelCursor();
             }

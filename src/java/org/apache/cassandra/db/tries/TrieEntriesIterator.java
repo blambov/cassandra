@@ -29,11 +29,11 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  */
 public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor implements Iterator<V>
 {
-    private final Trie.Cursor<T> cursor;
+    private final TrieImpl.Cursor<T> cursor;
     T next;
     boolean gotNext;
 
-    protected TrieEntriesIterator(Trie<T> trie)
+    protected TrieEntriesIterator(TrieWithImpl<T> trie)
     {
         cursor = trie.cursor();
         assert cursor.depth() == 0;
@@ -67,7 +67,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
      */
     static class AsEntries<T> extends TrieEntriesIterator<T, Map.Entry<ByteComparable, T>>
     {
-        public AsEntries(Trie<T> trie)
+        public AsEntries(TrieWithImpl<T> trie)
         {
             super(trie);
         }
