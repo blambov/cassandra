@@ -20,9 +20,7 @@ package org.apache.cassandra.db.tries;
 
 public interface DeletionAwareTrieImpl<T, D extends T> extends TrieImpl<T>, DeletionAwareTrie<T, D>
 {
-    DeletionHandler<T, D> deletionHandler();
-
-    static <D extends T, T> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie trie)
+    static <D extends T, T> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
     {
         return (DeletionAwareTrieImpl<T, D>) trie;
     }

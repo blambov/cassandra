@@ -28,7 +28,7 @@ class TrieValuesIterator<T> implements Iterator<T>
     T next;
     boolean gotNext;
 
-    protected TrieValuesIterator(TrieWithImpl<T> trie)
+    protected TrieValuesIterator(TrieImpl<T> trie)
     {
         cursor = trie.cursor();
         assert cursor.depth() == 0;

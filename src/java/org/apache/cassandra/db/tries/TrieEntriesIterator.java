@@ -33,7 +33,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
     T next;
     boolean gotNext;
 
-    protected TrieEntriesIterator(TrieWithImpl<T> trie)
+    TrieEntriesIterator(TrieImpl<T> trie)
     {
         cursor = trie.cursor();
         assert cursor.depth() == 0;

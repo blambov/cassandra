@@ -20,8 +20,6 @@ package org.apache.cassandra.db.tries;
 
 import javax.annotation.Nonnull;
 
-import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-
 public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>, TrieSet
 {
     enum Contained
