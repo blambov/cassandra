@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -172,6 +173,24 @@ public class TrieDuplicationTest
             tries.add(Trie.singleton(comparable, v));
         }
         testDuplication(Trie.merge(tries, c -> c.iterator().next()), "InMemoryTrie");
+    }
+
+    @Test
+    public void testDuplicationRanges() throws InMemoryTrie.SpaceExhaustedException
+    {
+        InMemoryTrie<BigInteger> t = new InMemoryTrie<>(BufferType.ON_HEAP);
+        for (BigInteger v : ByteSourceTestBase.testBigInts)
+        {
+            ByteComparable comparable = typeToComparable(IntegerType.instance, v);
+            t.putRecursive(comparable, v, (x, y) -> y);
+        }
+        ByteComparable[] ranges = new ByteComparable[ByteSourceTestBase.testBigInts.length / 4];
+        for (int i = 0; i < ranges.length; ++i)
+            ranges[i] = typeToComparable(IntegerType.instance, ByteSourceTestBase.testBigInts[rand.nextInt(ByteSourceTestBase.testBigInts.length)]);
+        Arrays.sort(ranges, (x, y) -> ByteComparable.compare(x, y, TrieImpl.BYTE_COMPARABLE_VERSION));
+        Trie<BigInteger> ix = t.intersect(TrieSet.ranges(ranges));
+
+        testDuplication(ix, "InMemoryTrie");
     }
 
     public ByteComparable typeToComparable(AbstractType t, Object o)
