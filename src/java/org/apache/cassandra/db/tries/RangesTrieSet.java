@@ -134,11 +134,11 @@ public class RangesTrieSet implements TrieSetImpl
         RangesCursor(RangesCursor copyFrom)
         {
             // An even number of completed sources can be dropped.
-            int toDrop = currentIdx & -1;
+            int toDrop = copyFrom.currentIdx & -2;
             this.nexts = Arrays.copyOfRange(copyFrom.nexts, toDrop, copyFrom.nexts.length);
             this.depths = Arrays.copyOfRange(copyFrom.depths, toDrop, copyFrom.depths.length);
             this.sources = new ByteSource[copyFrom.sources.length - toDrop];
-            for (int i = currentIdx; i < sources.length; i++)
+            for (int i = copyFrom.currentIdx; i < copyFrom.sources.length; i++)
                 if (copyFrom.sources[i] != null)
                 {
                     ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
