@@ -183,7 +183,7 @@ public abstract class InMemoryTrieTestBase
 
     }
 
-    public static class CursorFromSpec<T> implements Trie.Cursor<T>
+    public static class CursorFromSpec<T> implements TrieImpl.Cursor<T>
     {
         SpecStackEntry stack;
         int depth;
@@ -288,7 +288,7 @@ public abstract class InMemoryTrieTestBase
         }
 
         @Override
-        public Trie.Cursor<T> alternateBranch()
+        public TrieImpl.Cursor<T> alternateBranch()
         {
             if (stack.alternateBranch == null)
                 return null;
@@ -296,7 +296,7 @@ public abstract class InMemoryTrieTestBase
         }
 
         @Override
-        public Trie.Cursor<T> duplicate()
+        public TrieImpl.Cursor<T> duplicate()
         {
             return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition);
         }
@@ -329,16 +329,9 @@ public abstract class InMemoryTrieTestBase
         }
     }
 
-    static <T> Trie<T> specifiedTrie(Object[] nodeDef)
+    static <T> TrieWithImpl<T> specifiedTrie(Object[] nodeDef)
     {
-        return new Trie<T>()
-        {
-            @Override
-            protected Cursor<T> cursor()
-            {
-                return new CursorFromSpec<>(nodeDef);
-            }
-        };
+        return () -> new CursorFromSpec<>(nodeDef);
     }
 
     @Test
@@ -580,7 +573,7 @@ public abstract class InMemoryTrieTestBase
         trie.forEachEntry((key, value) -> {
             Assert.assertTrue("Map exhausted first, key " + asString(key), it.hasNext());
             Map.Entry<ByteComparable, ByteBuffer> entry = it.next();
-            assertEquals(0, ByteComparable.compare(entry.getKey(), key, Trie.BYTE_COMPARABLE_VERSION));
+            assertEquals(0, ByteComparable.compare(entry.getKey(), key, TrieImpl.BYTE_COMPARABLE_VERSION));
             assertEquals(entry.getValue(), value);
         });
         Assert.assertFalse("Trie exhausted first", it.hasNext());

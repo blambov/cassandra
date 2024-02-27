@@ -37,7 +37,7 @@ import com.google.common.collect.Iterables;
  * <p>
  * See Trie.md for further details.
  */
-class CollectionMergeTrie<T> extends Trie<T>
+class CollectionMergeTrie<T> implements TrieWithImpl<T>
 {
     private final CollectionMergeResolver<T> resolver;  // only called on more than one input
     protected final Collection<? extends Trie<T>> inputs;
@@ -49,7 +49,7 @@ class CollectionMergeTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
         return new CollectionMergeCursor<>(resolver, inputs);
     }
@@ -155,7 +155,7 @@ class CollectionMergeTrie<T> extends Trie<T>
 
         CollectionMergeCursor(CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
         {
-            this(resolver, inputs, Trie::cursor);
+            this(resolver, inputs, trie -> TrieImpl.impl(trie).cursor());
         }
 
         CollectionMergeCursor(CollectionMergeCursor<T> copyFrom)
@@ -445,7 +445,7 @@ class CollectionMergeTrie<T> extends Trie<T>
     {
         Distinct(Collection<? extends Trie<T>> inputs)
         {
-            super(inputs, throwingResolver());
+            super(inputs, Trie.throwingResolver());
         }
 
         @Override

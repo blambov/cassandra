@@ -62,7 +62,7 @@ public class DeletionAwareIntersectionTrieTest
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             DeletionMarker that = (DeletionMarker) o;
-            return ByteComparable.compare(this.position, that.position, Trie.BYTE_COMPARABLE_VERSION) == 0
+            return ByteComparable.compare(this.position, that.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0
                    && leftSide == that.leftSide
                    && rightSide == that.rightSide;
         }
@@ -77,7 +77,7 @@ public class DeletionAwareIntersectionTrieTest
         public String toString()
         {
             return (leftSide >= 0 ? leftSide + "<\"" : "\"") +
-                   position.byteComparableAsString(Trie.BYTE_COMPARABLE_VERSION) +
+                   position.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION) +
                    (rightSide >= 0 ? "\"<" + rightSide : "\"");
         }
     }
@@ -124,12 +124,34 @@ public class DeletionAwareIntersectionTrieTest
         }
     };
 
+    class DeletionMarkerTrie implements DeletionAwareTrieImpl<DeletionMarker, DeletionMarker>
+    {
+        final TrieWithImpl<DeletionMarker> trie;
+
+        DeletionMarkerTrie(TrieWithImpl<DeletionMarker> trie)
+        {
+            this.trie = trie;
+        }
+
+        @Override
+        public Cursor<DeletionMarker> cursor()
+        {
+            return trie.cursor();
+        }
+
+        @Override
+        public DeletionHandler<DeletionMarker, DeletionMarker> deletionHandler()
+        {
+            return DELETION_HANDLER;
+        }
+    }
+
     /**
      * Extract the values of the provided trie into a list.
      */
-    private List<DeletionMarker> toList(Trie<DeletionMarker> trie)
+    private List<DeletionMarker> toList(DeletionAwareTrie<DeletionMarker, DeletionMarker> trie)
     {
-        return Streams.stream(trie.mergeAlternativeBranches(c -> c.iterator().next()).entryIterator())
+        return Streams.stream(trie.withDeletions().entryIterator())
                       .map(en -> remap(en.getValue(), en.getKey()))
                       .collect(Collectors.toList());
     }
@@ -139,14 +161,14 @@ public class DeletionAwareIntersectionTrieTest
         return new DeletionMarker(newKey, dm.leftSide, dm.rightSide);
     }
 
-    private Trie<DeletionMarker> fromList(DeletionMarker... list) throws InMemoryTrie.SpaceExhaustedException
+    private DeletionMarkerTrie fromList(DeletionMarker... list) throws InMemoryTrie.SpaceExhaustedException
     {
         InMemoryTrie<DeletionMarker> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
         for (DeletionMarker i : list)
         {
             trie.putAlternativeRecursive(keyOf(i), i, (ex, n) -> n);
         }
-        return trie;
+        return new DeletionMarkerTrie(trie);
     }
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
@@ -189,7 +211,7 @@ public class DeletionAwareIntersectionTrieTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            Trie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
+            DeletionMarkerTrie trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
 
             testIntersection("all",
                              asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
@@ -260,7 +282,7 @@ public class DeletionAwareIntersectionTrieTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            Trie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
+            DeletionMarkerTrie trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
 
             testIntersection("fully covered ranges",
                              asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
@@ -301,7 +323,7 @@ public class DeletionAwareIntersectionTrieTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            Trie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13));
+            DeletionMarkerTrie trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13));
 
             // non-overlapping
 //            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
@@ -327,7 +349,7 @@ public class DeletionAwareIntersectionTrieTest
             testIntersections(fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
     }
 
-    private void testIntersections(Trie<DeletionMarker> trie)
+    private void testIntersections(DeletionAwareTrie<DeletionMarker, DeletionMarker> trie)
     {
         testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
 
@@ -340,7 +362,7 @@ public class DeletionAwareIntersectionTrieTest
         testSetAlgebraIntersection(trie);
     }
 
-    private void testSetAlgebraIntersection(Trie<DeletionMarker> trie)
+    private void testSetAlgebraIntersection(DeletionAwareTrie<DeletionMarker, DeletionMarker> trie)
     {
         TrieSet set1 = TrieSet.range(null, of(3))
                               .union(TrieSet.range(of(2), of(4)))
@@ -360,7 +382,7 @@ public class DeletionAwareIntersectionTrieTest
         testIntersections(trie, set1, set2, set3);
     }
 
-    private void testIntersections(Trie<DeletionMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
+    private void testIntersections(DeletionAwareTrie<DeletionMarker, DeletionMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
     {
         // set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
         // set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
@@ -395,7 +417,7 @@ public class DeletionAwareIntersectionTrieTest
         testIntersection("123", asList(from(3, 10), to(4, 10)), trie, set1, set2, set3);
     }
 
-    public void testIntersection(String message, List<DeletionMarker> expected, Trie<DeletionMarker> trie, TrieSet... sets)
+    public void testIntersection(String message, List<DeletionMarker> expected, DeletionAwareTrie<DeletionMarker, DeletionMarker> trie, TrieSet... sets)
     {
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.
@@ -410,7 +432,7 @@ public class DeletionAwareIntersectionTrieTest
             {
                 TrieSet set = sets[toRemove];
                 testIntersection(message + " " + toRemove, expected,
-                                 DeletionAwareTrie.intersect(trie, set, DELETION_HANDLER),
+                                 trie.intersect(set),
                                  Arrays.stream(sets)
                                        .filter(x -> x != set)
                                        .toArray(TrieSet[]::new)

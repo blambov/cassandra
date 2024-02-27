@@ -21,13 +21,13 @@ package org.apache.cassandra.db.tries;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MergeAlternativeBranchesTrie<T> extends Trie<T>
+public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
 {
-    final private Trie<T> source;
+    final private TrieImpl<T> source;
     final private CollectionMergeResolver<T> resolver;
     final private boolean omitMain;
 
-    MergeAlternativeBranchesTrie(Trie<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
+    MergeAlternativeBranchesTrie(TrieImpl<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
     {
         super();
         this.source = source;
@@ -36,7 +36,7 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
         Cursor<T> cursor = new MergeAlternativesCursor<>(resolver, source, omitMain);
         if (omitMain)
@@ -124,7 +124,7 @@ public class MergeAlternativeBranchesTrie<T> extends Trie<T>
          */
         private final List<T> contents;
 
-        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, Trie<T> source, boolean omitMain)
+        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, TrieImpl<T> source, boolean omitMain)
         {
             this.resolver = resolver;
             head = source.cursor();

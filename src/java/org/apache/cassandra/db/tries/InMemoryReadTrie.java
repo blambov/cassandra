@@ -30,7 +30,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  *
  * This class provides the read-only functionality, expanded in {@link InMemoryTrie} to writes.
  */
-public class InMemoryReadTrie<T> extends Trie<T>
+public class InMemoryReadTrie<T> implements TrieWithImpl<T>
 {
     /*
     TRIE FORMAT AND NODE TYPES
@@ -1217,7 +1217,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
                     return type;
             }
         }
-        return process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(new MemtableCursor(root, -1, -1)));
+        return TrieImpl.process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(new MemtableCursor(root, -1, -1)));
     }
 
     /**

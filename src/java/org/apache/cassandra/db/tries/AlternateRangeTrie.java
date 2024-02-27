@@ -23,7 +23,7 @@ import java.util.Objects;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class AlternateRangeTrie<T> extends Trie<T>
+public class AlternateRangeTrie<T> implements TrieWithImpl<T>
 {
     final ByteComparable left;
     final ByteComparable right;
@@ -39,7 +39,7 @@ public class AlternateRangeTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
         return new HeadCursor();
     }

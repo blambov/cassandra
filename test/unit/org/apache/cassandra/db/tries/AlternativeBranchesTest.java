@@ -336,17 +336,17 @@ public class AlternativeBranchesTest
         covered.putIfAbsent(eComparable, null);
         for (var entry : covered.entrySet())
         {
-            Trie.Cursor<Integer> c = trie.cursor();
-            var key = entry.getKey().asComparableBytes(Trie.BYTE_COMPARABLE_VERSION);
-            var start = ByteSource.duplicatable(sComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
-            var end = ByteSource.duplicatable(eComparable.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION));
+            TrieImpl.Cursor<Integer> c = TrieImpl.impl(trie).cursor();
+            var key = entry.getKey().asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
+            var start = ByteSource.duplicatable(sComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
+            var end = ByteSource.duplicatable(eComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
             boolean foundStart = false;
             boolean foundEnd = false;
             int next;
             int depth = c.depth();
             while (true)
             {
-                Trie.Cursor<Integer> alt = c.alternateBranch();
+                TrieImpl.Cursor<Integer> alt = c.alternateBranch();
                 if (alt != null)
                 {
                     foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), svalue);
@@ -379,7 +379,7 @@ public class AlternativeBranchesTest
         }
     }
 
-    boolean checkMatch(Trie.Cursor<Integer> c, ByteSource key, int value)
+    boolean checkMatch(TrieImpl.Cursor<Integer> c, ByteSource key, int value)
     {
         int next = key.next();
         int depth = c.depth();

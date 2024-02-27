@@ -21,11 +21,11 @@ package org.apache.cassandra.db.tries;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 
-public class DeadBranchRemoval<T> extends Trie<T>
+public class DeadBranchRemoval<T> implements TrieWithImpl<T>
 {
-    private final Trie<T> source;
+    private final TrieWithImpl<T> source;
 
-    public DeadBranchRemoval(Trie<T> source)
+    public DeadBranchRemoval(TrieWithImpl<T> source)
     {
         this.source = source;
     }

@@ -24,7 +24,7 @@ import org.agrona.DirectBuffer;
 /**
  * Simple utility class for dumping the structure of a trie to string.
  */
-class TrieDumper<T> implements Trie.Walker<T, String>
+class TrieDumper<T> implements TrieImpl.Walker<T, String>
 {
     private final StringBuilder b;
     private final Function<T, String> contentToString;

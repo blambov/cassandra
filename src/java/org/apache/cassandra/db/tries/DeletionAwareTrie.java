@@ -20,7 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public abstract class DeletionAwareTrie<T, D extends T> extends Trie<T>
+public interface DeletionAwareTrie<T, D extends T>
 {
     public enum BoundSide
     {
@@ -47,26 +47,30 @@ public abstract class DeletionAwareTrie<T, D extends T> extends Trie<T>
         boolean closes(D deletionMarker, D activeMarker);
     }
 
-    abstract DeletionHandler<T, D> deletionHandler();
-
-    public Trie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    default DeletionAwareTrie<T, D> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (left == null && right == null)
             return this;
         return intersect(RangesTrieSet.create(left, includeLeft, right, includeRight));
     }
 
-    public DeletionAwareTrie<T, D> subtrie(ByteComparable left, ByteComparable right)
+    default DeletionAwareTrie<T, D> subtrie(ByteComparable left, ByteComparable right)
     {
         return intersect(RangesTrieSet.create(left, right));
     }
-    public DeletionAwareTrie<T, D> intersect(TrieSet set)
+    default DeletionAwareTrie<T, D> intersect(TrieSet set)
     {
-        return new DeletionAwareIntersectionTrie<>(this, set, deletionHandler());
+        return new DeletionAwareIntersectionTrie<>(impl(), TrieSetImpl.impl(set));
     }
 
-    public static <T, D extends T> DeletionAwareTrie<T, D> intersect(Trie<T> trie, TrieSet set, DeletionHandler<T, D> deletionHandler)
+    default Trie<T> withDeletions()
     {
-        return new DeletionAwareIntersectionTrie<>(trie, set, deletionHandler);
+        // TODO: Perform resolution of multiple deletions
+        return new MergeAlternativeBranchesTrie<>(impl(), Trie.throwingResolver(), false);
+    }
+
+    private DeletionAwareTrieImpl<T, D> impl()
+    {
+        return DeletionAwareTrieImpl.impl(this);
     }
 }

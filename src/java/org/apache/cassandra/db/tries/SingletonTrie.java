@@ -23,7 +23,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /**
  * Singleton trie, mapping the given key to value.
  */
-class SingletonTrie<T> extends Trie<T>
+class SingletonTrie<T> implements TrieWithImpl<T>
 {
     private final ByteComparable key;
     private final T value;
@@ -34,12 +34,13 @@ class SingletonTrie<T> extends Trie<T>
         this.value = value;
     }
 
+    @Override
     public Cursor cursor()
     {
         return new Cursor();
     }
 
-    class Cursor implements Trie.Cursor<T>
+    class Cursor implements TrieImpl.Cursor<T>
     {
         private ByteSource src;
         private int currentDepth;
@@ -115,7 +116,7 @@ class SingletonTrie<T> extends Trie<T>
         }
 
         @Override
-        public Trie.Cursor<T> duplicate()
+        public TrieImpl.Cursor<T> duplicate()
         {
             return new Cursor(this);
         }

@@ -30,13 +30,13 @@ import com.google.common.collect.Iterables;
  * <p>
  * See Trie.md for further details.
  */
-class MergeTrie<T> extends Trie<T>
+class MergeTrie<T> implements TrieWithImpl<T>
 {
     private final MergeResolver<T> resolver;
-    protected final Trie<T> t1;
-    protected final Trie<T> t2;
+    protected final TrieWithImpl<T> t1;
+    protected final TrieWithImpl<T> t2;
 
-    MergeTrie(MergeResolver<T> resolver, Trie<T> t1, Trie<T> t2)
+    MergeTrie(MergeResolver<T> resolver, TrieWithImpl<T> t1, TrieWithImpl<T> t2)
     {
         this.resolver = resolver;
         this.t1 = t1;
@@ -44,7 +44,7 @@ class MergeTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    public Cursor<T> cursor()
     {
         return new MergeCursor<>(resolver, t1, t2);
     }
@@ -58,7 +58,7 @@ class MergeTrie<T> extends Trie<T>
         boolean atC1;
         boolean atC2;
 
-        MergeCursor(MergeResolver<T> resolver, Trie<T> t1, Trie<T> t2)
+        MergeCursor(MergeResolver<T> resolver, TrieWithImpl<T> t1, TrieWithImpl<T> t2)
         {
             this(resolver, t1.cursor(), t2.cursor());
             assert c1.depth() == 0;
@@ -192,9 +192,9 @@ class MergeTrie<T> extends Trie<T>
      */
     static class Distinct<T> extends MergeTrie<T>
     {
-        Distinct(Trie<T> input1, Trie<T> input2)
+        Distinct(TrieWithImpl<T> input1, TrieWithImpl<T> input2)
         {
-            super(throwingResolver(), input1, input2);
+            super(Trie.throwingResolver(), input1, input2);
         }
 
         @Override
