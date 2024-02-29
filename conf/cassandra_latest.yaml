@@ -2194,7 +2194,3 @@ default_secondary_index_enabled: true
 #   compatibility mode would no longer toggle behaviors as when it was running in the UPGRADING mode.
 #
 storage_compatibility_mode: NONE
-
-# Enable lightweight transaction improvements. See NEWS.txt for details.
-paxos_variant: v2
-paxos_state_purging: repaired

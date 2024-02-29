@@ -151,10 +151,7 @@ public class InstanceConfig implements IInstanceConfig
                 .set("default_secondary_index", "sai")
                 .set("default_secondary_index_enabled", "true")
 
-                .set("storage_compatibility_mode", "NONE")
-
-                .set("paxos_variant", "v2")
-                .set("paxos_state_purging", "repaired");
+                .set("storage_compatibility_mode", "NONE");
         }
         this.featureFlags = EnumSet.noneOf(Feature.class);
         this.jmxPort = jmx_port;
