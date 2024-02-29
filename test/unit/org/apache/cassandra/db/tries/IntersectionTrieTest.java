@@ -37,7 +37,7 @@ import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertMapEquals;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryTrie;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
 import static org.junit.Assert.assertEquals;
 
 public class IntersectionTrieTest
@@ -86,7 +86,7 @@ public class IntersectionTrieTest
         ByteComparable[] src1 = generateKeys(rand, count);
         NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, TrieImpl.BYTE_COMPARABLE_VERSION));
 
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
         Trie<ByteBuffer> t1 = trie1;
 
@@ -134,9 +134,9 @@ public class IntersectionTrieTest
         return Iterables.toList(trie.values());
     }
 
-    private Trie<Integer> fromList(int... list) throws InMemoryTrie.SpaceExhaustedException
+    private Trie<Integer> fromList(int... list) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryTrie<Integer> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<Integer> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
         for (int i : list)
         {
             trie.putRecursive(of(i), i, (ex, n) -> n);
@@ -160,7 +160,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testSimpleSubtrie() throws InMemoryTrie.SpaceExhaustedException
+    public void testSimpleSubtrie() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -181,7 +181,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangeOnSubtrie() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangeOnSubtrie() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -203,7 +203,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testSimpleRanges() throws InMemoryTrie.SpaceExhaustedException
+    public void testSimpleRanges() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -244,7 +244,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnRangesOne() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnRangesOne() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -268,14 +268,14 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnRanges() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnRanges() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
     }
 
     @Test
-    public void testRangesOnMerge() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnMerge() throws InMemoryDTrie.SpaceExhaustedException
     {
 
         for (bits = bitsNeeded; bits > 0; --bits)
@@ -285,17 +285,18 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnCollectionMerge2() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge2() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(new CollectionMergeTrie<>(
-                    ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
-                                     fromList(4, 6, 7, 9, 10, 11, 12, 13)),
-                    RESOLVER));
+        {
+            List<Trie<Integer>> inputs = ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
+                                                          fromList(4, 6, 7, 9, 10, 11, 12, 13));
+            testIntersections((TrieWithImpl<Integer>) () -> new CollectionMergeCursor.Deterministic<>(RESOLVER, inputs));
+        }
     }
 
     @Test
-    public void testRangesOnCollectionMerge3() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge3() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(Trie.merge(
@@ -306,7 +307,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnCollectionMerge10() throws InMemoryTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge10() throws InMemoryDTrie.SpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(Trie.merge(

@@ -18,24 +18,12 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.junit.Test;
-
 import org.apache.cassandra.io.compress.BufferType;
 
-public class TrieToDotTest
+public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
 {
-    @Test
-    public void testToDotContent() throws Exception
+    public InMemoryDTrie(BufferType bufferType)
     {
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
-        String s = "Trie node types and manipulation mechanisms. The main purpose of this is to allow for handling tries directly as" +
-                   " they are on disk without any serialization, and to enable the creation of such files.";
-        s = s.toLowerCase();
-        for (String word : s.split("[^a-z]+"))
-            trie.putRecursive(InMemoryTrieTestBase.comparable(word), word, (x, y) -> y);
-
-        System.out.println(trie.process(new TrieToDot(Object::toString,
-                                                      x -> Character.toString((char) ((int) x)),
-                                                      true)));
+        super(bufferType);
     }
 }

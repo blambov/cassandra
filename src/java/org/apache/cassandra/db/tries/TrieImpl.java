@@ -144,33 +144,6 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
         }
 
         /**
-         * If this node has an alternate branch, returns a Cursor that walks over it.
-         * The constructed cursor will only list an alternate branch rooted at this node, but it will retain the depth
-         * to make position comparisons easier.
-         * <p>
-         * Alternate branches are mechanisms for defining an epsilon (i.e. zero-length) transition to another point in
-         * the trie. Theoretically the most useful application for this is to permit non-deterministic variations of
-         * automata, including suffix tries. What is most important for us, however, is that this allows one to have
-         * sections of the trie that are separately queriable. More specifically, we can use an alternate branch to
-         * store deletions; such a branch would not affect normal iteration over the trie, and also enables one to seek
-         * into each of the two branches independently: to find active range deletion for a given boundary, which
-         * would be the closest deletion but may be millions of live data entries away; and similarly to find the first
-         * live item after a boundary in a stream of millions of deletions.
-         * <p>
-         * Most operation implementations only touch alternate branches if they are explicitly asked to. Walks, entry
-         * and value sets will not see any content in alternate branches. Merges will merge and present normal and
-         * alternate branches separately and intersection will use the same intersecting set for both normal and
-         * alternate paths (ignoring any alternate part in the intersecting set).
-         * <p>
-         * To perform a walk or enumeration that includes alternate branches, one must explicitly construct a merged
-         * (in other words, deterministic) trie view by calling {@link Trie#mergeAlternativeBranches}.
-         */
-        default Cursor<T> alternateBranch()
-        {
-            return null;
-        }
-
-        /**
          * Make a copy of this cursor which can be separately advanced/queried from the current state.
          */
         Cursor<T> duplicate();

@@ -24,6 +24,7 @@ import java.util.Random;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -43,8 +44,8 @@ public class MergeTrieTest
         SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
         SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
 
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
-        InMemoryTrie<ByteBuffer> trie2 = makeInMemoryTrie(src2, content2, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
+        InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = trie1.mergeWith(trie2, (x, y) -> x);
@@ -60,11 +61,11 @@ public class MergeTrieTest
         SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
         SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
 
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
-        InMemoryTrie<ByteBuffer> trie2 = makeInMemoryTrie(src2, content2, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
+        InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
-        addToInMemoryTrie(generateKeys(new Random(5), COUNT), content1, trie1, true);
-        addToInMemoryTrie(generateKeys(new Random(5), COUNT), content2, trie2, true);
+        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content1, trie1, true);
+        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content2, trie2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = trie1.mergeWith(trie2, (x, y) -> y);
@@ -77,15 +78,15 @@ public class MergeTrieTest
     {
         ByteComparable[] src1 = generateKeys(rand, COUNT);
         SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
         ByteComparable[] src2 = generateKeys(rand, COUNT);
         src2 = removeDuplicates(src2, content1);
         SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
-        InMemoryTrie<ByteBuffer> trie2 = makeInMemoryTrie(src2, content2, true);
+        InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
         content1.putAll(content2);
-        Trie<ByteBuffer> union = new MergeTrie.Distinct<>(trie1, trie2);
+        Trie<ByteBuffer> union = Trie.mergeDistinct(ImmutableList.of(trie1, trie2));
 
         assertSameContent(union, content1);
     }

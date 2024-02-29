@@ -26,7 +26,7 @@ import com.carrotsearch.hppc.LongArrayList;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.index.sai.memory.MemtableIndex;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeys;
@@ -39,14 +39,14 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * In memory representation of {@link PrimaryKey} to row ID mappings which only contains
  * {@link Row} regardless of whether it's live or deleted. ({@link RangeTombstoneMarker} is not included.)
  * <p>
- * While this inherits the threading behaviour of {@link InMemoryTrie} of single-writer / multiple-reader,
+ * While this inherits the threading behaviour of {@link InMemoryDTrie} of single-writer / multiple-reader,
  * since it is only used by {@link StorageAttachedIndexWriter}, which is not threadsafe, we can consider
  * this class not threadsafe as well.
  */
 @NotThreadSafe
 public class RowMapping
 {
-    private static final InMemoryTrie.UpsertTransformer<Long, Long> OVERWRITE_TRANSFORMER = (existing, update) -> update;
+    private static final InMemoryDTrie.UpsertTransformer<Long, Long> OVERWRITE_TRANSFORMER = (existing, update) -> update;
 
     public static final RowMapping DUMMY = new RowMapping()
     {
@@ -72,7 +72,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryTrie<Long> rowMapping = new InMemoryTrie<>(BufferType.OFF_HEAP);
+    private final InMemoryDTrie<Long> rowMapping = new InMemoryDTrie<>(BufferType.OFF_HEAP);
 
     private boolean complete = false;
 
@@ -152,7 +152,7 @@ public class RowMapping
     /**
      * Include PrimaryKey to RowId mapping
      */
-    public void add(PrimaryKey key, long sstableRowId) throws InMemoryTrie.SpaceExhaustedException
+    public void add(PrimaryKey key, long sstableRowId) throws InMemoryDTrie.SpaceExhaustedException
     {
         assert !complete : "Cannot modify and already built RowMapping.";
         rowMapping.putSingleton(key, sstableRowId, OVERWRITE_TRANSFORMER);

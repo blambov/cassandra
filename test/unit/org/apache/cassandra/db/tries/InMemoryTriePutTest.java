@@ -39,9 +39,9 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     }
 
     @Test
-    public void testLongKey_StackOverflow() throws InMemoryTrie.SpaceExhaustedException
+    public void testLongKey_StackOverflow() throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
         Random rand = new Random(1);
         byte[] key = new byte[40960];
         rand.nextBytes(key);
@@ -62,12 +62,12 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
 
     // This tests that trie space allocation works correctly close to the 2G limit. It is normally disabled because
     // the test machines don't provide enough heap memory (test requires ~8G heap to finish). Run it manually when
-    // InMemoryTrie.allocateBlock is modified.
+    // InMemoryDTrie.allocateBlock is modified.
     @Ignore
     @Test
-    public void testOver1GSize() throws InMemoryTrie.SpaceExhaustedException
+    public void testOver1GSize() throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
         trie.advanceAllocatedPos(0x20000000);
         String t1 = "test1";
         String t2 = "testing2";
@@ -77,7 +77,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         Assert.assertNull(trie.get(ByteComparable.of(t2)));
         Assert.assertFalse(trie.reachedAllocatedSizeThreshold());
 
-        trie.advanceAllocatedPos(InMemoryTrie.ALLOCATED_SIZE_THRESHOLD + 0x1000);
+        trie.advanceAllocatedPos(InMemoryDTrie.ALLOCATED_SIZE_THRESHOLD + 0x1000);
         trie.putRecursive(ByteComparable.of(t2), t2, (x, y) -> y);
         Assert.assertEquals(t1, trie.get(ByteComparable.of(t1)));
         Assert.assertEquals(t2, trie.get(ByteComparable.of(t2)));
@@ -93,9 +93,9 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         try
         {
             trie.putRecursive(ByteComparable.of(t3), t3, (x, y) -> y);  // should put it over the edge
-            fail("InMemoryTrie.SpaceExhaustedError was expected");
+            fail("InMemoryDTrie.SpaceExhaustedError was expected");
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (InMemoryDTrie.SpaceExhaustedException e)
         {
             // expected
         }
@@ -108,9 +108,9 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         try
         {
             trie.advanceAllocatedPos(Integer.MAX_VALUE);
-            fail("InMemoryTrie.SpaceExhaustedError was expected");
+            fail("InMemoryDTrie.SpaceExhaustedError was expected");
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (InMemoryDTrie.SpaceExhaustedException e)
         {
             // expected
         }

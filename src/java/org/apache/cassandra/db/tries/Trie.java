@@ -25,6 +25,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 
 import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -57,7 +58,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * <p>
  * @param <T> The content type of the trie.
  */
-public interface Trie<T>
+public interface Trie<T> extends BaseTrie<T>
 {
     // done: determinization / mergeAlternatives (needed to run any tests)
     // done: alternate branch merge
@@ -80,47 +81,6 @@ public interface Trie<T>
 
     // TODO: reverse iteration
     // TODO: consistency levels / copy on write + node reuse
-
-    /**
-     * Adapter interface providing the methods a {@link TrieImpl.Walker} to a {@link Consumer}, so that the latter can be used
-     * with {@link TrieImpl#process}.
-     * <p>
-     * This enables calls like
-     *     trie.forEachEntry(x -> System.out.println(x));
-     * to be mapped directly to a single call to {@link TrieImpl#process} without extra allocations.
-     */
-    interface ValueConsumer<T> extends Consumer<T>, TrieImpl.Walker<T, Void>
-    {
-        @Override
-        default void content(T content)
-        {
-            accept(content);
-        }
-
-        @Override
-        default Void complete()
-        {
-            return null;
-        }
-
-        @Override
-        default void resetPathLength(int newDepth)
-        {
-            // not tracking path
-        }
-
-        @Override
-        default void addPathByte(int nextByte)
-        {
-            // not tracking path
-        }
-
-        @Override
-        default void addPathBytes(DirectBuffer buffer, int pos, int count)
-        {
-            // not tracking path
-        }
-    }
 
     /**
      * Call the given consumer on all content values in the trie in order.
@@ -161,7 +121,7 @@ public interface Trie<T>
      */
     static <T> Trie<T> singleton(ByteComparable b, T v)
     {
-        return new SingletonTrie<>(b, v);
+        return (TrieWithImpl<T>) () -> new SingletonCursor<>(b, v);
     }
 
     /**
@@ -182,7 +142,7 @@ public interface Trie<T>
     {
         if (left == null && right == null)
             return this;
-        return new IntersectionTrie<>(impl(), RangesTrieSet.create(left, includeLeft, right, includeRight));
+        return intersect(RangesTrieSet.create(left, includeLeft, right, includeRight));
     }
 
     /**
@@ -202,7 +162,7 @@ public interface Trie<T>
      */
     default Trie<T> subtrie(ByteComparable left, ByteComparable right)
     {
-        return new IntersectionTrie<>(impl(), RangesTrieSet.create(left, right));
+        return intersect(RangesTrieSet.create(left, right));
     }
 
     /**
@@ -212,7 +172,7 @@ public interface Trie<T>
      */
     default Trie<T> intersect(TrieSet set)
     {
-        return new IntersectionTrie<>(impl(), TrieSetImpl.impl(set));
+        return (TrieWithImpl<T>) () -> new IntersectionCursor.Deterministic<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
     }
 
     /**
@@ -228,7 +188,7 @@ public interface Trie<T>
      */
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
     {
-        return new TrieEntriesIterator.AsEntries<>(impl());
+        return new TrieEntriesIterator.AsEntries<>(impl().cursor());
     }
 
     /**
@@ -244,7 +204,7 @@ public interface Trie<T>
      */
     default Iterator<T> valueIterator()
     {
-        return new TrieValuesIterator<>(impl());
+        return new TrieValuesIterator<>(impl().cursor());
     }
 
     /**
@@ -274,7 +234,7 @@ public interface Trie<T>
      */
     default Trie<T> mergeWith(Trie<T> other, MergeResolver<T> resolver)
     {
-        return new MergeTrie<>(resolver, impl(), other.impl());
+        return (TrieWithImpl<T>) () -> new MergeCursor.Deterministic<>(resolver, impl(), other.impl());
     }
 
     /**
@@ -330,7 +290,7 @@ public interface Trie<T>
             return t1.mergeWith(t2, resolver);
         }
         default:
-            return new CollectionMergeTrie<>(sources, resolver);
+            return (TrieWithImpl<T>) () -> new CollectionMergeCursor.Deterministic<>(resolver, sources);
         }
     }
 
@@ -353,10 +313,36 @@ public interface Trie<T>
             Iterator<? extends Trie<T>> it = sources.iterator();
             Trie<T> t1 = it.next();
             Trie<T> t2 = it.next();
-            return new MergeTrie.Distinct<>(t1.impl(), t2.impl());
+            return new TrieWithImpl<T>()
+            {
+                @Override
+                public Cursor<T> cursor()
+                {
+                    return new MergeCursor.Deterministic<>(throwingResolver(), t1.impl(), t2.impl());
+                }
+
+                @Override
+                public Iterable<T> valuesUnordered()
+                {
+                    return Iterables.concat(t1.valuesUnordered(), t2.valuesUnordered());
+                }
+            };
         }
         default:
-            return new CollectionMergeTrie.Distinct<>(sources);
+            return new TrieWithImpl<T>()
+            {
+                @Override
+                public Cursor<T> cursor()
+                {
+                    return new CollectionMergeCursor.Deterministic<>(throwingResolver(), sources);
+                }
+
+                @Override
+                public Iterable<T> valuesUnordered()
+                {
+                    return Iterables.concat(Iterables.transform(sources, Trie::valuesUnordered));
+                }
+            };
         }
     }
 
@@ -364,16 +350,6 @@ public interface Trie<T>
     static <T> Trie<T> empty()
     {
         return (Trie<T>) TrieImpl.EMPTY;
-    }
-
-    default Trie<T> mergeAlternativeBranches(CollectionMergeResolver<T> resolver)
-    {
-        return new MergeAlternativeBranchesTrie<>(impl(), resolver, false);
-    }
-
-    default Trie<T> alternateView(CollectionMergeResolver<T> resolver)
-    {
-        return new MergeAlternativeBranchesTrie<>(impl(), resolver, true);
     }
 
     private TrieWithImpl<T> impl()

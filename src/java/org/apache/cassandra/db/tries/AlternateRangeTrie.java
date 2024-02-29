@@ -23,7 +23,7 @@ import java.util.Objects;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class AlternateRangeTrie<T> implements TrieWithImpl<T>
+public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
 {
     final ByteComparable left;
     final ByteComparable right;
@@ -296,6 +296,12 @@ public class AlternateRangeTrie<T> implements TrieWithImpl<T>
                 return descend();
             else
                 return depth = -1;
+        }
+
+        @Override
+        public Cursor<T> alternateBranch()
+        {
+            return null;
         }
 
         @Override

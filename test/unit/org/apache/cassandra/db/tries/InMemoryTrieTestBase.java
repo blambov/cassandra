@@ -60,7 +60,7 @@ public abstract class InMemoryTrieTestBase
 
     Random rand = new Random();
 
-    static final ByteComparable.Version VERSION = InMemoryTrie.BYTE_COMPARABLE_VERSION;
+    static final ByteComparable.Version VERSION = InMemoryDTrie.BYTE_COMPARABLE_VERSION;
 
     abstract boolean usePut();
 
@@ -68,7 +68,7 @@ public abstract class InMemoryTrieTestBase
     public void testSingle()
     {
         ByteComparable e = ByteComparable.of("test");
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
         putSimpleResolve(trie, e, "test", (x, y) -> y);
         System.out.println("Trie " + trie.dump());
         assertEquals("test", trie.get(e));
@@ -96,7 +96,7 @@ public abstract class InMemoryTrieTestBase
         "40bdd47ec043641f2b403131323400",
         "40bd00bf5ae8cf9d1d403133323800",
         };
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
         for (String test : tests)
         {
             ByteComparable e = ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(test));
@@ -126,7 +126,7 @@ public abstract class InMemoryTrieTestBase
     {
         String[] tests = new String[] {"testing", "tests", "trials", "trial", "testing", "trial", "trial"};
         String[] values = new String[] {"testing", "tests", "trials", "trial", "t2", "x2", "y2"};
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
         for (int i = 0; i < tests.length; ++i)
         {
             String test = tests[i];
@@ -183,7 +183,7 @@ public abstract class InMemoryTrieTestBase
 
     }
 
-    public static class CursorFromSpec<T> implements TrieImpl.Cursor<T>
+    public static class CursorFromSpec<T> implements NonDeterministicTrieImpl.Cursor<T>
     {
         SpecStackEntry stack;
         int depth;
@@ -288,7 +288,7 @@ public abstract class InMemoryTrieTestBase
         }
 
         @Override
-        public TrieImpl.Cursor<T> alternateBranch()
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
         {
             if (stack.alternateBranch == null)
                 return null;
@@ -296,7 +296,7 @@ public abstract class InMemoryTrieTestBase
         }
 
         @Override
-        public TrieImpl.Cursor<T> duplicate()
+        public NonDeterministicTrieImpl.Cursor<T> duplicate()
         {
             return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition);
         }
@@ -330,6 +330,11 @@ public abstract class InMemoryTrieTestBase
     }
 
     static <T> TrieWithImpl<T> specifiedTrie(Object[] nodeDef)
+    {
+        return () -> new CursorFromSpec<>(nodeDef);
+    }
+
+    static <T> NonDeterministicTrieWithImpl<T> specifiedNonDeterministicTrie(Object[] nodeDef)
     {
         return () -> new CursorFromSpec<>(nodeDef);
     }
@@ -387,7 +392,7 @@ public abstract class InMemoryTrieTestBase
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
         SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
-        InMemoryTrie<ByteBuffer> trie = makeInMemoryTrie(src, content, usePut());
+        InMemoryDTrie<ByteBuffer> trie = makeInMemoryDTrie(src, content, usePut());
         int keysize = Arrays.stream(src)
                             .mapToInt(src1 -> ByteComparable.length(src1, VERSION))
                             .sum();
@@ -484,7 +489,7 @@ public abstract class InMemoryTrieTestBase
     private void testEntries(String[] tests, Function<String, ByteComparable> mapping)
 
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
         for (String test : tests)
         {
             ByteComparable e = mapping.apply(test);
@@ -497,19 +502,19 @@ public abstract class InMemoryTrieTestBase
             assertEquals(test, trie.get(mapping.apply(test)));
     }
 
-    static InMemoryTrie<ByteBuffer> makeInMemoryTrie(ByteComparable[] src,
+    static InMemoryDTrie<ByteBuffer> makeInMemoryDTrie(ByteComparable[] src,
                                                      Map<ByteComparable, ByteBuffer> content,
                                                      boolean usePut)
 
     {
-        InMemoryTrie<ByteBuffer> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
-        addToInMemoryTrie(src, content, trie, usePut);
+        InMemoryDTrie<ByteBuffer> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        addToInMemoryDTrie(src, content, trie, usePut);
         return trie;
     }
 
-    static void addToInMemoryTrie(ByteComparable[] src,
+    static void addToInMemoryDTrie(ByteComparable[] src,
                                   Map<ByteComparable, ByteBuffer> content,
-                                  InMemoryTrie<ByteBuffer> trie,
+                                  InMemoryDTrie<ByteBuffer> trie,
                                   boolean usePut)
 
     {
@@ -528,7 +533,7 @@ public abstract class InMemoryTrieTestBase
         }
     }
 
-    static void checkGet(InMemoryTrie<ByteBuffer> trie, Map<ByteComparable, ByteBuffer> items)
+    static void checkGet(InMemoryDTrie<ByteBuffer> trie, Map<ByteComparable, ByteBuffer> items)
     {
         for (Map.Entry<ByteComparable, ByteBuffer> en : items.entrySet())
         {
@@ -690,7 +695,7 @@ public abstract class InMemoryTrieTestBase
         return bc != null ? bc.byteComparableAsString(VERSION) : "null";
     }
 
-    <T> void putSimpleResolve(InMemoryTrie<T> trie,
+    <T> void putSimpleResolve(InMemoryDTrie<T> trie,
                                  ByteComparable key,
                                  T value,
                                  Trie.MergeResolver<T> resolver)
@@ -698,7 +703,7 @@ public abstract class InMemoryTrieTestBase
         putSimpleResolve(trie, key, value, resolver, usePut());
     }
 
-    static <T> void putSimpleResolve(InMemoryTrie<T> trie,
+    static <T> void putSimpleResolve(InMemoryDTrie<T> trie,
                                      ByteComparable key,
                                      T value,
                                      Trie.MergeResolver<T> resolver,
@@ -711,7 +716,7 @@ public abstract class InMemoryTrieTestBase
                               (existing, update) -> existing != null ? resolver.resolve(existing, update) : update,
                               usePut);
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (InMemoryDTrie.SpaceExhaustedException e)
         {
             // Should not happen, test stays well below size limit.
             throw new AssertionError(e);

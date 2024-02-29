@@ -20,7 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import javax.annotation.Nonnull;
 
-public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>, TrieSet
+public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 {
     enum Contained
     {

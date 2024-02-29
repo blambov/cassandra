@@ -34,7 +34,7 @@ import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.memtable.TrieMemtable;
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.sai.QueryContext;
@@ -51,7 +51,7 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
- * This is an in-memory index using the {@link InMemoryTrie} to store a {@link ByteComparable}
+ * This is an in-memory index using the {@link InMemoryDTrie} to store a {@link ByteComparable}
  * representation of the indexed values. Data is stored on-heap or off-heap and follows the
  * settings of the {@link TrieMemtable} to determine where.
  */
@@ -60,7 +60,7 @@ public class TrieMemoryIndex extends MemoryIndex
     private static final Logger logger = LoggerFactory.getLogger(TrieMemoryIndex.class);
     private static final int MAX_RECURSIVE_KEY_LENGTH = 128;
 
-    private final InMemoryTrie<PrimaryKeys> data;
+    private final InMemoryDTrie<PrimaryKeys> data;
     private final PrimaryKeysReducer primaryKeysReducer;
 
     private ByteBuffer minTerm;
@@ -69,7 +69,7 @@ public class TrieMemoryIndex extends MemoryIndex
     public TrieMemoryIndex(StorageAttachedIndex index)
     {
         super(index);
-        this.data = new InMemoryTrie<>(TrieMemtable.BUFFER_TYPE);
+        this.data = new InMemoryDTrie<>(TrieMemtable.BUFFER_TYPE);
         this.primaryKeysReducer = new PrimaryKeysReducer();
     }
 
@@ -221,7 +221,7 @@ public class TrieMemoryIndex extends MemoryIndex
                     data.apply(Trie.singleton(comparableBytes, primaryKey), primaryKeysReducer);
                 }
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (InMemoryDTrie.SpaceExhaustedException e)
             {
                 throw new RuntimeException(e);
             }
@@ -358,7 +358,7 @@ public class TrieMemoryIndex extends MemoryIndex
         return new InMemoryKeyRangeIterator(cd.minimumKey, cd.maximumKey, cd.mergedKeys);
     }
 
-    private static class PrimaryKeysReducer implements InMemoryTrie.UpsertTransformer<PrimaryKeys, PrimaryKey>
+    private static class PrimaryKeysReducer implements InMemoryDTrie.UpsertTransformer<PrimaryKeys, PrimaryKey>
     {
         private final LongAdder heapAllocations = new LongAdder();
 

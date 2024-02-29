@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.index.sai.postings.PostingList;
 import org.apache.cassandra.index.sai.utils.IndexEntry;
 import org.apache.cassandra.utils.Throwables;
@@ -39,13 +39,13 @@ public class SegmentTrieBuffer
 {
     private static final int MAX_RECURSIVE_TERM_LENGTH = 128;
 
-    private final InMemoryTrie<PackedLongValues.Builder> trie;
+    private final InMemoryDTrie<PackedLongValues.Builder> trie;
     private final PostingsAccumulator postingsAccumulator;
     private int numRows;
 
     public SegmentTrieBuffer()
     {
-        trie = new InMemoryTrie<>(DatabaseDescriptor.getMemtableAllocationType().toBufferType());
+        trie = new InMemoryDTrie<>(DatabaseDescriptor.getMemtableAllocationType().toBufferType());
         postingsAccumulator = new PostingsAccumulator();
     }
 
@@ -68,7 +68,7 @@ public class SegmentTrieBuffer
         {
             trie.putSingleton(term, segmentRowId, postingsAccumulator, termLength <= MAX_RECURSIVE_TERM_LENGTH);
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (InMemoryDTrie.SpaceExhaustedException e)
         {
             throw Throwables.unchecked(e);
         }
@@ -121,7 +121,7 @@ public class SegmentTrieBuffer
         };
     }
 
-    private static class PostingsAccumulator implements InMemoryTrie.UpsertTransformer<PackedLongValues.Builder, Integer>
+    private static class PostingsAccumulator implements InMemoryDTrie.UpsertTransformer<PackedLongValues.Builder, Integer>
     {
         private final LongAdder heapAllocations = new LongAdder();
 

@@ -132,10 +132,17 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
                 }
                 addPathByte(source.incomingTransition());
 
-                if (source.content() != null || source.alternateBranch() != null)
+                if (hasContent())
                     return true;
                 prevDepth = currDepth;
             }
+        }
+
+        public boolean hasContent()
+        {
+            return source.content() != null
+                // TODO: || source.alternateBranch() != null
+            ;
         }
 
         @Override
@@ -169,13 +176,13 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
 //            return source.advanceToContent(receiver);
 //        }
 
-        @Override
-        public Cursor<T> alternateBranch()
-        {
-            if (buffered > 0)
-                return null;
-            return source.alternateBranch();
-        }
+//        @Override
+//        public Cursor<T> alternateBranch()
+//        {
+//            if (buffered > 0)
+//                return null;
+//            return source.alternateBranch();
+//        }
 
         @Override
         public Cursor<T> duplicate()

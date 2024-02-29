@@ -23,11 +23,11 @@ import java.util.List;
 
 public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
 {
-    final private TrieImpl<T> source;
+    final private NonDeterministicTrieImpl<T> source;
     final private CollectionMergeResolver<T> resolver;
     final private boolean omitMain;
 
-    MergeAlternativeBranchesTrie(TrieImpl<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
+    MergeAlternativeBranchesTrie(NonDeterministicTrieImpl<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
     {
         super();
         this.source = source;
@@ -105,26 +105,26 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
     static class MergeAlternativesCursor<T> implements Cursor<T>
     {
         private final CollectionMergeResolver<T> resolver;
-        private final Cursor<T> cursorToOmit;
+        private final NonDeterministicTrieImpl.Cursor<T> cursorToOmit;
 
         /**
          * The smallest cursor, tracked separately to improve performance in single-source sections of the trie.
          */
-        private Cursor<T> head;
+        private NonDeterministicTrieImpl.Cursor<T> head;
 
         /**
          * Binary heap of the remaining cursors. The smallest element is at position 0.
          * Every element i is smaller than or equal to its two children, i.e.
          *     heap[i] <= heap[i*2 + 1] && heap[i] <= heap[i*2 + 2]
          */
-        private final List<Cursor<T>> heap;
+        private final List<NonDeterministicTrieImpl.Cursor<T>> heap;
 
         /**
          * A list used to collect contents during content() calls.
          */
         private final List<T> contents;
 
-        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, TrieImpl<T> source, boolean omitMain)
+        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, NonDeterministicTrieImpl<T> source, boolean omitMain)
         {
             this.resolver = resolver;
             head = source.cursor();
@@ -137,11 +137,11 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         MergeAlternativesCursor(MergeAlternativesCursor<T> copyFrom)
         {
             this.resolver = copyFrom.resolver;
-            List<Cursor<T>> list = new ArrayList<>(copyFrom.heap.size());
-            Cursor<T> toOmit = null;
-            for (Cursor<T> tCursor : copyFrom.heap)
+            List<NonDeterministicTrieImpl.Cursor<T>> list = new ArrayList<>(copyFrom.heap.size());
+            NonDeterministicTrieImpl.Cursor<T> toOmit = null;
+            for (NonDeterministicTrieImpl.Cursor<T> tCursor : copyFrom.heap)
             {
-                Cursor<T> duplicate = tCursor.duplicate();
+                NonDeterministicTrieImpl.Cursor<T> duplicate = tCursor.duplicate();
                 list.add(duplicate);
                 if (tCursor == copyFrom.cursorToOmit)
                     toOmit = duplicate;
@@ -159,9 +159,9 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
          */
         interface HeapOp<T>
         {
-            void apply(MergeAlternativesCursor<T> self, Cursor<T> cursor, int index);
+            void apply(MergeAlternativesCursor<T> self, NonDeterministicTrieImpl.Cursor<T> cursor, int index);
 
-            default boolean shouldContinueWithChild(Cursor<T> child, Cursor<T> head)
+            default boolean shouldContinueWithChild(NonDeterministicTrieImpl.Cursor<T> child, NonDeterministicTrieImpl.Cursor<T> head)
             {
                 return equalCursor(child, head);
             }
@@ -183,9 +183,9 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
          */
         interface AdvancingHeapOp<T> extends HeapOp<T>
         {
-            void apply(Cursor<T> cursor);
+            void apply(NonDeterministicTrieImpl.Cursor<T> cursor);
 
-            default void apply(MergeAlternativesCursor<T> self, Cursor<T> cursor, int index)
+            default void apply(MergeAlternativesCursor<T> self, NonDeterministicTrieImpl.Cursor<T> cursor, int index)
             {
                 // Apply the operation, which should advance the position of the element.
                 apply(cursor);
@@ -222,7 +222,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         {
             if (index >= heap.size())
                 return;
-            Cursor<T> item = heap.get(index);
+            NonDeterministicTrieImpl.Cursor<T> item = heap.get(index);
             if (!action.shouldContinueWithChild(item, head))
                 return;
 
@@ -240,7 +240,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
          * Push the given state down in the heap from the given index until it finds its proper place among
          * the subheap rooted at that position.
          */
-        private void heapifyDown(Cursor<T> item, int index)
+        private void heapifyDown(NonDeterministicTrieImpl.Cursor<T> item, int index)
         {
             while (true)
             {
@@ -262,7 +262,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         /**
          * Pull the given state up in the heap from the given index until it finds its proper place.
          */
-        private void heapifyUp(Cursor<T> item, int index)
+        private void heapifyUp(NonDeterministicTrieImpl.Cursor<T> item, int index)
         {
             while (index > 0)
             {
@@ -292,7 +292,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
                 return headDepth;   // head is still smallest
 
             // otherwise we need to swap heap and heap.get(0)
-            Cursor<T> newHeap0 = head;
+            NonDeterministicTrieImpl.Cursor<T> newHeap0 = head;
             head = heap.get(0);
             heapifyDown(newHeap0, 0);
             return heap0Depth;
@@ -316,7 +316,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         {
             for (int i = heap.size() - 1; i >= 0; --i)
             {
-                Cursor<T> cursor = heap.get(i);
+                NonDeterministicTrieImpl.Cursor<T> cursor = heap.get(i);
                 if (cursor.depth() != -1)
                     return i + 1;
                 heap.remove(i);
@@ -324,9 +324,9 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
             return 0;
         }
 
-        private void addAlternative(Cursor<T> cursor, int index)
+        private void addAlternative(NonDeterministicTrieImpl.Cursor<T> cursor, int index)
         {
-            Cursor<T> alternative = cursor.alternateBranch();
+            NonDeterministicTrieImpl.Cursor<T> alternative = cursor.alternateBranch();
             while (alternative != null)
             {
                 assert equalCursor(head, alternative);
@@ -364,7 +364,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
             class SkipTo implements AdvancingHeapOp<T>
             {
                 @Override
-                public boolean shouldContinueWithChild(Cursor<T> child, Cursor<T> head)
+                public boolean shouldContinueWithChild(NonDeterministicTrieImpl.Cursor<T> child, NonDeterministicTrieImpl.Cursor<T> head)
                 {
                     // When the requested position descends, the implicit prefix bytes are those of the head cursor,
                     // and thus we need to check against that if it is a match.
@@ -378,7 +378,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
                 }
 
                 @Override
-                public void apply(Cursor<T> cursor)
+                public void apply(NonDeterministicTrieImpl.Cursor<T> cursor)
                 {
                     cursor.skipTo(skipDepth, skipTransition);
                 }
@@ -431,12 +431,6 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
             T itemContent = item.content();
             if (itemContent != null)
                 contents.add(itemContent);
-        }
-
-        @Override
-        public Cursor<T> alternateBranch()
-        {
-            return null;
         }
 
         @Override
