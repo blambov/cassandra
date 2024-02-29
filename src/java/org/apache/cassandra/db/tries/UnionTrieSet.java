@@ -24,7 +24,7 @@ package org.apache.cassandra.db.tries;
  * The implementation is an application of De Morgan's law: an intersection with changed interpretation of the
  * contained() values to apply negation to both inputs and the output.
  */
-public class UnionTrieSet implements TrieSetImpl
+public class UnionTrieSet implements TrieSetWithImpl
 {
     final TrieSetImpl set1;
     final TrieSetImpl set2;

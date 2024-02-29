@@ -22,7 +22,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.db.tries.TrieEntriesWalker;
 import org.apache.cassandra.io.compress.BufferType;
@@ -44,14 +44,14 @@ public class InMemoryTrieReadBench
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
 
-    final static InMemoryTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
+    final static InMemoryDTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
 
-    InMemoryTrie<Byte> trie;
+    InMemoryDTrie<Byte> trie;
 
     @Setup(Level.Trial)
     public void setup() throws Throwable
     {
-        trie = new InMemoryTrie<>(bufferType);
+        trie = new InMemoryDTrie<>(bufferType);
         Random rand = new Random(1);
 
         System.out.format("Putting %,d\n", count);

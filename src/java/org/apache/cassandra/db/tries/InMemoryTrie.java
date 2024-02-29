@@ -35,6 +35,8 @@ import org.apache.cassandra.utils.ObjectSizes;
 
 import org.github.jamm.MemoryMeterStrategy;
 
+import static org.apache.cassandra.db.tries.CursorWalkable.BYTE_COMPARABLE_VERSION;
+
 /**
  * In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
  * <p>
@@ -45,7 +47,7 @@ import org.github.jamm.MemoryMeterStrategy;
  * <p>
  * Because it uses 32-bit pointers in byte buffers, this trie has a fixed size limit of 2GB.
  */
-public class InMemoryTrie<T> extends InMemoryReadTrie<T>
+class InMemoryTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
 
@@ -925,7 +927,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     public <U> void apply(Trie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
-        Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor();
+        TrieImpl.Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor();
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState;
         state.reset();
@@ -936,12 +938,53 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         state.attachRoot();
     }
 
-    private <U> void apply(ApplyState state, Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    private <U> void apply(ApplyState state, TrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
         int finalDepthToDescend = state.currentDepth + 1;
         while (true)
         {
-            Cursor<U> alternate = mutationCursor.alternateBranch();
+            int depth = mutationCursor.advance();
+            while (state.currentDepth >= Math.max(finalDepthToDescend, depth))
+            {
+                // There are no more children. Ascend to the parent state to continue walk.
+                state.attachAndMoveToParentState();
+            }
+            if (depth == -1)
+                return;
+
+            // We have a transition, get child to descend into
+            state.descend(mutationCursor.incomingTransition(), mutationCursor.content(), transformer);
+            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+        }
+    }
+
+    /**
+     * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+     * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+     * @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+     * different than the element type for this memtable trie.
+     * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+     * value. Applied even if there's no pre-existing value in the memtable trie.
+     */
+    public <U> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor();
+        assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
+        ApplyState state = applyState;
+        state.reset();
+        state.descend(-1, mutationCursor.content(), transformer);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        apply(state, mutationCursor, transformer);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        state.attachRoot();
+    }
+
+    private <U> void apply(ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        int finalDepthToDescend = state.currentDepth + 1;
+        while (true)
+        {
+            NonDeterministicTrieImpl.Cursor<U> alternate = mutationCursor.alternateBranch();
             if (alternate != null)
             {
                 // Note: This will blow if we can have deep chain of alternates of alternates.
@@ -1244,7 +1287,6 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
                REFERENCE_ARRAY_ON_HEAP_SIZE * getChunkIdx(allocatedPos, BUF_START_SHIFT, BUF_START_SIZE);
     }
 
-    @Override
     public Iterable<T> valuesUnordered()
     {
         return () -> new Iterator<T>()

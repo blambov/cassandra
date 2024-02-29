@@ -39,7 +39,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertSameContent;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryTrie;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
 
@@ -98,7 +98,7 @@ public class SlicedTrieTest
         ByteComparable[] src1 = generateKeys(rand, count);
         NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, TrieImpl.BYTE_COMPARABLE_VERSION));
 
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
         checkEqualRange(content1, trie1, null, true, null, true);
         checkEqualRange(content1, trie1, InMemoryTrieTestBase.generateKey(rand), true, null, true);
@@ -181,7 +181,7 @@ public class SlicedTrieTest
     {
         Arrays.sort(BOUNDARIES, BYTE_COMPARABLE_COMPARATOR);
         NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(BYTE_COMPARABLE_COMPARATOR);
-        InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(KEYS, content1, true);
+        InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(KEYS, content1, true);
 
         for (int li = -1; li < BOUNDARIES.length; ++li)
         {
@@ -226,7 +226,7 @@ public class SlicedTrieTest
         List<Trie<ByteBuffer>> tries = new ArrayList<>();
         for (int i = 0; i < mergeCount; ++i)
         {
-            tries.add(makeInMemoryTrie(Arrays.copyOfRange(KEYS,
+            tries.add(makeInMemoryDTrie(Arrays.copyOfRange(KEYS,
                                                            KEYS.length * i / mergeCount,
                                                            KEYS.length * (i + 1) / mergeCount),
                                         content1,

@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
-public class IntersectionTrieSet implements TrieSetImpl
+public class IntersectionTrieSet implements TrieSetWithImpl
 {
     final TrieSetImpl set1;
     final TrieSetImpl set2;

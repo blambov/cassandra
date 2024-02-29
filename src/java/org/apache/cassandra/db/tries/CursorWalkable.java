@@ -83,6 +83,12 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
          * @return the new depth, always <= previous depth; -1 if the trie is exhausted
          */
         int skipTo(int skipDepth, int skipTransition);
+
+        /**
+         * Make a copy of this cursor which can be separately advanced/queried from the current state.
+         * Note that some code relies on the fact that the duplicate will be of the same type as the original.
+         */
+        Cursor duplicate();
     }
 
     /**

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
 
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -52,26 +52,26 @@ public class InMemoryTrieUnionBench
     @Param({"false", "true"})
     boolean sequential = true;
 
-    final static InMemoryTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
+    final static InMemoryDTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
 
     Trie<Byte> trie;
 
     @Setup(Level.Trial)
     public void setup() throws Throwable
     {
-        List<InMemoryTrie<Byte>> tries = new ArrayList<>(sources);
+        List<InMemoryDTrie<Byte>> tries = new ArrayList<>(sources);
         System.out.format("Putting %,d among %d tries\n", count, sources);
         Random rand = new Random(1);
         if (sequential)
         {
             long sz = 65536 / sources;
             for (int i = 0; i < sources; ++i)
-                tries.add(new InMemoryTrie<>(bufferType));
+                tries.add(new InMemoryDTrie<>(bufferType));
 
             for (long current = 0; current < count; ++current)
             {
                 long l = rand.nextLong();
-                InMemoryTrie<Byte> tt = tries.get(Math.min((int) (((l >> 48) + 32768) / sz), sources - 1));
+                InMemoryDTrie<Byte> tt = tries.get(Math.min((int) (((l >> 48) + 32768) / sz), sources - 1));
                 tt.putRecursive(ByteComparable.of(l), (byte) (l >> 56), resolver);
             }
 
@@ -81,7 +81,7 @@ public class InMemoryTrieUnionBench
             long current = 0;
             for (int i = 0; i < sources; ++i)
             {
-                InMemoryTrie<Byte> trie = new InMemoryTrie(bufferType);
+                InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
                 int currMax = this.count * (i + 1) / sources;
 
                 for (; current < currMax; ++current)
@@ -93,7 +93,7 @@ public class InMemoryTrieUnionBench
             }
         }
 
-        for (InMemoryTrie<Byte> trie : tries)
+        for (InMemoryDTrie<Byte> trie : tries)
         {
             System.out.format("Trie size on heap %,d off heap %,d\n",
                               trie.sizeOnHeap(), trie.sizeOffHeap());

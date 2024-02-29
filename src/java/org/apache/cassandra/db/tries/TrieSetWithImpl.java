@@ -18,24 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.junit.Test;
-
-import org.apache.cassandra.io.compress.BufferType;
-
-public class TrieToMermaidTest
+interface TrieSetWithImpl extends TrieSet, TrieSetImpl
 {
-    @Test
-    public void testToMermaidContent() throws Exception
-    {
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
-        // This was used as a basis the graphs in BTIFormat.md
-        String s = "a allow an and any are as node of on the this to trie types with without";
-        s = s.toLowerCase();
-        for (String word : s.split("[^a-z]+"))
-            trie.putRecursive(InMemoryTrieTestBase.comparable(word), word, (x, y) -> y);
-
-        System.out.println(trie.process(new TrieToMermaid(Object::toString,
-                                                      x -> Character.toString((char) ((int) x)),
-                                                      false)));
-    }
 }

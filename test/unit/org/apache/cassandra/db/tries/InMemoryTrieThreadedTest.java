@@ -54,7 +54,7 @@ public class InMemoryTrieThreadedTest
     public void testThreaded() throws InterruptedException
     {
         ByteComparable[] src = generateKeys(rand, COUNT + OTHERS);
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<>();
         AtomicBoolean writeCompleted = new AtomicBoolean(false);

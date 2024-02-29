@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.cassandra.db.memtable.TrieMemtable;
-import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.lucene.util.packed.PackedInts;
@@ -33,14 +33,14 @@ import org.apache.lucene.util.packed.PackedLongValues;
 @NotThreadSafe
 public class BlockBalancedTreeRamBuffer
 {
-    private final InMemoryTrie<PackedLongValues.Builder> trie;
+    private final InMemoryDTrie<PackedLongValues.Builder> trie;
     private final PostingsAccumulator postingsAccumulator;
     private final int bytesPerValue;
     private int numRows;
 
     public BlockBalancedTreeRamBuffer(int bytesPerValue)
     {
-        trie = new InMemoryTrie<>(TrieMemtable.BUFFER_TYPE);
+        trie = new InMemoryDTrie<>(TrieMemtable.BUFFER_TYPE);
         postingsAccumulator = new PostingsAccumulator();
         this.bytesPerValue = bytesPerValue;
     }
@@ -64,7 +64,7 @@ public class BlockBalancedTreeRamBuffer
         {
             trie.putRecursive(v -> ByteSource.fixedLength(value), segmentRowId, postingsAccumulator);
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (InMemoryDTrie.SpaceExhaustedException e)
         {
             throw Throwables.unchecked(e);
         }
@@ -78,7 +78,7 @@ public class BlockBalancedTreeRamBuffer
         return BlockBalancedTreeIterator.fromTrieIterator(trie.entrySet().iterator(), bytesPerValue);
     }
 
-    private static class PostingsAccumulator implements InMemoryTrie.UpsertTransformer<PackedLongValues.Builder, Integer>
+    private static class PostingsAccumulator implements InMemoryDTrie.UpsertTransformer<PackedLongValues.Builder, Integer>
     {
         private final LongAdder heapAllocations = new LongAdder();
 

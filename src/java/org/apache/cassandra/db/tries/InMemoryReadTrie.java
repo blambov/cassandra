@@ -30,7 +30,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  *
  * This class provides the read-only functionality, expanded in {@link InMemoryTrie} to writes.
  */
-public class InMemoryReadTrie<T> implements TrieWithImpl<T>
+public class InMemoryReadTrie<T>
 {
     /*
     TRIE FORMAT AND NODE TYPES
@@ -574,7 +574,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
      * (i.e. it is positioned on a leaf node), it goes one level up the backtracking chain, where we are guaranteed to
      * have a remaining child to advance to. When there's nothing to backtrack to, the trie is exhausted.
      */
-    class MemtableCursor extends CursorBacktrackingState implements Cursor<T>
+    class MemtableCursor extends CursorBacktrackingState implements NonDeterministicTrieImpl.Cursor<T>
     {
         private int currentNode;
         private int incomingTransition;
@@ -608,7 +608,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
         }
 
         @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
         {
             int node = currentNode;
             if (!isChainNode(node))
@@ -1088,7 +1088,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
     public T get(ByteComparable path)
     {
         int n = root;
-        ByteSource source = path.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        ByteSource source = path.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
         while (!isNull(n))
         {
             int c = source.next();
@@ -1110,7 +1110,6 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
      * Override of dump to provide more detailed printout that includes the type of each node in the trie.
      * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
      */
-    @Override
     public String dump(Function<T, String> contentToString)
     {
         return dump(contentToString, root);
@@ -1127,7 +1126,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
 
     private String dump(Function<T, String> contentToString, int root)
     {
-        class TypedNodesCursor implements Cursor<String>
+        class TypedNodesCursor implements TrieImpl.Cursor<String>
         {
             final MemtableCursor source;
 
@@ -1144,7 +1143,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
 
 
             @Override
-            public int advanceMultiple(TransitionsReceiver receiver)
+            public int advanceMultiple(TrieImpl.TransitionsReceiver receiver)
             {
                 return source.advanceMultiple(receiver);
             }
@@ -1156,17 +1155,7 @@ public class InMemoryReadTrie<T> implements TrieWithImpl<T>
             }
 
             @Override
-            public Cursor<String> alternateBranch()
-            {
-                MemtableCursor alternate = source.alternateBranch();
-                if (alternate != null)
-                    return new TypedNodesCursor(alternate);
-                else
-                    return null;
-            }
-
-            @Override
-            public Cursor<String> duplicate()
+            public TrieImpl.Cursor<String> duplicate()
             {
                 return new TypedNodesCursor(source.duplicate());
             }

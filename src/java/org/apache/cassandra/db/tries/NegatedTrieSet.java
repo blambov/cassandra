@@ -23,7 +23,7 @@ package org.apache.cassandra.db.tries;
  * <p>
  * Achieved by simply inverting the contained() values.
  */
-public class NegatedTrieSet implements TrieSetImpl
+public class NegatedTrieSet implements TrieSetWithImpl
 {
     final TrieSetImpl source;
 
