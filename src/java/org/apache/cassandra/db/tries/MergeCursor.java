@@ -18,25 +18,25 @@
 
 package org.apache.cassandra.db.tries;
 
-abstract class MergeCursor<C extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
+abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
 {
     final C c1;
-    final C c2;
+    final D c2;
 
     boolean atC1;
     boolean atC2;
 
-    MergeCursor(C c1, C c2)
+    MergeCursor(C c1, D c2)
     {
         this.c1 = c1;
         this.c2 = c2;
         atC1 = atC2 = true;
     }
 
-    public MergeCursor(MergeCursor<C> copyFrom)
+    public MergeCursor(MergeCursor<C, D> copyFrom)
     {
         this.c1 = (C) copyFrom.c1.duplicate();
-        this.c2 = (C) copyFrom.c2.duplicate();
+        this.c2 = (D) copyFrom.c2.duplicate();
         this.atC1 = copyFrom.atC1;
         this.atC2 = copyFrom.atC2;
     }
@@ -113,7 +113,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor> implements CursorWal
         return atC1 ? c1.incomingTransition() : c2.incomingTransition();
     }
 
-    static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends MergeCursor<C> implements TrieImpl.Cursor<T>
+    static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends MergeCursor<C, C> implements TrieImpl.Cursor<T>
     {
         final Trie.MergeResolver<T> resolver;
 
@@ -207,4 +207,61 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor> implements CursorWal
             return new NonDeterministic<>(this);
         }
     }
+
+    interface MappedResolver<T, U, Z>
+    {
+        Z resolve(T t, U u);
+    }
+
+    static abstract class WithMappedContent<T, U, C extends TrieImpl.Cursor<T>, D extends TrieImpl.Cursor<U>, Z> extends MergeCursor<C, D> implements TrieImpl.Cursor<Z>
+    {
+        final MappedResolver<T, U, Z> resolver;
+
+        WithMappedContent(MappedResolver<T, U, Z> resolver, C c1, D c2)
+        {
+            super(c1, c2);
+            this.resolver = resolver;
+        }
+
+        public WithMappedContent(WithMappedContent<T, U, C, D, Z> copyFrom)
+        {
+            super(copyFrom);
+            this.resolver = copyFrom.resolver;
+        }
+
+        @Override
+        public Z content()
+        {
+            U mc = atC2 ? c2.content() : null;
+            T nc = atC1 ? c1.content() : null;
+            return resolver.resolve(nc, mc);
+        }
+    }
+
+    static class DeterministicWithMappedContent<T, U, Z> extends WithMappedContent<T, U, TrieImpl.Cursor<T>, TrieImpl.Cursor<U>, Z>
+    {
+        DeterministicWithMappedContent(MappedResolver<T, U, Z> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<U> c2)
+        {
+            super(resolver, c1, c2);
+        }
+
+        public DeterministicWithMappedContent(DeterministicWithMappedContent<T, U, Z> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        DeterministicWithMappedContent(MappedResolver<T, U, Z> resolver, TrieImpl<T> t1, TrieImpl<U> t2)
+        {
+            this(resolver, t1.cursor(), t2.cursor());
+            assert c1.depth() == 0;
+            assert c2.depth() == 0;
+        }
+
+        @Override
+        public DeterministicWithMappedContent<T, U, Z> duplicate()
+        {
+            return new DeterministicWithMappedContent<>(this);
+        }
+    }
+
 }
