@@ -36,19 +36,6 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         MATCHING,
         C1_AHEAD,
         C2_AHEAD;
-
-        State swap()
-        {
-            switch(this)
-            {
-                case C1_AHEAD:
-                    return C2_AHEAD;
-                case C2_AHEAD:
-                    return C1_AHEAD;
-                default:
-                    throw new AssertionError();
-            }
-        }
     }
 
     final IntersectionController<C, D, Z> controller;
@@ -105,14 +92,14 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             {
                 int ldepth = c1.advance();
                 if (controller.includeLesserLeft(c1.state()))
-                    return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
+                    return advanceWithLeftAhead(c2.advance());
                 else
-                    return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
+                    return advanceRightToIntersection(ldepth);
             }
             case C1_AHEAD:
-                return advanceWithSetAhead(c2.advance(), c2, c1, state);
+                return advanceWithLeftAhead(c2.advance());
             case C2_AHEAD:
-                return advanceWithSetAhead(c1.advance(), c1, c2, state);
+                return advanceWithRightAhead(c1.advance());
             default:
                 throw new AssertionError();
         }
@@ -127,14 +114,14 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             {
                 int ldepth = c1.skipTo(skipDepth, skipTransition);
                 if (controller.includeLesserLeft(c1.state()))
-                    return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, State.C1_AHEAD);
+                    return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
                 else
-                    return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
+                    return advanceRightToIntersection(ldepth);
             }
             case C1_AHEAD:
-                return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, state);
+                return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
             case C2_AHEAD:
-                return advanceWithSetAhead(c1.skipTo(skipDepth, skipTransition), c1, c2, state);
+                return advanceWithRightAhead(c1.skipTo(skipDepth, skipTransition));
             default:
                 throw new AssertionError();
         }
@@ -150,109 +137,130 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
                 // Cannot do multi-advance when cursors are at the same position. Applying advance().
                 int ldepth = c1.advance();
                 if (controller.includeLesserLeft(c1.state()))
-                    return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
+                    return advanceWithLeftAhead(c2.advance());
                 else
-                    return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
+                    return advanceRightToIntersection(ldepth);
             }
             case C1_AHEAD:
-                return advanceWithSetAhead(c2.advanceMultiple(receiver), c2, c1, state);
+                return advanceWithLeftAhead(c2.advanceMultiple(receiver));
             case C2_AHEAD:
-                return advanceWithSetAhead(c1.advanceMultiple(receiver), c1, c2, state);
+                return advanceWithRightAhead(c1.advanceMultiple(receiver));
             default:
                 throw new AssertionError();
         }
     }
 
-    boolean lesserInSet(State state)
+    private int advanceWithLeftAhead(int rightDepth)
     {
-        switch (state)
+        int leftDepth = c1.depth();
+        int leftTransition = c1.incomingTransition();
+        int rightTransition = c2.incomingTransition();
+        if (rightDepth > leftDepth)
+            return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+        if (rightDepth == leftDepth)
         {
-            case C1_AHEAD:
-                return controller.includeLesserLeft(c1.state());
-            case C2_AHEAD:
-                return controller.includeLesserRight(c2.state());
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    private int advanceWithSetAhead(int advDepth, RangeTrieImpl.Cursor<?> advancing, RangeTrieImpl.Cursor<?> ahead, State state)
-    {
-        int aheadDepth = ahead.depth();
-        int aheadTransition = ahead.incomingTransition();
-        int advTransition = advancing.incomingTransition();
-        if (advDepth > aheadDepth)
-            return coveredAreaWithSetAhead(advDepth, advTransition, state);
-        if (advDepth == aheadDepth)
-        {
-            if (advTransition < aheadTransition)
-                return coveredAreaWithSetAhead(advDepth, advTransition, state);
-            if (advTransition == aheadTransition)
-                return matchingPosition(advDepth, advTransition);
+            if (rightTransition < leftTransition)
+                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+            if (rightTransition == leftTransition)
+                return matchingPosition(rightDepth, rightTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        final State swapped = state.swap();
-        if (lesserInSet(swapped))
-            return coveredAreaWithSetAhead(aheadDepth, aheadTransition, swapped);
+        if (controller.includeLesserRight(c2.state()))
+            return coveredAreaWithRightAhead(leftDepth, leftTransition);
         else
-            return advanceToIntersection(advDepth, advancing, ahead, swapped);
+            return advanceLeftToIntersection(rightDepth);
     }
 
-    private int advanceToIntersection(int aheadDepth, RangeTrieImpl.Cursor<?> ahead, RangeTrieImpl.Cursor<?> other, State state)
+    private int advanceWithRightAhead(int leftDepth)
     {
-        // at this point ahead is beyond other's position, but outside the covered area.
-        int aheadTransition = ahead.incomingTransition();
+        int rightDepth = c2.depth();
+        int rightTransition = c2.incomingTransition();
+        int leftTransition = c1.incomingTransition();
+        if (leftDepth > rightDepth)
+            return coveredAreaWithRightAhead(leftDepth, leftTransition);
+        if (leftDepth == rightDepth)
+        {
+            if (leftTransition < rightTransition)
+                return coveredAreaWithRightAhead(leftDepth, leftTransition);
+            if (leftTransition == rightTransition)
+                return matchingPosition(leftDepth, leftTransition);
+        }
+
+        // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
+        if (controller.includeLesserLeft(c1.state()))
+            return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+        else
+            return advanceRightToIntersection(leftDepth);
+    }
+
+    private int advanceRightToIntersection(int leftDepth)
+    {
+        int leftTransition = c1.incomingTransition();
         while (true)
         {
-            // Other is ahead of advancing, but outside the covered area. Skip source to the set's position.
-            int otherDepth = other.skipTo(aheadDepth, aheadTransition);
-            int otherTransition = other.incomingTransition();
-            if (otherDepth == aheadDepth && otherTransition == aheadTransition)
-                return matchingPosition(aheadDepth, aheadTransition);
-            final State swapped = state.swap();
-            if (lesserInSet(swapped))
-                return coveredAreaWithSetAhead(aheadDepth, aheadTransition, swapped);
+            // Left is ahead of right, but outside the covered area. Skip right to left's position.
+            int rightDepth = c2.skipTo(leftDepth, leftTransition);
+            int rightTransition = c2.incomingTransition();
+            if (rightDepth == leftDepth && rightTransition == leftTransition)
+                return matchingPosition(leftDepth, leftTransition);
+            if (controller.includeLesserRight(c2.state()))
+                return coveredAreaWithRightAhead(leftDepth, leftTransition);
 
-            // otherwise roles have reversed, swap everything and repeat
-            aheadDepth = otherDepth;
-            aheadTransition = otherTransition;
-            state = swapped;
-            RangeTrieImpl.Cursor t = ahead;
-            ahead = other;
-            other = t;
+            // Right is ahead of left, but outside the covered area. Skip left to right's position.
+            leftDepth = c1.skipTo(rightDepth, rightTransition);
+            leftTransition = c1.incomingTransition();
+            if (leftDepth == rightDepth && leftTransition == rightTransition)
+                return matchingPosition(rightDepth, rightTransition);
+            if (controller.includeLesserLeft(c1.state()))
+                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
         }
     }
 
-    Z combineWithCovering(State state)
+    private int advanceLeftToIntersection(int rightDepth)
     {
-        switch (state)
+        int rightTransition = c1.incomingTransition();
+        while (true)
         {
-            case C1_AHEAD:
-                return controller.combineStateCoveringLeft(c2.state(), c1.state());
-            case C2_AHEAD:
-                return controller.combineStateCoveringRight(c1.state(), c2.state());
-            default:
-                throw new AssertionError();
+            // Right is ahead of left, but outside the covered area. Skip left to right's position.
+            int leftDepth = c1.skipTo(rightDepth, rightTransition);
+            int leftTransition = c1.incomingTransition();
+            if (leftDepth == rightDepth && leftTransition == rightTransition)
+                return matchingPosition(rightDepth, rightTransition);
+            if (controller.includeLesserLeft(c1.state()))
+                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+
+            // Left is ahead of right, but outside the covered area. Skip right to left's position.
+            rightDepth = c2.skipTo(leftDepth, leftTransition);
+            rightTransition = c2.incomingTransition();
+            if (rightDepth == leftDepth && rightTransition == leftTransition)
+                return matchingPosition(leftDepth, leftTransition);
+            if (controller.includeLesserRight(c2.state()))
+                return coveredAreaWithRightAhead(leftDepth, leftTransition);
         }
     }
 
-    private int coveredAreaWithSetAhead(int depth, int transition, State state)
+    private int coveredAreaWithLeftAhead(int depth, int transition)
     {
-        this.currentDepth = depth;
-        this.currentTransition = transition;
-        this.currentRangeState = combineWithCovering(state);
-        this.state = state;
-        return depth;
+        return setState(State.C1_AHEAD, depth, transition, controller.combineStateCoveringLeft(c2.state(), c1.state()));
+    }
+
+    private int coveredAreaWithRightAhead(int depth, int transition)
+    {
+        return setState(State.C2_AHEAD, depth, transition, controller.combineStateCoveringRight(c1.state(), c2.state()));
     }
 
     private int matchingPosition(int depth, int transition)
     {
-        state = State.MATCHING;
-        currentDepth = depth;
-        currentTransition = transition;
-        currentRangeState = controller.combineState(c1.state(), c2.state());
-        // TODO: Optimize.... maybe one call for both activeBefore and content
+        return setState(State.MATCHING, depth, transition, controller.combineState(c1.state(), c2.state()));
+    }
+
+    private int setState(State state, int depth, int transition, Z rangeState)
+    {
+        this.state = state;
+        this.currentDepth = depth;
+        this.currentTransition = transition;
+        this.currentRangeState = rangeState;
         return depth;
     }
 
