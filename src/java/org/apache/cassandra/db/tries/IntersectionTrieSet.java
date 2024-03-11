@@ -61,7 +61,7 @@ public class IntersectionTrieSet implements TrieSetWithImpl
         final Cursor c2;
         int currentDepth;
         int currentTransition;
-        Contained currentContained;
+        RangeState currentRangeState;
         State state;
 
         public IntersectionCursor(Cursor c1, Cursor c2)
@@ -77,7 +77,7 @@ public class IntersectionTrieSet implements TrieSetWithImpl
             this.c2 = copyFrom.c2.duplicate();
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
-            this.currentContained = copyFrom.currentContained;
+            this.currentRangeState = copyFrom.currentRangeState;
             this.state = copyFrom.state;
         }
 
@@ -94,14 +94,14 @@ public class IntersectionTrieSet implements TrieSetWithImpl
         }
 
         @Override
-        public Contained contained()
+        public RangeState state()
         {
-            return currentContained;
+            return currentRangeState;
         }
 
         boolean lesserInSet(Cursor cursor)
         {
-            return cursor.contained().lesserInSet();
+            return cursor.state().applicableBefore() != null;
         }
 
         @Override
@@ -148,6 +148,29 @@ public class IntersectionTrieSet implements TrieSetWithImpl
             }
         }
 
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            switch(state)
+            {
+                case MATCHING:
+                {
+                    // Cannot do multi-advance when cursors are at the same position. Applying advance().
+                    int ldepth = c1.advance();
+                    if (lesserInSet(c1))
+                        return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
+                    else
+                        return advanceToIntersection(ldepth, c1, c2, State.C2_AHEAD);
+                }
+                case C1_AHEAD:
+                    return advanceWithSetAhead(c2.advanceMultiple(receiver), c2, c1, state);
+                case C2_AHEAD:
+                    return advanceWithSetAhead(c1.advanceMultiple(receiver), c1, c2, state);
+                default:
+                    throw new AssertionError();
+            }
+        }
+
         private int advanceWithSetAhead(int advDepth, Cursor advancing, Cursor ahead, State state)
         {
             int aheadDepth = ahead.depth();
@@ -167,28 +190,29 @@ public class IntersectionTrieSet implements TrieSetWithImpl
             if (lesserInSet(advancing))
                 return coveredAreaWithSetAhead(aheadDepth, aheadTransition, ahead, state.swap());
             else
-                return advanceToIntersection(ahead.skipTo(advDepth, advTransition), ahead, advancing, state.swap());
+                return advanceToIntersection(advDepth, advancing, ahead, state.swap());
         }
 
-        private int advanceToIntersection(int advDepth, Cursor advancing, Cursor other, State state)
+        private int advanceToIntersection(int aheadDepth, Cursor ahead, Cursor other, State state)
         {
-            int advTransition = advancing.incomingTransition();
+            // at this point ahead is beyond other's position, but outside the covered area.
+            int advTransition = ahead.incomingTransition();
             while (true)
             {
-                // Set is ahead of source, but outside the covered area. Skip source to the set's position.
-                int otherDepth = other.skipTo(advDepth, advTransition);
+                // Other is ahead of advancing, but outside the covered area. Skip source to the set's position.
+                int otherDepth = other.skipTo(aheadDepth, advTransition);
                 int otherTransition = other.incomingTransition();
-                if (otherDepth == advDepth && otherTransition == advTransition)
-                    return matchingPosition(advDepth, advTransition);
+                if (otherDepth == aheadDepth && otherTransition == advTransition)
+                    return matchingPosition(aheadDepth, advTransition);
                 if (lesserInSet(other))
-                    return coveredAreaWithSetAhead(advDepth, advTransition, advancing, state);
+                    return coveredAreaWithSetAhead(aheadDepth, advTransition, ahead, state);
 
                 // otherwise roles have reversed, swap everything and repeat
-                advDepth = otherDepth;
+                aheadDepth = otherDepth;
                 advTransition = otherTransition;
                 state = state.swap();
-                Cursor t = advancing;
-                advancing = other;
+                Cursor t = ahead;
+                ahead = other;
                 other = t;
             }
         }
@@ -197,7 +221,7 @@ public class IntersectionTrieSet implements TrieSetWithImpl
         {
             this.currentDepth = depth;
             this.currentTransition = transition;
-            this.currentContained = advancing.contained();
+            this.currentRangeState = advancing.state();
             this.state = state;
             return depth;
         }
@@ -207,22 +231,23 @@ public class IntersectionTrieSet implements TrieSetWithImpl
             state = State.MATCHING;
             currentDepth = depth;
             currentTransition = transition;
-            currentContained = combineContained(c1.contained(), c2.contained());
+            currentRangeState = combineActive(c1.state(), c2.state());
+            // TODO: Optimize.... maybe one call for both activeBefore and content
             return depth;
         }
 
-        Contained combineContained(Contained cl, Contained cr)
+        RangeState combineActive(RangeState cl, RangeState cr)
         {
-            if (cl == Contained.OUTSIDE_PREFIX || cr == Contained.OUTSIDE_PREFIX)
-                return Contained.OUTSIDE_PREFIX;
-            else if (cl == Contained.INSIDE_PREFIX)
+            if (cl == RangeState.OUTSIDE_PREFIX || cr == RangeState.OUTSIDE_PREFIX)
+                return RangeState.OUTSIDE_PREFIX;
+            else if (cl == RangeState.INSIDE_PREFIX)
                 return cr;
-            else if (cr == Contained.INSIDE_PREFIX)
+            else if (cr == RangeState.INSIDE_PREFIX)
                 return cl;
             else if (cl == cr)
                 return cl;
             else // start and end combination
-                return Contained.OUTSIDE_PREFIX;
+                return RangeState.OUTSIDE_PREFIX;
         }
 
         @Override

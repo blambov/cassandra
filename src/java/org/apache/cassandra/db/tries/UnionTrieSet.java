@@ -56,22 +56,22 @@ public class UnionTrieSet implements TrieSetWithImpl
         @Override
         boolean lesserInSet(Cursor cursor)
         {
-            return !cursor.contained().lesserInSet();
+            return cursor.state().applicableBefore() == null;
         }
 
         @Override
-        Contained combineContained(Contained cl, Contained cr)
+        RangeState combineActive(RangeState cl, RangeState cr)
         {
-            if (cl == Contained.INSIDE_PREFIX || cr == Contained.INSIDE_PREFIX)
-                return Contained.INSIDE_PREFIX;
-            else if (cl == Contained.OUTSIDE_PREFIX)
+            if (cl == RangeState.INSIDE_PREFIX || cr == RangeState.INSIDE_PREFIX)
+                return RangeState.INSIDE_PREFIX;
+            else if (cl == RangeState.OUTSIDE_PREFIX)
                 return cr;
-            else if (cr == Contained.OUTSIDE_PREFIX)
+            else if (cr == RangeState.OUTSIDE_PREFIX)
                 return cl;
             else if (cl == cr)
                 return cl;
             else // start and end combination
-                return Contained.INSIDE_PREFIX;
+                return RangeState.INSIDE_PREFIX;
         }
 
         @Override

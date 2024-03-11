@@ -20,6 +20,8 @@ package org.apache.cassandra.db.tries;
 
 interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTrieImpl.Cursor<T>>
 {
+    // TODO: Get rid of the merge resolvers by forcing T to be a mergeable type.
+
     interface Cursor<T> extends TrieImpl.Cursor<T>
     {
         /**
@@ -65,52 +67,22 @@ interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTri
 //        return new MergeAlternativeBranchesTrie.Cursor<>(cursor());
 //    }
 
-    NonDeterministicTrieWithImpl<Object> EMPTY = new NonDeterministicTrieWithImpl<Object>()
+    class EmptyCursor<T> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
     {
-        public Cursor<Object> cursor()
+        @Override
+        public Cursor<T> alternateBranch()
         {
-            return new Cursor<Object>()
-            {
-                int depth = 0;
-
-                public int advance()
-                {
-                    return depth = -1;
-                }
-
-                public int skipTo(int skipDepth, int skipTransition)
-                {
-                    return depth = -1;
-                }
-
-                public int depth()
-                {
-                    return depth;
-                }
-
-                public Object content()
-                {
-                    return null;
-                }
-
-                public int incomingTransition()
-                {
-                    return -1;
-                }
-
-                @Override
-                public Cursor<Object> alternateBranch()
-                {
-                    return null;
-                }
-
-                public Cursor<Object> duplicate()
-                {
-                    return depth == 0 ? EMPTY.cursor() : this;
-                }
-            };
+            return null;
         }
-    };
+
+        @Override
+        public Cursor<T> duplicate()
+        {
+            return depth == 0 ? new EmptyCursor<>() : this;
+        }
+    }
+
+    NonDeterministicTrieWithImpl<Object> EMPTY = EmptyCursor<Object>::new;
 
     static <T> NonDeterministicTrieWithImpl<T> impl(NonDeterministicTrie<T> trie)
     {

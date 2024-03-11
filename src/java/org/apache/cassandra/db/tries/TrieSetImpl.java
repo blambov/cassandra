@@ -18,104 +18,61 @@
 
 package org.apache.cassandra.db.tries;
 
-import javax.annotation.Nonnull;
-
 public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 {
-    enum Contained
+    // TODO: Make it non-null
+    enum RangeState implements RangeTrieImpl.RangeMarker<RangeState>
     {
-        /**
-         * Prefix of the start position, outside the covered set.
-         */
-        OUTSIDE_PREFIX,
-        /**
-         * Exact start position.
-         */
-        START,
-        /**
-         * Prefix of the end position, inside the covered set (i.e. not a prefix of a START). This is
-         * reported after advancing past START, but also when skipping to a position inside the set.
-         * Indicates that all positions between that start position or skipTo location and the current are completely
-         * inside the set.
-         */
-        INSIDE_PREFIX,
-        /**
-         * Exact end position.
-         */
-        END;
+        OUTSIDE_PREFIX(false, false, false),
+        INSIDE_PREFIX(true, true, false),
+        START(false, true, true),
+        END(true, false, true);
 
-        /**
-         * @return True if the exact position is in the set.
-         */
-        boolean isInSet()
+        final boolean applicableBefore;
+        final boolean applicableAt;
+        final boolean reportAsContent;
+
+        RangeState(boolean applicableBefore, boolean applicableAt, boolean reportAsContent)
         {
-            return this == START || this == INSIDE_PREFIX;
+            this.applicableBefore = applicableBefore;
+            this.applicableAt = applicableAt;
+            this.reportAsContent = reportAsContent;
         }
 
-        /**
-         * @return True if the positions to the left of the current are in the set.
-         */
-        boolean lesserInSet()
+
+        @Override
+        public RangeState applicableBefore()
         {
-            return this == INSIDE_PREFIX || this == END;
+            return applicableBefore ? this : null;
         }
 
-        boolean isPrefix()
+        @Override
+        public RangeState applicableAt()
         {
-            return this == OUTSIDE_PREFIX || this == INSIDE_PREFIX;
+            return applicableAt ? this : null;
+        }
+
+        @Override
+        public RangeState toContent()
+        {
+            return reportAsContent ? this : null;
         }
     }
-    // TODO: For reverse iteration this should still work (assuming reverse is lexicographic on negated transitions)
-    // Note: Cursor will report different Contained values for forward and reverse iteration.
-    // Note: At the start of the iteration (when the cursor is positioned at the root), START and INSIDE_PREFIX are
-    // equivalent (since there are no positions to the left which can be in the set).
-    // Note: TrieSet will report a contained() value when exhausted. This will be INSIDE_PREFIX (or, equivalently, END)
-    // if the set has no upper limit.
 
-    interface Cursor extends CursorWalkable.Cursor
+    interface Cursor extends RangeTrieImpl.Cursor<RangeState>
     {
-        /**
-         * @return Relationship of the current position to the set. Cannot be null.
-         */
-        @Nonnull
-        Contained contained();
+        @Override
         Cursor duplicate();
     }
 
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(TrieImpl.Walker<Contained, R> walker)
+    default <R> R process(TrieImpl.Walker<RangeState, R> walker)
     {
-        return process(walker, cursor());
+        return TrieImpl.process(walker, cursor());
     }
 
-    static <R> R process(TrieImpl.Walker<Contained, R> walker, Cursor cursor)
-    {
-        assert cursor.depth() == 0 : "The provided cursor has already been advanced.";
-        int prevDepth = cursor.depth();
-        while (true)
-        {
-            Contained contained = cursor.contained();
-            if (!contained.isPrefix())
-                walker.content(contained);
-
-            int currDepth = cursor.advance();
-            if (currDepth <= 0)
-                break;
-            if (currDepth <= prevDepth)
-                walker.resetPathLength(currDepth - 1);
-            walker.addPathByte(cursor.incomingTransition());
-            prevDepth = currDepth;
-        }
-        Contained contained = cursor.contained();
-        if (!contained.isPrefix())
-        {
-            walker.resetPathLength(0);
-            walker.content(contained);
-        }
-        return walker.complete();
-    }
 
     static TrieSetImpl impl(TrieSet trieSet)
     {

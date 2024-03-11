@@ -100,13 +100,13 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     }
 
     @Override
-    public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+    public SingletonCursor<T> alternateBranch()
     {
         return null;
     }
 
     @Override
-    public NonDeterministicTrieImpl.Cursor<T> duplicate()
+    public SingletonCursor<T> duplicate()
     {
         return new SingletonCursor(this);
     }
@@ -116,6 +116,7 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     {
         return currentDepth;
     }
+
 
     @Override
     public T content()
@@ -127,5 +128,31 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     public int incomingTransition()
     {
         return currentTransition;
+    }
+
+    static class Range<T extends RangeTrieImpl.RangeMarker<T>> extends SingletonCursor<T> implements RangeTrieImpl.Cursor<T>
+    {
+        Range(ByteComparable key, T value)
+        {
+            super(key, value);
+        }
+
+        Range(SingletonCursor<T> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public T state()
+        {
+            // Since the singleton is only active at a single point, we only return a value for the exact position.
+            return content();
+        }
+
+        @Override
+        public Range<T> duplicate()
+        {
+            return new Range(this);
+        }
     }
 }
