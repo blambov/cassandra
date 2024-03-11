@@ -78,4 +78,90 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
     {
         return (TrieSetImpl) trieSet;
     }
+
+    static RangeIntersectionCursor.IntersectionController<RangeState, RangeState, RangeState> INTERSECTION_CONTROLLER =
+    new RangeIntersectionCursor.IntersectionController<RangeState, RangeState, RangeState>()
+    {
+        @Override
+        public RangeState combineState(RangeState lState, RangeState rState)
+        {
+            if (lState == RangeState.OUTSIDE_PREFIX || rState == RangeState.OUTSIDE_PREFIX)
+                return RangeState.OUTSIDE_PREFIX;
+            else if (lState == RangeState.INSIDE_PREFIX)
+                return rState;
+            else if (rState == RangeState.INSIDE_PREFIX)
+                return lState;
+            else if (lState == rState)
+                return lState;
+            else // start and end combination
+                return RangeState.OUTSIDE_PREFIX;
+        }
+
+        @Override
+        public boolean includeLesserLeft(RangeState lState)
+        {
+            return lState.applicableBefore() != null;
+        }
+
+        @Override
+        public boolean includeLesserRight(RangeState rState)
+        {
+            return rState.applicableBefore() != null;
+        }
+
+        @Override
+        public RangeState combineStateCoveringLeft(RangeState rState, RangeState lCoveringState)
+        {
+            return rState;
+        }
+
+        @Override
+        public RangeState combineStateCoveringRight(RangeState lState, RangeState rCoveringState)
+        {
+            return lState;
+        }
+    };
+
+    static RangeIntersectionCursor.IntersectionController<RangeState, RangeState, RangeState> UNION_CONTROLLER =
+    new RangeIntersectionCursor.IntersectionController<RangeState, RangeState, RangeState>()
+    {
+        @Override
+        public RangeState combineState(RangeState lState, RangeState rState)
+        {
+            if (lState == RangeState.INSIDE_PREFIX || rState == RangeState.INSIDE_PREFIX)
+                return RangeState.INSIDE_PREFIX;
+            else if (lState == RangeState.OUTSIDE_PREFIX)
+                return rState;
+            else if (rState == RangeState.OUTSIDE_PREFIX)
+                return lState;
+            else if (lState == rState)
+                return lState;
+            else // start and end combination
+                return RangeState.INSIDE_PREFIX;
+        }
+
+        @Override
+        public boolean includeLesserLeft(RangeState lState)
+        {
+            return lState.applicableBefore() == null;
+        }
+
+        @Override
+        public boolean includeLesserRight(RangeState rState)
+        {
+            return rState.applicableBefore() == null;
+        }
+
+        @Override
+        public RangeState combineStateCoveringLeft(RangeState rState, RangeState lCoveringState)
+        {
+            return rState;
+        }
+
+        @Override
+        public RangeState combineStateCoveringRight(RangeState lState, RangeState rCoveringState)
+        {
+            return lState;
+        }
+    };
 }

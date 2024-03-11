@@ -18,8 +18,19 @@
 
 package org.apache.cassandra.db.tries;
 
-public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
+public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D extends RangeTrieImpl.RangeMarker<D>, Z extends RangeTrieImpl.RangeMarker<Z>> implements RangeTrieImpl.Cursor<Z>
 {
+    interface IntersectionController<C extends RangeTrieImpl.RangeMarker<C>, D extends RangeTrieImpl.RangeMarker<D>, Z extends RangeTrieImpl.RangeMarker<Z>>
+    {
+        Z combineState(C lState, D rState);
+
+        boolean includeLesserLeft(C lState);
+        boolean includeLesserRight(D rState);
+
+        Z combineStateCoveringLeft(D rState, C lCoveringState);
+        Z combineStateCoveringRight(C lState, D rCoveringState);
+    }
+
     enum State
     {
         MATCHING,
@@ -40,22 +51,25 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         }
     }
 
-    final TrieSetImpl.Cursor c1;
-    final TrieSetImpl.Cursor c2;
+    final IntersectionController<C, D, Z> controller;
+    final RangeTrieImpl.Cursor<C> c1;
+    final RangeTrieImpl.Cursor<D> c2;
     int currentDepth;
     int currentTransition;
-    TrieSetImpl.RangeState currentRangeState;
+    Z currentRangeState;
     State state;
 
-    public TrieSetIntersectionCursor(TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
+    public RangeIntersectionCursor(IntersectionController<C, D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
     {
+        this.controller = controller;
         this.c1 = c1;
         this.c2 = c2;
         matchingPosition(0, -1);
     }
 
-    public TrieSetIntersectionCursor(TrieSetIntersectionCursor copyFrom)
+    public RangeIntersectionCursor(RangeIntersectionCursor<C, D, Z> copyFrom)
     {
+        this.controller = copyFrom.controller;
         this.c1 = copyFrom.c1.duplicate();
         this.c2 = copyFrom.c2.duplicate();
         this.currentDepth = copyFrom.currentDepth;
@@ -77,14 +91,9 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
     }
 
     @Override
-    public TrieSetImpl.RangeState state()
+    public Z state()
     {
         return currentRangeState;
-    }
-
-    boolean lesserInSet(TrieSetImpl.Cursor cursor)
-    {
-        return cursor.state().applicableBefore() != null;
     }
 
     @Override
@@ -95,7 +104,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
             case MATCHING:
             {
                 int ldepth = c1.advance();
-                if (lesserInSet(c1))
+                if (controller.includeLesserLeft(c1.state()))
                     return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
                 else
                     return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
@@ -117,7 +126,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
             case MATCHING:
             {
                 int ldepth = c1.skipTo(skipDepth, skipTransition);
-                if (lesserInSet(c1))
+                if (controller.includeLesserLeft(c1.state()))
                     return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, State.C1_AHEAD);
                 else
                     return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
@@ -140,7 +149,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
             {
                 // Cannot do multi-advance when cursors are at the same position. Applying advance().
                 int ldepth = c1.advance();
-                if (lesserInSet(c1))
+                if (controller.includeLesserLeft(c1.state()))
                     return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
                 else
                     return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
@@ -154,29 +163,43 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         }
     }
 
-    private int advanceWithSetAhead(int advDepth, TrieSetImpl.Cursor advancing, TrieSetImpl.Cursor ahead, State state)
+    boolean lesserInSet(State state)
+    {
+        switch (state)
+        {
+            case C1_AHEAD:
+                return controller.includeLesserLeft(c1.state());
+            case C2_AHEAD:
+                return controller.includeLesserRight(c2.state());
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    private int advanceWithSetAhead(int advDepth, RangeTrieImpl.Cursor<?> advancing, RangeTrieImpl.Cursor<?> ahead, State state)
     {
         int aheadDepth = ahead.depth();
         int aheadTransition = ahead.incomingTransition();
         int advTransition = advancing.incomingTransition();
         if (advDepth > aheadDepth)
-            return coveredAreaWithSetAhead(advDepth, advTransition, advancing, state);
+            return coveredAreaWithSetAhead(advDepth, advTransition, state);
         if (advDepth == aheadDepth)
         {
             if (advTransition < aheadTransition)
-                return coveredAreaWithSetAhead(advDepth, advTransition, advancing, state);
+                return coveredAreaWithSetAhead(advDepth, advTransition, state);
             if (advTransition == aheadTransition)
                 return matchingPosition(advDepth, advTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (lesserInSet(advancing))
-            return coveredAreaWithSetAhead(aheadDepth, aheadTransition, ahead, state.swap());
+        final State swapped = state.swap();
+        if (lesserInSet(swapped))
+            return coveredAreaWithSetAhead(aheadDepth, aheadTransition, swapped);
         else
-            return advanceToIntersection(advDepth, advancing, ahead, state.swap());
+            return advanceToIntersection(advDepth, advancing, ahead, swapped);
     }
 
-    private int advanceToIntersection(int aheadDepth, TrieSetImpl.Cursor ahead, TrieSetImpl.Cursor other, State state)
+    private int advanceToIntersection(int aheadDepth, RangeTrieImpl.Cursor<?> ahead, RangeTrieImpl.Cursor<?> other, State state)
     {
         // at this point ahead is beyond other's position, but outside the covered area.
         int aheadTransition = ahead.incomingTransition();
@@ -187,24 +210,38 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
             int otherTransition = other.incomingTransition();
             if (otherDepth == aheadDepth && otherTransition == aheadTransition)
                 return matchingPosition(aheadDepth, aheadTransition);
-            if (lesserInSet(other))
-                return coveredAreaWithSetAhead(aheadDepth, aheadTransition, ahead, state.swap());
+            final State swapped = state.swap();
+            if (lesserInSet(swapped))
+                return coveredAreaWithSetAhead(aheadDepth, aheadTransition, swapped);
 
             // otherwise roles have reversed, swap everything and repeat
             aheadDepth = otherDepth;
             aheadTransition = otherTransition;
-            state = state.swap();
-            TrieSetImpl.Cursor t = ahead;
+            state = swapped;
+            RangeTrieImpl.Cursor t = ahead;
             ahead = other;
             other = t;
         }
     }
 
-    private int coveredAreaWithSetAhead(int depth, int transition, TrieSetImpl.Cursor advancing, State state)
+    Z combineWithCovering(State state)
+    {
+        switch (state)
+        {
+            case C1_AHEAD:
+                return controller.combineStateCoveringLeft(c2.state(), c1.state());
+            case C2_AHEAD:
+                return controller.combineStateCoveringRight(c1.state(), c2.state());
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    private int coveredAreaWithSetAhead(int depth, int transition, State state)
     {
         this.currentDepth = depth;
         this.currentTransition = transition;
-        this.currentRangeState = advancing.state();
+        this.currentRangeState = combineWithCovering(state);
         this.state = state;
         return depth;
     }
@@ -214,68 +251,33 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         state = State.MATCHING;
         currentDepth = depth;
         currentTransition = transition;
-        currentRangeState = combineState(c1.state(), c2.state());
+        currentRangeState = controller.combineState(c1.state(), c2.state());
         // TODO: Optimize.... maybe one call for both activeBefore and content
         return depth;
     }
 
-    TrieSetImpl.RangeState combineState(TrieSetImpl.RangeState cl, TrieSetImpl.RangeState cr)
-    {
-        if (cl == TrieSetImpl.RangeState.OUTSIDE_PREFIX || cr == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-            return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
-        else if (cl == TrieSetImpl.RangeState.INSIDE_PREFIX)
-            return cr;
-        else if (cr == TrieSetImpl.RangeState.INSIDE_PREFIX)
-            return cl;
-        else if (cl == cr)
-            return cl;
-        else // start and end combination
-            return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
-    }
-
     @Override
-    public TrieSetImpl.Cursor duplicate()
+    public RangeTrieImpl.Cursor duplicate()
     {
-        return new TrieSetIntersectionCursor(this);
+        return new RangeIntersectionCursor(this);
     }
 
-    static class UnionCursor extends TrieSetIntersectionCursor
+    static class TrieSet extends RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> implements TrieSetImpl.Cursor
     {
-        public UnionCursor(TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
+        public TrieSet(IntersectionController<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> controller, RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c1, RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c2)
         {
-            super(c1, c2);
+            super(controller, c1, c2);
         }
 
-        public UnionCursor(UnionCursor copyFrom)
+        public TrieSet(RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> copyFrom)
         {
             super(copyFrom);
         }
 
         @Override
-        boolean lesserInSet(TrieSetImpl.Cursor cursor)
+        public TrieSet duplicate()
         {
-            return cursor.state().applicableBefore() == null;
-        }
-
-        @Override
-        TrieSetImpl.RangeState combineState(TrieSetImpl.RangeState cl, TrieSetImpl.RangeState cr)
-        {
-            if (cl == TrieSetImpl.RangeState.INSIDE_PREFIX || cr == TrieSetImpl.RangeState.INSIDE_PREFIX)
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
-            else if (cl == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-                return cr;
-            else if (cr == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-                return cl;
-            else if (cl == cr)
-                return cl;
-            else // start and end combination
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
-        }
-
-        @Override
-        public TrieSetImpl.Cursor duplicate()
-        {
-            return new UnionCursor(this);
+            return new TrieSet(this);
         }
     }
 }
