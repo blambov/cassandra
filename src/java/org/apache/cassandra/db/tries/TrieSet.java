@@ -52,17 +52,17 @@ public interface TrieSet
 
     default TrieSet negation()
     {
-        return new NegatedTrieSet(impl());
+        return (TrieSetWithImpl) () -> new TrieSetNegatedCursor(impl().cursor());
     }
 
     default TrieSet union(TrieSet other)
     {
-        return new UnionTrieSet(impl(), other.impl());
+        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor.UnionCursor(impl().cursor(), other.impl().cursor());
     }
 
     default TrieSet intersection(TrieSet other)
     {
-        return new IntersectionTrieSet(impl(), other.impl());
+        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor(impl().cursor(), other.impl().cursor());
     }
 
     private TrieSetImpl impl()

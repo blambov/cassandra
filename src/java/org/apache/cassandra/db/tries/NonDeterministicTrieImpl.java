@@ -44,7 +44,7 @@ interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTri
          * alternate paths (ignoring any alternate part in the intersecting set).
          * <p>
          * To perform a walk or enumeration that includes alternate branches, one must explicitly construct a merged
-         * (in other words, deterministic) trie view by calling {@link NonDeterministicTrie#mergeAlternativeBranches}.
+         * (in other words, deterministic) trie view by calling {@link NonDeterministicTrie#deterministic}.
          */
         Cursor<T> alternateBranch();
 

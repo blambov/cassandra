@@ -21,13 +21,11 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
-import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
@@ -78,6 +76,8 @@ public interface Trie<T> extends BaseTrie<T>
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
     // TODO: consider mayHaveAlternatives flag
+
+    // TODO: comments are very out-of-date
 
     // TODO: reverse iteration
     // TODO: consistency levels / copy on write + node reuse
