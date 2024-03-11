@@ -57,12 +57,14 @@ public interface TrieSet
 
     default TrieSet union(TrieSet other)
     {
-        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor.UnionCursor(impl().cursor(), other.impl().cursor());
+//        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor.UnionCursor(impl().cursor(), other.impl().cursor());
+        return (TrieSetWithImpl) () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.UNION_CONTROLLER, impl().cursor(), other.impl().cursor());
     }
 
     default TrieSet intersection(TrieSet other)
     {
-        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor(impl().cursor(), other.impl().cursor());
+//        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor(impl().cursor(), other.impl().cursor());
+        return (TrieSetWithImpl) () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.INTERSECTION_CONTROLLER, impl().cursor(), other.impl().cursor());
     }
 
     private TrieSetImpl impl()
