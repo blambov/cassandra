@@ -76,12 +76,12 @@ public class RangesTrieSet implements TrieSetWithImpl
         return new RangesCursor(boundaries);
     }
 
-    static final Contained CONTAINED_SELECTIONS[] = new Contained[]
+    static final RangeState CONTAINED_SELECTIONS[] = new RangeState[]
     {
-    Contained.OUTSIDE_PREFIX, // even index, no match: before a start
-    Contained.INSIDE_PREFIX,  // odd index, no match: prefix of an end
-    Contained.END,            // even index, match: went over an end
-    Contained.START           // odd index, match: went over a start
+    RangeState.OUTSIDE_PREFIX, // even index, no match: before a start
+    RangeState.INSIDE_PREFIX,  // odd index, no match: prefix of an end
+    RangeState.END,            // even index, match: went over an end
+    RangeState.START           // odd index, match: went over a start
     };
 
     private static class RangesCursor implements Cursor
@@ -92,7 +92,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         int currentIdx;
         int currentDepth;
         int currentTransition;
-        Contained currentContained;
+        RangeState currentContained;
 
         public RangesCursor(ByteComparable[] boundaries)
         {
@@ -164,7 +164,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         }
 
         @Override
-        public Contained contained()
+        public RangeState state()
         {
             return currentContained;
         }

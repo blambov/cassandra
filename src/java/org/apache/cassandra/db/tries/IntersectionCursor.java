@@ -163,7 +163,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     private boolean inSetCoveredArea()
     {
-        return set.contained().lesserInSet();
+        return set.state().applicableBefore() != null;
     }
 
     private int coveredAreaWithSetAhead(int depth)
@@ -174,7 +174,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     private int matchingPosition(int depth)
     {
-        state = set.contained().isInSet() ? State.INSIDE_MATCHING : State.OUTSIDE_MATCHING;
+        state = set.state().applicableAt() != null ? State.INSIDE_MATCHING : State.OUTSIDE_MATCHING;
         return depth;
     }
 

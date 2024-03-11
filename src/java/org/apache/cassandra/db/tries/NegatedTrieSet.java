@@ -60,18 +60,18 @@ public class NegatedTrieSet implements TrieSetWithImpl
         }
 
         @Override
-        public Contained contained()
+        public RangeState state()
         {
-            switch (source.contained())
+            switch (source.state())
             {
                 case OUTSIDE_PREFIX:
-                    return Contained.INSIDE_PREFIX;
+                    return RangeState.INSIDE_PREFIX;
                 case START:
-                    return Contained.END;
+                    return RangeState.END;
                 case INSIDE_PREFIX:
-                    return Contained.OUTSIDE_PREFIX;
+                    return RangeState.OUTSIDE_PREFIX;
                 case END:
-                    return Contained.START;
+                    return RangeState.START;
                 default:
                     throw new AssertionError();
             }

@@ -25,7 +25,7 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface NonDeterministicTrie<T> extends BaseTrie<T>
+public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseTrie<T>
 {
 
     /**
@@ -65,9 +65,9 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
     /**
      * Returns a singleton trie mapping the given byte path to content.
      */
-    static <T> NonDeterministicTrie<T> singleton(ByteComparable b, T v)
+    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, T v)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new SingletonCursor<>(b, v);
+        return (RangeTrieWithImpl<T>) () -> new SingletonCursor.Range<>(b, v);
     }
 
     /**
@@ -84,7 +84,7 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
      * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
      */
-    default NonDeterministicTrie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    default RangeTrie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (left == null && right == null)
             return this;
@@ -106,7 +106,7 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
      * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
      */
-    default NonDeterministicTrie<T> subtrie(ByteComparable left, ByteComparable right)
+    default RangeTrie<T> subtrie(ByteComparable left, ByteComparable right)
     {
         return intersect(RangesTrieSet.create(left, right));
     }
@@ -116,9 +116,11 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * <p>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
-    default NonDeterministicTrie<T> intersect(TrieSet set)
+    default RangeTrie<T> intersect(TrieSet set)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new IntersectionCursor.NonDeterministic<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
+        // FIXME
+        return this;
+//        return (RangeTrieWithImpl<T>) () -> new IntersectionCursor.Range<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
     }
 
     /**
@@ -154,24 +156,16 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
     }
 
     /**
-     * Returns the values in any order. For some tries this is much faster than the ordered iterable.
-     */
-    default Iterable<T> valuesUnordered()
-    {
-        return values();
-    }
-
-    /**
      * Constructs a view of the merge of this trie with the given one. The view is live, i.e. any write to any of the
      * sources will be reflected in the merged view.
      * <p>
      * If there is content for a given key in both sources, the resolver will be called to obtain the combination.
      * (The resolver will not be called if there's content from only one source.)
      */
-    default NonDeterministicTrie<T> mergeWith(NonDeterministicTrie<T> other, Trie.MergeResolver<T> resolver)
-    {
-        return (NonDeterministicTrieWithImpl<T>) () -> new MergeCursor.NonDeterministic<>(resolver, impl(), other.impl());
-    }
+//    default RangeTrie<T> mergeWith(RangeTrie<T> other, Trie.MergeResolver<T> resolver)
+//    {
+//        return (RangeTrieWithImpl<T>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
+//    }
 
     /**
      * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
@@ -180,39 +174,34 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * If there is content for a given key in more than one sources, the resolver will be called to obtain the
      * combination. (The resolver will not be called if there's content from only one source.)
      */
-    static <T> NonDeterministicTrie<T> merge(Collection<? extends NonDeterministicTrie<T>> sources, Trie.CollectionMergeResolver<T> resolver)
-    {
-        switch (sources.size())
-        {
-            case 0:
-                return empty();
-            case 1:
-                return sources.iterator().next();
-            case 2:
-            {
-                Iterator<? extends NonDeterministicTrie<T>> it = sources.iterator();
-                NonDeterministicTrie<T> t1 = it.next();
-                NonDeterministicTrie<T> t2 = it.next();
-                return t1.mergeWith(t2, resolver);
-            }
-            default:
-                return (NonDeterministicTrieWithImpl<T>) () -> new CollectionMergeCursor.NonDeterministic<>(resolver, sources);
-        }
-    }
+//    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> merge(Collection<? extends RangeTrie<T>> sources, Trie.CollectionMergeResolver<T> resolver)
+//    {
+//        switch (sources.size())
+//        {
+//            case 0:
+//                return empty();
+//            case 1:
+//                return sources.iterator().next();
+//            case 2:
+//            {
+//                Iterator<? extends RangeTrie<T>> it = sources.iterator();
+//                RangeTrie<T> t1 = it.next();
+//                RangeTrie<T> t2 = it.next();
+//                return t1.mergeWith(t2, resolver);
+//            }
+//            default:
+//                return (RangeTrieWithImpl<T>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
+//        }
+//    }
 
     @SuppressWarnings("unchecked")
-    static <T> NonDeterministicTrie<T> empty()
+    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> empty()
     {
-        return (NonDeterministicTrie<T>) NonDeterministicTrieImpl.EMPTY;
-    }
-//
-    default Trie<T> deterministic(Trie.CollectionMergeResolver<T> resolver)
-    {
-        return new MergeAlternativeBranchesTrie<>(impl(), resolver, false);
+        return (RangeTrie<T>) RangeTrieImpl.EMPTY;
     }
 
-    private NonDeterministicTrieWithImpl<T> impl()
+    private RangeTrieWithImpl<T> impl()
     {
-        return NonDeterministicTrieImpl.impl(this);
+        return RangeTrieImpl.impl(this);
     }
 }

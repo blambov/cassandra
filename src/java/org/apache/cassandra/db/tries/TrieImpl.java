@@ -212,46 +212,42 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
         }
     };
 
-    TrieWithImpl<Object> EMPTY = new TrieWithImpl<Object>()
+    class EmptyCursor<T> implements Cursor<T>
     {
-        public Cursor<Object> cursor()
+        int depth = 0;
+
+        public int advance()
         {
-            return new Cursor<Object>()
-            {
-                int depth = 0;
-
-                public int advance()
-                {
-                    return depth = -1;
-                }
-
-                public int skipTo(int skipDepth, int skipTransition)
-                {
-                    return depth = -1;
-                }
-
-                public int depth()
-                {
-                    return depth;
-                }
-
-                public Object content()
-                {
-                    return null;
-                }
-
-                public int incomingTransition()
-                {
-                    return -1;
-                }
-
-                public Cursor<Object> duplicate()
-                {
-                    return depth == 0 ? EMPTY.cursor() : this;
-                }
-            };
+            return depth = -1;
         }
-    };
+
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return depth = -1;
+        }
+
+        public int depth()
+        {
+            return depth;
+        }
+
+        public T content()
+        {
+            return null;
+        }
+
+        public int incomingTransition()
+        {
+            return -1;
+        }
+
+        public Cursor<T> duplicate()
+        {
+            return depth == 0 ? new EmptyCursor<>() : this;
+        }
+    }
+
+    TrieWithImpl<Object> EMPTY = EmptyCursor<Object>::new;
 
     static <T> TrieWithImpl<T> impl(Trie<T> trie)
     {
