@@ -87,13 +87,12 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     RangeTrieWithImpl EMPTY = EmptyCursor::new;
 
 
-    // TODO: Range intersection must have set on the left side
-    static <T extends RangeTrieImpl.RangeMarker<T>> RangeIntersectionCursor.IntersectionController<T, TrieSetImpl.RangeState, T> rangeAndSetIntersectionController()
+    static <T extends RangeTrieImpl.RangeMarker<T>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T> rangeAndSetIntersectionController()
     {
-        return new RangeIntersectionCursor.IntersectionController<T, TrieSetImpl.RangeState, T>()
+        return new RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T>()
         {
             @Override
-            public T combineState(T lState, TrieSetImpl.RangeState rState)
+            public T combineState(TrieSetImpl.RangeState rState, T lState)
             {
                 if (lState == null)
                     return null;
@@ -114,26 +113,26 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
             }
 
             @Override
-            public T combineStateCoveringRight(T lState, TrieSetImpl.RangeState rCoveringState)
+            public T combineStateCoveringLeft(T rState, TrieSetImpl.RangeState lCoveringState)
             {
-                assert rCoveringState.lesserIncluded();
-                return lState;
+                assert lCoveringState.lesserIncluded();
+                return rState;
             }
 
             @Override
-            public T combineStateCoveringLeft(TrieSetImpl.RangeState rState, T lCoveringState)
+            public T combineStateCoveringRight(TrieSetImpl.RangeState lState, T rCoveringState)
             {
-                assert lCoveringState.lesserIncluded();
-                switch (rState)
+                assert rCoveringState.lesserIncluded();
+                switch (lState)
                 {
                     case OUTSIDE_PREFIX:
                         return null;
                     case INSIDE_PREFIX:
-                        return lCoveringState.asActiveState();
+                        return rCoveringState.asActiveState();
                     case END:
-                        return lCoveringState.asActiveState().asReportableEnd();
+                        return rCoveringState.asActiveState().asReportableEnd();
                     case START:
-                        return lCoveringState.asActiveState().asReportableStart();
+                        return rCoveringState.asActiveState().asReportableStart();
                     default:
                         throw new AssertionError();
                 }

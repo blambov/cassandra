@@ -122,9 +122,9 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     }
 
 
-    default RangeTrie<T> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<T, TrieSetImpl.RangeState, T> controller)
+    default RangeTrie<T> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T> controller)
     {
-        return (RangeTrieWithImpl<T>) () -> new RangeIntersectionCursor<>(controller, impl().cursor(), TrieSetImpl.impl(set).cursor());
+        return (RangeTrieWithImpl<T>) () -> new RangeIntersectionCursor<>(controller, TrieSetImpl.impl(set).cursor(), impl().cursor());
     }
 
     /**
