@@ -18,9 +18,17 @@
 //
 //package org.apache.cassandra.db.tries;
 //
-//public interface DeletionAwareTrieImpl<T, D extends T> extends TrieImpl<T>, DeletionAwareTrie<T, D>
+//public interface DeletionAwareTrieImpl<T, D extends RangeTrieImpl.RangeMarker<D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
 //{
-//    static <D extends T, T> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
+//    interface Cursor<T, D extends RangeTrieImpl.RangeMarker<D>> extends TrieImpl.Cursor<T>
+//    {
+//        RangeTrieImpl.Cursor<D> deletionBranch();
+//
+//        @Override
+//        Cursor<T, D> duplicate();
+//    }
+//
+//    static <T, D extends RangeTrieImpl.RangeMarker<D>> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
 //    {
 //        return (DeletionAwareTrieImpl<T, D>) trie;
 //    }

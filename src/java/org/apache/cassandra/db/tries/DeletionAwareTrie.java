@@ -20,34 +20,34 @@
 //
 //import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 //
-//public interface DeletionAwareTrie<T, D extends T>
+//public interface DeletionAwareTrie<T, D extends RangeTrieImpl.RangeMarker<D>>
 //{
-//    enum BoundSide
-//    {
-//        BEFORE, AFTER, AT
-//    }
-//
-//    interface DeletionHandler<T, D extends T>
-//    {
-//        boolean has(D deletionMarker, BoundSide side);
-//        T delete(T content, D deletionMarker, BoundSide contentRelativeToDeletion);
-//        /*
-//         * Convert one side of the given marker to a marker of the given side.
-//         * The other sides of the source deletion marker are ignored.
-//         * Used e.g. to convert the marker after a covered region into a start and end pair in intersections.
-//         */
-//        D asBound(D deletionMarker, BoundSide deletionSide, BoundSide targetSide);
-//
-//        /**
-//         * Verify that the given deletion marker closes the active deletion. Used in assertions.
-//         * @param deletionMarker Newly-encountered marker.
-//         * @param activeMarker The marker that was active before it. May be null.
-//         * @return false if something is wrong.
-//         */
-//        boolean closes(D deletionMarker, D activeMarker);
-//    }
-//
-//    DeletionHandler<T, D> deletionHandler();
+////    enum BoundSide
+////    {
+////        BEFORE, AFTER, AT
+////    }
+////
+////    interface DeletionHandler<T, D extends T>
+////    {
+////        boolean has(D deletionMarker, BoundSide side);
+////        T delete(T content, D deletionMarker, BoundSide contentRelativeToDeletion);
+////        /*
+////         * Convert one side of the given marker to a marker of the given side.
+////         * The other sides of the source deletion marker are ignored.
+////         * Used e.g. to convert the marker after a covered region into a start and end pair in intersections.
+////         */
+////        D asBound(D deletionMarker, BoundSide deletionSide, BoundSide targetSide);
+////
+////        /**
+////         * Verify that the given deletion marker closes the active deletion. Used in assertions.
+////         * @param deletionMarker Newly-encountered marker.
+////         * @param activeMarker The marker that was active before it. May be null.
+////         * @return false if something is wrong.
+////         */
+////        boolean closes(D deletionMarker, D activeMarker);
+////    }
+////
+////    DeletionHandler<T, D> deletionHandler();
 //
 //    default DeletionAwareTrie<T, D> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
 //    {
@@ -65,11 +65,22 @@
 //        return new DeletionAwareIntersectionTrie<>(impl(), TrieSetImpl.impl(set));
 //    }
 //
-//    default Trie<T> withDeletions()
+//    interface DataAndDeletionResolver<T, D extends RangeTrieImpl.RangeMarker<D>, Z>
 //    {
-//        // TODO: Perform resolution of multiple deletions
-//        return new MergeAlternativeBranchesTrie<>(impl(), Trie.throwingResolver(), false);
+//        Z resolve(T data, D deletion);
 //    }
+//
+//    // We won't allow deletions under other deletions.
+////    default Trie<D> deletionsOnly()
+////    {
+////        return (TrieWithImpl<D>) () -> impl().deletionCursor();
+////    }
+////
+////    default <Z> Trie<Z> withDeletions(DataAndDeletionResolver<T, D, Z> resolver)
+////    {
+////        // FIXME: deletion can be anywhere... and can cover other deletions
+////        return (TrieWithImpl<Z>) () -> new MergeCursor.DeterministicWithMappedContent<>(resolver, impl().cursor(), impl().deletionCursor());
+////    }
 //
 //    private DeletionAwareTrieImpl<T, D> impl()
 //    {

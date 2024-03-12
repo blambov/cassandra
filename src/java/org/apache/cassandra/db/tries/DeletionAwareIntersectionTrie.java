@@ -18,7 +18,7 @@
 //
 //package org.apache.cassandra.db.tries;
 //
-//public class DeletionAwareIntersectionTrie<T, D extends T> implements DeletionAwareTrieImpl<T, D>
+//public class DeletionAwareIntersectionTrie<T, D extends RangeTrieImpl.RangeMarker<D>> implements DeletionAwareTrieImpl<T, D>
 //{
 //    final DeletionAwareTrieImpl<T, D> trie;
 //    final TrieSetImpl set;
@@ -27,45 +27,50 @@
 //    {
 //        // If the source is already an intersection, intersect the sets. This easier to do than handling skipTo calls
 //        // in this cursor.
-//        if (trie instanceof DeletionAwareIntersectionTrie)
-//        {
-//            DeletionAwareIntersectionTrie<T, D> other = (DeletionAwareIntersectionTrie<T, D>) trie;
-//            trie = other.trie;
-//            set = new IntersectionTrieSet(set, other.set);
-//        }
+////        if (trie instanceof DeletionAwareIntersectionTrie)
+////        {
+////            DeletionAwareIntersectionTrie<T, D> other = (DeletionAwareIntersectionTrie<T, D>) trie;
+////            trie = other.trie;
+////            set = new IntersectionTrieSet(set, other.set);
+////        }
 //
 //        this.trie = trie;
 //        this.set = set;
 //    }
 //
 //    @Override
-//    public Cursor<T> cursor()
+//    public Cursor<T, D> cursor()
 //    {
-//        return new DeletionAwareIntersectionCursor<>(trie.cursor(), set.cursor(), trie.deletionHandler());
+//        return new DeletionAwareIntersectionCursor<>(trie.cursor(), set.cursor());
 //    }
 //
-//    @Override
-//    public DeletionHandler<T, D> deletionHandler()
+//    static class DeletionAwareIntersectionCursor<T, D extends RangeTrieImpl.RangeMarker<D>>
+//    extends IntersectionCursor.WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>>
+//    implements Cursor<T, D>
 //    {
-//        return trie.deletionHandler();
-//    }
-//
-//    static class DeletionAwareIntersectionCursor<T, D extends T> extends IntersectionTrie.IntersectionCursor<T>
-//    {
-//        final DeletionHandler<T, D> handler;
-//
-//        public DeletionAwareIntersectionCursor(Cursor<T> source, TrieSetImpl.Cursor set, DeletionHandler<T, D> handler)
+//        public DeletionAwareIntersectionCursor(Cursor<T, D> source, TrieSetImpl.Cursor set)
 //        {
 //            super(source, set);
-//            this.handler = handler;
 //        }
 //
-//        public Cursor<T> alternateBranch()
+//        private DeletionAwareIntersectionCursor(DeletionAwareIntersectionCursor<T, D> copyFrom)
 //        {
-//            Cursor<T> alternate = source.alternateBranch();
-//            if (alternate == null)
+//            super(copyFrom, copyFrom.source.duplicate());
+//        }
+//
+//        @Override
+//        public RangeTrieImpl.Cursor<D> deletionBranch()
+//        {
+//            RangeTrieImpl.Cursor<D> deletionBranch = source.deletionBranch();
+//            if (deletionBranch == null)
 //                return null;
-//            return new DeletionCursor<>(alternate, set.duplicate(), handler);
+//            return new DeletionCursor<>(deletionBranch, set.duplicate());
+//        }
+//
+//        @Override
+//        public DeletionAwareIntersectionCursor<T, D> duplicate()
+//        {
+//            return new DeletionAwareIntersectionCursor<>(this);
 //        }
 //    }
 //
@@ -88,11 +93,10 @@
 //     * <p>
 //     * If we are inside the set, our view of it must be one step ahead, so that we can report its end correctly.
 //     */
-//    static class DeletionCursor<T, D extends T> implements Cursor<T>
+//    static class DeletionCursor<D extends RangeTrieImpl.RangeMarker<D>> implements RangeTrieImpl.Cursor<D>
 //    {
-//        private final Cursor<T> source;
+//        private final RangeTrieImpl.Cursor<D> source;
 //        private final TrieSetImpl.Cursor set;
-//        final DeletionHandler<T, D> handler;
 //
 //        CursorState state;
 //        int currentDepth;
@@ -103,24 +107,22 @@
 //        D coveringDeletion;  // set when source skips over a set branch, from the BEFORE side of the next marker
 //
 //
-//        public DeletionCursor(Cursor<T> source, TrieSetImpl.Cursor set, DeletionHandler<T, D> handler)
+//        public DeletionCursor(RangeTrieImpl.Cursor<D> source, TrieSetImpl.Cursor set)
 //        {
 //            this.source = source;
 //            this.set = set;
-//            this.handler = handler;
 //            this.activeDeletion = null;
 //            this.coveringDeletion = null;
 //            assert set.depth() == source.depth() && set.incomingTransition() == source.incomingTransition();
 //            matchingPosition(source.depth(), source.incomingTransition());
 //        }
 //
-//        DeletionCursor(DeletionCursor<T, D> copyFrom)
+//        DeletionCursor(DeletionCursor<D> copyFrom)
 //        {
 //            this.source = copyFrom.source.duplicate();
 //            this.set = copyFrom.set.duplicate();
 //            this.activeDeletion = copyFrom.activeDeletion;
 //            this.coveringDeletion = copyFrom.coveringDeletion;
-//            this.handler = copyFrom.handler;
 //            this.currentDepth = copyFrom.currentDepth;
 //            this.currentTransition = copyFrom.currentTransition;
 //            this.currentContent = copyFrom.currentContent;
@@ -145,6 +147,11 @@
 //            return currentContent;
 //        }
 //
+//        boolean lesserInSet(TrieSetImpl.Cursor cursor)
+//        {
+//            return cursor.state().applicableBefore() != null;
+//        }
+//
 //        @Override
 //        public int advance()
 //        {
@@ -154,7 +161,7 @@
 //                {
 //                    // assume set is more restrictive
 //                    int setDepth = set.advance();
-//                    if (set.contained().lesserInSet())
+//                    if (lesserInSet(set))
 //                        return advanceInCoveredBranch(setDepth, source.advance());
 //                    else
 //                        return advanceSourceToIntersection(setDepth, set.incomingTransition());
@@ -178,7 +185,7 @@
 //                case SET_AHEAD:
 //                    return advanceInCoveredBranch(set.depth(), source.advanceMultiple(receiver));
 //                case SOURCE_AHEAD:
-//                    return advanceWithCoveringDeletion(set.advance());  // TODO: maybe introduce advanceMultiple for set?
+//                    return advanceWithCoveringDeletion(set.advanceMultiple(receiver));
 //                default:
 //                    throw new AssertionError();
 //            }
@@ -220,7 +227,7 @@
 //            if (setDepth == sourceDepth && setTransition == sourceTransition)
 //                return matchingPosition(sourceDepth, sourceTransition);
 //            // set is ahead
-//            if (set.contained().lesserInSet())
+//            if (lesserInSet(set))
 //                return atSourceSetAhead(sourceDepth, sourceTransition);
 //            else
 //                return advanceSourceToIntersection(setDepth, setTransition);
@@ -243,7 +250,7 @@
 //            }
 //
 //            // Set has moved ahead of source.
-//            if (set.contained().lesserInSet())
+//            if (lesserInSet(set))
 //                return atSourceSetAhead(sourceDepth, source.incomingTransition());
 //            else
 //                return advanceSourceToIntersection(setDepth, setTransition);
@@ -263,10 +270,7 @@
 //
 //                // Source is ahead. We now need to check if a deletion is open at the nearest source position and, if so,
 //                // report it as covering.
-//                final D nextMarker = getClosestDeletion(source);
-//                if (nextMarker == null)
-//                    return exhausted();
-//                coveringDeletion = handler.asBound(nextMarker, BoundSide.BEFORE, BoundSide.AFTER);
+//                coveringDeletion = getActiveDeletion(source);
 //                if (coveringDeletion != null)
 //                    return atSetSourceAhead(setDepth, setTransition);
 //
@@ -275,20 +279,16 @@
 //                setTransition = set.incomingTransition();
 //                if (setDepth == sourceDepth && setTransition == sourceTransition)
 //                    return matchingPosition(sourceDepth, sourceTransition);
-//                if (set.contained().lesserInSet())
+//                if (lesserInSet(set))
 //                    return atSourceSetAhead(sourceDepth, sourceTransition);
 //                // else set is again ahead, repeat the process
 //            }
 //        }
 //
-//        private D getClosestDeletion(Cursor<T> source)
+//        private D getActiveDeletion(RangeTrieImpl.Cursor<D> source)
 //        {
-//            D content = (D) source.content();
-//            if (content != null)
-//                return content;
-//
-//            Cursor<T> cursorToMarker = source.duplicate();
-//            return (D) cursorToMarker.advanceToContent(null);
+//            D state = source.state();
+//            return (state != null) ? state.applicableBefore() : null;
 //        }
 //
 //        private int atSourceSetAhead(int sourceDepth, int sourceTransition)
@@ -313,7 +313,7 @@
 //        {
 //            currentTransition = sourceTransition;
 //            currentDepth = sourceDepth;
-//            currentContent = applyMatchingContent(set.contained());
+//            currentContent = applyMatchingContent(set.state());
 //            state = CursorState.MATCHING_POSITION;
 //            return sourceDepth;
 //        }
@@ -328,9 +328,9 @@
 //            return -1;
 //        }
 //
-//        private D applyMatchingContent(TrieSetImpl.Contained contained)
+//        private D applyMatchingContent(TrieSetImpl.RangeState contained)
 //        {
-//            if (contained == TrieSetImpl.Contained.OUTSIDE_PREFIX)
+//            if (contained == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
 //                return null;
 //            D deletion = (D) source.content();
 //            if (deletion == null)
@@ -368,7 +368,7 @@
 //
 //        public D applyCoveringDeletion()
 //        {
-//            switch (set.contained())
+//            switch (set.state())
 //            {
 //                case START:
 //                    assert activeDeletion == null : "Deletion still open at range start";
@@ -385,7 +385,7 @@
 //        }
 //
 //        @Override
-//        public DeletionCursor<T, D> duplicate()
+//        public DeletionCursor<D> duplicate()
 //        {
 //            return new DeletionCursor<>(this);
 //        }
