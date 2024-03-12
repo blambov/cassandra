@@ -41,21 +41,66 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
 
         @Override
-        public RangeState applicableBefore()
+        public boolean lesserIncluded()
         {
-            return applicableBefore ? this : null;
+            return applicableBefore;
         }
 
-        @Override
-        public RangeState applicableAt()
+        public boolean matchingIncluded()
         {
-            return applicableAt ? this : null;
+            return applicableAt;
         }
 
         @Override
         public RangeState toContent()
         {
             return reportAsContent ? this : null;
+        }
+
+        @Override
+        public RangeState asActiveState()
+        {
+            switch (this)
+            {
+                case END:
+                    return INSIDE_PREFIX;
+                case START:
+                    return OUTSIDE_PREFIX;
+                default:
+                    return this;
+            }
+        }
+
+        @Override
+        public RangeState asReportableStart()
+        {
+            switch (this)
+            {
+                case END:
+                case OUTSIDE_PREFIX:
+                    return OUTSIDE_PREFIX;
+                case START:
+                case INSIDE_PREFIX:
+                    return START;
+                default:
+                    return this;
+            }
+        }
+
+        @Override
+        public RangeState asReportableEnd()
+        {
+            switch (this)
+            {
+                case START:
+                case OUTSIDE_PREFIX:
+                    return OUTSIDE_PREFIX;
+                case END:
+                case INSIDE_PREFIX:
+                    return END;
+                default:
+                    return this;
+            }
         }
     }
 
@@ -100,13 +145,13 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public boolean includeLesserLeft(RangeState lState)
         {
-            return lState.applicableBefore() != null;
+            return lState.lesserIncluded();
         }
 
         @Override
         public boolean includeLesserRight(RangeState rState)
         {
-            return rState.applicableBefore() != null;
+            return rState.lesserIncluded();
         }
 
         @Override
@@ -143,13 +188,13 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public boolean includeLesserLeft(RangeState lState)
         {
-            return lState.applicableBefore() == null;
+            return !lState.lesserIncluded();
         }
 
         @Override
         public boolean includeLesserRight(RangeState rState)
         {
-            return rState.applicableBefore() == null;
+            return !rState.lesserIncluded();
         }
 
         @Override

@@ -26,4 +26,10 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
     {
         super(bufferType);
     }
+
+    @Override
+    public Cursor<T> cursor()
+    {
+        return memtableCursor();
+    }
 }

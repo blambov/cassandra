@@ -84,7 +84,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
 
     boolean lesserInSet(TrieSetImpl.Cursor cursor)
     {
-        return cursor.state().applicableBefore() != null;
+        return cursor.state().lesserIncluded();
     }
 
     @Override
@@ -254,7 +254,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         @Override
         boolean lesserInSet(TrieSetImpl.Cursor cursor)
         {
-            return cursor.state().applicableBefore() == null;
+            return !cursor.state().lesserIncluded();
         }
 
         @Override

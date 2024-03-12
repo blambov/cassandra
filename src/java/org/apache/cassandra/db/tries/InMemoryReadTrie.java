@@ -662,6 +662,7 @@ public class InMemoryReadTrie<T>
                         return advancedDepth;
                 }
             }
+            incomingTransition = -1;
             return depth = -1;
         }
 
@@ -1072,7 +1073,7 @@ public class InMemoryReadTrie<T>
         return !isNullOrLeaf(node) && offset(node) <= CHAIN_MAX_OFFSET;
     }
 
-    public MemtableCursor cursor()
+    public MemtableCursor memtableCursor()
     {
         return new MemtableCursor(root, -1, -1);
     }

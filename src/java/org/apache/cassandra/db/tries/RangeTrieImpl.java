@@ -22,9 +22,12 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
 {
     interface RangeMarker<M extends RangeMarker<M>>
     {
-        M applicableBefore();
-        M applicableAt();
         M toContent();
+        M asActiveState(/*side*/); // TODO: For reverse iteration this should accept a side
+        M asReportableStart();
+        M asReportableEnd();
+
+        boolean lesserIncluded();
     }
 
     interface Cursor<T extends RangeTrieImpl.RangeMarker<T>> extends TrieImpl.Cursor<T>
@@ -82,6 +85,61 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
 
     @SuppressWarnings("unchecked")
     RangeTrieWithImpl EMPTY = EmptyCursor::new;
+
+
+    // TODO: Range intersection must have set on the left side
+    static <T extends RangeTrieImpl.RangeMarker<T>> RangeIntersectionCursor.IntersectionController<T, TrieSetImpl.RangeState, T> rangeAndSetIntersectionController()
+    {
+        return new RangeIntersectionCursor.IntersectionController<T, TrieSetImpl.RangeState, T>()
+        {
+            @Override
+            public T combineState(T lState, TrieSetImpl.RangeState rState)
+            {
+                if (lState == null)
+                    return null;
+
+                switch (rState)
+                {
+                    case OUTSIDE_PREFIX:
+                        return null;
+                    case INSIDE_PREFIX:
+                        return lState;
+                    case END:
+                        return lState.asReportableEnd();
+                    case START:
+                        return lState.asReportableStart();
+                    default:
+                        throw new AssertionError();
+                }
+            }
+
+            @Override
+            public T combineStateCoveringRight(T lState, TrieSetImpl.RangeState rCoveringState)
+            {
+                assert rCoveringState.lesserIncluded();
+                return lState;
+            }
+
+            @Override
+            public T combineStateCoveringLeft(TrieSetImpl.RangeState rState, T lCoveringState)
+            {
+                assert lCoveringState.lesserIncluded();
+                switch (rState)
+                {
+                    case OUTSIDE_PREFIX:
+                        return null;
+                    case INSIDE_PREFIX:
+                        return lCoveringState.asActiveState();
+                    case END:
+                        return lCoveringState.asActiveState().asReportableEnd();
+                    case START:
+                        return lCoveringState.asActiveState().asReportableStart();
+                    default:
+                        throw new AssertionError();
+                }
+            }
+        };
+    }
 
     static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrieWithImpl<T> impl(RangeTrie<T> trieSet)
     {

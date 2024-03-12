@@ -26,4 +26,10 @@ public class InMemoryNDTrie<T> extends InMemoryTrie<T> implements NonDeterminist
     {
         super(bufferType);
     }
+
+    @Override
+    public Cursor<T> cursor()
+    {
+        return memtableCursor();
+    }
 }

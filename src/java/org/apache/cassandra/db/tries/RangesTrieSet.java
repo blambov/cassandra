@@ -217,7 +217,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         private int exhausted()
         {
             currentDepth = -1;
-            currentTransition = 0;
+            currentTransition = -1;
             return skipCompletedAndSelectContained(0, nexts.length);
         }
 
