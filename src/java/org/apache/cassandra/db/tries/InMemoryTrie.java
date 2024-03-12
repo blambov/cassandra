@@ -898,9 +898,9 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     /**
-     * Somewhat similar to {@link MergeResolver}, this encapsulates logic to be applied whenever new content is being
-     * upserted into a {@link InMemoryTrie}. Unlike {@link MergeResolver}, {@link UpsertTransformer} will be applied no
-     * matter if there's pre-existing content for that trie key/path or not.
+     * Somewhat similar to {@link Trie.MergeResolver}, this encapsulates logic to be applied whenever new content is
+     * being upserted into a {@link InMemoryTrie}. Unlike {@link Trie.MergeResolver}, {@link UpsertTransformer} will be
+     * applied no matter if there's pre-existing content for that trie key/path or not.
      *
      * @param <T> The content type for this {@link InMemoryTrie}.
      * @param <U> The type of the new content being applied to this {@link InMemoryTrie}.

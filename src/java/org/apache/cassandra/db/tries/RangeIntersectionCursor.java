@@ -24,11 +24,25 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
     {
         Z combineState(C lState, D rState);
 
-        boolean includeLesserLeft(C lState);
-        boolean includeLesserRight(D rState);
+        default boolean includeLesserLeft(C lState)
+        {
+            return lState != null ? lState.lesserIncluded() : false;
+        }
 
-        Z combineStateCoveringLeft(D rState, C lCoveringState);
-        Z combineStateCoveringRight(C lState, D rCoveringState);
+        default boolean includeLesserRight(D rState)
+        {
+            return rState != null ? rState.lesserIncluded() : false;
+        }
+
+        default Z combineStateCoveringLeft(D rState, C lCoveringState)
+        {
+            return combineState(lCoveringState, rState);
+        }
+
+        default Z combineStateCoveringRight(C lState, D rCoveringState)
+        {
+            return combineState(lState, rCoveringState);
+        }
     }
 
     enum State
@@ -38,7 +52,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         C2_AHEAD;
     }
 
-    final IntersectionController<C, D, Z> controller;
+    final IntersectionController<? super C, ? super D, Z> controller;
     final RangeTrieImpl.Cursor<C> c1;
     final RangeTrieImpl.Cursor<D> c2;
     int currentDepth;
@@ -46,7 +60,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
     Z currentRangeState;
     State state;
 
-    public RangeIntersectionCursor(IntersectionController<C, D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
+    public RangeIntersectionCursor(IntersectionController<? super C, ? super D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
     {
         this.controller = controller;
         this.c1 = c1;
@@ -111,20 +125,37 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         switch(state)
         {
             case MATCHING:
-            {
-                int ldepth = c1.skipTo(skipDepth, skipTransition);
-                if (controller.includeLesserLeft(c1.state()))
-                    return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
-                else
-                    return advanceRightToIntersection(ldepth);
-            }
+                return skipBoth(skipDepth, skipTransition);
             case C1_AHEAD:
-                return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
+            {
+                // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+                int leftDepth = c1.depth();
+                if (leftDepth < skipDepth || leftDepth == skipDepth && c1.incomingTransition() >= skipTransition)
+                    return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
+                // otherwise we must perform a full advance
+                return skipBoth(skipDepth, skipTransition);
+            }
             case C2_AHEAD:
-                return advanceWithRightAhead(c1.skipTo(skipDepth, skipTransition));
+            {
+                // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+                int rightDepth = c2.depth();
+                if (rightDepth < skipDepth || rightDepth == skipDepth && c2.incomingTransition() >= skipTransition)
+                    return advanceWithRightAhead(c1.skipTo(skipDepth, skipTransition));
+                // otherwise we must perform a full advance
+                return skipBoth(skipDepth, skipTransition);
+            }
             default:
                 throw new AssertionError();
         }
+    }
+
+    private int skipBoth(int skipDepth, int skipTransition)
+    {
+        int ldepth = c1.skipTo(skipDepth, skipTransition);
+        if (controller.includeLesserLeft(c1.state()))
+            return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
+        else
+            return advanceRightToIntersection(ldepth);
     }
 
     @Override
@@ -152,9 +183,9 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
 
     private int advanceWithLeftAhead(int rightDepth)
     {
+        int rightTransition = c2.incomingTransition();
         int leftDepth = c1.depth();
         int leftTransition = c1.incomingTransition();
-        int rightTransition = c2.incomingTransition();
         if (rightDepth > leftDepth)
             return coveredAreaWithLeftAhead(rightDepth, rightTransition);
         if (rightDepth == leftDepth)
@@ -174,9 +205,9 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
 
     private int advanceWithRightAhead(int leftDepth)
     {
+        int leftTransition = c1.incomingTransition();
         int rightDepth = c2.depth();
         int rightTransition = c2.incomingTransition();
-        int leftTransition = c1.incomingTransition();
         if (leftDepth > rightDepth)
             return coveredAreaWithRightAhead(leftDepth, leftTransition);
         if (leftDepth == rightDepth)
@@ -219,7 +250,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
 
     private int advanceLeftToIntersection(int rightDepth)
     {
-        int rightTransition = c1.incomingTransition();
+        int rightTransition = c2.incomingTransition();
         while (true)
         {
             // Right is ahead of left, but outside the covered area. Skip left to right's position.
