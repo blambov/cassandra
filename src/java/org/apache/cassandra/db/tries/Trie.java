@@ -240,7 +240,12 @@ public abstract class Trie<T>
         int skipTo(int depth, int incomingTransition);
     }
 
-    protected abstract Cursor<T> cursor();
+    protected Cursor<T> cursor()
+    {
+        return cursor(Direction.FORWARD);
+    }
+
+    protected abstract Cursor<T> cursor(Direction direction);
 
     /**
      * Used by {@link Cursor#advanceMultiple} to feed the transitions taken.
@@ -600,7 +605,7 @@ public abstract class Trie<T>
 
     private static final Trie<Object> EMPTY = new Trie<Object>()
     {
-        protected Cursor<Object> cursor()
+        protected Cursor<Object> cursor(Direction direction)
         {
             return new Cursor<Object>()
             {

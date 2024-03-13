@@ -48,9 +48,9 @@ public class IntersectionTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    protected Cursor<T> cursor(Direction direction)
     {
-        return new IntersectionCursor(trie.cursor(), set.cursor());
+        return new IntersectionCursor(trie.cursor(direction), set.cursor(direction));
     }
 
     private static class IntersectionCursor<T> implements Cursor<T>

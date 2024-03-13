@@ -34,7 +34,6 @@ import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
@@ -316,7 +315,7 @@ public class SlicedTrieTest
         return new Trie<Integer>()
         {
             @Override
-            protected Cursor<Integer> cursor()
+            protected Cursor<Integer> cursor(Direction direction)
             {
                 return new singleLevelCursor();
             }

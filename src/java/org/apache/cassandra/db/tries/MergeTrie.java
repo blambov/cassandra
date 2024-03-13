@@ -44,7 +44,7 @@ class MergeTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    protected Cursor<T> cursor(Direction direction)
     {
         return new MergeCursor<>(resolver, t1, t2);
     }

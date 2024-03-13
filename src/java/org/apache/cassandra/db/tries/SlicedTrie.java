@@ -64,7 +64,7 @@ public class SlicedTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    protected Cursor<T> cursor(Direction direction)
     {
         return new SlicedCursor<>(this);
     }

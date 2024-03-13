@@ -48,7 +48,7 @@ class CollectionMergeTrie<T> extends Trie<T>
     }
 
     @Override
-    protected Cursor<T> cursor()
+    protected Cursor<T> cursor(Direction direction)
     {
         return new CollectionMergeCursor<>(resolver, inputs);
     }
@@ -133,7 +133,7 @@ class CollectionMergeTrie<T> extends Trie<T>
          */
         private final List<T> contents;
 
-        public CollectionMergeCursor(CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
+        public CollectionMergeCursor(Direction direction, CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
         {
             this.resolver = resolver;
             int count = inputs.size();

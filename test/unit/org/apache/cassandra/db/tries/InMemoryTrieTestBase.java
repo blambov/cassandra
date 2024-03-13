@@ -253,7 +253,7 @@ public abstract class InMemoryTrieTestBase
         return new Trie<ByteBuffer>()
         {
             @Override
-            protected Cursor<ByteBuffer> cursor()
+            protected Cursor<ByteBuffer> cursor(Direction direction)
             {
                 return new CursorFromSpec(nodeDef);
             }

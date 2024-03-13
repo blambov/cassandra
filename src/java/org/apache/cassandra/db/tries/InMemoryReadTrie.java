@@ -984,7 +984,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
         return !isNullOrLeaf(node) && offset(node) <= CHAIN_MAX_OFFSET;
     }
 
-    public MemtableCursor cursor()
+    public MemtableCursor cursor(Direction direction)
     {
         return new MemtableCursor();
     }

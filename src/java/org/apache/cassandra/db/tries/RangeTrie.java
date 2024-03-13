@@ -71,7 +71,7 @@ public class RangeTrie extends Trie<IntersectionTrie.RegionEnd>
     }
 
     @Override
-    protected Cursor<IntersectionTrie.RegionEnd> cursor()
+    protected Cursor<IntersectionTrie.RegionEnd> cursor(Direction direction)
     {
         ByteSource lsrc, rsrc;
         int lnext, rnext;
@@ -107,7 +107,7 @@ public class RangeTrie extends Trie<IntersectionTrie.RegionEnd>
                   right.byteComparableAsString(BYTE_COMPARABLE_VERSION);
             // Because we can't start with -1 depth, the range cursor would always return the root, with true content.
             // To fix this, use an empty cursor to avoid complicating the RangeCursor code.
-            return Trie.<IntersectionTrie.RegionEnd>empty().cursor();
+            return Trie.<IntersectionTrie.RegionEnd>empty().cursor(direction);
         }
 
         return new RangeCursor(lsrc, lnext, rsrc, rnext);
