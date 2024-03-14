@@ -130,113 +130,63 @@ public class RangeTrieMergeTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            List<DeletionMarker> testRanges = getTestRanges();
-            RangeTrie<DeletionMarker> trie = fromList(testRanges);
-
-            System.out.println(trie.dump());
-            assertEquals("No intersection", testRanges, toList(trie));
+            testMerge("no merge");
 
             testMerge("all",
-                      trie,
-                      testRanges,
                       deletedRanges(null, null));
             testMerge("fully covered range",
-                      trie,
-                      testRanges,
                       deletedRanges(of(20), of(25)));
             testMerge("fully covered range",
-                      trie,
-                      testRanges,
                       deletedRanges(of(25), of(33)));
             testMerge("matching range",
-                      trie,
-                      testRanges,
                       deletedRanges(of(21), of(24)));
             testMerge("touching empty",
-                      trie,
-                      testRanges,
                       deletedRanges(of(24), of(26)));
 
             testMerge("partial left",
-                      trie,
-                      testRanges,
                       deletedRanges(of(22), of(25)));
             testMerge("partial left on change",
-                      trie,
-                      testRanges,
                       deletedRanges(of(28), of(32)));
             testMerge("partial left with null",
-                      trie,
-                      testRanges,
                       deletedRanges(of(29), null));
 
 
             testMerge("partial right",
-                      trie,
-                      testRanges,
                       deletedRanges(of(25), of(27)));
             testMerge("partial right on change",
-                      trie,
-                      testRanges,
                       deletedRanges(of(25), of(28)));
             testMerge("partial right with null",
-                      trie,
-                      testRanges,
                       deletedRanges(null, of(22)));
 
             testMerge("inside range",
-                      trie,
-                      testRanges,
                       deletedRanges(of(22), of(23)));
             testMerge("inside with change",
-                      trie,
-                      testRanges,
                       deletedRanges(of(27), of(29)));
 
             testMerge("empty range inside",
-                      trie,
-                      testRanges,
                       deletedRanges(of(27), of(27)));
 
             testMerge("point covered",
-                      trie,
-                      testRanges,
                       deletedRanges(of(16), of(18)));
             testMerge("point at range start",
-                      trie,
-                      testRanges,
                       deletedRanges(of(17), of(18)));
             testMerge("point at range end",
-                      trie,
-                      testRanges,
                       deletedRanges(of(16), of(17)));
 
 
             testMerge("start point covered",
-                      trie,
-                      testRanges,
                       deletedRanges(of(32), of(35)));
             testMerge("start point at range start",
-                      trie,
-                      testRanges,
                       deletedRanges(of(33), of(35)));
             testMerge("start point at range end",
-                      trie,
-                      testRanges,
                       deletedRanges(of(32), of(33)));
 
 
             testMerge("end point covered",
-                      trie,
-                      testRanges,
                       deletedRanges(of(36), of(40)));
             testMerge("end point at range start",
-                      trie,
-                      testRanges,
                       deletedRanges(of(38), of(40)));
             testMerge("end point at range end",
-                      trie,
-                      testRanges,
                       deletedRanges(of(36), of(38)));
         }
     }
@@ -246,39 +196,22 @@ public class RangeTrieMergeTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            List<DeletionMarker> testRanges = getTestRanges();
-            RangeTrie<DeletionMarker> trie = fromList(testRanges);
-
             testMerge("fully covered ranges",
-                      trie,
-                      testRanges,
                       deletedRanges(of(20), of(25), of(25), of(33)));
             testMerge("matching ranges",
-                      trie,
-                      testRanges,
                       deletedRanges(of(21), of(24), of(26), of(31)));
             testMerge("touching empty",
-                      trie,
-                      testRanges,
                       deletedRanges(of(20), of(21), of(24), of(26), of(32), of(33), of(34), of(36)));
             testMerge("partial left",
-                      trie,
-                      testRanges,
                       deletedRanges(of(22), of(25), of(29), null));
 
             testMerge("partial right",
-                      trie,
-                      testRanges,
                       deletedRanges(null, of(22), of(25), of(27)));
 
             testMerge("inside ranges",
-                      trie,
-                      testRanges,
                       deletedRanges(of(22), of(23), of(27), of(29)));
 
             testMerge("jumping inside",
-                      trie,
-                      testRanges,
                       deletedRanges(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30)));
         }
     }
@@ -288,22 +221,20 @@ public class RangeTrieMergeTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(getTestRanges());
-
             // non-overlapping
-            testMerge("non-overlapping", trie, getTestRanges(), deletedRanges(of(20), of(23)), deletedRanges(of(24), of(27)));
+            testMerge("non-overlapping", deletedRanges(of(20), of(23)), deletedRanges(of(24), of(27)));
             // touching, i.e. still non-overlapping
-            testMerge("touching", trie, getTestRanges(), deletedRanges(of(20), of(23)), deletedRanges(of(23), of(27)));
+            testMerge("touching", deletedRanges(of(20), of(23)), deletedRanges(of(23), of(27)));
             // overlapping 1
-            testMerge("overlapping1", trie, getTestRanges(), deletedRanges(of(20), of(23)), deletedRanges(of(22), of(27)));
+            testMerge("overlapping1", deletedRanges(of(20), of(23)), deletedRanges(of(22), of(27)));
             // overlapping 2
-            testMerge("overlapping2", trie, getTestRanges(), deletedRanges(of(20), of(23)), deletedRanges(of(21), of(27)));
+            testMerge("overlapping2", deletedRanges(of(20), of(23)), deletedRanges(of(21), of(27)));
             // covered
-            testMerge("covered1", trie, getTestRanges(), deletedRanges(of(20), of(23)), deletedRanges(of(20), of(27)));
+            testMerge("covered1", deletedRanges(of(20), of(23)), deletedRanges(of(20), of(27)));
             // covered
-            testMerge("covered2", trie, getTestRanges(), deletedRanges(of(23), of(27)), deletedRanges(of(20), of(27)));
+            testMerge("covered2", deletedRanges(of(23), of(27)), deletedRanges(of(20), of(27)));
             // covered 2
-            testMerge("covered3", trie, getTestRanges(), deletedRanges(of(21), of(23)), deletedRanges(of(20), of(27)));
+            testMerge("covered3", deletedRanges(of(21), of(23)), deletedRanges(of(20), of(27)));
         }
     }
 
@@ -354,21 +285,27 @@ public class RangeTrieMergeTest
         // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
         // set3 = TrieSet.ranges(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30));
         // from(21, 10), to(24, 10), from(26, 11), change(28, 11, 12), to(30, 12), from(33, 13), to(34, 13)
-        List<DeletionMarker> testRanges = getTestRanges();
-        testMerge("1", trie, testRanges, set1);
+        testMerge("1", set1);
 
-        testMerge("2", trie, testRanges, set2);
+        testMerge("2", set2);
 
-        testMerge("3", trie, testRanges, set3);
+        testMerge("3", set3);
 
-        testMerge("12", trie, testRanges, set1, set2);
+        testMerge("12", set1, set2);
 
-        testMerge("13", trie, testRanges, set1, set3);
+        testMerge("13", set1, set3);
 
-        testMerge("23", trie, testRanges, set2, set3);
+        testMerge("23", set2, set3);
 
-        testMerge("123", trie, testRanges, set1, set2, set3);
+        testMerge("123", set1, set2, set3);
     }
+
+    public void testMerge(String message, List<DeletionMarker>... sets)
+    {
+        List<DeletionMarker> testRanges = getTestRanges();
+        testMerge(message, fromList(testRanges), testRanges, sets);
+    }
+
 
     public void testMerge(String message, RangeTrie<DeletionMarker> trie, List<DeletionMarker> merged, List<DeletionMarker>... sets)
     {
@@ -396,7 +333,7 @@ public class RangeTrieMergeTest
                 List<DeletionMarker> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 testMerge(message + " " + toRemove,
-                          trie.mergeWith(fromList(ranges), this::combineForMerge),
+                          trie.mergeWith(fromList(ranges), DeletionMarker::combineForMerge),
                           mergeLists(merged, ranges),
                           Arrays.stream(sets)
                                 .filter(x -> x != ranges)
@@ -429,51 +366,6 @@ public class RangeTrieMergeTest
         return new DeletionMarker(marker.position, newLeft, newAt, newRight, marker.isReportableState);
     }
 
-    DeletionMarker combine(DeletionMarker deleter, DeletionMarker marker)
-    {
-        int newLeft = Math.max(deleter.leftSide, marker.leftSide);
-        int newAt = Math.max(deleter.at, marker.at);
-        int newRight = Math.max(deleter.rightSide, marker.rightSide);
-        if (newLeft < 0 && newAt < 0 && newRight < 0 || newAt == newLeft && newLeft == newRight)
-            return null;
-        if (newLeft == marker.leftSide && newAt == marker.at && newRight == marker.rightSide)
-            return marker;
-        return new DeletionMarker(marker.position, newLeft, newAt, newRight, marker.isReportableState);
-    }
-
-    DeletionMarker combineForMerge(DeletionMarker m1, boolean atC1, DeletionMarker m2, boolean atC2)
-    {
-        if (m1 == null)
-            return m2;
-        if (m2 == null)
-            return m1;
-        if (!atC1 && m1.isReportableState)
-        {
-            m1 = m1.leftSideAsActive();
-            if (m1 == null)
-                return m2;
-        }
-        if (!atC2 && m2.isReportableState)
-        {
-            m2 = m2.leftSideAsActive();
-            if (m2 == null)
-                return m1;
-        }
-        int newLeft = Math.max(m1.leftSide, m2.leftSide);
-        int newAt = Math.max(m1.at, m2.at);
-        int newRight = Math.max(m1.rightSide, m2.rightSide);
-        if (newLeft < 0 && newAt < 0 && newRight < 0)
-            return null;
-        boolean reportable = false;
-        if (atC1)
-            reportable |= newLeft == m1.leftSide || newAt == m1.at || newRight == m1.rightSide;
-        if (atC2)
-            reportable |= newLeft == m2.leftSide || newAt == m2.at || newRight == m2.rightSide;
-        reportable &= newAt != newLeft || newLeft != newRight;
-
-        return new DeletionMarker(m2.position, newLeft, newAt, newRight, reportable);
-    }
-
 
     List<DeletionMarker> mergeLists(List<DeletionMarker> left, List<DeletionMarker> right)
     {
@@ -499,7 +391,7 @@ public class RangeTrieMergeTest
 
                 if (cmp == 0)
                 {
-                    DeletionMarker processed = combine(nextRight, nextLeft);
+                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft);
                     maybeAdd(result, processed);
                     nextRight = rightIt.hasNext() ? rightIt.next() : null;
                     break;
@@ -510,7 +402,7 @@ public class RangeTrieMergeTest
                     if (active >= 0)
                     {
                         DeletionMarker activeMarker = new DeletionMarker(nextRight.position, active, active, active, true);
-                        nextRight = combine(activeMarker, nextRight);
+                        nextRight = DeletionMarker.combine(activeMarker, nextRight);
                     }
                     maybeAdd(result, nextRight);
                 }
