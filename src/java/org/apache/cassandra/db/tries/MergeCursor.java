@@ -264,4 +264,46 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
     }
 
+    static class Range<M extends RangeTrieImpl.RangeMarker<M>> extends MergeCursor<RangeTrieImpl.Cursor<M>, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    {
+        final RangeTrie.MergeResolver<M> resolver;
+
+        Range(RangeTrie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
+        {
+            super(c1, c2);
+            this.resolver = resolver;
+        }
+
+        public Range(Range<M> copyFrom)
+        {
+            super(copyFrom);
+            this.resolver = copyFrom.resolver;
+        }
+
+        Range(RangeTrie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
+        {
+            this(resolver, t1.cursor(), t2.cursor());
+            assert c1.depth() == 0;
+            assert c2.depth() == 0;
+        }
+
+        @Override
+        public M state()
+        {
+            M state1 = c1.state();
+            M state2 = c2.state();
+            if (state1 == null)
+                return state2;
+            if (state2 == null)
+                return state1;
+            return resolver.resolve(state1, atC1, state2, atC2);
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<M> duplicate()
+        {
+            return new Range<>(this);
+        }
+    }
+
 }

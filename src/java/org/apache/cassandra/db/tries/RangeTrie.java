@@ -159,6 +159,16 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
         return new TrieValuesIterator<>(impl().cursor());
     }
 
+    interface MergeResolver<M extends RangeTrieImpl.RangeMarker<M>> extends Trie.MergeResolver<M>
+    {
+        M resolve(M left, boolean atC1, M right, boolean atC2);
+
+        default M resolve(M left, M right)
+        {
+            return resolve(left, true, right, true);
+        }
+    }
+
     /**
      * Constructs a view of the merge of this trie with the given one. The view is live, i.e. any write to any of the
      * sources will be reflected in the merged view.
@@ -166,10 +176,50 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * If there is content for a given key in both sources, the resolver will be called to obtain the combination.
      * (The resolver will not be called if there's content from only one source.)
      */
-//    default RangeTrie<T> mergeWith(RangeTrie<T> other, Trie.MergeResolver<T> resolver)
-//    {
-//        return (RangeTrieWithImpl<T>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
-//    }
+    default RangeTrie<T> mergeWith(RangeTrie<T> other, MergeResolver<T> resolver)
+    {
+        return (RangeTrieWithImpl<T>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
+//        return (RangeTrieWithImpl<T>) () -> new RangeIntersectionCursor<>(new RangeIntersectionCursor.IntersectionController<T, T, T>()
+//        {
+//            @Override
+//            public T combineState(T lState, T rState)
+//            {
+//                if (lState == null)
+//                    return rState;
+//                if (rState == null)
+//                    return lState;
+//                return resolver.resolve(lState, rState);
+//            }
+//
+//            @Override
+//            public boolean includeLesserLeft(T lState)
+//            {
+//                return true;
+//            }
+//
+//            @Override
+//            public boolean includeLesserRight(T rState)
+//            {
+//                return true;
+//            }
+//
+//            @Override
+//            public T combineStateCoveringLeft(T rState, T lCoveringState)
+//            {
+//                if (lCoveringState == null)
+//                    return rState;
+//                return combineState(lCoveringState.leftSideAsActive(), rState);
+//            }
+//
+//            @Override
+//            public T combineStateCoveringRight(T lState, T rCoveringState)
+//            {
+//                if (rCoveringState == null)
+//                    return lState;
+//                return combineState(lState, rCoveringState.leftSideAsActive());
+//            }
+//        }, impl().cursor(), other.impl().cursor());
+    }
 
     /**
      * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
