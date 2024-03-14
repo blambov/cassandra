@@ -218,13 +218,13 @@ public class RangeTrieIntersectionWithPointsTest
                                from(33, 13), to(34, 13),
                                from(36, 14), to(38, 14)))
                .mergeWith(fromList(asList(from(28, 12), to(30, 12))),
-                          DeletionMarker::combineForMerge)
+                          DeletionMarker::combine)
                .mergeWith(fromList(asList(point(17, 20),
                                           point(22, 21),
                                           point(28, 22),
                                           point(33, 23),
                                           point(38, 24))),
-                          DeletionMarker::combineForMerge);
+                          DeletionMarker::combine);
     }
 
     private void testIntersections()

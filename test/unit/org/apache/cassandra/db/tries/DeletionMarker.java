@@ -42,66 +42,27 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
 
     DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide)
     {
-        this(position, leftSide, at, rightSide, true);
-    }
-
-    DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide, boolean isReportableState)
-    {
         this.position = position;
         this.leftSide = leftSide;
         this.rightSide = rightSide;
         this.at = at;
-        this.isReportableState = isReportableState;
+        this.isReportableState = at != leftSide || leftSide != rightSide;
     }
 
-    static DeletionMarker combine(DeletionMarker deleter, DeletionMarker marker)
+    static DeletionMarker combine(DeletionMarker m1, DeletionMarker m2)
     {
-        int newLeft = Math.max(deleter.leftSide, marker.leftSide);
-        int newAt = Math.max(deleter.at, marker.at);
-        int newRight = Math.max(deleter.rightSide, marker.rightSide);
-        if (newLeft < 0 && newAt < 0 && newRight < 0 || newAt == newLeft && newLeft == newRight)
-            return null;
-        if (newLeft == marker.leftSide && newAt == marker.at && newRight == marker.rightSide)
-            return marker;
-        return new DeletionMarker(marker.position, newLeft, newAt, newRight, marker.isReportableState);
-    }
-
-    static DeletionMarker combineForMerge(DeletionMarker m1, boolean atC1, DeletionMarker m2, boolean atC2)
-    {
-        if (m1 == null)
-            return m2;
-        if (m2 == null)
-            return m1;
-        if (!atC1 && m1.isReportableState)
-        {
-            m1 = m1.leftSideAsActive();
-            if (m1 == null)
-                return m2;
-        }
-        if (!atC2 && m2.isReportableState)
-        {
-            m2 = m2.leftSideAsActive();
-            if (m2 == null)
-                return m1;
-        }
         int newLeft = Math.max(m1.leftSide, m2.leftSide);
         int newAt = Math.max(m1.at, m2.at);
         int newRight = Math.max(m1.rightSide, m2.rightSide);
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
-        boolean reportable = false;
-        if (atC1)
-            reportable |= newLeft == m1.leftSide || newAt == m1.at || newRight == m1.rightSide;
-        if (atC2)
-            reportable |= newLeft == m2.leftSide || newAt == m2.at || newRight == m2.rightSide;
-        reportable &= newAt != newLeft || newLeft != newRight;
 
-        return new DeletionMarker(m2.position, newLeft, newAt, newRight, reportable);
+        return new DeletionMarker(m2.position, newLeft, newAt, newRight);
     }
 
     DeletionMarker withPoint(int value)
     {
-        return new DeletionMarker(position, leftSide, value, rightSide, isReportableState);
+        return new DeletionMarker(position, leftSide, value, rightSide);
     }
 
     @Override
@@ -144,17 +105,21 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
     @Override
     public DeletionMarker leftSideAsActive()
     {
+        if (!isReportableState)
+            return this;
         if (leftSide < 0)
             return null;
-        return new DeletionMarker(position, leftSide, leftSide, leftSide, false);
+        return new DeletionMarker(position, leftSide, leftSide, leftSide);
     }
 
     @Override
     public DeletionMarker rightSideAsActive()
     {
+        if (!isReportableState)
+            return this;
         if (rightSide < 0)
             return null;
-        return new DeletionMarker(position, rightSide, rightSide, rightSide, false);
+        return new DeletionMarker(position, rightSide, rightSide, rightSide);
     }
 
     @Override
@@ -162,7 +127,7 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
     {
         if (rightSide < 0 && at < 0)
             return null;
-        return new DeletionMarker(position, -1, at, rightSide, true);
+        return new DeletionMarker(position, -1, at, rightSide);
     }
 
     @Override
@@ -170,7 +135,7 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
     {
         if (leftSide < 0)
             return null;
-        return new DeletionMarker(position, leftSide, -1, -1, true);
+        return new DeletionMarker(position, leftSide, -1, -1);
     }
 
     @Override
