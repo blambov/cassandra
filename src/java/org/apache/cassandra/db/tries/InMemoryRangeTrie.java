@@ -51,6 +51,7 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
             super(copyFrom);
             this.activeRange = copyFrom.activeRange;
             this.activeIsSet = copyFrom.activeIsSet;
+            this.activeIsExact = copyFrom.activeIsExact;
         }
 
         @Override
