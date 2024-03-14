@@ -58,7 +58,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         }
 
         @Override
-        public RangeState asActiveState()
+        public RangeState leftSideAsActive()
         {
             switch (this)
             {
@@ -66,6 +66,20 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
                     return INSIDE_PREFIX;
                 case START:
                     return OUTSIDE_PREFIX;
+                default:
+                    return this;
+            }
+        }
+
+        @Override
+        public RangeState rightSideAsActive()
+        {
+            switch (this)
+            {
+                case END:
+                    return OUTSIDE_PREFIX;
+                case START:
+                    return INSIDE_PREFIX;
                 default:
                     return this;
             }
