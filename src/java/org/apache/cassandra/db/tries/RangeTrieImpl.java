@@ -23,7 +23,8 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     interface RangeMarker<M extends RangeMarker<M>>
     {
         M toContent();
-        M asActiveState(/*side*/); // TODO: For reverse iteration this should accept a side
+        M leftSideAsActive(/*side*/); // TODO: For reverse iteration this should accept a side
+        M rightSideAsActive();  // TODO: combine with above when reversed iteration is done
         M asReportableStart();
         M asReportableEnd();
 
@@ -128,11 +129,11 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
                     case OUTSIDE_PREFIX:
                         return null;
                     case INSIDE_PREFIX:
-                        return rCoveringState.asActiveState();
+                        return rCoveringState.leftSideAsActive();
                     case END:
-                        return rCoveringState.asActiveState().asReportableEnd();
+                        return rCoveringState.leftSideAsActive().asReportableEnd();
                     case START:
-                        return rCoveringState.asActiveState().asReportableStart();
+                        return rCoveringState.leftSideAsActive().asReportableStart();
                     default:
                         throw new AssertionError();
                 }

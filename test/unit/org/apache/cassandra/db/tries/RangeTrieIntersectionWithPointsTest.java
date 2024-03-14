@@ -21,145 +21,21 @@ package org.apache.cassandra.db.tries;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
-import com.google.common.collect.Streams;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.DeletionMarker.fromList;
+import static org.apache.cassandra.db.tries.DeletionMarker.toList;
+import static org.apache.cassandra.db.tries.DeletionMarker.verify;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public class RangeTrieIntersectionWithPointsTest
 {
     static final int bitsNeeded = 6;
     int bits = bitsNeeded;
-
-    class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
-    {
-        final ByteComparable position;
-        final int leftSide;
-        final int rightSide;
-
-        final int at;
-        final boolean isReportableState;
-
-        DeletionMarker(int position, int leftSide, int rightSide)
-        {
-            this(of(position), leftSide, -1, rightSide);
-        }
-
-        DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide)
-        {
-            this(position, leftSide, at, rightSide, true);
-        }
-
-        DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide, boolean isReportableState)
-        {
-            this.position = position;
-            this.leftSide = leftSide;
-            this.rightSide = rightSide;
-            this.at = at;
-            this.isReportableState = isReportableState;
-        }
-
-        DeletionMarker withPoint(int value)
-        {
-            return new DeletionMarker(position, leftSide, value, rightSide, isReportableState);
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            DeletionMarker that = (DeletionMarker) o;
-            return ByteComparable.compare(this.position, that.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0
-                   && leftSide == that.leftSide
-                   && rightSide == that.rightSide
-                   && at == that.at;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(position, leftSide, at, rightSide);
-        }
-
-        @Override
-        public String toString()
-        {
-            return (leftSide >= 0 ? leftSide + "<\"" : "\"") +
-                   RangeTrieIntersectionWithPointsTest.toString(position) +
-                   (at >= 0 ? "\"=" + at : "\"") +
-                   (rightSide >= 0 ? "<" + rightSide : "");
-        }
-
-        @Override
-        public DeletionMarker toContent()
-        {
-            return isReportableState ? this : null;
-        }
-
-        @Override
-        public DeletionMarker asActiveState()
-        {
-            if (leftSide < 0)
-                return null;
-            return new DeletionMarker(position, leftSide, -1, leftSide, false);
-        }
-
-        @Override
-        public DeletionMarker asReportableStart()
-        {
-            if (rightSide < 0 && at < 0)
-                return null;
-            return new DeletionMarker(position, -1, at, rightSide, true);
-        }
-
-        @Override
-        public DeletionMarker asReportableEnd()
-        {
-            if (leftSide < 0)
-                return null;
-            return new DeletionMarker(position, leftSide, at, -1, true);
-        }
-
-        @Override
-        public boolean lesserIncluded()
-        {
-            return leftSide >= 0;
-        }
-    }
-
-    /**
-     * Extract the values of the provided trie into a list.
-     */
-    private List<DeletionMarker> toList(RangeTrie<DeletionMarker> trie)
-    {
-        return Streams.stream(trie.entryIterator())
-                      .map(en -> remap(en.getValue(), en.getKey()))
-                      .collect(Collectors.toList());
-    }
-
-    DeletionMarker remap(DeletionMarker dm, ByteComparable newKey)
-    {
-        return new DeletionMarker(newKey, dm.leftSide, dm.at, dm.rightSide);
-    }
-
-    private RangeTrie<DeletionMarker> fromList(List<DeletionMarker> list) throws InMemoryDTrie.SpaceExhaustedException
-    {
-        InMemoryRangeTrie<DeletionMarker> trie = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
-        for (DeletionMarker i : list)
-        {
-            trie.putRecursive(keyOf(i), i, (ex, n) -> n);
-        }
-        return trie;
-    }
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value)
@@ -176,24 +52,19 @@ public class RangeTrieIntersectionWithPointsTest
         return ByteComparable.fixedLength(splitBytes);
     }
 
-    private ByteComparable keyOf(DeletionMarker marker)
-    {
-        return marker.position;
-    }
-
     private DeletionMarker from(int where, int value)
     {
-        return new DeletionMarker(where, -1, value);
+        return new DeletionMarker(of(where), -1, value, value);
     }
 
     private DeletionMarker to(int where, int value)
     {
-        return new DeletionMarker(where, value, -1);
+        return new DeletionMarker(of(where), value, -1, -1);
     }
 
     private DeletionMarker change(int where, int from, int to)
     {
-        return new DeletionMarker(where, from, to);
+        return new DeletionMarker(of(where), from, to, to);
     }
 
     private DeletionMarker point(int where, int value)
@@ -203,7 +74,7 @@ public class RangeTrieIntersectionWithPointsTest
 
     private DeletionMarker pointInside(int where, int value, int active)
     {
-        return new DeletionMarker(where, active, active).withPoint(value);
+        return new DeletionMarker(of(where), active, value, active);
     }
 
     private ByteComparable[] array(ByteComparable... data)
@@ -212,7 +83,7 @@ public class RangeTrieIntersectionWithPointsTest
     }
 
     @Test
-    public void testSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -328,7 +199,7 @@ public class RangeTrieIntersectionWithPointsTest
     }
 
     @Test
-    public void testRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -370,7 +241,7 @@ public class RangeTrieIntersectionWithPointsTest
     }
 
     @Test
-    public void testRangeOnSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangeOnSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -394,7 +265,7 @@ public class RangeTrieIntersectionWithPointsTest
     }
 
     @Test
-    public void testRangesOnRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(fromList(getTestRanges()));
@@ -552,7 +423,7 @@ public class RangeTrieIntersectionWithPointsTest
                     if ((rangeIndex & 1) != 0)
                         result.add(new DeletionMarker(nextRange, active, -1, -1));
                     else
-                        result.add(new DeletionMarker(nextRange, -1, -1, active));
+                        result.add(new DeletionMarker(nextRange, -1, active, active));
                 }
 
                 nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
@@ -561,22 +432,6 @@ public class RangeTrieIntersectionWithPointsTest
         }
         assert active == -1;
         return verify(result);
-    }
-
-    List<DeletionMarker> verify(List<DeletionMarker> markers)
-    {
-        int active = -1;
-        ByteComparable prev = null;
-        for (DeletionMarker marker : markers)
-        {
-            assertTrue(prev == null || ByteComparable.compare(prev, marker.position, TrieImpl.BYTE_COMPARABLE_VERSION) < 0);
-            assertEquals(active, marker.leftSide);
-            assertTrue(marker.at < 0 || marker.at > marker.leftSide && marker.at > marker.rightSide);
-            prev = marker.position;
-            active = marker.rightSide;
-        }
-        assertEquals(-1, active);
-        return markers;
     }
 
     static <T> void maybeAdd(List<T> list, T value)

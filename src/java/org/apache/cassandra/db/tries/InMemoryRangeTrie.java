@@ -36,8 +36,9 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
 
     private class RangeCursor extends MemtableCursor implements RangeTrieImpl.Cursor<M>
     {
-        M activeRange = null;
-        boolean activeSet = false;
+        M activeRange;
+        boolean activeIsSet = false;
+        boolean activeIsExact = false;
 
         RangeCursor(int root, int depth, int incomingTransition)
         {
@@ -49,57 +50,73 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
         {
             super(copyFrom);
             this.activeRange = copyFrom.activeRange;
-            this.activeSet = copyFrom.activeSet;
-        }
-
-        private int resetActiveAndReturn(int depth)
-        {
-            activeSet = false;
-            activeRange = null;
-            return depth;
+            this.activeIsSet = copyFrom.activeIsSet;
         }
 
         @Override
         public int advance()
         {
-            return resetActiveAndReturn(super.advance());
+            return updateActiveAndReturn(super.advance());
         }
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
-            return resetActiveAndReturn(super.advanceMultiple(receiver));
+            return updateActiveAndReturn(super.advanceMultiple(receiver));
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            return resetActiveAndReturn(super.skipTo(skipDepth, skipTransition));
+            activeIsSet = activeIsExact = false;    // since we are skipping, we have no idea where we will end up
+            return updateActiveAndReturn(super.skipTo(skipDepth, skipTransition));
         }
 
         @Override
         public M state()
         {
-            if (!activeSet)
-            {
-                activeSet = true;
-                activeRange = getActiveState();
-            }
+            if (!activeIsSet)
+                setActiveState();
             return activeRange;
         }
 
-        private M getActiveState()
+        private int updateActiveAndReturn(int depth)
         {
-            if (depth() < 0)
-                return null;
-            M content = content();
-            if (content == null)
+            if (depth < 0)
             {
-                content = duplicate().advanceToContent(null);
-                if (content != null)
-                    content = content.asActiveState();
+                activeIsSet = true;
+                activeRange = null;
+                activeIsExact = false;
+                return depth;
             }
-            return content;
+
+            // Always check if we are seeing new content; if we do, that's an easy state update.
+            M content = content();
+            if (content != null)
+            {
+                activeRange = content;
+                activeIsExact = true;
+                activeIsSet = true;
+            }
+            else if (activeIsExact)
+            {
+                // If the previous state was exact, its right side is what we now have.
+                activeRange = activeRange.rightSideAsActive();
+                activeIsExact = false;
+                assert activeIsSet;
+            }
+            // otherwise the active state is either not set or still valid.
+            return depth;
+        }
+
+        private void setActiveState()
+        {
+            M content = duplicate().advanceToContent(null);
+            if (content != null)
+                content = content.leftSideAsActive();
+            activeIsExact = false;
+            activeIsSet = true;
+            activeRange = content;
         }
 
         @Override

@@ -30,124 +30,14 @@ import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.DeletionMarker.fromList;
+import static org.apache.cassandra.db.tries.DeletionMarker.toList;
 import static org.junit.Assert.assertEquals;
 
 public class RangeTrieIntersectionTest
 {
     static final int bitsNeeded = 4;
     int bits = bitsNeeded;
-
-    class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
-    {
-        final ByteComparable position;
-        final int leftSide;
-        final int rightSide;
-        final boolean isReportableState;
-
-        DeletionMarker(int position, int leftSide, int rightSide)
-        {
-            this(of(position), leftSide, rightSide, true);
-        }
-
-        DeletionMarker(ByteComparable position, int leftSide, int rightSide)
-        {
-            this(position, leftSide, rightSide, true);
-        }
-
-        DeletionMarker(ByteComparable position, int leftSide, int rightSide, boolean isReportableState)
-        {
-            this.position = position;
-            this.leftSide = leftSide;
-            this.rightSide = rightSide;
-            this.isReportableState = isReportableState;
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            DeletionMarker that = (DeletionMarker) o;
-            return ByteComparable.compare(this.position, that.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0
-                   && leftSide == that.leftSide
-                   && rightSide == that.rightSide;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(position, leftSide, rightSide);
-        }
-
-        @Override
-        public String toString()
-        {
-            return (leftSide >= 0 ? leftSide + "<\"" : "\"") +
-                   position.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION) +
-                   (rightSide >= 0 ? "\"<" + rightSide : "\"");
-        }
-
-        @Override
-        public DeletionMarker toContent()
-        {
-            return isReportableState ? this : null;
-        }
-
-        @Override
-        public DeletionMarker asActiveState()
-        {
-            if (leftSide < 0)
-                return null;
-            return new DeletionMarker(position, leftSide, leftSide, false);
-        }
-
-        @Override
-        public DeletionMarker asReportableStart()
-        {
-            if (rightSide < 0)
-                return null;
-            return new DeletionMarker(position, -1, rightSide, true);
-        }
-
-        @Override
-        public DeletionMarker asReportableEnd()
-        {
-            if (leftSide < 0)
-                return null;
-            return new DeletionMarker(position, leftSide, -1, true);
-        }
-
-        @Override
-        public boolean lesserIncluded()
-        {
-            return leftSide >= 0;
-        }
-    }
-
-    /**
-     * Extract the values of the provided trie into a list.
-     */
-    private List<DeletionMarker> toList(RangeTrie<DeletionMarker> trie)
-    {
-        return Streams.stream(trie.entryIterator())
-                      .map(en -> remap(en.getValue(), en.getKey()))
-                      .collect(Collectors.toList());
-    }
-
-    DeletionMarker remap(DeletionMarker dm, ByteComparable newKey)
-    {
-        return new DeletionMarker(newKey, dm.leftSide, dm.rightSide);
-    }
-
-    private RangeTrie<DeletionMarker> fromList(DeletionMarker... list) throws InMemoryDTrie.SpaceExhaustedException
-    {
-        InMemoryRangeTrie<DeletionMarker> trie = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
-        for (DeletionMarker i : list)
-        {
-            trie.putRecursive(keyOf(i), i, (ex, n) -> n);
-        }
-        return trie;
-    }
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value)
@@ -164,32 +54,27 @@ public class RangeTrieIntersectionTest
         return ByteComparable.fixedLength(splitBytes);
     }
 
-    private ByteComparable keyOf(DeletionMarker marker)
-    {
-        return marker.position;
-    }
-
     private DeletionMarker from(int where, int value)
     {
-        return new DeletionMarker(where, -1, value);
+        return new DeletionMarker(of(where), -1, value, value);
     }
 
     private DeletionMarker to(int where, int value)
     {
-        return new DeletionMarker(where, value, -1);
+        return new DeletionMarker(of(where), value, -1, -1);
     }
 
     private DeletionMarker change(int where, int from, int to)
     {
-        return new DeletionMarker(where, from, to);
+        return new DeletionMarker(of(where), from, to, to);
     }
 
     @Test
-    public void testSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
+            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             System.out.println(trie.dump());
             assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)), toList(trie));
@@ -259,11 +144,11 @@ public class RangeTrieIntersectionTest
     }
 
     @Test
-    public void testRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12));
+            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             testIntersection("fully covered ranges",
                              asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
@@ -300,14 +185,14 @@ public class RangeTrieIntersectionTest
     }
 
     @Test
-    public void testRangeOnSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangeOnSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13));
+            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
 
             // non-overlapping
-//            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
+            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
             // touching, i.e. still non-overlapping
             testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(3), of(7)));
             // overlapping 1
@@ -324,10 +209,10 @@ public class RangeTrieIntersectionTest
     }
 
     @Test
-    public void testRangesOnRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(fromList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
+            testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13))));
     }
 
     private void testIntersections(RangeTrie<DeletionMarker> trie)
