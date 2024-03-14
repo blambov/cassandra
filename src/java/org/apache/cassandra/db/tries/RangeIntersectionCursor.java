@@ -36,12 +36,15 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
 
         default Z combineStateCoveringLeft(D rState, C lCoveringState)
         {
-            return combineState(lCoveringState, rState);
+            return
+            // Covering state cannot be null with the includeLesser implementation above
+            combineState(lCoveringState.leftSideAsActive(), rState);
         }
 
         default Z combineStateCoveringRight(C lState, D rCoveringState)
         {
-            return combineState(lState, rCoveringState);
+            // Covering state cannot be null with the includeLesser implementation above
+            return combineState(lState, rCoveringState.leftSideAsActive());
         }
     }
 

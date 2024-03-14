@@ -264,39 +264,70 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
     }
 
-    static class Range<M extends RangeTrieImpl.RangeMarker<M>> extends MergeCursor<RangeTrieImpl.Cursor<M>, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    static class Range<M extends RangeTrieImpl.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
-        final RangeTrie.MergeResolver<M> resolver;
-
-        Range(RangeTrie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
+        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
         {
-            super(c1, c2);
-            this.resolver = resolver;
+            super(resolver, c1, c2);
         }
 
         public Range(Range<M> copyFrom)
         {
             super(copyFrom);
-            this.resolver = copyFrom.resolver;
         }
 
-        Range(RangeTrie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
+        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
         {
             this(resolver, t1.cursor(), t2.cursor());
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
 
+        private M toActiveState(boolean atC, M state)
+        {
+            if (!atC && state != null)
+                return state.leftSideAsActive();
+            else
+                return state;
+        }
+
         @Override
         public M state()
         {
-            M state1 = c1.state();
-            M state2 = c2.state();
+            M state1 = toActiveState(atC1, c1.state());
+            M state2 = toActiveState(atC2, c2.state());
             if (state1 == null)
                 return state2;
             if (state2 == null)
                 return state1;
-            return resolver.resolve(state1, atC1, state2, atC2);
+            return resolver.resolve(state1, state2);
+        }
+
+        // Implement content explicitly to avoid calling state() when not necessary
+        @Override
+        public M content()
+        {
+            M content1 = atC1 ? c1.content() : null;
+            M content2 = atC2 ? c2.content() : null;
+            if (content1 == null && content2 == null)
+                return null;
+            if (content1 != null && content2 != null)
+                return resolver.resolve(content1, content2).toContent();
+
+            // Exactly one is non-null; must apply the state of the other
+            if (content1 == null)
+            {
+                content1 = toActiveState(atC1, c1.state());
+                if (content1 == null)
+                    return content2;
+            } else // content2 == null
+            {
+                content2 = toActiveState(atC2, c2.state());
+                if (content2 == null)
+                    return content1;
+            }
+
+            return resolver.resolve(content1, content2).toContent();
         }
 
         @Override

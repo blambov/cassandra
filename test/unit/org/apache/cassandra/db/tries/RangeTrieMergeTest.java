@@ -91,9 +91,9 @@ public class RangeTrieMergeTest
             if (pos == null)
                 pos = i % 2 == 0 ? of(0) : of((1<<bitsNeeded) - 1);
             if (i % 2 == 0)
-                markers.add(new DeletionMarker(pos, -1, 100, 100, true));
+                markers.add(new DeletionMarker(pos, -1, 100, 100));
             else
-                markers.add(new DeletionMarker(pos, 100, -1, -1, true));
+                markers.add(new DeletionMarker(pos, 100, -1, -1));
         }
         return verify(markers);
     }
@@ -333,7 +333,7 @@ public class RangeTrieMergeTest
                 List<DeletionMarker> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 testMerge(message + " " + toRemove,
-                          trie.mergeWith(fromList(ranges), DeletionMarker::combineForMerge),
+                          trie.mergeWith(fromList(ranges), DeletionMarker::combine),
                           mergeLists(merged, ranges),
                           Arrays.stream(sets)
                                 .filter(x -> x != ranges)
@@ -363,7 +363,7 @@ public class RangeTrieMergeTest
             return null;
         if (newLeft == marker.leftSide && newAt == marker.at && newRight == marker.rightSide)
             return marker;
-        return new DeletionMarker(marker.position, newLeft, newAt, newRight, marker.isReportableState);
+        return new DeletionMarker(marker.position, newLeft, newAt, newRight);
     }
 
 
@@ -391,7 +391,7 @@ public class RangeTrieMergeTest
 
                 if (cmp == 0)
                 {
-                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft);
+                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft).toContent();
                     maybeAdd(result, processed);
                     nextRight = rightIt.hasNext() ? rightIt.next() : null;
                     break;
@@ -401,8 +401,8 @@ public class RangeTrieMergeTest
                     // Must close active if it becomes covered, and must open active if it is no longer covered.
                     if (active >= 0)
                     {
-                        DeletionMarker activeMarker = new DeletionMarker(nextRight.position, active, active, active, true);
-                        nextRight = DeletionMarker.combine(activeMarker, nextRight);
+                        DeletionMarker activeMarker = new DeletionMarker(nextRight.position, active, active, active);
+                        nextRight = DeletionMarker.combine(activeMarker, nextRight).toContent();
                     }
                     maybeAdd(result, nextRight);
                 }
