@@ -182,31 +182,15 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
 //            }
 //
 //            @Override
-//            public boolean includeLesserLeft(T lState)
+//            public boolean includeLesserLeft(RangeTrieImpl.Cursor<T> cursor)
 //            {
 //                return true;
 //            }
 //
 //            @Override
-//            public boolean includeLesserRight(T rState)
+//            public boolean includeLesserRight(RangeTrieImpl.Cursor<T> cursor)
 //            {
 //                return true;
-//            }
-//
-//            @Override
-//            public T combineStateCoveringLeft(T rState, T lCoveringState)
-//            {
-//                if (lCoveringState == null)
-//                    return rState;
-//                return combineState(lCoveringState.leftSideAsActive(), rState);
-//            }
-//
-//            @Override
-//            public T combineStateCoveringRight(T lState, T rCoveringState)
-//            {
-//                if (rCoveringState == null)
-//                    return lState;
-//                return combineState(lState, rCoveringState.leftSideAsActive());
 //            }
 //        }, impl().cursor(), other.impl().cursor());
     }

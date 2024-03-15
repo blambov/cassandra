@@ -92,7 +92,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         int currentIdx;
         int currentDepth;
         int currentTransition;
-        RangeState currentContained;
+        RangeState currentState;
 
         public RangesCursor(ByteComparable[] boundaries)
         {
@@ -148,7 +148,7 @@ public class RangesTrieSet implements TrieSetWithImpl
             this.currentIdx = copyFrom.currentIdx - toDrop;
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
-            this.currentContained = copyFrom.currentContained;
+            this.currentState = copyFrom.currentState;
         }
 
         @Override
@@ -166,7 +166,19 @@ public class RangesTrieSet implements TrieSetWithImpl
         @Override
         public RangeState state()
         {
-            return currentContained;
+            return currentState;
+        }
+
+        @Override
+        public RangeState coveringState()
+        {
+            return currentState.leftSideAsCovering();
+        }
+
+        @Override
+        public RangeState content()
+        {
+            return currentState.toContent();
         }
 
         @Override
@@ -200,7 +212,7 @@ public class RangesTrieSet implements TrieSetWithImpl
                 }
             }
             containedSelection |= currentIdx & 1; // 1 if odd index
-            currentContained = CONTAINED_SELECTIONS[containedSelection];
+            currentState = CONTAINED_SELECTIONS[containedSelection];
             return currentDepth;
         }
 

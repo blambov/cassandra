@@ -82,6 +82,18 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         return currentRangeState;
     }
 
+    @Override
+    public TrieSetImpl.RangeState coveringState()
+    {
+        return currentRangeState.leftSideAsCovering();
+    }
+
+    @Override
+    public TrieSetImpl.RangeState content()
+    {
+        return currentRangeState.toContent();
+    }
+
     boolean lesserInSet(TrieSetImpl.Cursor cursor)
     {
         return cursor.state().lesserIncluded();
@@ -215,7 +227,6 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         currentDepth = depth;
         currentTransition = transition;
         currentRangeState = combineState(c1.state(), c2.state());
-        // TODO: Optimize.... maybe one call for both activeBefore and content
         return depth;
     }
 

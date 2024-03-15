@@ -58,7 +58,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         }
 
         @Override
-        public RangeState leftSideAsActive()
+        public RangeState leftSideAsCovering()
         {
             switch (this)
             {
@@ -72,7 +72,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         }
 
         @Override
-        public RangeState rightSideAsActive()
+        public RangeState rightSideAsCovering()
         {
             switch (this)
             {
@@ -120,6 +120,9 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
     interface Cursor extends RangeTrieImpl.Cursor<RangeState>
     {
+        /** Combined state (covering and content) */
+        RangeState state();
+
         @Override
         Cursor duplicate();
     }
@@ -153,31 +156,37 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
             else if (lState == rState)
                 return lState;
             else // start and end combination
-                return RangeState.OUTSIDE_PREFIX;
+                return null;
         }
 
         @Override
-        public boolean includeLesserLeft(RangeState lState)
+        public boolean includeLesserLeft(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return lState.lesserIncluded();
+            return cursor.coveringState().lesserIncluded();
         }
 
         @Override
-        public boolean includeLesserRight(RangeState rState)
+        public boolean includeLesserRight(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return rState.lesserIncluded();
+            return cursor.coveringState().lesserIncluded();
         }
 
         @Override
-        public RangeState combineStateCoveringLeft(RangeState rState, RangeState lCoveringState)
+        public RangeState combineContentLeftAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            return rState;
+            if (lCursor.coveringState().lesserIncluded())
+                return rCursor.content();
+            else
+                return null;
         }
 
         @Override
-        public RangeState combineStateCoveringRight(RangeState lState, RangeState rCoveringState)
+        public RangeState combineContentRightAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            return lState;
+            if (rCursor.coveringState().lesserIncluded())
+                return lCursor.content();
+            else
+                return null;
         }
     };
 
@@ -196,31 +205,37 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
             else if (lState == rState)
                 return lState;
             else // start and end combination
-                return RangeState.INSIDE_PREFIX;
+                return null;
         }
 
         @Override
-        public boolean includeLesserLeft(RangeState lState)
+        public boolean includeLesserLeft(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return !lState.lesserIncluded();
+            return !cursor.coveringState().lesserIncluded();
         }
 
         @Override
-        public boolean includeLesserRight(RangeState rState)
+        public boolean includeLesserRight(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return !rState.lesserIncluded();
+            return !cursor.coveringState().lesserIncluded();
         }
 
         @Override
-        public RangeState combineStateCoveringLeft(RangeState rState, RangeState lCoveringState)
+        public RangeState combineContentLeftAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            return rState;
+            if (!lCursor.coveringState().lesserIncluded())
+                return rCursor.content();
+            else
+                return null;
         }
 
         @Override
-        public RangeState combineStateCoveringRight(RangeState lState, RangeState rCoveringState)
+        public RangeState combineContentRightAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            return lState;
+            if (!rCursor.coveringState().lesserIncluded())
+                return lCursor.content();
+            else
+                return null;
         }
     };
 }

@@ -36,14 +36,16 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
 
     private class RangeCursor extends MemtableCursor implements RangeTrieImpl.Cursor<M>
     {
-        M activeRange;
-        boolean activeIsSet = false;
-        boolean activeIsExact = false;
+        boolean activeIsSet;
+        M activeRange;  // only non-null if activeIsSet
+        M prevContent;  // can only be non-null if activeIsSet
 
         RangeCursor(int root, int depth, int incomingTransition)
         {
             super(root, depth, incomingTransition);
+            activeIsSet = true;
             activeRange = null;
+            prevContent = null;
         }
 
         RangeCursor(RangeCursor copyFrom)
@@ -51,7 +53,7 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
             super(copyFrom);
             this.activeRange = copyFrom.activeRange;
             this.activeIsSet = copyFrom.activeIsSet;
-            this.activeIsExact = copyFrom.activeIsExact;
+            this.prevContent = copyFrom.prevContent;
         }
 
         @Override
@@ -69,12 +71,14 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            activeIsSet = activeIsExact = false;    // since we are skipping, we have no idea where we will end up
+            activeIsSet = false;    // since we are skipping, we have no idea where we will end up
+            activeRange = null;
+            prevContent = null;
             return updateActiveAndReturn(super.skipTo(skipDepth, skipTransition));
         }
 
         @Override
-        public M state()
+        public M coveringState()
         {
             if (!activeIsSet)
                 setActiveState();
@@ -87,7 +91,7 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
             {
                 activeIsSet = true;
                 activeRange = null;
-                activeIsExact = false;
+                prevContent = null;
                 return depth;
             }
 
@@ -95,15 +99,16 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
             M content = content();
             if (content != null)
             {
-                activeRange = content;
-                activeIsExact = true;
+                // TODO: assert range is well-formed
+                activeRange = content.leftSideAsCovering();
+                prevContent = content;
                 activeIsSet = true;
             }
-            else if (activeIsExact)
+            else if (prevContent != null)
             {
                 // If the previous state was exact, its right side is what we now have.
-                activeRange = activeRange.rightSideAsActive();
-                activeIsExact = false;
+                activeRange = prevContent.rightSideAsCovering();
+                prevContent = null;
                 assert activeIsSet;
             }
             // otherwise the active state is either not set or still valid.
@@ -112,12 +117,11 @@ public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends I
 
         private void setActiveState()
         {
-            M content = duplicate().advanceToContent(null);
-            if (content != null)
-                content = content.leftSideAsActive();
-            activeIsExact = false;
+            assert content() == null;
+            M nearestContent = duplicate().advanceToContent(null);
+            activeRange = nearestContent != null ? nearestContent.leftSideAsCovering() : null;
+            prevContent = null;
             activeIsSet = true;
-            activeRange = content;
         }
 
         @Override

@@ -143,10 +143,10 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
         }
 
         @Override
-        public T state()
+        public T coveringState()
         {
             // Since the singleton is only active at a single point, we only return a value for the exact position.
-            return content();
+            return null;
         }
 
         @Override

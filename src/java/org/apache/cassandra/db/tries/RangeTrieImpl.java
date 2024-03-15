@@ -23,9 +23,9 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     interface RangeMarker<M extends RangeMarker<M>>
     {
         M toContent();
-        M leftSideAsActive(/*side*/); // TODO: For reverse iteration this should accept a side
-        M rightSideAsActive();  // TODO: combine with above when reversed iteration is done
-        M asReportableStart();
+        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a side
+        M rightSideAsCovering();  // TODO: combine with above when reversed iteration is done
+        M asReportableStart(); // from covering state
         M asReportableEnd();
 
         boolean lesserIncluded();
@@ -34,27 +34,21 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     interface Cursor<T extends RangeTrieImpl.RangeMarker<T>> extends TrieImpl.Cursor<T>
     {
         /**
-         * Returns a range that is active at positions before the current.
-         * This is useful to understand the range that is active at a position that was skipped to, when the
-         * range trie jumps past the requested position or does not have content.
+         * Returns a range that covers positions before this, including this position if content() is null.
+         * This is the range that is active at (i.e. covers) a position that was skipped to, when the range trie jumps
+         * past the requested position or does not have content.
+         * Cannot be a reportable range (i.e. coveringState().toContent() must be null).
          * Note that this may also be non-null when the cursor is in an exhausted state, as well as immediately
          * after cursor construction, signifying, respectively, right and left unbounded ranges.
          */
-        T state();
+        T coveringState();
 
         /**
-         * Content is only returned for positions where the ranges change, or singleton entries.
+         * Content is only returned for positions where the ranges change.
+         * Note that if content() is non-null, coveringState() does not apply to this exact position.
          */
         @Override
-        default T content()
-        {
-            return content(state());
-        }
-
-        private T content(T value)
-        {
-            return (value == null) ? null : value.toContent();
-        }
+        T content();
 
         @Override
         Cursor<T> duplicate();
@@ -72,7 +66,13 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     class EmptyCursor<T extends RangeMarker<T>> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
     {
         @Override
-        public T state()
+        public T coveringState()
+        {
+            return null;
+        }
+
+        @Override
+        public T content()
         {
             return null;
         }
@@ -93,50 +93,39 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
         return new RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T>()
         {
             @Override
-            public T combineState(TrieSetImpl.RangeState rState, T lState)
+            public T combineState(TrieSetImpl.RangeState lState, T rState)
             {
-                if (lState == null)
+                if (rState == null)
                     return null;
 
-                switch (rState)
-                {
-                    case OUTSIDE_PREFIX:
-                        return null;
-                    case INSIDE_PREFIX:
-                        return lState;
-                    case END:
-                        return lState.asReportableEnd();
-                    case START:
-                        return lState.asReportableStart();
-                    default:
-                        throw new AssertionError();
-                }
-            }
-
-            @Override
-            public T combineStateCoveringLeft(T rState, TrieSetImpl.RangeState lCoveringState)
-            {
-                assert lCoveringState.lesserIncluded();
-                return rState;
-            }
-
-            @Override
-            public T combineStateCoveringRight(TrieSetImpl.RangeState lState, T rCoveringState)
-            {
-                assert rCoveringState.lesserIncluded();
                 switch (lState)
                 {
                     case OUTSIDE_PREFIX:
                         return null;
                     case INSIDE_PREFIX:
-                        return rCoveringState.leftSideAsActive();
+                        return rState;
                     case END:
-                        return rCoveringState.leftSideAsActive().asReportableEnd();
+                        return rState.asReportableEnd();
                     case START:
-                        return rCoveringState.leftSideAsActive().asReportableStart();
+                        return rState.asReportableStart();
                     default:
                         throw new AssertionError();
                 }
+            }
+
+            @Override
+            public boolean includeLesserLeft(Cursor<TrieSetImpl.RangeState> cursor)
+            {
+                return cursor.coveringState().lesserIncluded();
+            }
+
+            @Override
+            public T combineContentLeftAhead(Cursor<TrieSetImpl.RangeState> lCursor, Cursor<T> rCursor)
+            {
+                if (lCursor.coveringState().lesserIncluded())
+                    return rCursor.content();
+                else
+                    return null;
             }
         };
     }
