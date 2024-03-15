@@ -24,27 +24,59 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
     {
         Z combineState(C lState, D rState);
 
-        default boolean includeLesserLeft(C lState)
+        default boolean includeLesserLeft(RangeTrieImpl.Cursor<C> cursor)
         {
+            C lState = cursor.coveringState();
             return lState != null ? lState.lesserIncluded() : false;
         }
 
-        default boolean includeLesserRight(D rState)
+        default boolean includeLesserRight(RangeTrieImpl.Cursor<D> cursor)
         {
+            D rState = cursor.coveringState();
             return rState != null ? rState.lesserIncluded() : false;
         }
 
-        default Z combineStateCoveringLeft(D rState, C lCoveringState)
+        default Z combineCoveringState(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
         {
-            return
-            // Covering state cannot be null with the includeLesser implementation above
-            combineState(lCoveringState.leftSideAsActive(), rState);
+            return combineState(lCursor.coveringState(), rCursor.coveringState());
         }
 
-        default Z combineStateCoveringRight(C lState, D rCoveringState)
+        default Z combineContent(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
         {
-            // Covering state cannot be null with the includeLesser implementation above
-            return combineState(lState, rCoveringState.leftSideAsActive());
+            C lContent = lCursor.content();
+            D rContent = rCursor.content();
+            if (lContent == null && rContent == null)
+                return null;
+            if (lContent != null && rContent != null)
+                return combineState(lContent, rContent);
+
+            if (lContent == null)
+                lContent = lCursor.coveringState();
+            else if (rContent == null)
+                rContent = rCursor.coveringState();
+
+            return combineState(lContent, rContent);
+        }
+
+        default Z combineContentLeftAhead(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
+        {
+            D rContent = rCursor.content();
+            if (rContent == null)
+                return null;
+            C lContent = lCursor.coveringState();
+
+            return combineState(lContent, rContent);
+        }
+
+
+        default Z combineContentRightAhead(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
+        {
+            C lContent = lCursor.content();
+            if (lContent == null)
+                return null;
+            D rContent = rCursor.coveringState();
+
+            return combineState(lContent, rContent);
         }
     }
 
@@ -55,15 +87,17 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         C2_AHEAD;
     }
 
-    final IntersectionController<? super C, ? super D, Z> controller;
+    final IntersectionController<C, D, Z> controller;
     final RangeTrieImpl.Cursor<C> c1;
     final RangeTrieImpl.Cursor<D> c2;
     int currentDepth;
     int currentTransition;
-    Z currentRangeState;
+    Z currentCoveringState;
+    boolean currentCoversingStateSet;
+    Z currentContent;
     State state;
 
-    public RangeIntersectionCursor(IntersectionController<? super C, ? super D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
+    public RangeIntersectionCursor(IntersectionController<C, D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
     {
         this.controller = controller;
         this.c1 = c1;
@@ -78,7 +112,9 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         this.c2 = copyFrom.c2.duplicate();
         this.currentDepth = copyFrom.currentDepth;
         this.currentTransition = copyFrom.currentTransition;
-        this.currentRangeState = copyFrom.currentRangeState;
+        this.currentCoveringState = copyFrom.currentCoveringState;
+        this.currentCoversingStateSet = copyFrom.currentCoversingStateSet;
+        this.currentContent = copyFrom.currentContent;
         this.state = copyFrom.state;
     }
 
@@ -95,9 +131,20 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
     }
 
     @Override
-    public Z state()
+    public Z coveringState()
     {
-        return currentRangeState;
+        if (!currentCoversingStateSet)
+        {
+            currentCoveringState = controller.combineCoveringState(c1, c2);
+            currentCoversingStateSet = true;
+        }
+        return currentCoveringState;
+    }
+
+    @Override
+    public Z content()
+    {
+        return currentContent;
     }
 
     @Override
@@ -108,7 +155,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             case MATCHING:
             {
                 int ldepth = c1.advance();
-                if (controller.includeLesserLeft(c1.state()))
+                if (controller.includeLesserLeft(c1))
                     return advanceWithLeftAhead(c2.advance());
                 else
                     return advanceRightToIntersection(ldepth);
@@ -155,7 +202,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
     private int skipBoth(int skipDepth, int skipTransition)
     {
         int ldepth = c1.skipTo(skipDepth, skipTransition);
-        if (controller.includeLesserLeft(c1.state()))
+        if (controller.includeLesserLeft(c1))
             return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
         else
             return advanceRightToIntersection(ldepth);
@@ -170,7 +217,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             {
                 // Cannot do multi-advance when cursors are at the same position. Applying advance().
                 int ldepth = c1.advance();
-                if (controller.includeLesserLeft(c1.state()))
+                if (controller.includeLesserLeft(c1))
                     return advanceWithLeftAhead(c2.advance());
                 else
                     return advanceRightToIntersection(ldepth);
@@ -200,7 +247,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (controller.includeLesserRight(c2.state()))
+        if (controller.includeLesserRight(c2))
             return coveredAreaWithRightAhead(leftDepth, leftTransition);
         else
             return advanceLeftToIntersection(rightDepth);
@@ -222,7 +269,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (controller.includeLesserLeft(c1.state()))
+        if (controller.includeLesserLeft(c1))
             return coveredAreaWithLeftAhead(rightDepth, rightTransition);
         else
             return advanceRightToIntersection(leftDepth);
@@ -238,7 +285,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             int rightTransition = c2.incomingTransition();
             if (rightDepth == leftDepth && rightTransition == leftTransition)
                 return matchingPosition(leftDepth, leftTransition);
-            if (controller.includeLesserRight(c2.state()))
+            if (controller.includeLesserRight(c2))
                 return coveredAreaWithRightAhead(leftDepth, leftTransition);
 
             // Right is ahead of left, but outside the covered area. Skip left to right's position.
@@ -246,7 +293,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             leftTransition = c1.incomingTransition();
             if (leftDepth == rightDepth && leftTransition == rightTransition)
                 return matchingPosition(rightDepth, rightTransition);
-            if (controller.includeLesserLeft(c1.state()))
+            if (controller.includeLesserLeft(c1))
                 return coveredAreaWithLeftAhead(rightDepth, rightTransition);
         }
     }
@@ -261,7 +308,7 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             int leftTransition = c1.incomingTransition();
             if (leftDepth == rightDepth && leftTransition == rightTransition)
                 return matchingPosition(rightDepth, rightTransition);
-            if (controller.includeLesserLeft(c1.state()))
+            if (controller.includeLesserLeft(c1))
                 return coveredAreaWithLeftAhead(rightDepth, rightTransition);
 
             // Left is ahead of right, but outside the covered area. Skip right to left's position.
@@ -269,32 +316,34 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
             rightTransition = c2.incomingTransition();
             if (rightDepth == leftDepth && rightTransition == leftTransition)
                 return matchingPosition(leftDepth, leftTransition);
-            if (controller.includeLesserRight(c2.state()))
+            if (controller.includeLesserRight(c2))
                 return coveredAreaWithRightAhead(leftDepth, leftTransition);
         }
     }
 
     private int coveredAreaWithLeftAhead(int depth, int transition)
     {
-        return setState(State.C1_AHEAD, depth, transition, controller.combineStateCoveringLeft(c2.state(), c1.state()));
+        return setState(State.C1_AHEAD, depth, transition, controller.combineContentLeftAhead(c1, c2));
     }
 
     private int coveredAreaWithRightAhead(int depth, int transition)
     {
-        return setState(State.C2_AHEAD, depth, transition, controller.combineStateCoveringRight(c1.state(), c2.state()));
+        return setState(State.C2_AHEAD, depth, transition, controller.combineContentRightAhead(c1, c2));
     }
 
     private int matchingPosition(int depth, int transition)
     {
-        return setState(State.MATCHING, depth, transition, controller.combineState(c1.state(), c2.state()));
+        return setState(State.MATCHING, depth, transition, controller.combineContent(c1, c2));
     }
 
-    private int setState(State state, int depth, int transition, Z rangeState)
+    private int setState(State state, int depth, int transition, Z content)
     {
         this.state = state;
         this.currentDepth = depth;
         this.currentTransition = transition;
-        this.currentRangeState = rangeState;
+        this.currentContent = content;
+        this.currentCoversingStateSet = false;
+        this.currentCoveringState = null;
         return depth;
     }
 
@@ -314,6 +363,15 @@ public class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D e
         public TrieSet(RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> copyFrom)
         {
             super(copyFrom);
+        }
+
+        @Override
+        public TrieSetImpl.RangeState state()
+        {
+            TrieSetImpl.RangeState content = content();
+            if (content != null)
+                return content;
+            return coveringState();
         }
 
         @Override

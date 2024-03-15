@@ -286,16 +286,16 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         private M toActiveState(boolean atC, M state)
         {
             if (!atC && state != null)
-                return state.leftSideAsActive();
+                return state.leftSideAsCovering();
             else
                 return state;
         }
 
         @Override
-        public M state()
+        public M coveringState()
         {
-            M state1 = toActiveState(atC1, c1.state());
-            M state2 = toActiveState(atC2, c2.state());
+            M state1 = c1.coveringState();
+            M state2 = c2.coveringState();
             if (state1 == null)
                 return state2;
             if (state2 == null)
@@ -303,7 +303,6 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             return resolver.resolve(state1, state2);
         }
 
-        // Implement content explicitly to avoid calling state() when not necessary
         @Override
         public M content()
         {
@@ -312,22 +311,22 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             if (content1 == null && content2 == null)
                 return null;
             if (content1 != null && content2 != null)
-                return resolver.resolve(content1, content2).toContent();
+                return resolver.resolve(content1, content2);
 
             // Exactly one is non-null; must apply the state of the other
             if (content1 == null)
             {
-                content1 = toActiveState(atC1, c1.state());
+                content1 = c1.coveringState();
                 if (content1 == null)
                     return content2;
             } else // content2 == null
             {
-                content2 = toActiveState(atC2, c2.state());
+                content2 = c2.coveringState();
                 if (content2 == null)
                     return content1;
             }
 
-            return resolver.resolve(content1, content2).toContent();
+            return resolver.resolve(content1, content2);
         }
 
         @Override

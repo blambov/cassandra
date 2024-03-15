@@ -51,10 +51,40 @@ public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
         {
             case OUTSIDE_PREFIX:
                 return TrieSetImpl.RangeState.INSIDE_PREFIX;
-            case START:
-                return TrieSetImpl.RangeState.END;
             case INSIDE_PREFIX:
                 return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+            case START:
+                return TrieSetImpl.RangeState.END;
+            case END:
+                return TrieSetImpl.RangeState.START;
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    @Override
+    public TrieSetImpl.RangeState coveringState()
+    {
+        switch (source.coveringState())
+        {
+            case OUTSIDE_PREFIX:
+                return TrieSetImpl.RangeState.INSIDE_PREFIX;
+            case INSIDE_PREFIX:
+                return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    @Override
+    public TrieSetImpl.RangeState content()
+    {
+        if (source.content() == null)
+            return null;
+        switch (source.content())
+        {
+            case START:
+                return TrieSetImpl.RangeState.END;
             case END:
                 return TrieSetImpl.RangeState.START;
             default:

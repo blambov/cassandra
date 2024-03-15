@@ -56,6 +56,8 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
         int newRight = Math.max(m1.rightSide, m2.rightSide);
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
+        if (newLeft == newAt && newAt == newRight && (m1.isReportableState || m2.isReportableState))
+            return null; // if we are processing content, do not report ineffective markers
 
         return new DeletionMarker(m2.position, newLeft, newAt, newRight);
     }
@@ -103,7 +105,7 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
     }
 
     @Override
-    public DeletionMarker leftSideAsActive()
+    public DeletionMarker leftSideAsCovering()
     {
         if (!isReportableState)
             return this;
@@ -113,7 +115,7 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
     }
 
     @Override
-    public DeletionMarker rightSideAsActive()
+    public DeletionMarker rightSideAsCovering()
     {
         if (!isReportableState)
             return this;
@@ -160,7 +162,7 @@ class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
             assertTrue("Order violation " + toString(prev) + " vs " + toString(marker.position),
                        prev == null || ByteComparable.compare(prev, marker.position, TrieImpl.BYTE_COMPARABLE_VERSION) < 0);
             assertEquals("Range close violation", active, marker.leftSide);
-            assertTrue(marker.at != marker.leftSide || marker.leftSide != marker.rightSide || marker.at != marker.rightSide);
+            assertTrue(marker.at != marker.leftSide || marker.at != marker.rightSide);
             prev = marker.position;
             active = marker.rightSide;
         }
