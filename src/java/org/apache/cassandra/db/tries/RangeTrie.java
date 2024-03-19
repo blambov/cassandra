@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -179,6 +180,16 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     default RangeTrie<M> mergeWith(RangeTrie<M> other, Trie.MergeResolver<M> resolver)
     {
         return (RangeTrieWithImpl<M>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
+    }
+
+    /**
+     * Applies these ranges to a given trie. The meaning of the application is defined by the given mapper:
+     * whenever the trie's content falls under a range, the mapper is called to return the content that should be
+     * presented.
+     */
+    default <T> Trie<T> applyTo(Trie<T> source, BiFunction<M, T, T> mapper)
+    {
+        return (TrieWithImpl<T>) () -> new MergeCursor.RangeOnTrie<>(mapper, impl(), TrieImpl.impl(source));
     }
 
     /**

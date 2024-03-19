@@ -394,6 +394,7 @@ public class IntersectionTrieTest
     public void testIntersection(String message, List<Integer> expected, Trie<Integer> trie, TrieSet... sets)
     {
         testIntersectionTries(message, expected, trie, sets);
+        testIntersectionTriesByRangeApplyTo(message, expected, trie, sets);
         testIntersectionSets(message, expected, trie, TrieSet.range(null, null), sets);
         testIntersectionSetsByRangeIntersector(message, expected, trie, TrieSet.range(null, null), sets);
     }
@@ -467,7 +468,6 @@ public class IntersectionTrieTest
         if (sets.length == 0)
         {
             assertEquals(message + " forward b" + bits, expected, toList(trie));
-            return;
         }
         else
         {
@@ -482,5 +482,34 @@ public class IntersectionTrieTest
                 );
             }
         }
+    }
+
+    public void testIntersectionTriesByRangeApplyTo(String message, List<Integer> expected, Trie<Integer> trie, TrieSet[] sets)
+    {
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            assertEquals(message + " forward b" + bits, expected, toList(trie));
+        }
+        else
+        {
+            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+            {
+                TrieSet set = sets[toRemove];
+                testIntersectionTriesByRangeApplyTo(message + " " + toRemove, expected,
+                                                    applySet(set, trie),
+                                                    Arrays.stream(sets)
+                                                          .filter(x -> x != set)
+                                                          .toArray(TrieSet[]::new)
+                );
+            }
+        }
+    }
+
+    private <T> Trie<T> applySet(TrieSet set, Trie<T> trie)
+    {
+        RangeTrieWithImpl<TrieSetImpl.RangeState> setAsRangeTrie = () -> TrieSetImpl.impl(set).cursor();
+        return setAsRangeTrie.applyTo(trie, (range, value) -> range.matchingIncluded() ? value : null);
     }
 }
