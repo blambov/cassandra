@@ -20,7 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import org.apache.cassandra.io.compress.BufferType;
 
-public class InMemoryRangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends InMemoryTrie<M> implements RangeTrieWithImpl<M>
+public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMemoryTrie<M> implements RangeTrieWithImpl<M>
 {
     public InMemoryRangeTrie(BufferType bufferType)
     {

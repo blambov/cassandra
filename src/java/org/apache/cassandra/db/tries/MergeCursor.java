@@ -264,7 +264,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
     }
 
-    static class Range<M extends RangeTrieImpl.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
         Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
         {

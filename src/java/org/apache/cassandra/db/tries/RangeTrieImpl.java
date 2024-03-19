@@ -18,20 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
-public interface RangeTrieImpl<M extends RangeTrieImpl.RangeMarker<M>> extends CursorWalkable<RangeTrieImpl.Cursor<M>>
+public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends CursorWalkable<RangeTrieImpl.Cursor<M>>
 {
-    interface RangeMarker<M extends RangeMarker<M>>
-    {
-        M toContent();
-        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a direction
-        M rightSideAsCovering();  // TODO: combine with above when reversed iteration is done
-        M asReportableStart(); // from covering state; TODO: direction parameter and combine with next
-        M asReportableEnd();
-
-        boolean lesserIncluded();
-    }
-
-    interface Cursor<M extends RangeTrieImpl.RangeMarker<M>> extends TrieImpl.Cursor<M>
+    interface Cursor<M extends RangeTrie.RangeMarker<M>> extends TrieImpl.Cursor<M>
     {
         /**
          * Returns a range that covers positions before this, including this position if content() is null.
@@ -63,7 +52,7 @@ public interface RangeTrieImpl<M extends RangeTrieImpl.RangeMarker<M>> extends C
         return TrieImpl.process(walker, cursor());
     }
 
-    class EmptyCursor<M extends RangeMarker<M>> extends TrieImpl.EmptyCursor<M> implements Cursor<M>
+    class EmptyCursor<M extends RangeTrie.RangeMarker<M>> extends TrieImpl.EmptyCursor<M> implements Cursor<M>
     {
         @Override
         public M coveringState()
@@ -88,7 +77,7 @@ public interface RangeTrieImpl<M extends RangeTrieImpl.RangeMarker<M>> extends C
     RangeTrieWithImpl EMPTY = EmptyCursor::new;
 
 
-    static <M extends RangeTrieImpl.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()
+    static <M extends RangeTrie.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()
     {
         return new RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M>()
         {
@@ -130,7 +119,7 @@ public interface RangeTrieImpl<M extends RangeTrieImpl.RangeMarker<M>> extends C
         };
     }
 
-    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrieWithImpl<M> impl(RangeTrie<M> trieSet)
+    static <M extends RangeTrie.RangeMarker<M>> RangeTrieWithImpl<M> impl(RangeTrie<M> trieSet)
     {
         return (RangeTrieWithImpl<M>) trieSet;
     }

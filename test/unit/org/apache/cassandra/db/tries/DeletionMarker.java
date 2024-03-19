@@ -31,7 +31,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-class DeletionMarker implements RangeTrieImpl.RangeMarker<DeletionMarker>
+class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
 {
     final ByteComparable position;
     final int leftSide;
