@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.function.BiFunction;
+
 abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
 {
     final C c1;
@@ -325,6 +327,56 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         public RangeTrieImpl.Cursor<M> duplicate()
         {
             return new Range<>(this);
+        }
+    }
+
+    static class RangeOnTrie<M extends RangeTrie.RangeMarker<M>, T> extends MergeCursor<RangeTrieImpl.Cursor<M>, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
+    {
+        final BiFunction<M, T, T> resolver;
+
+        RangeOnTrie(BiFunction<M, T, T> resolver, RangeTrieImpl.Cursor<M> c1, TrieImpl.Cursor<T> c2)
+        {
+            super(c1, c2);
+            this.resolver = resolver;
+        }
+
+        public RangeOnTrie(RangeOnTrie<M, T> copyFrom)
+        {
+            super(copyFrom);
+            this.resolver = copyFrom.resolver;
+        }
+
+        RangeOnTrie(BiFunction<M, T, T> resolver, RangeTrieImpl<M> t1, TrieImpl<T> t2)
+        {
+            this(resolver, t1.cursor(), t2.cursor());
+            assert c1.depth() == 0;
+            assert c2.depth() == 0;
+        }
+
+        @Override
+        public T content()
+        {
+            if (!atC2)
+                return null;
+            T content = c2.content();
+            if (content == null)
+                return null;
+
+            M applicableRange = atC1 ? c1.content() : null;
+            if (applicableRange == null)
+            {
+                applicableRange = c1.coveringState();
+                if (applicableRange == null)
+                    return content;
+            }
+
+            return resolver.apply(applicableRange, content);
+        }
+
+        @Override
+        public RangeOnTrie<M, T> duplicate()
+        {
+            return new RangeOnTrie<>(this);
         }
     }
 
