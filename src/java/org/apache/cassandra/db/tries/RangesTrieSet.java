@@ -170,18 +170,6 @@ public class RangesTrieSet implements TrieSetWithImpl
         }
 
         @Override
-        public RangeState coveringState()
-        {
-            return currentState.leftSideAsCovering();
-        }
-
-        @Override
-        public RangeState content()
-        {
-            return currentState.toContent();
-        }
-
-        @Override
         public int advance()
         {
             if (currentIdx >= nexts.length)

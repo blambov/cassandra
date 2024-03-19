@@ -20,7 +20,6 @@ package org.apache.cassandra.db.tries;
 
 public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 {
-    // TODO: Make it non-null
     enum RangeState implements RangeTrieImpl.RangeMarker<RangeState>
     {
         OUTSIDE_PREFIX(false, false, false),
@@ -30,13 +29,13 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
         final boolean applicableBefore;
         final boolean applicableAt;
-        final boolean reportAsContent;
+        final RangeState asContent;
 
         RangeState(boolean applicableBefore, boolean applicableAt, boolean reportAsContent)
         {
             this.applicableBefore = applicableBefore;
             this.applicableAt = applicableAt;
-            this.reportAsContent = reportAsContent;
+            this.asContent = reportAsContent ? this : null;
         }
 
 
@@ -54,7 +53,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public RangeState toContent()
         {
-            return reportAsContent ? this : null;
+            return asContent;
         }
 
         @Override
@@ -120,8 +119,23 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
     interface Cursor extends RangeTrieImpl.Cursor<RangeState>
     {
-        /** Combined state (covering and content) */
+        /**
+         * Combined state. The following hold:
+         *   state() == content() != null ? content() : coveringState()
+         *   content() == state().toContent()
+         *   coveringState() == state().leftSideAsCovering()
+         */
         RangeState state();
+
+        default RangeState coveringState()
+        {
+            return state().leftSideAsCovering();
+        }
+
+        default RangeState content()
+        {
+            return state().toContent();
+        }
 
         @Override
         Cursor duplicate();

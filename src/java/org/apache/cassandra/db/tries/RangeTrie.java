@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.tries;
 
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -25,13 +24,13 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseTrie<T>
+public interface RangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends BaseTrie<M>
 {
 
     /**
      * Call the given consumer on all content values in the trie in order.
      */
-    default void forEachValue(ValueConsumer<T> consumer)
+    default void forEachValue(ValueConsumer<M> consumer)
     {
         impl().process(consumer);
     }
@@ -39,7 +38,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
-    default void forEachEntry(BiConsumer<ByteComparable, T> consumer)
+    default void forEachEntry(BiConsumer<ByteComparable, M> consumer)
     {
         impl().process(new TrieEntriesWalker.WithConsumer<>(consumer));
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
@@ -57,7 +56,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     /**
      * Constuct a textual representation of the trie using the given content-to-string mapper.
      */
-    default String dump(Function<T, String> contentToString)
+    default String dump(Function<M, String> contentToString)
     {
         return impl().process(new TrieDumper<>(contentToString));
     }
@@ -84,7 +83,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
      * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
      */
-    default RangeTrie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
+    default RangeTrie<M> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
         if (left == null && right == null)
             return this;
@@ -106,7 +105,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
      * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
      */
-    default RangeTrie<T> subtrie(ByteComparable left, ByteComparable right)
+    default RangeTrie<M> subtrie(ByteComparable left, ByteComparable right)
     {
         return intersect(RangesTrieSet.create(left, right));
     }
@@ -116,21 +115,21 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * <p>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
-    default RangeTrie<T> intersect(TrieSet set)
+    default RangeTrie<M> intersect(TrieSet set)
     {
         return intersect(set, RangeTrieImpl.rangeAndSetIntersectionController());
     }
 
 
-    default RangeTrie<T> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T> controller)
+    default RangeTrie<M> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> controller)
     {
-        return (RangeTrieWithImpl<T>) () -> new RangeIntersectionCursor<>(controller, TrieSetImpl.impl(set).cursor(), impl().cursor());
+        return (RangeTrieWithImpl<M>) () -> new RangeIntersectionCursor<>(controller, TrieSetImpl.impl(set).cursor(), impl().cursor());
     }
 
     /**
      * Returns the ordered entry set of this trie's content as an iterable.
      */
-    default Iterable<Map.Entry<ByteComparable, T>> entrySet()
+    default Iterable<Map.Entry<ByteComparable, M>> entrySet()
     {
         return this::entryIterator;
     }
@@ -138,7 +137,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     /**
      * Returns the ordered entry set of this trie's content in an iterator.
      */
-    default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
+    default Iterator<Map.Entry<ByteComparable, M>> entryIterator()
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor());
     }
@@ -146,7 +145,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     /**
      * Returns the ordered set of values of this trie as an iterable.
      */
-    default Iterable<T> values()
+    default Iterable<M> values()
     {
         return this::valueIterator;
     }
@@ -154,7 +153,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
     /**
      * Returns the ordered set of values of this trie in an iterator.
      */
-    default Iterator<T> valueIterator()
+    default Iterator<M> valueIterator()
     {
         return new TrieValuesIterator<>(impl().cursor());
     }
@@ -166,33 +165,9 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * If there is content for a given key in both sources, the resolver will be called to obtain the combination.
      * (The resolver will not be called if there's content from only one source.)
      */
-    default RangeTrie<T> mergeWith(RangeTrie<T> other, Trie.MergeResolver<T> resolver)
+    default RangeTrie<M> mergeWith(RangeTrie<M> other, Trie.MergeResolver<M> resolver)
     {
-        return (RangeTrieWithImpl<T>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
-//        return (RangeTrieWithImpl<T>) () -> new RangeIntersectionCursor<>(new RangeIntersectionCursor.IntersectionController<T, T, T>()
-//        {
-//            @Override
-//            public T combineState(T lState, T rState)
-//            {
-//                if (lState == null)
-//                    return rState;
-//                if (rState == null)
-//                    return lState;
-//                return resolver.resolve(lState, rState);
-//            }
-//
-//            @Override
-//            public boolean includeLesserLeft(RangeTrieImpl.Cursor<T> cursor)
-//            {
-//                return true;
-//            }
-//
-//            @Override
-//            public boolean includeLesserRight(RangeTrieImpl.Cursor<T> cursor)
-//            {
-//                return true;
-//            }
-//        }, impl().cursor(), other.impl().cursor());
+        return (RangeTrieWithImpl<M>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
     }
 
     /**
@@ -202,7 +177,7 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
      * If there is content for a given key in more than one sources, the resolver will be called to obtain the
      * combination. (The resolver will not be called if there's content from only one source.)
      */
-//    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> merge(Collection<? extends RangeTrie<T>> sources, Trie.CollectionMergeResolver<T> resolver)
+//    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrie<M> merge(Collection<? extends RangeTrie<M>> sources, Trie.CollectionMergeResolver<M> resolver)
 //    {
 //        switch (sources.size())
 //        {
@@ -212,23 +187,23 @@ public interface RangeTrie<T extends RangeTrieImpl.RangeMarker<T>> extends BaseT
 //                return sources.iterator().next();
 //            case 2:
 //            {
-//                Iterator<? extends RangeTrie<T>> it = sources.iterator();
-//                RangeTrie<T> t1 = it.next();
-//                RangeTrie<T> t2 = it.next();
+//                Iterator<? extends RangeTrie<M>> it = sources.iterator();
+//                RangeTrie<M> t1 = it.next();
+//                RangeTrie<M> t2 = it.next();
 //                return t1.mergeWith(t2, resolver);
 //            }
 //            default:
-//                return (RangeTrieWithImpl<T>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
+//                return (RangeTrieWithImpl<M>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
 //        }
 //    }
 
     @SuppressWarnings("unchecked")
-    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> empty()
+    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrie<M> empty()
     {
-        return (RangeTrie<T>) RangeTrieImpl.EMPTY;
+        return (RangeTrie<M>) RangeTrieImpl.EMPTY;
     }
 
-    private RangeTrieWithImpl<T> impl()
+    private RangeTrieWithImpl<M> impl()
     {
         return RangeTrieImpl.impl(this);
     }

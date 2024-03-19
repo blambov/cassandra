@@ -18,20 +18,20 @@
 
 package org.apache.cassandra.db.tries;
 
-public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends CursorWalkable<RangeTrieImpl.Cursor<T>>
+public interface RangeTrieImpl<M extends RangeTrieImpl.RangeMarker<M>> extends CursorWalkable<RangeTrieImpl.Cursor<M>>
 {
     interface RangeMarker<M extends RangeMarker<M>>
     {
         M toContent();
-        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a side
+        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a direction
         M rightSideAsCovering();  // TODO: combine with above when reversed iteration is done
-        M asReportableStart(); // from covering state
+        M asReportableStart(); // from covering state; TODO: direction parameter and combine with next
         M asReportableEnd();
 
         boolean lesserIncluded();
     }
 
-    interface Cursor<T extends RangeTrieImpl.RangeMarker<T>> extends TrieImpl.Cursor<T>
+    interface Cursor<M extends RangeTrieImpl.RangeMarker<M>> extends TrieImpl.Cursor<M>
     {
         /**
          * Returns a range that covers positions before this, including this position if content() is null.
@@ -41,44 +41,44 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
          * Note that this may also be non-null when the cursor is in an exhausted state, as well as immediately
          * after cursor construction, signifying, respectively, right and left unbounded ranges.
          */
-        T coveringState();
+        M coveringState();
 
         /**
          * Content is only returned for positions where the ranges change.
          * Note that if content() is non-null, coveringState() does not apply to this exact position.
          */
         @Override
-        T content();
+        M content();
 
         @Override
-        Cursor<T> duplicate();
+        Cursor<M> duplicate();
     }
 
 
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(TrieImpl.Walker<T, R> walker)
+    default <R> R process(TrieImpl.Walker<M, R> walker)
     {
         return TrieImpl.process(walker, cursor());
     }
 
-    class EmptyCursor<T extends RangeMarker<T>> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
+    class EmptyCursor<M extends RangeMarker<M>> extends TrieImpl.EmptyCursor<M> implements Cursor<M>
     {
         @Override
-        public T coveringState()
+        public M coveringState()
         {
             return null;
         }
 
         @Override
-        public T content()
+        public M content()
         {
             return null;
         }
 
         @Override
-        public Cursor<T> duplicate()
+        public Cursor<M> duplicate()
         {
             return depth == 0 ? new EmptyCursor<>() : this;
         }
@@ -88,12 +88,12 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
     RangeTrieWithImpl EMPTY = EmptyCursor::new;
 
 
-    static <T extends RangeTrieImpl.RangeMarker<T>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T> rangeAndSetIntersectionController()
+    static <M extends RangeTrieImpl.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()
     {
-        return new RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, T, T>()
+        return new RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M>()
         {
             @Override
-            public T combineState(TrieSetImpl.RangeState lState, T rState)
+            public M combineState(TrieSetImpl.RangeState lState, M rState)
             {
                 if (rState == null)
                     return null;
@@ -120,7 +120,7 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
             }
 
             @Override
-            public T combineContentLeftAhead(Cursor<TrieSetImpl.RangeState> lCursor, Cursor<T> rCursor)
+            public M combineContentLeftAhead(Cursor<TrieSetImpl.RangeState> lCursor, Cursor<M> rCursor)
             {
                 if (lCursor.coveringState().lesserIncluded())
                     return rCursor.content();
@@ -130,8 +130,8 @@ public interface RangeTrieImpl<T extends RangeTrieImpl.RangeMarker<T>> extends C
         };
     }
 
-    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrieWithImpl<T> impl(RangeTrie<T> trieSet)
+    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrieWithImpl<M> impl(RangeTrie<M> trieSet)
     {
-        return (RangeTrieWithImpl<T>) trieSet;
+        return (RangeTrieWithImpl<M>) trieSet;
     }
 }

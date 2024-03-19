@@ -283,14 +283,6 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             assert c2.depth() == 0;
         }
 
-        private M toActiveState(boolean atC, M state)
-        {
-            if (!atC && state != null)
-                return state.leftSideAsCovering();
-            else
-                return state;
-        }
-
         @Override
         public M coveringState()
         {
