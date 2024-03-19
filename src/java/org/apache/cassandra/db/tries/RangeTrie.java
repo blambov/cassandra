@@ -24,8 +24,19 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface RangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends BaseTrie<M>
+public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<M>
 {
+
+    interface RangeMarker<M extends RangeMarker<M>>
+    {
+        M toContent();
+        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a direction
+        M rightSideAsCovering();  // TODO: combine with above when reversed iteration is done
+        M asReportableStart(); // from covering state; TODO: direction parameter and combine with next
+        M asReportableEnd();
+
+        boolean lesserIncluded();
+    }
 
     /**
      * Call the given consumer on all content values in the trie in order.
@@ -64,7 +75,7 @@ public interface RangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends BaseT
     /**
      * Returns a singleton trie mapping the given byte path to content.
      */
-    static <T extends RangeTrieImpl.RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, T v)
+    static <T extends RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, T v)
     {
         return (RangeTrieWithImpl<T>) () -> new SingletonCursor.Range<>(b, v);
     }
@@ -198,7 +209,7 @@ public interface RangeTrie<M extends RangeTrieImpl.RangeMarker<M>> extends BaseT
 //    }
 
     @SuppressWarnings("unchecked")
-    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrie<M> empty()
+    static <M extends RangeMarker<M>> RangeTrie<M> empty()
     {
         return (RangeTrie<M>) RangeTrieImpl.EMPTY;
     }

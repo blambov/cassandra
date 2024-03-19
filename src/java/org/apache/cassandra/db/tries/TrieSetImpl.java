@@ -20,7 +20,7 @@ package org.apache.cassandra.db.tries;
 
 public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 {
-    enum RangeState implements RangeTrieImpl.RangeMarker<RangeState>
+    enum RangeState implements RangeTrie.RangeMarker<RangeState>
     {
         OUTSIDE_PREFIX(false, false, false),
         INSIDE_PREFIX(true, true, false),

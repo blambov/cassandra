@@ -18,6 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-interface RangeTrieWithImpl<T extends RangeTrieImpl.RangeMarker<T>> extends RangeTrie<T>, RangeTrieImpl<T>
+interface RangeTrieWithImpl<T extends RangeTrie.RangeMarker<T>> extends RangeTrie<T>, RangeTrieImpl<T>
 {
 }

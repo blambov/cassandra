@@ -380,7 +380,7 @@ public class RangeTrieMergeTest
         }
     }
 
-    private <M extends RangeTrieImpl.RangeMarker<M>> RangeTrieWithImpl<M> mergeByRangeIntersection(RangeTrie<M> trie1, RangeTrie<M> trie2, Trie.MergeResolver<M> resolver)
+    private <M extends RangeTrie.RangeMarker<M>> RangeTrieWithImpl<M> mergeByRangeIntersection(RangeTrie<M> trie1, RangeTrie<M> trie2, Trie.MergeResolver<M> resolver)
     {
         return () -> new RangeIntersectionCursor<>(new RangeIntersectionCursor.IntersectionController<M, M, M>()
         {

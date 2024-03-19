@@ -130,7 +130,7 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
         return currentTransition;
     }
 
-    static class Range<T extends RangeTrieImpl.RangeMarker<T>> extends SingletonCursor<T> implements RangeTrieImpl.Cursor<T>
+    static class Range<T extends RangeTrie.RangeMarker<T>> extends SingletonCursor<T> implements RangeTrieImpl.Cursor<T>
     {
         Range(ByteComparable key, T value)
         {

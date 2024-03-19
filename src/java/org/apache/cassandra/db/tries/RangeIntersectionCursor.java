@@ -18,9 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
-class RangeIntersectionCursor<C extends RangeTrieImpl.RangeMarker<C>, D extends RangeTrieImpl.RangeMarker<D>, Z extends RangeTrieImpl.RangeMarker<Z>> implements RangeTrieImpl.Cursor<Z>
+class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends RangeTrie.RangeMarker<D>, Z extends RangeTrie.RangeMarker<Z>> implements RangeTrieImpl.Cursor<Z>
 {
-    interface IntersectionController<C extends RangeTrieImpl.RangeMarker<C>, D extends RangeTrieImpl.RangeMarker<D>, Z extends RangeTrieImpl.RangeMarker<Z>>
+    interface IntersectionController<C extends RangeTrie.RangeMarker<C>, D extends RangeTrie.RangeMarker<D>, Z extends RangeTrie.RangeMarker<Z>>
     {
         Z combineState(C lState, D rState);
 
