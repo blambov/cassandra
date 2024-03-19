@@ -355,6 +355,23 @@ public class IntersectionTrieTest
                               .union(TrieSet.range(of(9), of(10)));
 
         testIntersections(trie, set1, set2, set3);
+
+        set1 = TrieSet.range(null, of(3));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(of(2), of(4)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(of(5), of(7)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(of(7), of(9)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(of(14), of(16)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(of(12), null));
+        set2 = TrieSet.range(of(2), of(7));
+        set2 = unionByRangeIntersector(set2, TrieSet.ranges(null, of(8), of(10), null).negation());
+        set2 = unionByRangeIntersector(set2, TrieSet.ranges(of(8), of(10), of(12), of(14)));;
+        set3 = TrieSet.range(of(1), of(2));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(of(3), of(4)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(of(5), of(6)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(of(7), of(8)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(of(9), of(10)));
+
+        testIntersections(trie, set1, set2, set3);
     }
 
     private void testIntersections(Trie<Integer> trie, TrieSet set1, TrieSet set2, TrieSet set3)
@@ -378,6 +395,45 @@ public class IntersectionTrieTest
     {
         testIntersectionTries(message, expected, trie, sets);
         testIntersectionSets(message, expected, trie, TrieSet.range(null, null), sets);
+        testIntersectionSetsByRangeIntersector(message, expected, trie, TrieSet.range(null, null), sets);
+    }
+
+    public void testIntersectionSetsByRangeIntersector(String message, List<Integer> expected, Trie<Integer> trie, TrieSet intersectedSet, TrieSet[] sets)
+    {
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            assertEquals(message + " sets b" + bits, expected, toList(trie.intersect(intersectedSet)));
+        }
+        else
+        {
+            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+            {
+                TrieSet set = sets[toRemove];
+                testIntersectionSetsByRangeIntersector(message + " " + toRemove, expected,
+                                                       trie,
+                                                       intersectByRangeIntersector(intersectedSet, set),
+                                                       Arrays.stream(sets)
+                                                             .filter(x -> x != set)
+                                                             .toArray(TrieSet[]::new)
+                );
+            }
+        }
+    }
+
+    private static TrieSetWithImpl intersectByRangeIntersector(TrieSet set1, TrieSet set2)
+    {
+        return () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.INTERSECTION_CONTROLLER,
+                                                         ((TrieSetImpl) set1).cursor(),
+                                                         ((TrieSetImpl) set2).cursor());
+    }
+
+    private static TrieSetWithImpl unionByRangeIntersector(TrieSet set1, TrieSet set2)
+    {
+        return () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.UNION_CONTROLLER,
+                                                         ((TrieSetImpl) set1).cursor(),
+                                                         ((TrieSetImpl) set2).cursor());
     }
 
     public void testIntersectionSets(String message, List<Integer> expected, Trie<Integer> trie, TrieSet intersectedSet, TrieSet[] sets)
@@ -394,11 +450,11 @@ public class IntersectionTrieTest
             {
                 TrieSet set = sets[toRemove];
                 testIntersectionSets(message + " " + toRemove, expected,
-                                      trie,
-                                      intersectedSet.intersection(set),
-                                      Arrays.stream(sets)
-                                            .filter(x -> x != set)
-                                            .toArray(TrieSet[]::new)
+                                     trie,
+                                     intersectedSet.intersection(set),
+                                     Arrays.stream(sets)
+                                           .filter(x -> x != set)
+                                           .toArray(TrieSet[]::new)
                 );
             }
         }

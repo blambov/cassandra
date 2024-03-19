@@ -304,6 +304,7 @@ public class RangeTrieMergeTest
     {
         List<DeletionMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
+        testMergeByRangeIntersection(message, fromList(testRanges), testRanges, sets);
     }
 
 
@@ -341,6 +342,70 @@ public class RangeTrieMergeTest
                 );
             }
         }
+    }
+
+    public void testMergeByRangeIntersection(String message, RangeTrie<DeletionMarker> trie, List<DeletionMarker> merged, List<DeletionMarker>... sets)
+    {
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            try
+            {
+                assertEquals(message + " forward b" + bits, merged, toList(trie));
+                System.out.println(message + " forward b" + bits + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println("\n" + trie.dump());
+                throw e;
+            }
+        }
+        else
+        {
+            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+            {
+                List<DeletionMarker> ranges = sets[toRemove];
+                System.out.println("Adding:  " + ranges);
+                testMergeByRangeIntersection(message + " " + toRemove,
+                          mergeByRangeIntersection(trie, fromList(ranges), DeletionMarker::combine),
+                          mergeLists(merged, ranges),
+                          Arrays.stream(sets)
+                                .filter(x -> x != ranges)
+                                .toArray(List[]::new)
+                );
+            }
+        }
+    }
+
+    private <M extends RangeTrieImpl.RangeMarker<M>> RangeTrieWithImpl<M> mergeByRangeIntersection(RangeTrie<M> trie1, RangeTrie<M> trie2, Trie.MergeResolver<M> resolver)
+    {
+        return () -> new RangeIntersectionCursor<>(new RangeIntersectionCursor.IntersectionController<M, M, M>()
+        {
+            @Override
+            public M combineState(M lState, M rState)
+            {
+                if (lState == null)
+                    return rState;
+                if (rState == null)
+                    return lState;
+                return resolver.resolve(lState, rState);
+            }
+
+            @Override
+            public boolean includeLesserLeft(RangeTrieImpl.Cursor<M> cursor)
+            {
+                return true;
+            }
+
+            @Override
+            public boolean includeLesserRight(RangeTrieImpl.Cursor<M> cursor)
+            {
+                return true;
+            }
+        }, ((RangeTrieImpl<M>) trie1).cursor(), ((RangeTrieImpl<M>) trie2).cursor());
     }
 
     int delete(int deletionTime, int data)

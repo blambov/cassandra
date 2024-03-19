@@ -82,18 +82,6 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         return currentRangeState;
     }
 
-    @Override
-    public TrieSetImpl.RangeState coveringState()
-    {
-        return currentRangeState.leftSideAsCovering();
-    }
-
-    @Override
-    public TrieSetImpl.RangeState content()
-    {
-        return currentRangeState.toContent();
-    }
-
     boolean lesserInSet(TrieSetImpl.Cursor cursor)
     {
         return cursor.state().lesserIncluded();

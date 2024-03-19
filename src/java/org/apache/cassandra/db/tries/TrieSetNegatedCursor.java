@@ -21,7 +21,7 @@ package org.apache.cassandra.db.tries;
 /**
  * Negation of trie sets.
  * <p>
- * Achieved by simply inverting the contained() values.
+ * Achieved by simply inverting the state() values.
  */
 public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
 {
@@ -63,36 +63,6 @@ public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
     }
 
     @Override
-    public TrieSetImpl.RangeState coveringState()
-    {
-        switch (source.coveringState())
-        {
-            case OUTSIDE_PREFIX:
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
-            case INSIDE_PREFIX:
-                return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    @Override
-    public TrieSetImpl.RangeState content()
-    {
-        if (source.content() == null)
-            return null;
-        switch (source.content())
-        {
-            case START:
-                return TrieSetImpl.RangeState.END;
-            case END:
-                return TrieSetImpl.RangeState.START;
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    @Override
     public int advance()
     {
         return source.advance();
@@ -102,6 +72,12 @@ public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
     public int skipTo(int skipDepth, int skipTransition)
     {
         return source.skipTo(skipDepth, skipTransition);
+    }
+
+    @Override
+    public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+    {
+        return source.advanceMultiple(receiver);
     }
 
     @Override
