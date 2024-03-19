@@ -155,4 +155,30 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
             return new Range(this);
         }
     }
+
+    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>> extends SingletonCursor<T> implements DeletionAwareTrieImpl.Cursor<T, D>
+    {
+        DeletionAware(ByteComparable key, T value)
+        {
+            super(key, value);
+        }
+
+        DeletionAware(SingletonCursor<T> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            return null;
+        }
+
+        @Override
+        public DeletionAware<T, D> duplicate()
+        {
+            return new DeletionAware(this);
+        }
+
+    }
 }

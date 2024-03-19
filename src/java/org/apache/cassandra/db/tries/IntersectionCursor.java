@@ -252,4 +252,36 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
             return new NonDeterministic<>(this, alternate);
         }
     }
+
+    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>> extends WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
+    {
+        RangeTrieImpl.Cursor<D> applicableDeletionBranch;
+
+        public DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source, TrieSetImpl.Cursor set)
+        {
+            super(source, set);
+            applicableDeletionBranch = null;
+        }
+
+        public DeletionAware(DeletionAware<T, D> copyFrom, DeletionAwareTrieImpl.Cursor<T, D> withSource)
+        {
+            super(copyFrom, withSource);
+            applicableDeletionBranch = copyFrom.applicableDeletionBranch.duplicate();
+        }
+
+        @Override
+        public DeletionAware<T, D> duplicate()
+        {
+            return new DeletionAware<>(this, source.duplicate());
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            RangeTrieImpl.Cursor<D> deletions = source.deletionBranch();
+            if (deletions == null)
+                return null;
+            return new RangeIntersectionCursor<>(RangeTrieImpl.rangeAndSetIntersectionController(), set.duplicate(), deletions);
+        }
+    }
 }

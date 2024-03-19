@@ -18,23 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
+public interface DeletionAwareTrieWithImpl<T, D extends RangeTrie.RangeMarker<D>> extends DeletionAwareTrie<T, D>, DeletionAwareTrieImpl<T, D>
 {
-    interface Cursor<T, D extends RangeTrie.RangeMarker<D>> extends TrieImpl.Cursor<T>
-    {
-        RangeTrieImpl.Cursor<D> deletionBranch();
-
-        @Override
-        Cursor<T, D> duplicate();
-    }
-
-    default <R> R process(TrieImpl.Walker<T, R> walker)
-    {
-        return TrieImpl.process(walker, cursor());
-    }
-
-    static <T, D extends RangeTrie.RangeMarker<D>> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
-    {
-        return (DeletionAwareTrieImpl<T, D>) trie;
-    }
 }
