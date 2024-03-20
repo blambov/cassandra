@@ -108,4 +108,12 @@ public interface DeletionAwareTrie<T, D extends RangeTrie.RangeMarker<D>>
     {
         return DeletionAwareTrieImpl.impl(this);
     }
+
+    // TODO: CollectionMergeCursor cursor add; remove rather than swap when exhausted
+    // TODO: Document no nested deletion branches
+    // TODO: No nesting means deletions merge is limited in size, use same-size CMC for deletions branch; maybe create once and reuse
+    // TODO: Add debug mode with verification wrapper for cursor, checking no nesting, open and close matching, coveringState matching on both sides after skip
+
+    // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.
+    // TODO: Make sure range trie state() and coveringState() (i.e. state().leftSideAsCovering()) are never recomputed
 }

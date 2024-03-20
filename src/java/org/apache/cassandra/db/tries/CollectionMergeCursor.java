@@ -126,9 +126,9 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     /**
      * Interface for internal operations that can be applied to selected top elements of the heap.
      */
-    interface HeapOp<C extends CursorWalkable.Cursor>
+    interface HeapOp<C extends CursorWalkable.Cursor, D>
     {
-        void apply(CollectionMergeCursor<C> self, C cursor, int index);
+        void apply(C cursor, int index, D datum);
 
         default boolean shouldContinueWithChild(C child, C head)
         {
@@ -141,20 +141,26 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      * that are on equal position to the head.
      * For interfering operations like advancing the cursors, use {@link #advanceEqualAndRestoreHeap(AdvancingHeapOp)}.
      */
-    void applyToEqualOnHeap(HeapOp<C> action)
+    <D> void applyToEqualOnHeap(HeapOp<C, D> action, D datum)
     {
-        applyToSelectedElementsInHeap(action, 0);
+        applyToSelectedElementsInHeap(action, 0, datum);
+    }
+    
+    <D> void applyToAllOnHeap(HeapOp<C, D> action, D datum)
+    {
+        for (int i = 0; i < heap.length; i++)
+            action.apply(heap[i], i, datum);
     }
 
     /**
      * Interface for internal advancing operations that can be applied to the heap cursors. This interface provides
      * the code to restore the heap structure after advancing the cursors.
      */
-    interface AdvancingHeapOp<C extends CursorWalkable.Cursor> extends HeapOp<C>
+    interface AdvancingHeapOp<C extends CursorWalkable.Cursor> extends HeapOp<C, CollectionMergeCursor<C>>
     {
         void apply(C cursor);
 
-        default void apply(CollectionMergeCursor<C> self, C cursor, int index)
+        default void apply(C cursor, int index, CollectionMergeCursor<C> self)
         {
             // Apply the operation, which should advance the position of the element.
             apply(cursor);
@@ -174,7 +180,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      */
     private void advanceEqualAndRestoreHeap(AdvancingHeapOp<C> action)
     {
-        applyToSelectedElementsInHeap(action, 0);
+        applyToSelectedElementsInHeap(action, 0, this);
     }
 
     /**
@@ -187,7 +193,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      * {@link #skipTo}). The latter interface takes care of pushing elements down in the heap after advancing
      * and restores the subheap state on return from each level of the recursion.
      */
-    private void applyToSelectedElementsInHeap(HeapOp<C> action, int index)
+    private <D> void applyToSelectedElementsInHeap(HeapOp<C, D> action, int index, D datum)
     {
         if (index >= heap.length)
             return;
@@ -197,12 +203,12 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
 
         // If the children are at the same position, they also need advancing and their subheap
         // invariant to be restored.
-        applyToSelectedElementsInHeap(action, index * 2 + 1);
-        applyToSelectedElementsInHeap(action, index * 2 + 2);
+        applyToSelectedElementsInHeap(action, index * 2 + 1, datum);
+        applyToSelectedElementsInHeap(action, index * 2 + 2, datum);
 
         // Apply the action. This is done on the reverse direction to give the action a chance to form proper
         // subheaps and combine them on processing the parent.
-        action.apply(this, item, index);
+        action.apply(item, index, datum);
     }
 
     /**
@@ -298,7 +304,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             }
         }
 
-        applyToSelectedElementsInHeap(new SkipTo(), 0);
+        advanceEqualAndRestoreHeap(new SkipTo());
         return maybeSwapHead(head.skipTo(skipDepth, skipTransition));
     }
 
@@ -321,7 +327,9 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         /**
          * A list used to collect contents during content() calls.
          */
-        private final List<T> contents;
+        final List<T> contents;
+        T collectedContent;
+        boolean contentCollected;
 
         <L> WithContent(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, C> getter)
         {
@@ -338,11 +346,51 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         }
 
         @Override
+        public int advance()
+        {
+            contentCollected = false;
+            return super.advance();
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            contentCollected = false;
+            return super.advanceMultiple(receiver);
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            contentCollected = false;
+            return super.skipTo(skipDepth, skipTransition);
+        }
+
+        @Override
         public T content()
         {
-            applyToEqualOnHeap(WithContent::collectContent);
-            collectContent(this, head, -1);
+            return maybeCollectContent();
+        }
 
+        T maybeCollectContent()
+        {
+            if (!contentCollected)
+            {
+                collectedContent = collectContent();
+                contentCollected = true;
+            }
+            return collectedContent;
+        }
+
+        T collectContent()
+        {
+            applyToEqualOnHeap(WithContent::collectContent, contents);
+            collectContent(head, -1, contents);
+            return resolveContent();
+        }
+
+        T resolveContent()
+        {
             T toReturn;
             switch (contents.size())
             {
@@ -360,20 +408,13 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             return toReturn;
         }
 
-        private static <T, C extends TrieImpl.Cursor<T>> void collectContent(CollectionMergeCursor<C> self, C item, int index)
+        private static <T, C extends TrieImpl.Cursor<T>>
+        void collectContent(C item, int index, List<T> contentsList)
         {
             T itemContent = item.content();
             if (itemContent != null)
-                ((WithContent<T, C>) self).contents.add(itemContent);
+                contentsList.add(itemContent);
         }
-
-        // TODO: Benchmark if the version below works better (saves cast, but must use this::collectContent)
-//        private void collectContent(CollectionMergeCursor<C> self, C item, int index)
-//        {
-//            T itemContent = item.content();
-//            if (itemContent != null)
-//                contents.add(itemContent);  // Ideally this would be accessed via self, but that needs a cast...
-//        }
     }
 
     static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
@@ -424,13 +465,13 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         @Override
         public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
         {
-            class Collector implements HeapOp<NonDeterministicTrieImpl.Cursor<T>>
+            class Collector implements HeapOp<NonDeterministicTrieImpl.Cursor<T>, Void>
             {
                 NonDeterministicTrieImpl.Cursor<T> first = null;
                 List<NonDeterministicTrieImpl.Cursor<T>> list = null;
 
                 @Override
-                public void apply(CollectionMergeCursor<NonDeterministicTrieImpl.Cursor<T>> self, NonDeterministicTrieImpl.Cursor<T> cursor, int index)
+                public void apply(NonDeterministicTrieImpl.Cursor<T> cursor, int index, Void datum)
                 {
                     NonDeterministicTrieImpl.Cursor<T> alternate = cursor.alternateBranch();
                     if (alternate != null)
@@ -451,8 +492,8 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             }
             var collector = new Collector();
 
-            collector.apply(this, head, -1);
-            applyToEqualOnHeap(collector);
+            collector.apply(head, -1, null);
+            applyToEqualOnHeap(collector, null);
             if (collector.first == null)
                 return null;
 
@@ -466,6 +507,72 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         public NonDeterministic<T> duplicate()
         {
             return new NonDeterministic<>(this);
+        }
+    }
+    
+    
+    static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    {
+        <L> Range(Trie.CollectionMergeResolver<M> resolver, Collection<L> inputs, Function<L, RangeTrieImpl.Cursor<M>> getter)
+        {
+            super(resolver, inputs, getter);
+        }
+
+        Range(Trie.CollectionMergeResolver<M> resolver, Collection<? extends RangeTrie<M>> inputs)
+        {
+            this(resolver, inputs, trie -> RangeTrieImpl.impl(trie).cursor());
+        }
+
+        Range(WithContent<M, RangeTrieImpl.Cursor<M>> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public Range<M> duplicate()
+        {
+            return new Range<>(this);
+        }
+
+        static <M extends RangeTrie.RangeMarker<M>> M getState(RangeTrieImpl.Cursor<M> item)
+        {
+            M itemState = item.content();
+            if (itemState == null)
+                itemState = item.coveringState();
+            return itemState;
+        }
+
+        @Override
+        M collectContent()
+        {
+            applyToAllOnHeap(Range::collectState, this);
+            M headState = getState(head);
+            if (headState != null)
+                contents.add(headState);
+
+            return resolveContent();
+        }
+
+        private static <M extends RangeTrie.RangeMarker<M>, C extends RangeTrieImpl.Cursor<M>>
+        void collectState(C item, int index, Range<M> self)
+        {
+            M itemState = equalCursor(item, self.head) ? getState(item) : item.coveringState();
+            if (itemState != null)
+                self.contents.add(itemState);
+        }
+
+        @Override
+        public M coveringState()
+        {
+            final M state = maybeCollectContent();
+            return state != null ? state.leftSideAsCovering() : null;
+        }
+
+        @Override
+        public M content()
+        {
+            final M state = maybeCollectContent();
+            return state != null ? state.toContent() : null;
         }
     }
 }

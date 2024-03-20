@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -60,6 +61,30 @@ class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
             return null; // if we are processing content, do not report ineffective markers
 
         return new DeletionMarker(m2.position, newLeft, newAt, newRight);
+    }
+
+
+    public static DeletionMarker combineCollection(Collection<DeletionMarker> deletionMarkers)
+    {
+        boolean isReportableState = false;
+        int newLeft = -1;
+        int newAt = -1;
+        int newRight = -1;
+        ByteComparable position = null;
+        for (DeletionMarker marker : deletionMarkers)
+        {
+            newLeft = Math.max(newLeft, marker.leftSide);
+            newAt = Math.max(newAt, marker.at);
+            newRight = Math.max(newRight, marker.rightSide);
+            isReportableState |= marker.isReportableState;
+            position = marker.position;
+        }
+        if (newLeft < 0 && newAt < 0 && newRight < 0)
+            return null;
+        if (newLeft == newAt && newAt == newRight && isReportableState)
+            return null; // if we are processing content, do not report ineffective markers
+
+        return new DeletionMarker(position, newLeft, newAt, newRight);
     }
 
     DeletionMarker withPoint(int value)
