@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -93,25 +94,26 @@ public interface DeletionAwareTrie<T, D extends RangeTrie.RangeMarker<D>>
         return (TrieWithImpl<T>) impl()::cursor;
     }
 
-//    default RangeTrie<D> deletionOnlyTrie()
-//    {
-//        // Merge deletion branches
-//        return new MergeAlternativeBranchesTrie.DeletionAware<>(impl(), false);
-//    }
-//
-//    default Trie<T> mergedTrie()
-//    {
-//        return new MergeAlternativeBranchesTrie.DeletionAware<>(impl(), true);
-//    }
+    default Trie<D> deletionOnlyTrie()
+    {
+        // We must walk the main trie to find deletion branch roots.
+        // TODO: Stop following main trie once we do.
+        return (TrieWithImpl<D>) () -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>((l, d) -> d, impl().cursor());
+    }
+
+    default <Z> Trie<Z> mergedTrie(BiFunction<T, D, Z> resolver)
+    {
+        return (TrieWithImpl<Z>) () -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>(resolver, impl().cursor());
+    }
 
     private DeletionAwareTrieImpl<T, D> impl()
     {
         return DeletionAwareTrieImpl.impl(this);
     }
 
-    // TODO: CollectionMergeCursor cursor add; remove rather than swap when exhausted
     // TODO: Document no nested deletion branches
     // TODO: No nesting means deletions merge is limited in size, use same-size CMC for deletions branch; maybe create once and reuse
+    // TODO: CollectionMergeCursor cursor add; remove is difficult and reduces perf: add last-ish (ensuring exhausted) and bubble up
     // TODO: Add debug mode with verification wrapper for cursor, checking no nesting, open and close matching, coveringState matching on both sides after skip
 
     // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.

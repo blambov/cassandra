@@ -210,62 +210,6 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
     }
 
-    interface MappedResolver<T, U, Z>
-    {
-        Z resolve(T t, U u);
-    }
-
-    static abstract class WithMappedContent<T, U, C extends TrieImpl.Cursor<T>, D extends TrieImpl.Cursor<U>, Z> extends MergeCursor<C, D> implements TrieImpl.Cursor<Z>
-    {
-        final MappedResolver<T, U, Z> resolver;
-
-        WithMappedContent(MappedResolver<T, U, Z> resolver, C c1, D c2)
-        {
-            super(c1, c2);
-            this.resolver = resolver;
-        }
-
-        public WithMappedContent(WithMappedContent<T, U, C, D, Z> copyFrom)
-        {
-            super(copyFrom);
-            this.resolver = copyFrom.resolver;
-        }
-
-        @Override
-        public Z content()
-        {
-            U mc = atC2 ? c2.content() : null;
-            T nc = atC1 ? c1.content() : null;
-            return resolver.resolve(nc, mc);
-        }
-    }
-
-    static class DeterministicWithMappedContent<T, U, Z> extends WithMappedContent<T, U, TrieImpl.Cursor<T>, TrieImpl.Cursor<U>, Z>
-    {
-        DeterministicWithMappedContent(MappedResolver<T, U, Z> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<U> c2)
-        {
-            super(resolver, c1, c2);
-        }
-
-        public DeterministicWithMappedContent(DeterministicWithMappedContent<T, U, Z> copyFrom)
-        {
-            super(copyFrom);
-        }
-
-        DeterministicWithMappedContent(MappedResolver<T, U, Z> resolver, TrieImpl<T> t1, TrieImpl<U> t2)
-        {
-            this(resolver, t1.cursor(), t2.cursor());
-            assert c1.depth() == 0;
-            assert c2.depth() == 0;
-        }
-
-        @Override
-        public DeterministicWithMappedContent<T, U, Z> duplicate()
-        {
-            return new DeterministicWithMappedContent<>(this);
-        }
-    }
-
     static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
         Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
