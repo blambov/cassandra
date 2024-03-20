@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -183,6 +184,33 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     }
 
     /**
+     * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
+     * sources will be reflected in the merged view.
+     * <p>
+     * If there is content for a given key in more than one sources, the resolver will be called to obtain the
+     * combination. (The resolver will not be called if there's content from only one source.)
+     */
+    static <M extends RangeTrie.RangeMarker<M>> RangeTrie<M> merge(Collection<? extends RangeTrie<M>> sources, Trie.CollectionMergeResolver<M> resolver)
+    {
+        switch (sources.size())
+        {
+            case 0:
+                return empty();
+            case 1:
+                return sources.iterator().next();
+            case 2:
+            {
+                Iterator<? extends RangeTrie<M>> it = sources.iterator();
+                RangeTrie<M> t1 = it.next();
+                RangeTrie<M> t2 = it.next();
+                return t1.mergeWith(t2, resolver);
+            }
+            default:
+                return (RangeTrieWithImpl<M>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
+        }
+    }
+
+    /**
      * Applies these ranges to a given trie. The meaning of the application is defined by the given mapper:
      * whenever the trie's content falls under a range, the mapper is called to return the content that should be
      * presented.
@@ -191,33 +219,6 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     {
         return (TrieWithImpl<T>) () -> new MergeCursor.RangeOnTrie<>(mapper, impl(), TrieImpl.impl(source));
     }
-
-    /**
-     * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
-     * sources will be reflected in the merged view.
-     * <p>
-     * If there is content for a given key in more than one sources, the resolver will be called to obtain the
-     * combination. (The resolver will not be called if there's content from only one source.)
-     */
-//    static <M extends RangeTrieImpl.RangeMarker<M>> RangeTrie<M> merge(Collection<? extends RangeTrie<M>> sources, Trie.CollectionMergeResolver<M> resolver)
-//    {
-//        switch (sources.size())
-//        {
-//            case 0:
-//                return empty();
-//            case 1:
-//                return sources.iterator().next();
-//            case 2:
-//            {
-//                Iterator<? extends RangeTrie<M>> it = sources.iterator();
-//                RangeTrie<M> t1 = it.next();
-//                RangeTrie<M> t2 = it.next();
-//                return t1.mergeWith(t2, resolver);
-//            }
-//            default:
-//                return (RangeTrieWithImpl<M>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
-//        }
-//    }
 
     @SuppressWarnings("unchecked")
     static <M extends RangeMarker<M>> RangeTrie<M> empty()

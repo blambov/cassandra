@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
+import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -304,6 +305,7 @@ public class RangeTrieMergeTest
     {
         List<DeletionMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
+        testCollectionMerge(message, Lists.newArrayList(fromList(testRanges)), testRanges, sets);
         testMergeByRangeIntersection(message, fromList(testRanges), testRanges, sets);
     }
 
@@ -340,6 +342,45 @@ public class RangeTrieMergeTest
                                 .filter(x -> x != ranges)
                                 .toArray(List[]::new)
                 );
+            }
+        }
+    }
+
+    public void testCollectionMerge(String message, List<RangeTrie<DeletionMarker>> triesToMerge, List<DeletionMarker> merged, List<DeletionMarker>... sets)
+    {
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            RangeTrie<DeletionMarker> trie = RangeTrie.merge(triesToMerge, DeletionMarker::combineCollection);
+            try
+            {
+                assertEquals(message + " forward b" + bits, merged, toList(trie));
+                System.out.println(message + " forward b" + bits + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println("\n" + trie.dump());
+                throw e;
+            }
+        }
+        else
+        {
+            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+            {
+                List<DeletionMarker> ranges = sets[toRemove];
+                System.out.println("Adding:  " + ranges);
+                triesToMerge.add(fromList(ranges));
+                testCollectionMerge(message + " " + toRemove,
+                                    triesToMerge,
+                                    mergeLists(merged, ranges),
+                                    Arrays.stream(sets)
+                                          .filter(x -> x != ranges)
+                                          .toArray(List[]::new)
+                );
+                triesToMerge.remove(triesToMerge.size() - 1);
             }
         }
     }
