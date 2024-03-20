@@ -72,7 +72,7 @@ public interface Trie<T> extends BaseTrie<T>
     // done: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // TODO: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)
-    // TODO: simplification of alternate path for flush (pluggable?)
+    // TODO: simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
     // TODO: consider mayHaveAlternatives flag

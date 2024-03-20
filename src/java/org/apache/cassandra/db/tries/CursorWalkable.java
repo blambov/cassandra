@@ -78,11 +78,24 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
          * Advance to the specified depth and incoming transition or the first valid position that is after the specified
          * position. The inputs must be something that could be returned by a single call to {@link #advance} (i.e.
          * {@code skipDepth} must be <= current depth + 1, and {@code skipTransition} must be higher than what the
-         * current state saw at the requested depth.
+         * current state saw at the requested depth. The skip position must be after the current position.
          *
-         * @return the new depth, always <= previous depth; -1 if the trie is exhausted
+         * @return the new depth, always <= previous depth + 1; -1 if the trie is exhausted
          */
         int skipTo(int skipDepth, int skipTransition);
+
+        /**
+         * A version of skipTo which checks if the requested position is ahead of the cursor's current position and only
+         * advances if it is.
+         */
+        default int maybeSkipTo(int skipDepth, int skipTransition)
+        {
+            int depth = depth();
+            if (skipDepth < depth || skipDepth == depth && skipTransition > incomingTransition())
+                return skipTo(skipDepth, skipTransition);
+            else
+                return depth;
+        }
 
         /**
          * Make a copy of this cursor which can be separately advanced/queried from the current state.

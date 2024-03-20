@@ -18,10 +18,34 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.function.BiFunction;
+
+/**
+ * Deletion-aware trie, containing both live data and deletions.
+ * To be able to query live data and deletions separately, we split deletions into separate branches of the trie,
+ * given by the {@link Cursor#deletionBranch} method. Deletion branches are range tries, i.e. they support
+ * deletions of individual as well as ranges of keys.
+ *
+ * Deletion-aware tries must satisfy the following requirements:
+ * - No deletion branch can be covered by another deletion branch, i.e. whenever the deletion branch is non-null at a
+ *   given node, it must be null for all descendants of this node.
+ * - Deletion branches must be well-formed, i.e.:
+ *   - they cannot start with an active deletion (i.e. open start and open end ranges are not permitted),
+ *   - every deletion opened by an entry must be closed by the next one,
+ *   - the latter includes point deletions, which, if interrupting a range, must close and reopen it,
+ *   - the deletion branch cursor cannot extend past the node of its introduction (i.e. it can never advance to depth <=
+ *     its initial depth),
+ *   - coveringState must be properly reported on the deletion branch.
+ * - There cannot be entries in the trie that are deleted by the same trie, including live data but also range or point
+ *   deletions.
+ */
 public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
 {
     interface Cursor<T, D extends RangeTrie.RangeMarker<D>> extends TrieImpl.Cursor<T>
     {
+        /**
+         * Deletion branch rooted at this position.
+         */
         RangeTrieImpl.Cursor<D> deletionBranch();
 
         @Override
@@ -36,5 +60,54 @@ public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> ex
     static <T, D extends RangeTrie.RangeMarker<D>> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
     {
         return (DeletionAwareTrieImpl<T, D>) trie;
+    }
+
+    class LiveAndDeletionsMergeCursor<T, D extends RangeTrie.RangeMarker<D>, Z>
+    extends FlexibleMergeCursor.WithMappedContent<T, D, DeletionAwareTrieImpl.Cursor<T, D>, RangeTrieImpl.Cursor<D>, Z>
+    {
+        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareTrieImpl.Cursor<T, D> c1)
+        {
+            super(resolver, c1, null);
+        }
+
+        public LiveAndDeletionsMergeCursor(LiveAndDeletionsMergeCursor<T, D, Z> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            if (state == State.C1_ONLY)
+            {
+                RangeTrieImpl.Cursor<D> deletionsBranch = c1.deletionBranch();
+                if (deletionsBranch != null)
+                    addCursor(deletionsBranch);
+            }
+            return depth;
+        }
+
+        @Override
+        public LiveAndDeletionsMergeCursor<T, D, Z> duplicate()
+        {
+            return new LiveAndDeletionsMergeCursor<>(this);
+        }
     }
 }
