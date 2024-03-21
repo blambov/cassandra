@@ -36,8 +36,8 @@ import java.util.function.BiFunction;
  *   - the deletion branch cursor cannot extend past the node of its introduction (i.e. it can never advance to depth <=
  *     its initial depth),
  *   - coveringState must be properly reported on the deletion branch.
- * - There cannot be entries in the trie that are deleted by the same trie, including live data but also range or point
- *   deletions.
+ * - There cannot be entries in the trie that are deleted by the same trie (the condition above means this is not
+ *   possible for with deletions).
  */
 public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
 {
