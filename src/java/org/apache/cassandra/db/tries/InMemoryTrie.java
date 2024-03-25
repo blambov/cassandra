@@ -966,7 +966,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
      * value. Applied even if there's no pre-existing value in the memtable trie.
      */
-    public <U> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    public <U extends NonDeterministicTrie.Mergeable<U>> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
         NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor();
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
@@ -979,7 +979,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         state.attachRoot();
     }
 
-    private <U> void apply(ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    private <U extends NonDeterministicTrie.Mergeable<U>> void apply(ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
         int finalDepthToDescend = state.currentDepth + 1;
         while (true)

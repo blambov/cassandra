@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
-interface NonDeterministicTrieWithImpl<T> extends NonDeterministicTrie<T>, NonDeterministicTrieImpl<T>
+interface NonDeterministicTrieWithImpl<T extends NonDeterministicTrie.Mergeable<T>> extends NonDeterministicTrie<T>, NonDeterministicTrieImpl<T>
 {
     NonDeterministicTrieImpl.Cursor<T> makeCursor();
 

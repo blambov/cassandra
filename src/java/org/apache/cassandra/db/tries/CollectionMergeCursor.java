@@ -444,22 +444,33 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     }
 
 
-    static class NonDeterministic<T> extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>> implements NonDeterministicTrieImpl.Cursor<T>
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
-
-        <L> NonDeterministic(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, NonDeterministicTrieImpl.Cursor<T>> getter)
+        <L> NonDeterministic(Collection<L> inputs, Function<L, NonDeterministicTrieImpl.Cursor<T>> getter)
         {
-            super(resolver, inputs, getter);
+            super(NonDeterministic::resolve, inputs, getter);
         }
 
-        NonDeterministic(Trie.CollectionMergeResolver<T> resolver, Collection<? extends NonDeterministicTrie<T>> inputs)
+        NonDeterministic(Collection<? extends NonDeterministicTrie<T>> inputs)
         {
-            this(resolver, inputs, trie -> NonDeterministicTrieImpl.impl(trie).cursor());
+            this(inputs, trie -> NonDeterministicTrieImpl.impl(trie).cursor());
         }
 
         NonDeterministic(WithContent<T, NonDeterministicTrieImpl.Cursor<T>> copyFrom)
         {
             super(copyFrom);
+        }
+
+        static <T extends NonDeterministicTrie.Mergeable<T>> T resolve(Collection<T> contents)
+        {
+            Iterator<T> it = contents.iterator();
+            assert it.hasNext();
+            T first = it.next();
+            while (it.hasNext())
+                first = first.mergeWith(it.next());
+            return first;
         }
 
         @Override
@@ -500,7 +511,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             if (collector.list == null)
                 return collector.first;
 
-            return new NonDeterministic<>(resolver, collector.list, x -> x);
+            return new NonDeterministic<>(collector.list, x -> x);
         }
 
         @Override

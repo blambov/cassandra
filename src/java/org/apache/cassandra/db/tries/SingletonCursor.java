@@ -21,7 +21,7 @@ package org.apache.cassandra.db.tries;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
+class SingletonCursor<T> implements TrieImpl.Cursor<T>
 {
     private ByteSource src;
     private int currentDepth;
@@ -107,12 +107,6 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     }
 
     @Override
-    public SingletonCursor<T> alternateBranch()
-    {
-        return null;
-    }
-
-    @Override
     public SingletonCursor<T> duplicate()
     {
         return new SingletonCursor(this);
@@ -135,6 +129,33 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     public int incomingTransition()
     {
         return currentTransition;
+    }
+
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends SingletonCursor<T>
+    implements NonDeterministicTrieImpl.Cursor<T>
+    {
+        NonDeterministic(ByteComparable key, T value)
+        {
+            super(key, value);
+        }
+
+        NonDeterministic(SingletonCursor<T> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+        {
+            return null;
+        }
+
+        @Override
+        public NonDeterministic<T> duplicate()
+        {
+            return new NonDeterministic(this);
+        }
     }
 
     static class Range<T extends RangeTrie.RangeMarker<T>> extends SingletonCursor<T> implements RangeTrieImpl.Cursor<T>

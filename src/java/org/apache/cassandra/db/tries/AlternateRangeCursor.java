@@ -23,7 +23,7 @@ import java.util.Objects;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class AlternateRangeCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
+public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> implements NonDeterministicTrieImpl.Cursor<T>
 {
     ByteSource lsrc;
     ByteSource rsrc;
@@ -155,7 +155,7 @@ public class AlternateRangeCursor<T> implements NonDeterministicTrieImpl.Cursor<
             return null;
     }
 
-    private static class TailCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
+    private static class TailCursor<T extends NonDeterministicTrie.Mergeable<T>> implements NonDeterministicTrieImpl.Cursor<T>
     {
         ByteSource src;
         int next;

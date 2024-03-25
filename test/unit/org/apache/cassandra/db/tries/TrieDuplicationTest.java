@@ -22,6 +22,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 
 import org.junit.Test;
@@ -56,9 +57,9 @@ public class TrieDuplicationTest
         }
     }
 
-    interface RangeTrieMaker
+    interface RangeTrieMaker<T extends MergeableValue<T>>
     {
-        BaseTrie<?> makeTrie(ByteComparable left, Object leftValue, ByteComparable right, Object rightValue);
+        BaseTrie<T> makeTrie(ByteComparable left, T leftValue, ByteComparable right, T rightValue);
     }
 
     @Test
@@ -67,7 +68,7 @@ public class TrieDuplicationTest
         testDuplicationRange(this::alternateRange);
     }
 
-    private <T> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
+    private <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
     {
         return () -> new AlternateRangeCursor<>(left, leftValue, right, rightValue);
     }
@@ -102,7 +103,7 @@ public class TrieDuplicationTest
     public void testDuplicationInMemTrieAlternateRange()
     {
         testDuplicationRange((left, leftValue, right, rightValue) -> {
-            InMemoryNDTrie<Object> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+            InMemoryNDTrie trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
             try
             {
                 trie.putAlternativeRangeRecursive(left, leftValue, right, rightValue, (x, y) -> y);
@@ -145,13 +146,51 @@ public class TrieDuplicationTest
         return ByteSourceTestBase.testBigInts[rand.nextInt(ByteSourceTestBase.testBigInts.length)];
     }
 
+    class MergeableValue<T> implements NonDeterministicTrie.Mergeable<MergeableValue<T>>
+    {
+        final T value;
+
+        MergeableValue(T value)
+        {
+            this.value = value;
+        }
+
+        @Override
+        public MergeableValue<T> mergeWith(MergeableValue<T> other)
+        {
+            // returning first
+            return this;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            MergeableValue<?> that = (MergeableValue<?>) o;
+            return Objects.equals(value, that.value);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(value);
+        }
+
+        @Override
+        public String toString()
+        {
+            return value.toString();
+        }
+    }
+
     private <T extends Comparable<T>> void testForRange(T v1, T v2, AbstractType<T> type, RangeTrieMaker trieMaker)
     {
         if (v1.compareTo(v2) > 0)
         {
             T tmp = v1; v1 = v2; v2 = tmp;
         }
-        final BaseTrie<?> trie = trieMaker.makeTrie(typeToComparable(type, v1), v1, typeToComparable(type, v2), v2);
+        final BaseTrie<?> trie = trieMaker.makeTrie(typeToComparable(type, v1), new MergeableValue<T>(v1), typeToComparable(type, v2), new MergeableValue<>(v2));
         testDuplication(trie,
                         "Range " + v1 + "-" + v2);
     }
@@ -251,10 +290,9 @@ public class TrieDuplicationTest
         }
         else if (trie instanceof NonDeterministicTrie)
         {
-            NonDeterministicTrie<T> ndt = (NonDeterministicTrie<T>) trie;
-            testDuplicationVersion((TrieWithImpl<T>) NonDeterministicTrieImpl.impl(ndt)::cursor, msg);  // main path only
-            testDuplicationVersion(ndt.deterministic(c -> c.iterator().next()),
-                                   msg + " with alternates");
+            NonDeterministicTrie ndt = (NonDeterministicTrie) trie;
+            testDuplicationVersion(ndt.mainPathOnly(), msg);
+            testDuplicationVersion(ndt.deterministic(), msg + " with alternates");
         }
         else
         {

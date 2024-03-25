@@ -18,11 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
-interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTrieImpl.Cursor<T>>
+interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> extends CursorWalkable<NonDeterministicTrieImpl.Cursor<T>>
 {
-    // TODO: Get rid of the merge resolvers by forcing T to be a mergeable type.
-
-    interface Cursor<T> extends TrieImpl.Cursor<T>
+    interface Cursor<T extends NonDeterministicTrie.Mergeable<T>> extends TrieImpl.Cursor<T>
     {
         /**
          * If this node has an alternate branch, returns a Cursor that walks over it.
@@ -59,15 +57,15 @@ interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTri
      */
     default <R> R process(TrieImpl.Walker<T, R> walker)
     {
-        return TrieImpl.process(walker, cursor());
+        return TrieImpl.process(walker, alternativesMergingCursor());
     }
 
-//    default TrieImpl.Cursor<T> alternativesMergingCursor()
-//    {
-//        return new MergeAlternativeBranchesTrie.Cursor<>(cursor());
-//    }
+    default TrieImpl.Cursor<T> alternativesMergingCursor()
+    {
+        return new MergeAlternativeBranchesTrie.MergeAlternativesCursor<>(cursor(), false);
+    }
 
-    class EmptyCursor<T> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
+    class EmptyCursor<T extends NonDeterministicTrie.Mergeable<T>> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
     {
         @Override
         public Cursor<T> alternateBranch()
@@ -82,9 +80,10 @@ interface NonDeterministicTrieImpl<T> extends CursorWalkable<NonDeterministicTri
         }
     }
 
-    NonDeterministicTrieWithImpl<Object> EMPTY = EmptyCursor<Object>::new;
+    @SuppressWarnings("unchecked")
+    NonDeterministicTrieWithImpl EMPTY = EmptyCursor::new;
 
-    static <T> NonDeterministicTrieWithImpl<T> impl(NonDeterministicTrie<T> trie)
+    static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> impl(NonDeterministicTrie<T> trie)
     {
         return (NonDeterministicTrieWithImpl<T>) trie;
     }

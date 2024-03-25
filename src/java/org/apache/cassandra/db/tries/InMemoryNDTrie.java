@@ -20,16 +20,41 @@ package org.apache.cassandra.db.tries;
 
 import org.apache.cassandra.io.compress.BufferType;
 
-public class InMemoryNDTrie<T> extends InMemoryTrie<T> implements NonDeterministicTrieWithImpl<T>
+public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends InMemoryTrie<T> implements NonDeterministicTrieWithImpl<T>
 {
     public InMemoryNDTrie(BufferType bufferType)
     {
         super(bufferType);
     }
 
+    class NonDeterministicCursor extends MemtableCursor implements NonDeterministicTrieImpl.Cursor<T>
+    {
+        NonDeterministicCursor(int root, int depth, int incomingTransition)
+        {
+            super(root, depth, incomingTransition);
+        }
+
+        NonDeterministicCursor(NonDeterministicCursor copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public NonDeterministicCursor alternateBranch()
+        {
+            return isNull(alternateBranch) ? null : new NonDeterministicCursor(alternateBranch, depth() - 1, incomingTransition());
+        }
+
+        @Override
+        public NonDeterministicCursor duplicate()
+        {
+            return new NonDeterministicCursor(this);
+        }
+    }
+
     @Override
     public Cursor<T> makeCursor()
     {
-        return memtableCursor();
+        return new NonDeterministicCursor(root, -1, -1);
     }
 }
