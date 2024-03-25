@@ -38,6 +38,10 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
         M asReportableEnd();
 
         boolean lesserIncluded();
+        default boolean agreesWith(M other)
+        {
+            return equals(other);
+        }
     }
 
     /**

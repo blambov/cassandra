@@ -216,7 +216,11 @@ public abstract class InMemoryTrieTestBase
                     --depth;
                 }
                 if (current == null)
+                {
+                    stack = null;
+                    leadingTransition = -1;
                     return depth = -1;
+                }
 
                 child = current.children[current.curChild];
             }
@@ -261,7 +265,10 @@ public abstract class InMemoryTrieTestBase
                 stack = stack.parent;
             }
             if (stack == null)
+            {
+                leadingTransition = -1;
                 return depth = -1;
+            }
 
             int index = skipTransition - 0x30;
             stack.curChild = Math.max(stack.curChild, index - 1);

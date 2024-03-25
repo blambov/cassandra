@@ -20,4 +20,10 @@ package org.apache.cassandra.db.tries;
 
 interface TrieSetWithImpl extends TrieSet, TrieSetImpl
 {
+    TrieSetImpl.Cursor makeCursor();
+
+    default TrieSetImpl.Cursor cursor()
+    {
+        return Trie.DEBUG ? new VerificationCursor.TrieSet(makeCursor()) : makeCursor();
+    }
 }

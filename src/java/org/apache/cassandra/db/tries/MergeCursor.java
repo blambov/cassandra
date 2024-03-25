@@ -212,6 +212,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
 
     static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
+        private M coveringState;
+        boolean coveringStateSet;
+
         Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
         {
             super(resolver, c1, c2);
@@ -232,13 +235,39 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         @Override
         public M coveringState()
         {
-            M state1 = c1.coveringState();
-            M state2 = c2.coveringState();
-            if (state1 == null)
-                return state2;
-            if (state2 == null)
-                return state1;
-            return resolver.resolve(state1, state2);
+            if (!coveringStateSet)
+            {
+                M state1 = c1.coveringState();
+                M state2 = c2.coveringState();
+                if (state1 == null)
+                    return state2;
+                if (state2 == null)
+                    return state1;
+                coveringState = resolver.resolve(state1, state2);
+                coveringStateSet = true;
+            }
+            return coveringState;
+        }
+
+        @Override
+        public int advance()
+        {
+            coveringStateSet = false;
+            return super.advance();
+        }
+
+        @Override
+        public int skipTo(int depth, int incomingTransition)
+        {
+            coveringStateSet = false;
+            return super.skipTo(depth, incomingTransition);
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            coveringStateSet = false;
+            return super.advanceMultiple(receiver);
         }
 
         @Override
@@ -249,7 +278,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             if (content1 == null && content2 == null)
                 return null;
             if (content1 != null && content2 != null)
-                return resolver.resolve(content1, content2);
+                return toContent(resolver.resolve(content1, content2));
 
             // Exactly one is non-null; must apply the state of the other
             if (content1 == null)
@@ -264,13 +293,18 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                     return content1;
             }
 
-            return resolver.resolve(content1, content2);
+            return toContent(resolver.resolve(content1, content2));
         }
 
         @Override
         public RangeTrieImpl.Cursor<M> duplicate()
         {
             return new Range<>(this);
+        }
+
+        private M toContent(M content)
+        {
+            return content != null ? content.toContent() : null;
         }
     }
 

@@ -28,7 +28,7 @@ public class InMemoryNDTrie<T> extends InMemoryTrie<T> implements NonDeterminist
     }
 
     @Override
-    public Cursor<T> cursor()
+    public Cursor<T> makeCursor()
     {
         return memtableCursor();
     }

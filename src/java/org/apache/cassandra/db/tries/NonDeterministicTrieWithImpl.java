@@ -20,4 +20,10 @@ package org.apache.cassandra.db.tries;
 
 interface NonDeterministicTrieWithImpl<T> extends NonDeterministicTrie<T>, NonDeterministicTrieImpl<T>
 {
+    NonDeterministicTrieImpl.Cursor<T> makeCursor();
+
+    default NonDeterministicTrieWithImpl.Cursor<T> cursor()
+    {
+        return Trie.DEBUG ? new VerificationCursor.NonDeterministic<>(makeCursor()) : makeCursor();
+    }
 }

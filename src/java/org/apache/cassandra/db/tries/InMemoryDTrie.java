@@ -28,7 +28,7 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
     }
 
     @Override
-    public Cursor<T> cursor()
+    public Cursor<T> makeCursor()
     {
         return memtableCursor();
     }

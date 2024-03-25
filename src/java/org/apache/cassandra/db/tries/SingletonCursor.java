@@ -49,6 +49,13 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
         value = copyFrom.value;
     }
 
+    private int exhausted()
+    {
+        currentTransition = -1;
+        currentDepth = -1;
+        return currentDepth;
+    }
+
     @Override
     public int advance()
     {
@@ -60,7 +67,7 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
         }
         else
         {
-            return currentDepth = -1;
+            return exhausted();
         }
     }
 
@@ -68,7 +75,7 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
     {
         if (nextTransition == ByteSource.END_OF_STREAM)
-            return currentDepth = -1;
+            return exhausted();
         int current = nextTransition;
         int depth = currentDepth;
         int next = src.next();
@@ -91,10 +98,10 @@ class SingletonCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
         if (depth <= currentDepth)
         {
             assert depth < currentDepth || incomingTransition > currentTransition || depth == -1;
-            return currentDepth = -1;  // no alternatives
+            return exhausted();  // no alternatives
         }
         if (incomingTransition > nextTransition)
-            return currentDepth = -1;   // request is skipping over our path
+            return exhausted();   // request is skipping over our path
 
         return advance();
     }

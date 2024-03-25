@@ -266,13 +266,21 @@ public class AlternativeBranchesTest
             }
             else
             {
-                trie.apply(new AlternateRangeTrie<>(comparable(skey), ~svalue, comparable(ekey), ~evalue), (x, y) -> y);
+                trie.apply(alternateRange(comparable(skey), ~svalue, comparable(ekey), ~evalue), (x, y) -> y);
                 alternates.put(comparable(skey), ~svalue);
                 alternates.put(comparable(ekey), ~evalue);
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
             }
         }
         verifyAlternates(trie, normals, alternates);
+    }
+
+    private <T> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable sComparable, T svalue, ByteComparable eComparable, T evalue)
+    {
+        if (ByteComparable.compare(sComparable, eComparable, TrieImpl.BYTE_COMPARABLE_VERSION) > 0)
+            return () -> new AlternateRangeCursor<>(eComparable, evalue, sComparable, svalue);
+        else
+            return () -> new AlternateRangeCursor<>(sComparable, svalue, eComparable, evalue);
     }
 
     @Test
@@ -288,14 +296,14 @@ public class AlternativeBranchesTest
     public void testCoveredVisitsRangeTrie() throws InMemoryNDTrie.SpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) ->
-                               new AlternateRangeTrie<>(sComparable, svalue, eComparable, evalue));
+                               alternateRange(sComparable, svalue, eComparable, evalue));
     }
 
     @Test
     public void testCoveredVisitsRangeApply() throws InMemoryNDTrie.SpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
-            trie.apply(new AlternateRangeTrie<>(sComparable, svalue, eComparable, evalue), (x, y) -> y);
+            trie.apply(alternateRange(sComparable, svalue, eComparable, evalue), (x, y) -> y);
             return trie;
         });
     }

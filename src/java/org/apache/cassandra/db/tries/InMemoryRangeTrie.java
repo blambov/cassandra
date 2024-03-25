@@ -28,7 +28,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     }
 
     @Override
-    public Cursor<M> cursor()
+    public Cursor<M> makeCursor()
     {
         return new RangeCursor(root, -1, -1);
     }

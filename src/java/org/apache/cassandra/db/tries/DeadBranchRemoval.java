@@ -31,7 +31,7 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
     }
 
     @Override
-    public Cursor<T> cursor()
+    public Cursor<T> makeCursor()
     {
         return apply(source.cursor());
     }
@@ -78,12 +78,19 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
             return source.content();
         }
 
+        private int exhausted()
+        {
+            incomingTransition = -1;
+            depth = -1;
+            return depth;
+        }
+
         @Override
         public int advance()
         {
             if (buffered == 0)
                 if (!findData())
-                    return depth = -1;
+                    return exhausted();
 
             incomingTransition = consume();
             return ++depth;
@@ -160,12 +167,12 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
             }
             depth = source.skipTo(skipDepth, skipTransition);
             if (depth == -1)
-                return depth;
+                return exhausted();
             buffered = 0;
             --depth;
             addPathByte(source.incomingTransition());
             if (!findData())
-                return depth = -1;
+                return exhausted();
             incomingTransition = consume();
             return ++depth;
         }
