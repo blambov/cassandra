@@ -57,8 +57,6 @@ class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
         int newRight = Math.max(m1.rightSide, m2.rightSide);
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
-        if (newLeft == newAt && newAt == newRight && (m1.isReportableState || m2.isReportableState))
-            return null; // if we are processing content, do not report ineffective markers
 
         return new DeletionMarker(m2.position, newLeft, newAt, newRight);
     }
@@ -66,7 +64,6 @@ class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
 
     public static DeletionMarker combineCollection(Collection<DeletionMarker> deletionMarkers)
     {
-        boolean isReportableState = false;
         int newLeft = -1;
         int newAt = -1;
         int newRight = -1;
@@ -76,13 +73,10 @@ class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
             newLeft = Math.max(newLeft, marker.leftSide);
             newAt = Math.max(newAt, marker.at);
             newRight = Math.max(newRight, marker.rightSide);
-            isReportableState |= marker.isReportableState;
             position = marker.position;
         }
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
-        if (newLeft == newAt && newAt == newRight && isReportableState)
-            return null; // if we are processing content, do not report ineffective markers
 
         return new DeletionMarker(position, newLeft, newAt, newRight);
     }
@@ -226,5 +220,13 @@ class DeletionMarker implements RangeTrie.RangeMarker<DeletionMarker>
             }
         }
         return trie;
+    }
+
+    @Override
+    public boolean agreesWith(DeletionMarker other)
+    {
+        if (other == null)
+            return false;
+        return other.leftSide == leftSide && other.at == at && other.rightSide == rightSide;
     }
 }

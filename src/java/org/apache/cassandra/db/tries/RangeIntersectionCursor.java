@@ -48,14 +48,14 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
             if (lContent == null && rContent == null)
                 return null;
             if (lContent != null && rContent != null)
-                return combineState(lContent, rContent);
+                return toContent(combineState(lContent, rContent));
 
             if (lContent == null)
                 lContent = lCursor.coveringState();
             else if (rContent == null)
                 rContent = rCursor.coveringState();
 
-            return combineState(lContent, rContent);
+            return toContent(combineState(lContent, rContent));
         }
 
         default Z combineContentLeftAhead(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
@@ -65,7 +65,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
                 return null;
             C lContent = lCursor.coveringState();
 
-            return combineState(lContent, rContent);
+            return toContent(combineState(lContent, rContent));
         }
 
 
@@ -76,7 +76,12 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
                 return null;
             D rContent = rCursor.coveringState();
 
-            return combineState(lContent, rContent);
+            return toContent(combineState(lContent, rContent));
+        }
+
+        private Z toContent(Z content)
+        {
+            return content != null ? content.toContent() : null;
         }
     }
 

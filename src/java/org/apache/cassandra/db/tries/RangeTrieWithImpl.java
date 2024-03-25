@@ -20,4 +20,10 @@ package org.apache.cassandra.db.tries;
 
 interface RangeTrieWithImpl<T extends RangeTrie.RangeMarker<T>> extends RangeTrie<T>, RangeTrieImpl<T>
 {
+    RangeTrieImpl.Cursor<T> makeCursor();
+
+    default RangeTrieWithImpl.Cursor<T> cursor()
+    {
+        return Trie.DEBUG ? new VerificationCursor.Range<>(makeCursor()) : makeCursor();
+    }
 }

@@ -36,7 +36,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
     }
 
     @Override
-    public Cursor<T> cursor()
+    public Cursor<T> makeCursor()
     {
         Cursor<T> cursor = new MergeAlternativesCursor<>(resolver, source, omitMain);
         if (omitMain)

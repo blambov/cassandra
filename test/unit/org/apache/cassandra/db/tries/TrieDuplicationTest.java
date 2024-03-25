@@ -64,7 +64,12 @@ public class TrieDuplicationTest
     @Test
     public void testDuplicationAlternateRange()
     {
-        testDuplicationRange(AlternateRangeTrie::new);
+        testDuplicationRange(this::alternateRange);
+    }
+
+    private <T> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
+    {
+        return () -> new AlternateRangeCursor<>(left, leftValue, right, rightValue);
     }
 
     @Test

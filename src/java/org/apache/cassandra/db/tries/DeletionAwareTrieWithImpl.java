@@ -20,4 +20,10 @@ package org.apache.cassandra.db.tries;
 
 public interface DeletionAwareTrieWithImpl<T, D extends RangeTrie.RangeMarker<D>> extends DeletionAwareTrie<T, D>, DeletionAwareTrieImpl<T, D>
 {
+    DeletionAwareTrieImpl.Cursor<T, D> makeCursor();
+
+    default DeletionAwareTrieImpl.Cursor<T, D> cursor()
+    {
+        return Trie.DEBUG ? new VerificationCursor.DeletionAware<>(makeCursor()) : makeCursor();
+    }
 }

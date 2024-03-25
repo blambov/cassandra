@@ -315,7 +315,7 @@ public class SlicedTrieTest
         return new TrieWithImpl<Integer>()
         {
             @Override
-            public Cursor<Integer> cursor()
+            public Cursor<Integer> makeCursor()
             {
                 return new SingleLevelCursor();
             }
@@ -355,7 +355,7 @@ public class SlicedTrieTest
                 @Override
                 public int incomingTransition()
                 {
-                    return current;
+                    return current >= childs ? -1 : current;
                 }
 
                 @Override

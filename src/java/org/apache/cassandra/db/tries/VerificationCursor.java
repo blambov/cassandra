@@ -24,9 +24,16 @@ import java.util.Objects;
 import com.google.common.base.Preconditions;
 
 import org.agrona.DirectBuffer;
+import org.apache.cassandra.utils.ByteArrayUtil;
+import org.apache.cassandra.utils.Hex;
 
-public class VerificationCursor
+public interface VerificationCursor
 {
+    static final int EXHAUSTED_DEPTH = -1;
+    static final int EXHAUSTED_TRANSITION = -1;
+    static final int INITIAL_TRANSITION = -1;
+
+
     /**
      * Verifies:
      * - advance does advance, depth <= prevDepth + 1 and transition is higher than previous at the same depth
@@ -34,7 +41,7 @@ public class VerificationCursor
      * - skipTo is not called with earlier or equal position (including lower levels)
      * - maybeSkipTo is not called with earlier position that can't be identified with depth/incomingTransition only
      *   (i.e. seeks to lower depth with an incoming transition that lower than the previous at that depth)
-     * - exhausted state is depth = -1, incomingTransition = 0 (or maybe -1? decide!)
+     * - exhausted state is depth = -1, incomingTransition = -1 (maybe change to 0?)
      * - start state is depth = 0, incomingTransition = -1 (maybe change to 0?)
      */
     class Walkable<C extends CursorWalkable.Cursor> implements CursorWalkable.Cursor, CursorWalkable.TransitionsReceiver
@@ -56,7 +63,7 @@ public class VerificationCursor
             this.returnedTransition = expectedTransition;
             this.path = new byte[16];
             Preconditions.checkState(source.depth() == expectedDepth && source.incomingTransition() == expectedTransition,
-                                     "Invalid initial depth %d with incoming transition %d (must be %d, %d)",
+                                     "Invalid initial depth %s with incoming transition %s (must be %s, %s)",
                                      source.depth(), source.incomingTransition(),
                                      expectedDepth, expectedTransition);
         }
@@ -64,10 +71,10 @@ public class VerificationCursor
 
         Walkable(Walkable<C> copyFrom)
         {
-            this.source = copyFrom.source;
+            this.source = (C) copyFrom.source.duplicate();
             this.minDepth = copyFrom.minDepth;
             this.returnedDepth = copyFrom.returnedDepth;
-            this.returnedTransition = copyFrom.incomingTransition();
+            this.returnedTransition = copyFrom.returnedTransition;
             this.path = Arrays.copyOf(copyFrom.path, copyFrom.path.length);
         }
 
@@ -75,7 +82,7 @@ public class VerificationCursor
         public int depth()
         {
             Preconditions.checkState(returnedDepth == source.depth(),
-                                     "Depth changed without advance: %d -> %d", returnedDepth, source.depth());
+                                     "Depth changed without advance: %s -> %s", returnedDepth, source.depth());
             return returnedDepth;
         }
 
@@ -83,7 +90,7 @@ public class VerificationCursor
         public int incomingTransition()
         {
             Preconditions.checkState(returnedTransition == source.incomingTransition(),
-                                     "Transition changed without advance: %d -> %d", returnedTransition, source.incomingTransition());
+                                     "Transition changed without advance: %s -> %s", returnedTransition, source.incomingTransition());
             return source.incomingTransition();
         }
 
@@ -101,7 +108,7 @@ public class VerificationCursor
             int depth = source.advanceMultiple(this);
             chainedReceiver = null;
             Preconditions.checkState(!advanceMultipleCalledReceiver || depth == returnedDepth + 1,
-                                     "advanceMultiple returned depth %d did not match depth %d after added characters",
+                                     "advanceMultiple returned depth %s did not match depth %s after added characters",
                                      depth, returnedDepth + 1);
             return verify(depth);
         }
@@ -124,41 +131,43 @@ public class VerificationCursor
         private void verifySkipRequest(int skipDepth, int skipTransition)
         {
             Preconditions.checkState(skipDepth <= returnedDepth + 1,
-                                     "Skip descends more than one level: %d -> %d",
+                                     "Skip descends more than one level: %s -> %s",
                                      returnedDepth,
                                      skipDepth);
-            if (skipDepth <= returnedDepth)
-                Preconditions.checkState(path[skipDepth - minDepth] < skipTransition,
-                                         "Skip goes backwards to %d at depth %d where it already visited %d",
-                                         skipTransition, skipDepth, path[skipDepth - minDepth]);
+            if (skipDepth <= returnedDepth && skipDepth > minDepth)
+                Preconditions.checkState(getByte(skipDepth) < skipTransition,
+                                         "Skip goes backwards to %s at depth %s where it already visited %s",
+                                         skipTransition, skipDepth, getByte(skipDepth));
 
         }
 
         private int verify(int depth)
         {
             Preconditions.checkState(depth <= returnedDepth + 1,
-                                     "Cursor advanced more than one level: %d -> %d",
+                                     "Cursor advanced more than one level: %s -> %s",
                                      returnedDepth,
                                      depth);
-            Preconditions.checkState(depth < 0 || depth >= minDepth,
-                                     "Cursor ascended to depth %d beyond its minimum depth %d",
+            Preconditions.checkState(depth < 0 || depth > minDepth,
+                                     "Cursor ascended to depth %s beyond its minimum depth %s",
                                      depth, minDepth);
             final int transition = source.incomingTransition();
             if (depth < 0)
             {
-                Preconditions.checkState(depth == -1 && transition == 0,
-                                         "Cursor exhausted state should be -1, 0 but was %d, %d",
+                Preconditions.checkState(depth == EXHAUSTED_DEPTH && transition == EXHAUSTED_TRANSITION,
+                                         "Cursor exhausted state should be %s, %s but was %s, %s",
+                                         EXHAUSTED_DEPTH, EXHAUSTED_TRANSITION,
                                          depth, transition);
             }
             else if (depth <= returnedDepth)
             {
-                Preconditions.checkState(path[depth - minDepth] < transition,
-                                         "Cursor went backwards to %d at depth %d where it already visited %d",
-                                         transition, depth, path[depth - minDepth]);
+                Preconditions.checkState(getByte(depth) < transition,
+                                         "Cursor went backwards to %s at depth %s where it already visited %s",
+                                         transition, depth, getByte(depth));
             }
             returnedDepth = depth;
             returnedTransition = transition;
-            addByte(returnedTransition, depth - 1);
+            if (depth >= 0)
+                addByte(returnedTransition, depth);
             return depth;
         }
 
@@ -171,7 +180,7 @@ public class VerificationCursor
         @Override
         public void addPathByte(int nextByte)
         {
-            addByte(nextByte, returnedDepth++);
+            addByte(nextByte, ++returnedDepth);
             returnedTransition = nextByte;
             if (chainedReceiver != null)
                 chainedReceiver.addPathByte(nextByte);
@@ -179,25 +188,48 @@ public class VerificationCursor
 
         private void addByte(int nextByte, int depth)
         {
-            int index = depth - minDepth;
+            int index = depth - minDepth - 1;
             if (index >= path.length)
                 path = Arrays.copyOf(path, path.length * 2);
             path[index] = (byte) nextByte;
+        }
+
+        private int getByte(int depth)
+        {
+            return path[depth - minDepth - 1] & 0xFF;
         }
 
         @Override
         public void addPathBytes(DirectBuffer buffer, int pos, int count)
         {
             for (int i = 0; i < count; ++i)
-                addByte(buffer.getByte(pos + i), returnedDepth + i);
+                addByte(buffer.getByte(pos + i), returnedDepth + 1 + i);
             returnedDepth += count;
             returnedTransition = buffer.getByte(pos + count - 1) & 0xFF;
             if (chainedReceiver != null)
                 chainedReceiver.addPathBytes(buffer, pos, count);
         }
+
+        @Override
+        public String toString()
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.append(source.getClass().getTypeName()
+                                 .replace(source.getClass().getPackageName() + ".", ""));
+            if (returnedDepth < 0)
+            {
+                builder.append(" exhausted");
+            }
+            else
+            {
+                builder.append(" at ");
+                builder.append(Hex.bytesToHex(path, 0, returnedDepth - minDepth));
+            }
+            return builder.toString();
+        }
     }
 
-    class WithContent<T, C extends TrieImpl.Cursor<T>> extends Walkable<C> implements TrieImpl.Cursor<T>
+    abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends Walkable<C> implements TrieImpl.Cursor<T>
     {
         WithContent(C source, int minDepth, int expectedDepth, int expectedTransition)
         {
@@ -216,44 +248,173 @@ public class VerificationCursor
         }
 
         @Override
-        public WithContent<T, C> duplicate()
-        {
-            return new WithContent<>(this);
-        }
+        public abstract WithContent<T, C> duplicate();
     }
 
-    class Trie<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
+    class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
     {
-        Trie(TrieImpl.Cursor<T> source)
+        Deterministic(TrieImpl.Cursor<T> source)
         {
-            this(source, 0, 0, -1);
+            this(source, 0, 0, INITIAL_TRANSITION);
         }
 
-        Trie(TrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
+        Deterministic(TrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
         {
             super(source, minDepth, expectedDepth, expectedTransition);
         }
 
-        Trie(Trie<T> copyFrom)
+        Deterministic(Deterministic<T> copyFrom)
         {
             super(copyFrom);
         }
 
         @Override
-        public Trie<T> duplicate()
+        public Deterministic<T> duplicate()
         {
-            return new Trie<>(this);
+            return new Deterministic<>(this);
         }
     }
 
-    class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    class NonDeterministic<T> extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>> implements NonDeterministicTrieImpl.Cursor<T>
+    {
+        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source)
+        {
+            this(source, 0, 0, INITIAL_TRANSITION);
+        }
+
+        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        NonDeterministic(NonDeterministic<T> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+        {
+            var alternate = source.alternateBranch();
+            if (alternate == null)
+                return null;
+            return new NonDeterministic<>(alternate, returnedDepth, returnedDepth, returnedTransition);
+        }
+
+        @Override
+        public NonDeterministic<T> duplicate()
+        {
+            return new NonDeterministic<>(this);
+        }
+    }
+
+    abstract class WithRanges<M extends RangeTrie.RangeMarker<M>, C extends RangeTrieImpl.Cursor<M>>
+    extends WithContent<M, C>
+    implements RangeTrieImpl.Cursor<M>
     {
         M currentCoveringState = null;
-        boolean permitEqualCoveringState = false;
+        M nextCoveringState = null;
 
+        WithRanges(C source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        WithRanges(WithRanges<M, C> copyFrom)
+        {
+            super(copyFrom);
+            this.currentCoveringState = copyFrom.currentCoveringState;
+            this.nextCoveringState = copyFrom.nextCoveringState;
+        }
+
+        @Override
+        public int advance()
+        {
+            currentCoveringState = nextCoveringState;
+            return verifyState(super.advance());
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            currentCoveringState = nextCoveringState;
+            return verifyState(super.advanceMultiple(receiver));
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return verifySkipState(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public M coveringState()
+        {
+            Preconditions.checkState(currentCoveringState == source.coveringState(),
+                                     "Covering state changed without advance: %s -> %s. %s",
+                                     currentCoveringState, source.coveringState(),
+                                     agree(currentCoveringState, source.coveringState())
+                                     ? "The values are equal but different object. This is not permitted for performance reasons."
+                                     : "");
+            // == above is correct, we do not want covering state to be recreated
+            return currentCoveringState;
+        }
+
+        boolean agree(M left, M right)
+        {
+            return left == right || left != null && left.agreesWith(right);
+        }
+
+        private int verifyState(int depth)
+        {
+//            System.out.println(String.format("%s covering state %s content %s",
+//                                             this, currentCoveringState, source.content()));
+            M coveringState = source.coveringState();
+            boolean equal = agree(currentCoveringState, coveringState);
+            Preconditions.checkState(equal,
+                                     "Unexpected change to covering state: %s -> %s",
+                                     currentCoveringState, coveringState);
+            currentCoveringState = coveringState;
+//
+//            Preconditions.checkState(currentCoveringState == coveringState,
+//                                     "Covering state is equal but a different object. This is not allowed for performance reasons.");
+
+            M content = source.content();
+            if (content != null)
+            {
+                Preconditions.checkState(agree(currentCoveringState, content.leftSideAsCovering()),
+                                         "Range end %s does not close covering state %s",
+                                         content.leftSideAsCovering(), currentCoveringState);
+                nextCoveringState = content.rightSideAsCovering();
+            }
+
+            if (depth < 0)
+                verifyEndState();
+            return depth;
+        }
+
+        void verifyEndState()
+        {
+            Preconditions.checkState(currentCoveringState == null,
+                                     "End state is not null: %s", currentCoveringState);
+        }
+
+        private int verifySkipState(int depth)
+        {
+            // The covering state information is invalidated by a skip.
+            currentCoveringState = source.coveringState();
+            nextCoveringState = currentCoveringState;
+            return verifyState(depth);
+        }
+
+        public abstract WithRanges<M, C> duplicate();
+    }
+
+    class Range<M extends RangeTrie.RangeMarker<M>> extends WithRanges<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
+    {
         Range(RangeTrieImpl.Cursor<M> source)
         {
-            this(source, 0, 0, -1);
+            this(source, 0, 0, INITIAL_TRANSITION);
         }
 
         Range(RangeTrieImpl.Cursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
@@ -264,89 +425,51 @@ public class VerificationCursor
         Range(Range<M> copyFrom)
         {
             super(copyFrom);
-            this.currentCoveringState = copyFrom.currentCoveringState;
-            this.permitEqualCoveringState = copyFrom.permitEqualCoveringState;
-        }
-
-        @Override
-        public int advance()
-        {
-            return verifyState(source.advance());
-        }
-
-        @Override
-        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
-        {
-            return verifyState(source.advanceMultiple(receiver));
-        }
-
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            return verifySkipState(source.skipTo(skipDepth, skipTransition));
-        }
-
-        @Override
-        public M coveringState()
-        {
-            Preconditions.checkState(currentCoveringState == source.coveringState(),
-                                     "Covering state changed without advance: %s -> %s", currentCoveringState, source.coveringState());
-            // == above is correct, we do not want covering state to be recreated
-            return currentCoveringState;
-        }
-
-        @Override
-        public M content()
-        {
-            return source.content();
-        }
-
-        private int verifyState(int depth)
-        {
-            final M coveringState = source.coveringState();
-            if (currentCoveringState != coveringState)
-            {
-                boolean equal = Objects.equals(currentCoveringState, coveringState);
-                Preconditions.checkState(equal,
-                                         "Unexpected change to covering state: %s -> %s",
-                                         currentCoveringState, coveringState);
-
-                if (permitEqualCoveringState)
-                {
-                    currentCoveringState = coveringState;
-                    permitEqualCoveringState = false;
-                }
-                else
-                {
-                    Preconditions.checkState(currentCoveringState == coveringState,
-                                             "Covering state is equal but a different object. This is not allowed for performance reasons.");
-                }
-            }
-
-            M content = source.content();
-            if (content != null)
-            {
-                Preconditions.checkState(Objects.equals(currentCoveringState, content.leftSideAsCovering()),
-                                         "Range end does not close covering state: %s -> %s",
-                                         currentCoveringState, content.leftSideAsCovering());
-                currentCoveringState = content.rightSideAsCovering();
-                permitEqualCoveringState = true;
-            }
-            return depth;
-        }
-
-        private int verifySkipState(int depth)
-        {
-            // The covering state information is invalidated by a skip.
-            currentCoveringState = source.coveringState();
-            permitEqualCoveringState = false;
-            return verifyState(depth);
         }
 
         @Override
         public Range<M> duplicate()
         {
             return new Range<>(this);
+        }
+    }
+
+    class TrieSet extends WithRanges<TrieSetImpl.RangeState, TrieSetImpl.Cursor> implements TrieSetImpl.Cursor
+    {
+        TrieSet(TrieSetImpl.Cursor source)
+        {
+            this(source, 0, 0, INITIAL_TRANSITION);
+            // start state can be non-null for sets
+            currentCoveringState = source.coveringState();
+            nextCoveringState = source.content() != null ? source.content().rightSideAsCovering() : currentCoveringState;
+        }
+
+        TrieSet(TrieSetImpl.Cursor source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        TrieSet(TrieSet copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        void verifyEndState()
+        {
+            // end state can be non-null for sets
+        }
+
+        @Override
+        public TrieSetImpl.RangeState state()
+        {
+            return source.state();
+        }
+
+        @Override
+        public TrieSet duplicate()
+        {
+            return new TrieSet(this);
         }
     }
 
@@ -358,7 +481,7 @@ public class VerificationCursor
 
         DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source)
         {
-            this(source, 0, 0, -1);
+            this(source, 0, 0, INITIAL_TRANSITION);
         }
 
         DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source, int minDepth, int expectedDepth, int expectedTransition)
@@ -377,7 +500,7 @@ public class VerificationCursor
         public int depth()
         {
             Preconditions.checkState(returnedDepth == source.depth(),
-                                     "Depth changed without advance: %d -> %d", returnedDepth, source.depth());
+                                     "Depth changed without advance: %s -> %s", returnedDepth, source.depth());
             return returnedDepth;
         }
 
@@ -390,19 +513,19 @@ public class VerificationCursor
         @Override
         public int advance()
         {
-            return verifyDeletionBranch(source.advance());
+            return verifyDeletionBranch(super.advance());
         }
 
         @Override
         public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
         {
-            return verifyDeletionBranch(source.advanceMultiple(receiver));
+            return verifyDeletionBranch(super.advanceMultiple(receiver));
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            return verifyDeletionBranch(source.skipTo(skipDepth, skipTransition));
+            return verifyDeletionBranch(super.skipTo(skipDepth, skipTransition));
         }
 
         @Override
@@ -410,12 +533,6 @@ public class VerificationCursor
         {
             // deletionBranch must be verified
             return new Range<>(source.deletionBranch(), returnedDepth, returnedDepth, returnedTransition);
-        }
-
-        @Override
-        public T content()
-        {
-            return source.content();
         }
 
         int verifyDeletionBranch(int depth)
@@ -427,18 +544,18 @@ public class VerificationCursor
             if (deletionBranch != null)
             {
                 Preconditions.checkState(deletionBranchDepth == -1,
-                                         "Deletion branch at depth %d covered by another deletion branch at parent depth %d",
+                                         "Deletion branch at depth %s covered by another deletion branch at parent depth %s",
                                          depth, deletionBranchDepth);
                 Preconditions.checkState(deletionBranch.depth() == depth,
-                                         "Deletion branch depth %d does not match cursor depth %d",
+                                         "Deletion branch depth %s does not match cursor depth %s",
                                          deletionBranch.depth(), depth);
                 Preconditions.checkState(deletionBranch.incomingTransition() == source.incomingTransition(),
-                                         "Deletion branch initial transition %d does not match cursor transition %d",
+                                         "Deletion branch initial transition %s does not match cursor transition %s",
                                          deletionBranch.incomingTransition(), source.incomingTransition());
                 Preconditions.checkState(deletionBranch.coveringState() == null,
                                          "Deletion branch starts with active deletion %s",
                                          deletionBranch.coveringState());
-                deletionBranch.skipTo(-1, 0);
+                deletionBranch.skipTo(EXHAUSTED_DEPTH, EXHAUSTED_TRANSITION);
                 Preconditions.checkState(deletionBranch.coveringState() == null,
                                          "Deletion branch ends with active deletion %s",
                                          deletionBranch.coveringState());

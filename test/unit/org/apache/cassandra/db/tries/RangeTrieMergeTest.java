@@ -497,7 +497,7 @@ public class RangeTrieMergeTest
 
                 if (cmp == 0)
                 {
-                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft);
+                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft).toContent();
                     maybeAdd(result, processed);
                     nextRight = rightIt.hasNext() ? rightIt.next() : null;
                     break;
@@ -508,7 +508,7 @@ public class RangeTrieMergeTest
                     if (active >= 0)
                     {
                         DeletionMarker activeMarker = new DeletionMarker(nextRight.position, active, active, active);
-                        nextRight = DeletionMarker.combine(activeMarker, nextRight);
+                        nextRight = DeletionMarker.combine(activeMarker, nextRight).toContent();
                     }
                     maybeAdd(result, nextRight);
                 }

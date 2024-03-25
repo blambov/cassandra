@@ -662,8 +662,7 @@ public class InMemoryReadTrie<T>
                         return advancedDepth;
                 }
             }
-            incomingTransition = -1;
-            return depth = -1;
+            return exhausted();
         }
 
         @Override
@@ -696,10 +695,18 @@ public class InMemoryReadTrie<T>
             return incomingTransition;
         }
 
+        private int exhausted()
+        {
+            content = null;
+            incomingTransition = -1;
+            depth = -1;
+            return depth;
+        }
+
         private int backtrack()
         {
             if (--backtrackDepth < 0)
-                return depth = -1;
+                return exhausted();
 
             depth = depth(backtrackDepth);
             return advanceToNextChild(node(backtrackDepth), data(backtrackDepth));

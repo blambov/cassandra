@@ -71,7 +71,7 @@ public class RangesTrieSet implements TrieSetWithImpl
     }
 
     @Override
-    public Cursor cursor()
+    public Cursor makeCursor()
     {
         return new RangesCursor(boundaries);
     }

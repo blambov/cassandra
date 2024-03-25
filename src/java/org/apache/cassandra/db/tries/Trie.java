@@ -26,6 +26,7 @@ import java.util.function.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
@@ -81,6 +82,8 @@ public interface Trie<T> extends BaseTrie<T>
 
     // TODO: reverse iteration
     // TODO: consistency levels / copy on write + node reuse
+
+    static final boolean DEBUG = CassandraRelevantProperties.TRIE_DEBUG.getBoolean();
 
     /**
      * Call the given consumer on all content values in the trie in order.
@@ -316,7 +319,7 @@ public interface Trie<T> extends BaseTrie<T>
             return new TrieWithImpl<T>()
             {
                 @Override
-                public Cursor<T> cursor()
+                public Cursor<T> makeCursor()
                 {
                     return new MergeCursor.Deterministic<>(throwingResolver(), t1.impl(), t2.impl());
                 }
@@ -332,7 +335,7 @@ public interface Trie<T> extends BaseTrie<T>
             return new TrieWithImpl<T>()
             {
                 @Override
-                public Cursor<T> cursor()
+                public Cursor<T> makeCursor()
                 {
                     return new CollectionMergeCursor.Deterministic<>(throwingResolver(), sources);
                 }

@@ -23,145 +23,139 @@ import java.util.Objects;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
+public class AlternateRangeCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
 {
-    final ByteComparable left;
-    final ByteComparable right;
+    ByteSource lsrc;
+    ByteSource rsrc;
+
+    int lnext;
+    int rnext;
+    int incomingTransition;
+    int depth;
+
     final T leftValue;
     final T rightValue;
 
-    public AlternateRangeTrie(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
+    AlternateRangeCursor(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
     {
-        this.left = left;
-        this.right = right;
+        lsrc = left.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
+        rsrc = right.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
         this.leftValue = leftValue;
         this.rightValue = rightValue;
+        lnext = lsrc.next();
+        rnext = rsrc.next();
+        depth = 0;
+        incomingTransition = -1;
+    }
+
+    AlternateRangeCursor(AlternateRangeCursor<T> copyFrom)
+    {
+        ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.lsrc);
+        copyFrom.lsrc = dupe;
+        lsrc = dupe.duplicate();
+        dupe = ByteSource.duplicatable(copyFrom.rsrc);
+        copyFrom.rsrc = dupe;
+        rsrc = dupe.duplicate();
+        lnext = copyFrom.lnext;
+        rnext = copyFrom.rnext;
+        incomingTransition = copyFrom.incomingTransition;
+        depth = copyFrom.depth;
+        leftValue = copyFrom.leftValue;
+        rightValue = copyFrom.rightValue;
     }
 
     @Override
-    public Cursor<T> cursor()
+    public int depth()
     {
-        return new HeadCursor();
+        return depth;
     }
 
-    private class HeadCursor implements Cursor<T>
+    @Override
+    public int incomingTransition()
     {
-        ByteSource lsrc;
-        ByteSource rsrc;
+        return incomingTransition;
+    }
 
-        int lnext;
-        int rnext;
-        int incomingTransition;
-        int depth;
+    @Override
+    public T content()
+    {
+        return null;
+    }
 
-        HeadCursor()
-        {
-            lsrc = left.asComparableBytes(BYTE_COMPARABLE_VERSION);
-            rsrc = right.asComparableBytes(BYTE_COMPARABLE_VERSION);
-            lnext = lsrc.next();
-            rnext = rsrc.next();
-        }
+    @Override
+    public int advance()
+    {
+        return descend();
+    }
 
-        HeadCursor(HeadCursor copyFrom)
-        {
-            ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.lsrc);
-            copyFrom.lsrc = dupe;
-            lsrc = dupe.duplicate();
-            dupe = ByteSource.duplicatable(copyFrom.rsrc);
-            copyFrom.rsrc = dupe;
-            rsrc = dupe.duplicate();
-            lnext = copyFrom.lnext;
-            rnext = copyFrom.rnext;
-            incomingTransition = copyFrom.incomingTransition;
-            depth = copyFrom.depth;
-        }
+    private int exhausted()
+    {
+        incomingTransition = -1;
+        depth = -1;
+        return depth;
+    }
 
-        @Override
-        public int depth()
-        {
-            return depth;
-        }
-
-        @Override
-        public int incomingTransition()
-        {
-            return incomingTransition;
-        }
-
-        @Override
-        public T content()
-        {
-            return null;
-        }
-
-        @Override
-        public int advance()
-        {
+    @Override
+    public int skipTo(int skipDepth, int skipTransition)
+    {
+        if (skipDepth <= depth || skipTransition > lnext)
+            return exhausted();
+        else
             return descend();
-        }
+    }
 
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
+    private int descend()
+    {
+        if (nextsSplit())
+            return exhausted();
+
+        incomingTransition = lnext;
+        ++depth;
+
+        lnext = lsrc.next();
+        rnext = rsrc.next();
+        return depth;
+    }
+
+    private boolean nextsSplit()
+    {
+        return lnext != rnext || lnext == ByteSource.END_OF_STREAM;
+    }
+
+    @Override
+    public NonDeterministicTrieImpl.Cursor<T> duplicate()
+    {
+        return new AlternateRangeCursor<>(this);
+    }
+
+    @Override
+    public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+    {
+        if (nextsSplit())
+            return exhausted();
+
+        while (true)
         {
-            if (skipDepth <= depth || skipTransition > lnext)
-                return depth = -1;
-            else
-                return descend();
-        }
-
-        private int descend()
-        {
-            if (nextsSplit())
-                return depth = -1;
-
             incomingTransition = lnext;
             ++depth;
-
             lnext = lsrc.next();
             rnext = rsrc.next();
-            return depth;
-        }
-
-        private boolean nextsSplit()
-        {
-            return lnext != rnext || lnext == ByteSource.END_OF_STREAM;
-        }
-
-        @Override
-        public Cursor<T> duplicate()
-        {
-            return new HeadCursor(this);
-        }
-
-        @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
-        {
             if (nextsSplit())
-                return depth = -1;
-
-            while (true)
-            {
-                incomingTransition = lnext;
-                ++depth;
-                lnext = lsrc.next();
-                rnext = rsrc.next();
-                if (nextsSplit())
-                    return depth;
-                receiver.addPathByte(incomingTransition);
-            }
-        }
-
-        @Override
-        public Cursor<T> alternateBranch()
-        {
-            if (nextsSplit())
-                return new TailCursor(lsrc, lnext, rsrc, rnext, depth, incomingTransition);
-            else
-                return null;
+                return depth;
+            receiver.addPathByte(incomingTransition);
         }
     }
 
-    private class TailCursor implements Cursor<T>
+    @Override
+    public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+    {
+        if (nextsSplit())
+            return new TailCursor<>(lsrc, lnext, rsrc, rnext, depth, incomingTransition, leftValue, rightValue);
+        else
+            return null;
+    }
+
+    private static class TailCursor<T> implements NonDeterministicTrieImpl.Cursor<T>
     {
         ByteSource src;
         int next;
@@ -172,8 +166,9 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
         ByteSource otherSrc;
         int otherNext;
         int otherDepth;
+        T otherValue;
 
-        public TailCursor(ByteSource lsrc, int lnext, ByteSource rsrc, int rnext, int startDepth, int startIncomingTransition)
+        public TailCursor(ByteSource lsrc, int lnext, ByteSource rsrc, int rnext, int startDepth, int startIncomingTransition, T leftValue, T rightValue)
         {
             this.src = lsrc;
             this.next = lnext;
@@ -183,9 +178,10 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
             this.otherNext = rnext;
             this.otherDepth = startDepth;
             this.value = leftValue;
+            this.otherValue = rightValue;
         }
 
-        TailCursor(TailCursor copyFrom)
+        TailCursor(TailCursor<T> copyFrom)
         {
             boolean copyFromSwitched = copyFrom.src == copyFrom.otherSrc;
             ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
@@ -208,6 +204,7 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
             this.incomingTransition = copyFrom.incomingTransition;
             this.otherNext = copyFrom.otherNext;
             this.otherDepth = copyFrom.otherDepth;
+            this.otherValue = copyFrom.otherValue;
             this.value = copyFrom.value;
         }
 
@@ -228,11 +225,18 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
         {
             if (next == ByteSource.END_OF_STREAM)
             {
-                assert otherNext != ByteSource.END_OF_STREAM || Objects.equals(value, rightValue)
+                assert otherNext != ByteSource.END_OF_STREAM || Objects.equals(value, otherValue)
                     : "left and right values must be equal when left and right bounds are the same";
                 return value;
             }
             return null;
+        }
+
+        private int exhausted()
+        {
+            incomingTransition = -1;
+            depth = -1;
+            return depth;
         }
 
         @Override
@@ -240,7 +244,7 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
         {
             if (next == ByteSource.END_OF_STREAM)
                 if (!switchSource())
-                    return depth = -1;
+                    return exhausted();
 
             return descend();
         }
@@ -253,14 +257,14 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
             src = otherSrc;
             next = otherNext;
             depth = otherDepth;
-            value = rightValue;
+            value = otherValue;
             return true;
         }
 
         private int descend()
         {
             if (next == ByteSource.END_OF_STREAM)
-                return depth = -1;
+                return exhausted();
 
             incomingTransition = next;
             next = src.next();
@@ -269,7 +273,7 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
 
 
         @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
         {
             if (next == ByteSource.END_OF_STREAM)
                 return advance();
@@ -291,23 +295,23 @@ public class AlternateRangeTrie<T> implements NonDeterministicTrieWithImpl<T>
             if (depth + 1 == skipDepth && skipTransition <= next)
                 return descend();
             if (!switchSource())
-                return depth = -1;
+                return exhausted();
             if (depth + 1 == skipDepth && skipTransition <= next)
                 return descend();
             else
-                return depth = -1;
+                return exhausted();
         }
 
         @Override
-        public Cursor<T> alternateBranch()
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
         {
             return null;
         }
 
         @Override
-        public Cursor<T> duplicate()
+        public NonDeterministicTrieImpl.Cursor<T> duplicate()
         {
-            return new TailCursor(this);
+            return new TailCursor<>(this);
         }
     }
 }

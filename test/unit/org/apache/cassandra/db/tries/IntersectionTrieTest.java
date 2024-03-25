@@ -509,7 +509,21 @@ public class IntersectionTrieTest
 
     private <T> Trie<T> applySet(TrieSet set, Trie<T> trie)
     {
-        RangeTrieWithImpl<TrieSetImpl.RangeState> setAsRangeTrie = () -> TrieSetImpl.impl(set).cursor();
+        RangeTrieWithImpl<TrieSetImpl.RangeState> setAsRangeTrie = new RangeTrieWithImpl<TrieSetImpl.RangeState>()
+        {
+            @Override
+            public Cursor<TrieSetImpl.RangeState> makeCursor()
+            {
+                throw new AssertionError();
+            }
+
+            @Override
+            public Cursor<TrieSetImpl.RangeState> cursor()
+            {
+                // disable debug verification (cursor is already checked by TrieSetWithImpl.cursor())
+                return TrieSetImpl.impl(set).cursor();
+            }
+        };
         return setAsRangeTrie.applyTo(trie, (range, value) -> range.matchingIncluded() ? value : null);
     }
 }
