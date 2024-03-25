@@ -574,13 +574,13 @@ public class InMemoryReadTrie<T>
      * (i.e. it is positioned on a leaf node), it goes one level up the backtracking chain, where we are guaranteed to
      * have a remaining child to advance to. When there's nothing to backtrack to, the trie is exhausted.
      */
-    class MemtableCursor extends CursorBacktrackingState implements NonDeterministicTrieImpl.Cursor<T>
+    class MemtableCursor extends CursorBacktrackingState implements TrieImpl.Cursor<T>
     {
         private int currentNode;
         private int incomingTransition;
         private T content;
-        private int alternateBranch;
         private int depth;
+        protected int alternateBranch;  // used by NonDeterministic and DeletionAware
 
         MemtableCursor(int root, int depth, int incomingTransition)
         {
@@ -663,12 +663,6 @@ public class InMemoryReadTrie<T>
                 }
             }
             return exhausted();
-        }
-
-        @Override
-        public MemtableCursor alternateBranch()
-        {
-            return isNull(alternateBranch) ? null : new MemtableCursor(alternateBranch, depth - 1, incomingTransition);
         }
 
         @Override

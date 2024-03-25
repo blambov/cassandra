@@ -53,62 +53,107 @@ public class AlternativeBranchesTest
     static final int COUNT = 10000;
     static final Random rand = new Random(111);
 
+    static class MergeableInteger implements NonDeterministicTrie.Mergeable<MergeableInteger>
+    {
+        final int value;
+
+        MergeableInteger(int value)
+        {
+            this.value = value;
+        }
+
+        @Override
+        public MergeableInteger mergeWith(MergeableInteger other)
+        {
+            return of(value + other.value);
+        }
+
+        @Override
+        public String toString()
+        {
+            return Integer.toString(value);
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            MergeableInteger that = (MergeableInteger) o;
+            return value == that.value;
+        }
+    }
+
+    static MergeableInteger of(int v)
+    {
+        return new MergeableInteger(v);
+    }
+
     @Test
     public void testSpecifiedSimple()
     {
-        NonDeterministicTrie<Integer> specified = specifiedNonDeterministicTrie(new Object[] {
+        NonDeterministicTrie<MergeableInteger> specified = specifiedNonDeterministicTrie(new Object[] {
             Pair.create(
                 new Object[] { // 0
-                    new Object[] { 0, 1, 2 }, // 00
+                    new Object[] { of(0), of(1), of(2) }, // 00
                     null, // 01
-                    new Object[] { 2, null, 4 }, // 02
+                    new Object[] { of(2), null, of(4) }, // 02
                 },
                 new Object[] { // 0
                     null,
-                    new Object[] { 11, 12, 13 }, // 01
-                    new Object[] { null, 13, 14 }, // 02
+                    new Object[] { of(11), of(12), of(13) }, // 01
+                    new Object[] { null, of(13), of(14) }, // 02
                 }
             )
         });
 
         assertMapEquals(specified.entrySet(),
-                        ImmutableMap.of(comparable("000"), 0,
-                                        comparable("001"), 1,
-                                        comparable("002"), 2,
-                                        comparable("020"), 2,
-                                        comparable("022"), 4)
+                        ImmutableMap.of(comparable("000"), of(0),
+                                        comparable("001"), of(1),
+                                        comparable("002"), of(2),
+                                        comparable("010"), of(11),
+                                        comparable("011"), of(12),
+                                        comparable("012"), of(13),
+                                        comparable("020"), of(2),
+                                        comparable("021"), of(13),
+                                        comparable("022"), of(18))
                                     .entrySet());
-        assertMapEquals(specified.deterministic(c -> c.stream().reduce(Integer::sum).get()).entrySet(),
-                        ImmutableMap.of(comparable("000"), 0,
-                                        comparable("001"), 1,
-                                        comparable("002"), 2,
-                                        comparable("010"), 11,
-                                        comparable("011"), 12,
-                                        comparable("012"), 13,
-                                        comparable("020"), 2,
-                                        comparable("021"), 13,
-                                        comparable("022"), 18)
+        assertMapEquals(specified.mainPathOnly().entrySet(),
+                        ImmutableMap.of(comparable("000"), of(0),
+                                        comparable("001"), of(1),
+                                        comparable("002"), of(2),
+                                        comparable("020"), of(2),
+                                        comparable("022"), of(4))
+                                    .entrySet());
+        assertMapEquals(specified.deterministic().entrySet(),
+                        ImmutableMap.of(comparable("000"), of(0),
+                                        comparable("001"), of(1),
+                                        comparable("002"), of(2),
+                                        comparable("010"), of(11),
+                                        comparable("011"), of(12),
+                                        comparable("012"), of(13),
+                                        comparable("020"), of(2),
+                                        comparable("021"), of(13),
+                                        comparable("022"), of(18))
                                     .entrySet());
     }
 
-    final static Trie.CollectionMergeResolver RESOLVER_FIRST = c -> c.iterator().next();
-
-    static <T> TrieWithImpl<T> mainBranch(NonDeterministicTrie<T> ndtrie)
+    static <T extends NonDeterministicTrie.Mergeable<T>> TrieWithImpl<T> mainBranch(NonDeterministicTrie<T> ndtrie)
     {
         return NonDeterministicTrieImpl.impl(ndtrie)::cursor;
     }
 
-    static <T> TrieWithImpl<T> alternatesOnly(NonDeterministicTrie<T> ndtrie)
+    static <T extends NonDeterministicTrie.Mergeable<T>> TrieWithImpl<T> alternatesOnly(NonDeterministicTrie<T> ndtrie)
     {
-        return new MergeAlternativeBranchesTrie<>(NonDeterministicTrieImpl.impl(ndtrie), RESOLVER_FIRST, true);
+        return new MergeAlternativeBranchesTrie<>(NonDeterministicTrieImpl.impl(ndtrie), true);
     }
 
     @Test
     public void testRandomSingletons()
     {
-        List<NonDeterministicTrie<Integer>> tries = new ArrayList<>();
-        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
-        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        List<NonDeterministicTrie<MergeableInteger>> tries = new ArrayList<>();
+        SortedMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {
             String key = makeSpecKey(rand);
@@ -116,43 +161,42 @@ public class AlternativeBranchesTest
             if (rand.nextDouble() <= 0.3)
             {
                 tries.add(specifiedNonDeterministicTrie((Object[]) makeSpec(key, -1, value)));
-                normals.put(comparable(key), value);
+                normals.put(comparable(key), of(value));
             }
             else
             {
                 tries.add(specifiedNonDeterministicTrie((Object[]) makeSpec(key, rand.nextInt(key.length()), ~value)));
-                alternates.put(comparable(key), ~value);
+                alternates.put(comparable(key), of(~value));
             }
         }
-        NonDeterministicTrie<Integer> union = NonDeterministicTrie.merge(tries, RESOLVER_FIRST);
+        NonDeterministicTrie<MergeableInteger> union = NonDeterministicTrie.merge(tries);
         verifyAlternates(union, normals, alternates);
 
-        union = NonDeterministicTrie.merge(tries.subList(0, COUNT/2), RESOLVER_FIRST)
-                    .mergeWith(NonDeterministicTrie.merge(tries.subList(COUNT/2, COUNT), RESOLVER_FIRST),
-                               RESOLVER_FIRST);
+        union = NonDeterministicTrie.merge(tries.subList(0, COUNT/2))
+                    .mergeWith(NonDeterministicTrie.merge(tries.subList(COUNT/2, COUNT)));
         verifyAlternates(union, normals, alternates);
     }
 
     @Test
     public void testPutAlternativeRecursive() throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<Integer> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
-        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
-        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {
             String key = makeSpecKey(rand);
             int value = key.hashCode() & 0xFF; // to make sure value is the same on clash
             if (rand.nextDouble() <= 0.3)
             {
-                trie.putRecursive(comparable(key), value, (x, y) -> y);
-                normals.put(comparable(key), value);
+                trie.putRecursive(comparable(key), of(value), (x, y) -> y);
+                normals.put(comparable(key), of(value));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
             }
             else
             {
-                trie.putAlternativeRecursive(comparable(key), ~value, (x, y) -> y);
-                alternates.put(comparable(key), ~value);
+                trie.putAlternativeRecursive(comparable(key), of(~value), (x, y) -> y);
+                alternates.put(comparable(key), of(~value));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
             }
         }
@@ -174,7 +218,7 @@ public class AlternativeBranchesTest
         verifyAlternates(trie, normals, alternates);
     }
 
-    static void putNth(InMemoryNDTrie<Integer> trie, Map<ByteComparable, Integer> data, int divisor, int remainder) throws InMemoryNDTrie.SpaceExhaustedException
+    static void putNth(InMemoryNDTrie<MergeableInteger> trie, Map<ByteComparable, MergeableInteger> data, int divisor, int remainder) throws InMemoryNDTrie.SpaceExhaustedException
     {
 //        System.out.println();
         int i = 0;
@@ -183,7 +227,7 @@ public class AlternativeBranchesTest
             if (i % divisor == remainder)
             {
 //                System.out.println("Adding " + asString(e.getKey()) + ": " + e.getValue());
-                if (e.getValue() < 0)
+                if (e.getValue().value < 0)
                     trie.putAlternativeRecursive(e.getKey(), e.getValue(), (x, y) -> y);
                 else
                     trie.putRecursive(e.getKey(), e.getValue(), (x, y) -> y);
@@ -205,9 +249,9 @@ public class AlternativeBranchesTest
 
     public void testPutAlternativeRangeRecursive(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<Integer> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
-        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
-        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {
             String skey = makeSpecKey(rand);
@@ -216,16 +260,16 @@ public class AlternativeBranchesTest
             int evalue = ekey.hashCode() & 0xFF; // to make sure value is the same on clash
             if (!alternateChooser.test(i))
             {
-                trie.putRangeRecursive(comparable(skey), svalue, comparable(ekey), evalue, (x, y) -> y);
-                normals.put(comparable(skey), svalue);
-                normals.put(comparable(ekey), evalue);
+                trie.putRangeRecursive(comparable(skey), of(svalue), comparable(ekey), of(evalue), (x, y) -> y);
+                normals.put(comparable(skey), of(svalue));
+                normals.put(comparable(ekey), of(evalue));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
             }
             else
             {
-                trie.putAlternativeRangeRecursive(comparable(skey), ~svalue, comparable(ekey), ~evalue, (x, y) -> y);
-                alternates.put(comparable(skey), ~svalue);
-                alternates.put(comparable(ekey), ~evalue);
+                trie.putAlternativeRangeRecursive(comparable(skey), of(~svalue), comparable(ekey), of(~evalue), (x, y) -> y);
+                alternates.put(comparable(skey), of(~svalue));
+                alternates.put(comparable(ekey), of(~evalue));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
             }
         }
@@ -246,9 +290,9 @@ public class AlternativeBranchesTest
 
     public void testApplyAlternativeRange(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<Integer> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
-        SortedMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
-        SortedMap<ByteComparable, Integer> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        SortedMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        SortedMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {
             String skey = makeSpecKey(rand);
@@ -257,25 +301,26 @@ public class AlternativeBranchesTest
             int evalue = ekey.hashCode() & 0xFF; // to make sure value is the same on clash
             if (!alternateChooser.test(i))
             {
-                trie.apply(Trie.singleton(comparable(skey), svalue)
-                               .mergeWith(Trie.singleton(comparable(ekey), evalue), (x, y) -> y),
+                trie.apply(Trie.singleton(comparable(skey), of(svalue))
+                               .mergeWith(Trie.singleton(comparable(ekey), of(evalue)), (x, y) -> y),
                            (x, y) -> y);
-                normals.put(comparable(skey), svalue);
-                normals.put(comparable(ekey), evalue);
+                normals.put(comparable(skey), of(svalue));
+                normals.put(comparable(ekey), of(evalue));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + value);
             }
             else
             {
-                trie.apply(alternateRange(comparable(skey), ~svalue, comparable(ekey), ~evalue), (x, y) -> y);
-                alternates.put(comparable(skey), ~svalue);
-                alternates.put(comparable(ekey), ~evalue);
+                trie.apply(alternateRange(comparable(skey), of(~svalue), comparable(ekey), of(~evalue)), (x, y) -> y);
+                alternates.put(comparable(skey), of(~svalue));
+                alternates.put(comparable(ekey), of(~evalue));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + ~value);
             }
         }
         verifyAlternates(trie, normals, alternates);
     }
 
-    private <T> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable sComparable, T svalue, ByteComparable eComparable, T evalue)
+    private <T extends NonDeterministicTrie.Mergeable<T>>
+    NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable sComparable, T svalue, ByteComparable eComparable, T evalue)
     {
         if (ByteComparable.compare(sComparable, eComparable, TrieImpl.BYTE_COMPARABLE_VERSION) > 0)
             return () -> new AlternateRangeCursor<>(eComparable, evalue, sComparable, svalue);
@@ -287,7 +332,7 @@ public class AlternativeBranchesTest
     public void testCoveredVisitsRangePut() throws InMemoryNDTrie.SpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
-            trie.putAlternativeRangeRecursive(sComparable, svalue, eComparable, evalue, (x, y) -> y);
+            trie.putAlternativeRangeRecursive(sComparable, svalue, eComparable, evalue, (x, y) -> of(y));
             return trie;
         });
     }
@@ -296,34 +341,34 @@ public class AlternativeBranchesTest
     public void testCoveredVisitsRangeTrie() throws InMemoryNDTrie.SpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) ->
-                               alternateRange(sComparable, svalue, eComparable, evalue));
+                               alternateRange(sComparable, of(svalue), eComparable, of(evalue)));
     }
 
     @Test
     public void testCoveredVisitsRangeApply() throws InMemoryNDTrie.SpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
-            trie.apply(alternateRange(sComparable, svalue, eComparable, evalue), (x, y) -> y);
+            trie.apply(alternateRange(sComparable, of(svalue), eComparable, of(evalue)), (x, y) -> y);
             return trie;
         });
     }
 
     interface CoveredRangeAdder
     {
-        NonDeterministicTrie<Integer> addAndReturnTrie(InMemoryNDTrie<Integer> trie, ByteComparable sComparable, int svalue, ByteComparable eComparable, int evalue) throws InMemoryNDTrie.SpaceExhaustedException;
+        NonDeterministicTrie<MergeableInteger> addAndReturnTrie(InMemoryNDTrie<MergeableInteger> trie, ByteComparable sComparable, int svalue, ByteComparable eComparable, int evalue) throws InMemoryNDTrie.SpaceExhaustedException;
     }
 
     void testCoveredVisitsRange(CoveredRangeAdder adder) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<Integer> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
-        NavigableMap<ByteComparable, Integer> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
+        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {
             String key = makeSpecKey(rand);
             int value = key.hashCode() & 0xFF; // to make sure value is the same on clash
-            normals.put(comparable(key), value);
+            normals.put(comparable(key), of(value));
             if (i % 10 != 1)    // leave some out of the trie to also test non-present covered keys
-                trie.putRecursive(comparable(key), value, (x, y) -> y);
+                trie.putRecursive(comparable(key), of(value), (x, y) -> y);
         }
 
         for (int i = 0; i < Math.max(10, COUNT / 4); ++i)
@@ -340,21 +385,21 @@ public class AlternativeBranchesTest
             int evalue = ~(ekey.hashCode() & 0xFF);
             final ByteComparable sComparable = comparable(skey);
             final ByteComparable eComparable = comparable(ekey);
-            NonDeterministicTrie<Integer> testTrie = adder.addAndReturnTrie(trie, sComparable, svalue, eComparable, evalue);
+            NonDeterministicTrie<MergeableInteger> testTrie = adder.addAndReturnTrie(trie, sComparable, svalue, eComparable, evalue);
             checkAlternateCoverage(normals, sComparable, eComparable, testTrie, svalue, evalue);
         }
     }
 
-    private void checkAlternateCoverage(NavigableMap<ByteComparable, Integer> normals, ByteComparable sComparable, ByteComparable eComparable, NonDeterministicTrie<Integer> trie, int svalue, int evalue)
+    private void checkAlternateCoverage(NavigableMap<ByteComparable, MergeableInteger> normals, ByteComparable sComparable, ByteComparable eComparable, NonDeterministicTrie<MergeableInteger> trie, int svalue, int evalue)
     {
-        Map<ByteComparable, Integer> covered = Maps.newHashMap();
+        Map<ByteComparable, MergeableInteger> covered = Maps.newHashMap();
         covered.putAll(normals.subMap(sComparable, true, eComparable, true));
         // also test start and end but make sure they are not found in the non-alternate path
         covered.putIfAbsent(sComparable, null);
         covered.putIfAbsent(eComparable, null);
         for (var entry : covered.entrySet())
         {
-            NonDeterministicTrieImpl.Cursor<Integer> c = NonDeterministicTrieImpl.impl(trie).cursor();
+            NonDeterministicTrieImpl.Cursor<MergeableInteger> c = NonDeterministicTrieImpl.impl(trie).cursor();
             var key = entry.getKey().asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
             var start = ByteSource.duplicatable(sComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
             var end = ByteSource.duplicatable(eComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
@@ -364,7 +409,7 @@ public class AlternativeBranchesTest
             int depth = c.depth();
             while (true)
             {
-                NonDeterministicTrieImpl.Cursor<Integer> alt = c.alternateBranch();
+                NonDeterministicTrieImpl.Cursor<MergeableInteger> alt = c.alternateBranch();
                 if (alt != null)
                 {
                     foundStart = foundStart || start != null && checkMatch(alt.duplicate(), start.duplicate(), svalue);
@@ -390,14 +435,14 @@ public class AlternativeBranchesTest
             if (!foundStart || !foundEnd)
             {
                 System.err.println("Failed to find " + (foundStart ? "" : "start ") + (foundEnd ? "" : "end ") + "for " + asString(entry.getKey()) + " in " + asString(sComparable) + ":" + asString(eComparable));
-                System.err.println("Trie section:\n" + trie.subtrie(sComparable, true, eComparable, true).deterministic(RESOLVER_FIRST).dump());
+                System.err.println("Trie section:\n" + trie.subtrie(sComparable, true, eComparable, true).deterministic().dump());
                 assertTrue(foundStart);
                 assertTrue(foundEnd);
             }
         }
     }
 
-    boolean checkMatch(NonDeterministicTrieImpl.Cursor<Integer> c, ByteSource key, int value)
+    boolean checkMatch(NonDeterministicTrieImpl.Cursor<MergeableInteger> c, ByteSource key, int value)
     {
         int next = key.next();
         int depth = c.depth();
@@ -408,12 +453,12 @@ public class AlternativeBranchesTest
                 return false;
             next = key.next();
         }
-        return (c.content().intValue() == value);
+        return (c.content().value == value);
     }
 
-    private void verifyAlternates(NonDeterministicTrie<Integer> trie, SortedMap<ByteComparable, Integer> normals, SortedMap<ByteComparable, Integer> alternates)
+    private void verifyAlternates(NonDeterministicTrie<MergeableInteger> trie, SortedMap<ByteComparable, MergeableInteger> normals, SortedMap<ByteComparable, MergeableInteger> alternates)
     {
-        SortedMap<ByteComparable, Integer> both = new TreeMap<>(alternates);
+        SortedMap<ByteComparable, MergeableInteger> both = new TreeMap<>(alternates);
         both.putAll(normals);
         ByteComparable left = comparable("3" + makeSpecKey(rand));
         ByteComparable right = comparable("7" + makeSpecKey(rand));
@@ -424,12 +469,12 @@ public class AlternativeBranchesTest
 
         assertMapEquals(mainBranch(trie).entrySet(), normals.entrySet());
         assertMapEquals(alternatesOnly(trie).entrySet(), alternates.entrySet());
-        assertMapEquals(trie.deterministic(RESOLVER_FIRST).entrySet(), both.entrySet());
+        assertMapEquals(trie.entrySet(), both.entrySet());
 
-        NonDeterministicTrie<Integer> ix = trie.subtrie(left, right);
+        NonDeterministicTrie<MergeableInteger> ix = trie.subtrie(left, right);
         assertMapEquals(mainBranch(ix).entrySet(), normals.subMap(left, right).entrySet());
         assertMapEquals(alternatesOnly(ix).entrySet(), alternates.subMap(left, right).entrySet());
-        assertMapEquals(ix.deterministic(RESOLVER_FIRST).entrySet(), both.subMap(left, right).entrySet());
+        assertMapEquals(ix.entrySet(), both.subMap(left, right).entrySet());
 
 //        System.out.println("Bounds " + asString(left) + " to " + asString(right));
 //        System.out.println("IX Normal:\n" + ix.dump());
@@ -441,9 +486,8 @@ public class AlternativeBranchesTest
                             .entrySet(),
                         alternates.subMap(left, right)
                                   .entrySet());
-        assertMapEquals(trie.deterministic(RESOLVER_FIRST)
-                             .subtrie(left, right)
-                             .entrySet(),
+        assertMapEquals(trie.subtrie(left, right)
+                            .entrySet(),
                         both.subMap(left, right)
                             .entrySet());
     }
@@ -460,7 +504,7 @@ public class AlternativeBranchesTest
     public Object makeSpec(String s, int alternateAt, int value)
     {
         if (s.isEmpty())
-            return value;
+            return of(value);
         Object child = makeSpec(s.substring(1), alternateAt - 1, value);
         if (alternateAt == 0)
             child = Pair.create(null, child);

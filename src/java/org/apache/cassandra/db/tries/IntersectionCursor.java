@@ -225,7 +225,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     }
 
 
-    static class NonDeterministic<T> extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>> implements NonDeterministicTrieImpl.Cursor<T>
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
         public NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source, TrieSetImpl.Cursor set)
         {
@@ -253,7 +255,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         }
     }
 
-    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>> extends WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
+    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>>
+    extends WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>>
+    implements DeletionAwareTrieImpl.Cursor<T, D>
     {
         RangeTrieImpl.Cursor<D> applicableDeletionBranch;
 

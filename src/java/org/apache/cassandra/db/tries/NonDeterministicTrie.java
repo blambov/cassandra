@@ -25,8 +25,12 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface NonDeterministicTrie<T> extends BaseTrie<T>
+public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T>> extends BaseTrie<T>
 {
+    interface Mergeable<T>
+    {
+        T mergeWith(T other);
+    }
 
     /**
      * Call the given consumer on all content values in the trie in order.
@@ -65,9 +69,9 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
     /**
      * Returns a singleton trie mapping the given byte path to content.
      */
-    static <T> NonDeterministicTrie<T> singleton(ByteComparable b, T v)
+    static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrie<T> singleton(ByteComparable b, T v)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new SingletonCursor<>(b, v);
+        return (NonDeterministicTrieWithImpl<T>) () -> new SingletonCursor.NonDeterministic<>(b, v);
     }
 
     /**
@@ -134,7 +138,7 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      */
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
     {
-        return new TrieEntriesIterator.AsEntries<>(impl().cursor());
+        return new TrieEntriesIterator.AsEntries<>(impl().alternativesMergingCursor());
     }
 
     /**
@@ -150,7 +154,7 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      */
     default Iterator<T> valueIterator()
     {
-        return new TrieValuesIterator<>(impl().cursor());
+        return new TrieValuesIterator<>(impl().alternativesMergingCursor());
     }
 
     /**
@@ -168,9 +172,9 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * If there is content for a given key in both sources, the resolver will be called to obtain the combination.
      * (The resolver will not be called if there's content from only one source.)
      */
-    default NonDeterministicTrie<T> mergeWith(NonDeterministicTrie<T> other, Trie.MergeResolver<T> resolver)
+    default NonDeterministicTrie<T> mergeWith(NonDeterministicTrie<T> other)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new MergeCursor.NonDeterministic<>(resolver, impl(), other.impl());
+        return (NonDeterministicTrieWithImpl<T>) () -> new MergeCursor.NonDeterministic<>(impl(), other.impl());
     }
 
     /**
@@ -180,7 +184,8 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
      * If there is content for a given key in more than one sources, the resolver will be called to obtain the
      * combination. (The resolver will not be called if there's content from only one source.)
      */
-    static <T> NonDeterministicTrie<T> merge(Collection<? extends NonDeterministicTrie<T>> sources, Trie.CollectionMergeResolver<T> resolver)
+    static <T extends NonDeterministicTrie.Mergeable<T>>
+    NonDeterministicTrie<T> merge(Collection<? extends NonDeterministicTrie<T>> sources)
     {
         switch (sources.size())
         {
@@ -193,22 +198,32 @@ public interface NonDeterministicTrie<T> extends BaseTrie<T>
                 Iterator<? extends NonDeterministicTrie<T>> it = sources.iterator();
                 NonDeterministicTrie<T> t1 = it.next();
                 NonDeterministicTrie<T> t2 = it.next();
-                return t1.mergeWith(t2, resolver);
+                return t1.mergeWith(t2);
             }
             default:
-                return (NonDeterministicTrieWithImpl<T>) () -> new CollectionMergeCursor.NonDeterministic<>(resolver, sources);
+                return (NonDeterministicTrieWithImpl<T>) () -> new CollectionMergeCursor.NonDeterministic<>(sources);
         }
     }
 
     @SuppressWarnings("unchecked")
-    static <T> NonDeterministicTrie<T> empty()
+    static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrie<T> empty()
     {
         return (NonDeterministicTrie<T>) NonDeterministicTrieImpl.EMPTY;
     }
-//
-    default Trie<T> deterministic(Trie.CollectionMergeResolver<T> resolver)
+
+    default Trie<T> deterministic()
     {
-        return new MergeAlternativeBranchesTrie<>(impl(), resolver, false);
+        return new MergeAlternativeBranchesTrie<>(impl(), false);
+    }
+
+    default Trie<T> mainPathOnly()
+    {
+        return (TrieWithImpl<T>) impl()::cursor;
+    }
+
+    default Trie<T> alternatesOnly()
+    {
+        return new MergeAlternativeBranchesTrie<>(impl(), true);
     }
 
     private NonDeterministicTrieWithImpl<T> impl()

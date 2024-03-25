@@ -21,24 +21,22 @@ package org.apache.cassandra.db.tries;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
+public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeable<T>> implements TrieWithImpl<T>
 {
     final private NonDeterministicTrieImpl<T> source;
-    final private CollectionMergeResolver<T> resolver;
     final private boolean omitMain;
 
-    MergeAlternativeBranchesTrie(NonDeterministicTrieImpl<T> source, CollectionMergeResolver<T> resolver, boolean omitMain)
+    MergeAlternativeBranchesTrie(NonDeterministicTrieImpl<T> source, boolean omitMain)
     {
         super();
         this.source = source;
-        this.resolver = resolver;
         this.omitMain = omitMain;
     }
 
     @Override
     public Cursor<T> makeCursor()
     {
-        Cursor<T> cursor = new MergeAlternativesCursor<>(resolver, source, omitMain);
+        Cursor<T> cursor = new MergeAlternativesCursor<>(source.cursor(), omitMain);
         if (omitMain)
             cursor = DeadBranchRemoval.apply(cursor);
         return cursor;
@@ -102,9 +100,8 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
      * Note: This is a simplification of the MergeIterator code from CASSANDRA-8915, without the leading ordered
      * section and equalParent flag since comparisons of cursor positions are cheap.
      */
-    static class MergeAlternativesCursor<T> implements Cursor<T>
+    static class MergeAlternativesCursor<T extends NonDeterministicTrie.Mergeable<T>> implements Cursor<T>
     {
-        private final CollectionMergeResolver<T> resolver;
         private final NonDeterministicTrieImpl.Cursor<T> cursorToOmit;
 
         /**
@@ -122,21 +119,19 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         /**
          * A list used to collect contents during content() calls.
          */
-        private final List<T> contents;
+        private T content;
 
-        MergeAlternativesCursor(CollectionMergeResolver<T> resolver, NonDeterministicTrieImpl<T> source, boolean omitMain)
+        MergeAlternativesCursor(NonDeterministicTrieImpl.Cursor<T> source, boolean omitMain)
         {
-            this.resolver = resolver;
-            head = source.cursor();
+            head = source;
             cursorToOmit = omitMain ? head : null;
             heap = new ArrayList<>();
-            contents = new ArrayList<>();
+            content = null;
             maybeSwapHeadAndEnterNode(head.depth());
         }
 
         MergeAlternativesCursor(MergeAlternativesCursor<T> copyFrom)
         {
-            this.resolver = copyFrom.resolver;
             List<NonDeterministicTrieImpl.Cursor<T>> list = new ArrayList<>(copyFrom.heap.size());
             NonDeterministicTrieImpl.Cursor<T> toOmit = null;
             for (NonDeterministicTrieImpl.Cursor<T> tCursor : copyFrom.heap)
@@ -147,7 +142,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
                     toOmit = duplicate;
             }
             this.heap = list;
-            this.contents = new ArrayList<>(copyFrom.contents.size()); // no need to copy contents
+            this.content = copyFrom.content;
             this.head = copyFrom.head.duplicate();
             if (copyFrom.head == copyFrom.cursorToOmit)
                 toOmit = this.head;
@@ -157,7 +152,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
         /**
          * Interface for internal operations that can be applied to selected top elements of the heap.
          */
-        interface HeapOp<T>
+        interface HeapOp<T extends NonDeterministicTrie.Mergeable<T>>
         {
             void apply(MergeAlternativesCursor<T> self, NonDeterministicTrieImpl.Cursor<T> cursor, int index);
 
@@ -181,7 +176,7 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
          * Interface for internal advancing operations that can be applied to the heap cursors. This interface provides
          * the code to restore the heap structure after advancing the cursors.
          */
-        interface AdvancingHeapOp<T> extends HeapOp<T>
+        interface AdvancingHeapOp<T extends NonDeterministicTrie.Mergeable<T>> extends HeapOp<T>
         {
             void apply(NonDeterministicTrieImpl.Cursor<T> cursor);
 
@@ -406,20 +401,8 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
             applyToEqualOnHeap(MergeAlternativesCursor::collectContent);
             collectContent(head, -1);
 
-            T toReturn;
-            switch (contents.size())
-            {
-                case 0:
-                    toReturn = null;
-                    break;
-                case 1:
-                    toReturn = contents.get(0);
-                    break;
-                default:
-                    toReturn = resolver.resolve(contents);
-                    break;
-            }
-            contents.clear();
+            T toReturn = content;
+            content = null;
             return toReturn;
         }
 
@@ -430,7 +413,12 @@ public class MergeAlternativeBranchesTrie<T> implements TrieWithImpl<T>
 
             T itemContent = item.content();
             if (itemContent != null)
-                contents.add(itemContent);
+            {
+                if (content == null)
+                    content = itemContent;
+                else
+                    content = content.mergeWith(itemContent);
+            }
         }
 
         @Override

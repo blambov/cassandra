@@ -275,7 +275,9 @@ public interface VerificationCursor
         }
     }
 
-    class NonDeterministic<T> extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>> implements NonDeterministicTrieImpl.Cursor<T>
+    class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
         NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source)
         {

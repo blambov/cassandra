@@ -183,7 +183,7 @@ public abstract class InMemoryTrieTestBase
 
     }
 
-    public static class CursorFromSpec<T> implements NonDeterministicTrieImpl.Cursor<T>
+    public static class CursorFromSpec<T> implements TrieImpl.Cursor<T>
     {
         SpecStackEntry stack;
         int depth;
@@ -295,15 +295,7 @@ public abstract class InMemoryTrieTestBase
         }
 
         @Override
-        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
-        {
-            if (stack.alternateBranch == null)
-                return null;
-            return new CursorFromSpec<>(makeSpecStackEntry(stack.alternateBranch, null), depth, incomingTransition());
-        }
-
-        @Override
-        public NonDeterministicTrieImpl.Cursor<T> duplicate()
+        public TrieImpl.Cursor<T> duplicate()
         {
             return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition);
         }
@@ -336,14 +328,43 @@ public abstract class InMemoryTrieTestBase
         }
     }
 
+    public static class NDCursorFromSpec<T extends NonDeterministicTrie.Mergeable<T>>
+    extends CursorFromSpec<T>
+    implements NonDeterministicTrieImpl.Cursor<T>
+    {
+        NDCursorFromSpec(Object[] spec)
+        {
+            super(spec);
+        }
+
+        NDCursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition)
+        {
+            super(stack, depth, leadingTransition);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+        {
+            if (stack.alternateBranch == null)
+                return null;
+            return new NDCursorFromSpec<>(makeSpecStackEntry(stack.alternateBranch, null), depth, incomingTransition());
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> duplicate()
+        {
+            return new NDCursorFromSpec<>(copyStack(stack), depth, leadingTransition);
+        }
+    }
+
     static <T> TrieWithImpl<T> specifiedTrie(Object[] nodeDef)
     {
         return () -> new CursorFromSpec<>(nodeDef);
     }
 
-    static <T> NonDeterministicTrieWithImpl<T> specifiedNonDeterministicTrie(Object[] nodeDef)
+    static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> specifiedNonDeterministicTrie(Object[] nodeDef)
     {
-        return () -> new CursorFromSpec<>(nodeDef);
+        return () -> new NDCursorFromSpec<>(nodeDef);
     }
 
     @Test

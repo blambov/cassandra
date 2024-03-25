@@ -172,11 +172,13 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
     }
 
-    static class NonDeterministic<T> extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>> implements NonDeterministicTrieImpl.Cursor<T>
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministic(Trie.MergeResolver<T> resolver, NonDeterministicTrieImpl.Cursor<T> c1, NonDeterministicTrieImpl.Cursor<T> c2)
+        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> c1, NonDeterministicTrieImpl.Cursor<T> c2)
         {
-            super(resolver, c1, c2);
+            super(NonDeterministicTrie.Mergeable::mergeWith, c1, c2);
         }
 
         public NonDeterministic(NonDeterministic<T> copyFrom)
@@ -184,9 +186,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             super(copyFrom);
         }
 
-        NonDeterministic(Trie.MergeResolver<T> resolver, NonDeterministicTrieImpl<T> t1, NonDeterministicTrieImpl<T> t2)
+        NonDeterministic(NonDeterministicTrieImpl<T> t1, NonDeterministicTrieImpl<T> t2)
         {
-            this(resolver, t1.cursor(), t2.cursor());
+            this(t1.cursor(), t2.cursor());
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
@@ -200,7 +202,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                 return ac2; // may be null
             if (ac2 == null)
                 return ac1;
-            return new NonDeterministic<>(resolver, ac1, ac2);
+            return new NonDeterministic<>(ac1, ac2);
         }
 
         @Override
