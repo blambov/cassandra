@@ -24,11 +24,6 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-/**
- * @param <U> Common base type for content and deletion markers.
- * @param <T>
- * @param <D> Unfortunately generics can't enforce this, but D must be castable to U.
- */
 public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
 {
     interface Deletable

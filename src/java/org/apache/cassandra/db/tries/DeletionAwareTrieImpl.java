@@ -25,7 +25,7 @@ import java.util.function.BiFunction;
  * To be able to query live data and deletions separately, we split deletions into separate branches of the trie,
  * given by the {@link Cursor#deletionBranch} method. Deletion branches are range tries, i.e. they support
  * deletions of individual as well as ranges of keys.
- *
+ * <p>
  * Deletion-aware tries must satisfy the following requirements:
  * - No deletion branch can be covered by another deletion branch, i.e. whenever the deletion branch is non-null at a
  *   given node, it must be null for all descendants of this node.
@@ -57,6 +57,7 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         return TrieImpl.process(walker, cursor());
     }
 
+    @SuppressWarnings("unchecked")
     static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     DeletionAwareTrieImpl<T, D> impl(DeletionAwareTrie<T, D> trie)
     {

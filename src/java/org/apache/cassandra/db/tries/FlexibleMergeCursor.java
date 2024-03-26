@@ -43,6 +43,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         state = c2 != null ? State.AT_BOTH : State.C1_ONLY;
     }
 
+    @SuppressWarnings("unchecked")
     public FlexibleMergeCursor(FlexibleMergeCursor<C, D> copyFrom)
     {
         this.c1 = (C) copyFrom.c1.duplicate();
@@ -133,7 +134,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         }
         if (c1depth < c2depth)
         {
-            state = state.AT_C2;
+            state = State.AT_C2;
             return c2depth;
         }
         // c1depth == c2depth
@@ -177,76 +178,6 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         }
     }
 
-    static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends FlexibleMergeCursor<C, C> implements TrieImpl.Cursor<T>
-    {
-        final Trie.MergeResolver<T> resolver;
-
-        WithContent(Trie.MergeResolver<T> resolver, C c1, C c2)
-        {
-            super(c1, c2);
-            this.resolver = resolver;
-        }
-
-        public WithContent(WithContent<T, C> copyFrom)
-        {
-            super(copyFrom);
-            this.resolver = copyFrom.resolver;
-        }
-
-        @Override
-        public T content()
-        {
-            switch (state)
-            {
-                case C1_ONLY:
-                case AT_C1:
-                    return c1.content();
-                case AT_C2:
-                    return c2.content();
-                case AT_BOTH:
-                {
-                    T mc = c1.content();
-                    T nc = c2.content();
-                    if (mc == null)
-                        return nc;
-                    else if (nc == null)
-                        return mc;
-                    else
-                        return resolver.resolve(nc, mc);
-                }
-                default:
-                    throw new AssertionError();
-            }
-        }
-    }
-
-    static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
-    {
-        Deterministic(Trie.MergeResolver<T> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<T> c2)
-        {
-            super(resolver, c1, c2);
-        }
-
-        public Deterministic(Deterministic<T> copyFrom)
-        {
-            super(copyFrom);
-        }
-
-        Deterministic(Trie.MergeResolver<T> resolver, TrieImpl<T> t1, TrieImpl<T> t2)
-        {
-            this(resolver, t1.cursor(), t2.cursor());
-            assert c1.depth() == 0;
-            assert c2.depth() == 0;
-        }
-
-
-        @Override
-        public Deterministic<T> duplicate()
-        {
-            return new Deterministic<>(this);
-        }
-    }
-
     static abstract class WithMappedContent<T, U, C extends TrieImpl.Cursor<T>, D extends TrieImpl.Cursor<U>, Z> extends FlexibleMergeCursor<C, D> implements TrieImpl.Cursor<Z>
     {
         final BiFunction<T, U, Z> resolver;
@@ -287,175 +218,6 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
             if (nc == null && mc == null)
                 return null;
             return resolver.apply(nc, mc);
-        }
-    }
-
-    static class DeterministicWithMappedContent<T, U, Z> extends WithMappedContent<T, U, TrieImpl.Cursor<T>, TrieImpl.Cursor<U>, Z>
-    {
-        DeterministicWithMappedContent(BiFunction<T, U, Z> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<U> c2)
-        {
-            super(resolver, c1, c2);
-        }
-
-        public DeterministicWithMappedContent(DeterministicWithMappedContent<T, U, Z> copyFrom)
-        {
-            super(copyFrom);
-        }
-
-        DeterministicWithMappedContent(BiFunction<T, U, Z> resolver, TrieImpl<T> t1, TrieImpl<U> t2)
-        {
-            this(resolver, t1.cursor(), t2.cursor());
-            assert c1.depth() == 0;
-            assert c2.depth() == 0;
-        }
-
-        @Override
-        public DeterministicWithMappedContent<T, U, Z> duplicate()
-        {
-            return new DeterministicWithMappedContent<>(this);
-        }
-    }
-
-    static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
-    {
-        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
-        {
-            super(resolver, c1, c2);
-        }
-
-        public Range(Range<M> copyFrom)
-        {
-            super(copyFrom);
-        }
-
-        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
-        {
-            this(resolver, t1.cursor(), t2.cursor());
-            assert c1.depth() == 0;
-            assert c2.depth() == 0;
-        }
-
-        @Override
-        public M coveringState()
-        {
-            M state1 = c1.coveringState();
-            M state2 = c2.coveringState();
-            if (state1 == null)
-                return state2;
-            if (state2 == null)
-                return state1;
-            return resolver.resolve(state1, state2);
-        }
-
-        @Override
-        public M content()
-        {
-            M content2 = null;
-            M content1 = null;
-            switch (state)
-            {
-                case C1_ONLY:
-                case AT_C1:
-                    content1 = c1.content();
-                    break;
-                case AT_C2:
-                    content2 = c2.content();
-                    break;
-                case AT_BOTH:
-                    content2 = c2.content();
-                    content1 = c1.content();
-                    break;
-                default:
-                    throw new AssertionError();
-            }
-            if (content1 == null && content2 == null)
-                return null;
-            if (content1 != null && content2 != null)
-                return resolver.resolve(content1, content2);
-
-            // Exactly one is non-null; must apply the state of the other
-            if (content1 == null)
-            {
-                content1 = c1.coveringState();
-                if (content1 == null)
-                    return content2;
-            } else // content2 == null
-            {
-                content2 = c2.coveringState();
-                if (content2 == null)
-                    return content1;
-            }
-
-            return resolver.resolve(content1, content2);
-        }
-
-        @Override
-        public RangeTrieImpl.Cursor<M> duplicate()
-        {
-            return new Range<>(this);
-        }
-    }
-
-    static class RangeOnTrie<T, M extends RangeTrie.RangeMarker<M>>
-    extends FlexibleMergeCursor<TrieImpl.Cursor<T>, RangeTrieImpl.Cursor<M>>
-    implements TrieImpl.Cursor<T>
-    {
-        final BiFunction<T, M, T> resolver;
-
-        RangeOnTrie(BiFunction<T, M, T> resolver, TrieImpl.Cursor<T> c1, RangeTrieImpl.Cursor<M> c2)
-        {
-            super(c1, c2);
-            this.resolver = resolver;
-        }
-
-        public RangeOnTrie(RangeOnTrie<T, M> copyFrom)
-        {
-            super(copyFrom);
-            this.resolver = copyFrom.resolver;
-        }
-
-        RangeOnTrie(BiFunction<T, M, T> resolver, TrieImpl<T> t1, RangeTrieImpl<M> t2)
-        {
-            this(resolver, t1.cursor(), t2.cursor());
-            assert c1.depth() == 0;
-            assert c2.depth() == 0;
-        }
-
-        @Override
-        public T content()
-        {
-            M applicableRange = null;
-            T content = null;
-            switch (state)
-            {
-                case C1_ONLY:
-                    return c1.content();
-                case AT_C1:
-                    content = c1.content();
-                    applicableRange = c2.coveringState();
-                    break;
-                case AT_C2:
-                    return null;
-                case AT_BOTH:
-                    content = c1.content();
-                    applicableRange = c2.content();
-                    if (applicableRange == null)
-                        applicableRange = c2.coveringState();
-                    break;
-                default:
-                    throw new AssertionError();
-            }
-
-            if (applicableRange == null)
-                return content;
-
-            return resolver.apply(content, applicableRange);
-        }
-
-        @Override
-        public RangeOnTrie<T, M> duplicate()
-        {
-            return new RangeOnTrie<>(this);
         }
     }
 

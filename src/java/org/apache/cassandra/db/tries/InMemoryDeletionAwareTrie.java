@@ -49,6 +49,7 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
             super(copyFrom);
         }
 
+        @SuppressWarnings("unchecked")
         @Override
         public T content()
         {
@@ -64,9 +65,9 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
         }
 
         @Override
-        public DeletionAwareCursor duplicate()
+        public DeletionAwareCursor<U, T, D> duplicate()
         {
-            return new DeletionAwareCursor(this);
+            return new DeletionAwareCursor<>(this);
         }
     }
 
@@ -80,6 +81,8 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
      * Override of dump to provide more detailed printout that includes the type of each node in the trie.
      * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
      */
+    @SuppressWarnings("unchecked")
+    @Override
     public String dump(Function<T, String> contentToString)
     {
         return dump(x -> contentToString.apply((T) x), root);

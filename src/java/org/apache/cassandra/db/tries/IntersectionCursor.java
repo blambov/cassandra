@@ -33,7 +33,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         /**
          * The set cursor is ahead; the current position, as well as any before the set cursor's are inside the set.
          */
-        INSIDE_SET_AHEAD;
+        INSIDE_SET_AHEAD
     }
 
     final C source;

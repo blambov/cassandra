@@ -19,18 +19,9 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
-import com.google.common.base.Throwables;
-import com.google.common.collect.Streams;
-
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, DeletionMarker>, DataPoint
 {
@@ -142,7 +133,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         String right = rightSide != at ? "<" : "<=";
 
         return (leftSide >= 0 ? leftSide + left : "") +
-               '"' + DataPoint.toString(position) + '"' +
+               '{' + DataPoint.toString(position) + '}' +
                (hasAt ? "=" + at : "") +
                (rightSide >= 0 ? right + rightSide : "");
     }

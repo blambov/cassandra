@@ -30,7 +30,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-public interface DataPoint extends DeletionAwareTrie.Deletable
+interface DataPoint extends DeletionAwareTrie.Deletable
 {
     DeletionMarker marker();
     LivePoint live();

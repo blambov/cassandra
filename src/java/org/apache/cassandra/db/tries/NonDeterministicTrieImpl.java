@@ -80,7 +80,7 @@ interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> 
         }
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings("rawtypes")
     NonDeterministicTrieWithImpl EMPTY = EmptyCursor::new;
 
     static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> impl(NonDeterministicTrie<T> trie)

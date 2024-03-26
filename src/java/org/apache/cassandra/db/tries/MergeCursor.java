@@ -35,6 +35,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         atC1 = atC2 = true;
     }
 
+    @SuppressWarnings("unchecked")
     public MergeCursor(MergeCursor<C, D> copyFrom)
     {
         this.c1 = (C) copyFrom.c1.duplicate();
@@ -225,6 +226,8 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         public Range(Range<M> copyFrom)
         {
             super(copyFrom);
+            this.coveringStateSet = copyFrom.coveringStateSet;
+            this.coveringState = copyFrom.coveringState;
         }
 
         Range(Trie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
