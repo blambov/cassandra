@@ -22,7 +22,7 @@ import java.util.Objects;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public class CombinedDataPoint implements DataPoint
+class CombinedDataPoint implements DataPoint
 {
     final LivePoint livePoint;
     final DeletionMarker marker;
@@ -69,7 +69,7 @@ public class CombinedDataPoint implements DataPoint
     @Override
     public String toString()
     {
-        return marker.toString() + "L" + livePoint.timestamp;
+        return marker.toString() + 'L' + livePoint.timestamp;
     }
 
     @Override

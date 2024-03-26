@@ -109,7 +109,7 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
     @Override
     public SingletonCursor<T> duplicate()
     {
-        return new SingletonCursor(this);
+        return new SingletonCursor<>(this);
     }
 
     @Override
@@ -154,7 +154,7 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         @Override
         public NonDeterministic<T> duplicate()
         {
-            return new NonDeterministic(this);
+            return new NonDeterministic<>(this);
         }
     }
 
@@ -180,7 +180,7 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         @Override
         public Range<T> duplicate()
         {
-            return new Range(this);
+            return new Range<>(this);
         }
     }
 
@@ -206,7 +206,7 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         @Override
         public DeletionAware<T, D> duplicate()
         {
-            return new DeletionAware(this);
+            return new DeletionAware<>(this);
         }
 
     }

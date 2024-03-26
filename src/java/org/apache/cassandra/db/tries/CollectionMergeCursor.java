@@ -78,6 +78,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      */
     private final C[] heap;
 
+    @SuppressWarnings("unchecked")
     <L> CollectionMergeCursor(Collection<L> inputs, Function<L, C> getter)
     {
         int count = inputs.size();
@@ -95,6 +96,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         // The cursors are all currently positioned on the root and thus in valid heap order.
     }
 
+    @SuppressWarnings("unchecked")
     CollectionMergeCursor(CollectionMergeCursor<C> copyFrom)
     {
         this.head = (C) copyFrom.head.duplicate();
@@ -343,6 +345,8 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             super(copyFrom);
             this.resolver = copyFrom.resolver;
             this.contents = new ArrayList<>(copyFrom.contents.size()); // no need to copy
+            this.contentCollected = copyFrom.contentCollected;
+            this.collectedContent = copyFrom.collectedContent;
         }
 
         @Override

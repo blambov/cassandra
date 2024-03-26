@@ -18,11 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.Objects;
-
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public class LivePoint implements DataPoint
+class LivePoint implements DataPoint
 {
     final ByteComparable position;
     final int timestamp;
@@ -74,7 +72,7 @@ public class LivePoint implements DataPoint
     @Override
     public String toString()
     {
-        return "\"" + DataPoint.toString(position) + "\"L" + timestamp;
+        return '{' + DataPoint.toString(position) + "}L" + timestamp;
     }
 
     @Override

@@ -19,19 +19,17 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
-import java.util.Objects;
 
 import com.google.common.base.Preconditions;
 
 import org.agrona.DirectBuffer;
-import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.Hex;
 
 public interface VerificationCursor
 {
-    static final int EXHAUSTED_DEPTH = -1;
-    static final int EXHAUSTED_TRANSITION = -1;
-    static final int INITIAL_TRANSITION = -1;
+    int EXHAUSTED_DEPTH = -1;
+    int EXHAUSTED_TRANSITION = -1;
+    int INITIAL_TRANSITION = -1;
 
 
     /**
@@ -52,8 +50,8 @@ public interface VerificationCursor
         int returnedTransition;
         byte[] path;
 
-        CursorWalkable.TransitionsReceiver chainedReceiver = null;
-        boolean advanceMultipleCalledReceiver;
+        transient CursorWalkable.TransitionsReceiver chainedReceiver = null;
+        transient boolean advanceMultipleCalledReceiver;
 
         Walkable(C cursor, int minDepth, int expectedDepth, int expectedTransition)
         {
@@ -69,6 +67,7 @@ public interface VerificationCursor
         }
 
 
+        @SuppressWarnings("unchecked")
         Walkable(Walkable<C> copyFrom)
         {
             this.source = (C) copyFrom.source.duplicate();
@@ -215,7 +214,7 @@ public interface VerificationCursor
         {
             StringBuilder builder = new StringBuilder();
             builder.append(source.getClass().getTypeName()
-                                 .replace(source.getClass().getPackageName() + ".", ""));
+                                 .replace(source.getClass().getPackageName() + '.', ""));
             if (returnedDepth < 0)
             {
                 builder.append(" exhausted");
@@ -497,14 +496,6 @@ public interface VerificationCursor
         {
             super(copyFrom);
             this.deletionBranchDepth = copyFrom.deletionBranchDepth;
-        }
-
-        @Override
-        public int depth()
-        {
-            Preconditions.checkState(returnedDepth == source.depth(),
-                                     "Depth changed without advance: %s -> %s", returnedDepth, source.depth());
-            return returnedDepth;
         }
 
         @Override
