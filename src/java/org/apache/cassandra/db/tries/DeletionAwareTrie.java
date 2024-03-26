@@ -24,8 +24,23 @@ import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface DeletionAwareTrie<T, D extends RangeTrie.RangeMarker<D>>
+/**
+ * @param <U> Common base type for content and deletion markers.
+ * @param <T>
+ * @param <D> Unfortunately generics can't enforce this, but D must be castable to U.
+ */
+public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
 {
+    interface Deletable
+    {
+        // Marker interface, no specific methods
+    }
+
+    interface DeletionMarker<T extends Deletable, D extends DeletionMarker<T, D>> extends RangeTrie.RangeMarker<D>
+    {
+        T delete(T content);
+    }
+
 
     /**
      * Call the given consumer on all content values in the trie in order.
@@ -68,7 +83,8 @@ public interface DeletionAwareTrie<T, D extends RangeTrie.RangeMarker<D>>
     /**
      * Returns a singleton trie mapping the given byte path to content.
      */
-    static <T, D extends RangeTrie.RangeMarker<D>> DeletionAwareTrie<T, D> singleton(ByteComparable b, T v)
+    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    DeletionAwareTrie<T, D> singleton(ByteComparable b, T v)
     {
         return (DeletionAwareTrieWithImpl<T, D>) () -> new SingletonCursor.DeletionAware<>(b, v);
     }

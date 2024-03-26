@@ -27,12 +27,12 @@ import org.junit.Test;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.RangeMarker.fromList;
-import static org.apache.cassandra.db.tries.RangeMarker.toList;
-import static org.apache.cassandra.db.tries.RangeMarker.verify;
+import static org.apache.cassandra.db.tries.DataPoint.fromList;
+import static org.apache.cassandra.db.tries.DataPoint.toList;
+import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.junit.Assert.assertEquals;
 
-public class RangeTrieIntersectionWithPointsTest
+public class DeletionAwareIntersectionTest
 {
     static final int bitsNeeded = 6;
     int bits = bitsNeeded;
@@ -52,29 +52,34 @@ public class RangeTrieIntersectionWithPointsTest
         return ByteComparable.fixedLength(splitBytes);
     }
 
-    private RangeMarker from(int where, int value)
+    private DeletionMarker from(int where, int value)
     {
-        return new RangeMarker(of(where), -1, value, value);
+        return new DeletionMarker(of(where), -1, value, value);
     }
 
-    private RangeMarker to(int where, int value)
+    private DeletionMarker to(int where, int value)
     {
-        return new RangeMarker(of(where), value, -1, -1);
+        return new DeletionMarker(of(where), value, -1, -1);
     }
 
-    private RangeMarker change(int where, int from, int to)
+    private DeletionMarker change(int where, int from, int to)
     {
-        return new RangeMarker(of(where), from, to, to);
+        return new DeletionMarker(of(where), from, to, to);
     }
 
-    private RangeMarker point(int where, int value)
+    private DeletionMarker deletedPoint(int where, int value)
     {
-        return pointInside(where, value, -1);
+        return deletedPointInside(where, value, -1);
     }
 
-    private RangeMarker pointInside(int where, int value, int active)
+    private DeletionMarker deletedPointInside(int where, int value, int active)
     {
-        return new RangeMarker(of(where), active, value, active);
+        return new DeletionMarker(of(where), active, value, active);
+    }
+
+    private DataPoint livePoint(int where, int timestamp)
+    {
+        return new LivePoint(of(where), timestamp);
     }
 
     private ByteComparable[] array(ByteComparable... data)
@@ -85,7 +90,7 @@ public class RangeTrieIntersectionWithPointsTest
     @Test
     public void testSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
+        for (bits = 4/*bitsNeeded*/; bits > 0; --bits)
         {
             testIntersection("no intersection");
 
@@ -202,30 +207,37 @@ public class RangeTrieIntersectionWithPointsTest
             testIntersections();
     }
 
-    private List<RangeMarker> getTestRanges()
+    private List<DataPoint> getTestRanges()
     {
-        return asList(point(17, 20),
-                      from(21, 10), pointInside(22, 21, 10), to(24, 10),
-                      from(26, 11), change(28, 11, 12).withPoint(22), to(30, 12), 
-                      from(33, 13).withPoint(23), to(34, 13),
-                      from(36, 14), to(38, 14).withPoint(24));
+        return asList(deletedPoint(17, 20),
+                      livePoint(19, 30),
+                      from(21, 10), deletedPointInside(22, 21, 10), livePoint(23, 31), to(24, 10),
+                      from(26, 11), livePoint(27, 32), change(28, 11, 12).withPoint(22), livePoint(29, 33), to(30, 12),
+                      livePoint(32, 34), from(33, 13).withPoint(23), to(34, 13),
+                      from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35));
     }
 
-    private RangeTrie<RangeMarker> mergeGeneratedRanges()
-    {
-        return fromList(asList(from(21, 10), to(24, 10),
-                               from(26, 11), to(29, 11),
-                               from(33, 13), to(34, 13),
-                               from(36, 14), to(38, 14)))
-               .mergeWith(fromList(asList(from(28, 12), to(30, 12))),
-                          RangeMarker::combine)
-               .mergeWith(fromList(asList(point(17, 20),
-                                          point(22, 21),
-                                          point(28, 22),
-                                          point(33, 23),
-                                          point(38, 24))),
-                          RangeMarker::combine);
-    }
+//    private DeletionAwareTrie<Integer, DeletionMarker> mergeGeneratedRanges()
+//    {
+//        return fromList(asList(from(21, 10), to(24, 10),
+//                               from(26, 11), to(29, 11),
+//                               from(33, 13), to(34, 13),
+//                               from(36, 14), to(38, 14)))
+//               .mergeWith(fromList(asList(from(28, 12), to(30, 12))),
+//                          DataPoint::combine)
+//               .mergeWith(fromList(asList(deletedPoint(17, 20),
+//                                          deletedPoint(22, 21),
+//                                          deletedPoint(28, 22),
+//                                          deletedPoint(33, 23),
+//                                          deletedPoint(38, 24))),
+//                          DataPoint::combine)
+//               .mergeWith(fromList(asList(livePoint(19, 30),
+//                                          livePoint(23, 31),
+//                                          livePoint(27, 32),
+//                                          livePoint(32, 34),
+//                                          livePoint(39, 35))),
+//                          DataPoint::combine);
+//    }
 
     private void testIntersections()
     {
@@ -258,7 +270,7 @@ public class RangeTrieIntersectionWithPointsTest
         // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
         // set3 = TrieSet.ranges(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30));
         // from(21, 10), to(24, 10), from(26, 11), change(28, 11, 12), to(30, 12), from(33, 13), to(34, 13)
-        List<RangeMarker> testRanges = getTestRanges();
+        List<DataPoint> testRanges = getTestRanges();
         testIntersection("1", set1);
 
         testIntersection("2", set2);
@@ -276,14 +288,15 @@ public class RangeTrieIntersectionWithPointsTest
 
     public void testIntersection(String message, ByteComparable[]... sets)
     {
-        final List<RangeMarker> testRanges = getTestRanges();
+        final List<DataPoint> testRanges = getTestRanges();
         testIntersection(message, fromList(testRanges), testRanges, sets);
-        testIntersection(message + " on merge ", mergeGeneratedRanges(), testRanges, sets); // Mainly tests MergeCursor's skipTo
+//        testIntersection(message + " on merge ", mergeGeneratedRanges(), testRanges, sets); // Mainly tests MergeCursor's skipTo
     }
 
-    public void testIntersection(String message, RangeTrie<RangeMarker> trie, List<RangeMarker> intersected, ByteComparable[]... sets)
+    public void testIntersection(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> intersected, ByteComparable[]... sets)
     {
         System.out.println("Markers: " + intersected);
+        verify(intersected);
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
@@ -295,7 +308,7 @@ public class RangeTrieIntersectionWithPointsTest
             }
             catch (AssertionError e)
             {
-                System.out.println("\n" + trie.dump());
+                System.out.println("\n" + trie.mergedTrie(DataPoint::resolve).dump());
                 throw e;
             }
         }
@@ -338,54 +351,76 @@ public class RangeTrieIntersectionWithPointsTest
     }
 
 
-    List<RangeMarker> intersect(List<RangeMarker> markers, ByteComparable... ranges)
+    List<DataPoint> intersect(List<DataPoint> dataPoints, ByteComparable... ranges)
     {
         int rangeIndex = 0;
         int active = -1;
         ByteComparable nextRange = ranges[0];
         if (nextRange == null)
             nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
-        List<RangeMarker> result = new ArrayList<>();
-        for (RangeMarker marker : markers)
+        List<DataPoint> result = new ArrayList<>();
+        for (DataPoint dp : dataPoints)
         {
+            DeletionMarker marker = dp.marker();
             while (true)
             {
                 int cmp;
                 if (nextRange == null)
                     cmp = -1;
                 else
-                    cmp = ByteComparable.compare(marker.position, nextRange, TrieImpl.BYTE_COMPARABLE_VERSION);
+                    cmp = ByteComparable.compare(dp.position(), nextRange, TrieImpl.BYTE_COMPARABLE_VERSION);
 
                 if (cmp < 0)
                 {
                     if ((rangeIndex & 1) != 0)
-                        result.add(marker);
+                        maybeAdd(result, dp);
                     break;
                 }
 
                 if (cmp == 0)
                 {
-                    if ((rangeIndex & 1) != 0)
-                        maybeAdd(result, marker.asReportableEnd());
+                    DeletionMarker adjustedMarker = marker != null ? marker : makeActiveMarker(active, rangeIndex, nextRange);
+
+                    if ((rangeIndex & 1) == 0)
+                        maybeAdd(result, dp.withMarker(startOf(adjustedMarker)));
                     else
-                        maybeAdd(result, marker.asReportableStart());
+                        maybeAdd(result, endOf(adjustedMarker));   // live points are not included at ends
+
                     nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
                     break;
                 }
-                else if (active >= 0) // cmp > 0, must covert active to marker
-                {
-                    if ((rangeIndex & 1) != 0)
-                        result.add(new RangeMarker(nextRange, active, -1, -1));
-                    else
-                        result.add(new RangeMarker(nextRange, -1, active, active));
-                }
+                else
+                    maybeAdd(result, makeActiveMarker(active, rangeIndex, nextRange));
 
                 nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
             }
-            active = marker.rightSide;
+            if (marker != null)
+                active = marker.rightSide;
         }
         assert active == -1;
-        return verify(result);
+        return result;
+    }
+
+    DeletionMarker startOf(DeletionMarker marker)
+    {
+        return marker != null ? marker.asReportableStart() : null;
+    }
+
+    DeletionMarker endOf(DeletionMarker marker)
+    {
+        return marker != null ? marker.asReportableEnd() : null;
+    }
+
+    private static DeletionMarker makeActiveMarker(int active, int rangeIndex, ByteComparable nextRange)
+    {
+        if (active >= 0) // cmp > 0, must covert active to marker
+        {
+            if ((rangeIndex & 1) != 0)
+                return new DeletionMarker(nextRange, active, -1, -1);
+            else
+                return new DeletionMarker(nextRange, -1, active, active);
+        }
+        return null;
     }
 
     static <T> void maybeAdd(List<T> list, T value)

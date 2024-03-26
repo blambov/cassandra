@@ -184,7 +184,8 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         }
     }
 
-    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>> extends SingletonCursor<T> implements DeletionAwareTrieImpl.Cursor<T, D>
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends SingletonCursor<T> implements DeletionAwareTrieImpl.Cursor<T, D>
     {
         DeletionAware(ByteComparable key, T value)
         {

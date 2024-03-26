@@ -20,18 +20,14 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
-import com.google.common.collect.Streams;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.DeletionMarker.fromList;
-import static org.apache.cassandra.db.tries.DeletionMarker.toList;
+import static org.apache.cassandra.db.tries.RangeMarker.fromList;
+import static org.apache.cassandra.db.tries.RangeMarker.toList;
 import static org.junit.Assert.assertEquals;
 
 public class RangeTrieIntersectionTest
@@ -54,19 +50,19 @@ public class RangeTrieIntersectionTest
         return ByteComparable.fixedLength(splitBytes);
     }
 
-    private DeletionMarker from(int where, int value)
+    private RangeMarker from(int where, int value)
     {
-        return new DeletionMarker(of(where), -1, value, value);
+        return new RangeMarker(of(where), -1, value, value);
     }
 
-    private DeletionMarker to(int where, int value)
+    private RangeMarker to(int where, int value)
     {
-        return new DeletionMarker(of(where), value, -1, -1);
+        return new RangeMarker(of(where), value, -1, -1);
     }
 
-    private DeletionMarker change(int where, int from, int to)
+    private RangeMarker change(int where, int from, int to)
     {
-        return new DeletionMarker(of(where), from, to, to);
+        return new RangeMarker(of(where), from, to, to);
     }
 
     @Test
@@ -74,7 +70,7 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
+            RangeTrie<RangeMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             System.out.println(trie.dump());
             assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)), toList(trie));
@@ -148,7 +144,7 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
+            RangeTrie<RangeMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             testIntersection("fully covered ranges",
                              asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
@@ -189,7 +185,7 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<DeletionMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
+            RangeTrie<RangeMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
 
             // non-overlapping
             testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
@@ -215,7 +211,7 @@ public class RangeTrieIntersectionTest
             testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13))));
     }
 
-    private void testIntersections(RangeTrie<DeletionMarker> trie)
+    private void testIntersections(RangeTrie<RangeMarker> trie)
     {
         testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
 
@@ -228,7 +224,7 @@ public class RangeTrieIntersectionTest
         testSetAlgebraIntersection(trie);
     }
 
-    private void testSetAlgebraIntersection(RangeTrie<DeletionMarker> trie)
+    private void testSetAlgebraIntersection(RangeTrie<RangeMarker> trie)
     {
         TrieSet set1 = TrieSet.range(null, of(3))
                               .union(TrieSet.range(of(2), of(4)))
@@ -248,7 +244,7 @@ public class RangeTrieIntersectionTest
         testIntersections(trie, set1, set2, set3);
     }
 
-    private void testIntersections(RangeTrie<DeletionMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
+    private void testIntersections(RangeTrie<RangeMarker> trie, TrieSet set1, TrieSet set2, TrieSet set3)
     {
         // set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
         // set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
@@ -283,7 +279,7 @@ public class RangeTrieIntersectionTest
         testIntersection("123", asList(from(3, 10), to(4, 10)), trie, set1, set2, set3);
     }
 
-    public void testIntersection(String message, List<DeletionMarker> expected, RangeTrie<DeletionMarker> trie, TrieSet... sets)
+    public void testIntersection(String message, List<RangeMarker> expected, RangeTrie<RangeMarker> trie, TrieSet... sets)
     {
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.

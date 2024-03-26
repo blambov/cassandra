@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.function.Function;
+
 import org.apache.cassandra.io.compress.BufferType;
 
 public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMemoryTrie<M> implements RangeTrieWithImpl<M>
@@ -30,30 +32,42 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     @Override
     public Cursor<M> makeCursor()
     {
-        return new RangeCursor(root, -1, -1);
+        return new RangeCursor<>(this, root, -1, -1);
     }
 
 
-    private class RangeCursor extends MemtableCursor implements RangeTrieImpl.Cursor<M>
+    /**
+     *
+     * @param <M>
+     * @param <Q> Type of the underlying trie. Made generic to accommodate deletion-aware tries where the in-memory
+     *            trie is not of the same type as the deletion branches.
+     */
+    static class RangeCursor<M extends RangeTrie.RangeMarker<M>, Q> extends MemtableCursor<Q> implements RangeTrieImpl.Cursor<M>
     {
         boolean activeIsSet;
         M activeRange;  // only non-null if activeIsSet
         M prevContent;  // can only be non-null if activeIsSet
 
-        RangeCursor(int root, int depth, int incomingTransition)
+        RangeCursor(InMemoryReadTrie<Q> trie, int root, int depth, int incomingTransition)
         {
-            super(root, depth, incomingTransition);
+            super(trie, root, depth, incomingTransition);
             activeIsSet = true;
             activeRange = null;
             prevContent = null;
         }
 
-        RangeCursor(RangeCursor copyFrom)
+        RangeCursor(RangeCursor<M, Q> copyFrom)
         {
             super(copyFrom);
             this.activeRange = copyFrom.activeRange;
             this.activeIsSet = copyFrom.activeIsSet;
             this.prevContent = copyFrom.prevContent;
+        }
+
+        @Override
+        public M content()
+        {
+            return (M) content;
         }
 
         @Override
@@ -99,7 +113,6 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
             M content = content();
             if (content != null)
             {
-                // TODO: assert range is well-formed
                 activeRange = content.leftSideAsCovering();
                 prevContent = content;
                 activeIsSet = true;
@@ -118,16 +131,26 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         private void setActiveState()
         {
             assert content() == null;
-            M nearestContent = duplicate().advanceToContent(null);
+            M nearestContent = (M) duplicate().advanceToContent(null);
             activeRange = nearestContent != null ? nearestContent.leftSideAsCovering() : null;
             prevContent = null;
             activeIsSet = true;
         }
 
         @Override
-        public RangeCursor duplicate()
+        public RangeCursor<M, Q> duplicate()
         {
-            return new RangeCursor(this);
+            return new RangeCursor<M, Q>(this);
         }
+    }
+
+
+    /**
+     * Override of dump to provide more detailed printout that includes the type of each node in the trie.
+     * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
+     */
+    public String dump(Function<M, String> contentToString)
+    {
+        return dump(contentToString, root);
     }
 }

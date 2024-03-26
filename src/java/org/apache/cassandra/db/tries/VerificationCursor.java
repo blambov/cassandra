@@ -475,7 +475,7 @@ public interface VerificationCursor
         }
     }
 
-    class DeletionAware<T, D extends RangeTrie.RangeMarker<D>>
+    class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>>
     implements DeletionAwareTrieImpl.Cursor<T, D>
     {
@@ -490,6 +490,7 @@ public interface VerificationCursor
         {
             super(source, minDepth, expectedDepth, expectedTransition);
             this.deletionBranchDepth = -1;
+            verifyDeletionBranch(expectedDepth);
         }
 
         public DeletionAware(DeletionAware<T, D> copyFrom)
@@ -534,7 +535,10 @@ public interface VerificationCursor
         public RangeTrieImpl.Cursor<D> deletionBranch()
         {
             // deletionBranch must be verified
-            return new Range<>(source.deletionBranch(), returnedDepth, returnedDepth, returnedTransition);
+            final RangeTrieImpl.Cursor<D> deletionBranch = source.deletionBranch();
+            if (deletionBranch == null)
+                return null;
+            return new Range<>(deletionBranch, returnedDepth, returnedDepth, returnedTransition);
         }
 
         int verifyDeletionBranch(int depth)

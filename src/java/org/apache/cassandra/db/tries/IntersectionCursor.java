@@ -255,7 +255,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         }
     }
 
-    static class DeletionAware<T, D extends RangeTrie.RangeMarker<D>>
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>>
     implements DeletionAwareTrieImpl.Cursor<T, D>
     {

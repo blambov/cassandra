@@ -27,11 +27,11 @@ import org.agrona.DirectBuffer;
 class TrieDumper<T> implements TrieImpl.Walker<T, String>
 {
     private final StringBuilder b;
-    private final Function<T, String> contentToString;
+    private final Function<? super T, String> contentToString;
     int needsIndent = -1;
     int currentLength = 0;
 
-    public TrieDumper(Function<T, String> contentToString)
+    public TrieDumper(Function<? super T, String> contentToString)
     {
         this.contentToString = contentToString;
         this.b = new StringBuilder();
