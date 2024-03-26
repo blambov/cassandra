@@ -39,9 +39,9 @@ import java.util.function.BiFunction;
  * - There cannot be entries in the trie that are deleted by the same trie (the condition above means this is not
  *   possible for with deletions).
  */
-public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
+public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> extends CursorWalkable<DeletionAwareTrieImpl.Cursor<T, D>>
 {
-    interface Cursor<T, D extends RangeTrie.RangeMarker<D>> extends TrieImpl.Cursor<T>
+    interface Cursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> extends TrieImpl.Cursor<T>
     {
         /**
          * Deletion branch rooted at this position.
@@ -57,17 +57,19 @@ public interface DeletionAwareTrieImpl<T, D extends RangeTrie.RangeMarker<D>> ex
         return TrieImpl.process(walker, cursor());
     }
 
-    static <T, D extends RangeTrie.RangeMarker<D>> DeletionAwareTrieImpl<T,D> impl(DeletionAwareTrie<T, D> trie)
+    static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    DeletionAwareTrieImpl<T, D> impl(DeletionAwareTrie<T, D> trie)
     {
         return (DeletionAwareTrieImpl<T, D>) trie;
     }
 
-    class LiveAndDeletionsMergeCursor<T, D extends RangeTrie.RangeMarker<D>, Z>
+    class LiveAndDeletionsMergeCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>, Z>
     extends FlexibleMergeCursor.WithMappedContent<T, D, DeletionAwareTrieImpl.Cursor<T, D>, RangeTrieImpl.Cursor<D>, Z>
     {
         LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareTrieImpl.Cursor<T, D> c1)
         {
             super(resolver, c1, null);
+            maybeAddDeletionsBranch(c1.depth());
         }
 
         public LiveAndDeletionsMergeCursor(LiveAndDeletionsMergeCursor<T, D, Z> copyFrom)

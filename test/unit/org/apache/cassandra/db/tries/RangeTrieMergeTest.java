@@ -29,9 +29,9 @@ import org.junit.Test;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.DeletionMarker.fromList;
-import static org.apache.cassandra.db.tries.DeletionMarker.toList;
-import static org.apache.cassandra.db.tries.DeletionMarker.verify;
+import static org.apache.cassandra.db.tries.RangeMarker.fromList;
+import static org.apache.cassandra.db.tries.RangeMarker.toList;
+import static org.apache.cassandra.db.tries.RangeMarker.verify;
 import static org.junit.Assert.assertEquals;
 
 public class RangeTrieMergeTest
@@ -54,47 +54,47 @@ public class RangeTrieMergeTest
         return ByteComparable.fixedLength(splitBytes);
     }
 
-    private DeletionMarker from(int where, int value)
+    private RangeMarker from(int where, int value)
     {
-        return new DeletionMarker(of(where), -1, value, value);
+        return new RangeMarker(of(where), -1, value, value);
     }
 
-    private DeletionMarker to(int where, int value)
+    private RangeMarker to(int where, int value)
     {
-        return new DeletionMarker(of(where), value, -1, -1);
+        return new RangeMarker(of(where), value, -1, -1);
     }
 
-    private DeletionMarker change(int where, int from, int to)
+    private RangeMarker change(int where, int from, int to)
     {
-        return new DeletionMarker(of(where), from, to, to);
+        return new RangeMarker(of(where), from, to, to);
     }
 
-    private DeletionMarker point(int where, int value)
+    private RangeMarker point(int where, int value)
     {
         return pointInside(where, value, -1);
     }
 
-    private DeletionMarker pointInside(int where, int value, int active)
+    private RangeMarker pointInside(int where, int value, int active)
     {
-        return new DeletionMarker(of(where), active, value, active);
+        return new RangeMarker(of(where), active, value, active);
     }
 
-    private List<DeletionMarker> deletedRanges(ByteComparable... dataPoints)
+    private List<RangeMarker> deletedRanges(ByteComparable... dataPoints)
     {
         List<ByteComparable> data = new ArrayList<>(asList(dataPoints));
         invertDataRangeList(data);
         filterOutEmptyRepetitions(data);
 
-        List<DeletionMarker> markers = new ArrayList<>();
+        List<RangeMarker> markers = new ArrayList<>();
         for (int i = 0; i < data.size(); ++i)
         {
             ByteComparable pos = data.get(i);
             if (pos == null)
                 pos = i % 2 == 0 ? of(0) : of((1<<bitsNeeded) - 1);
             if (i % 2 == 0)
-                markers.add(new DeletionMarker(pos, -1, 100, 100));
+                markers.add(new RangeMarker(pos, -1, 100, 100));
             else
-                markers.add(new DeletionMarker(pos, 100, -1, -1));
+                markers.add(new RangeMarker(pos, 100, -1, -1));
         }
         return verify(markers);
     }
@@ -246,41 +246,41 @@ public class RangeTrieMergeTest
             testMerges(fromList(getTestRanges()));
     }
 
-    private List<DeletionMarker> getTestRanges()
+    private List<RangeMarker> getTestRanges()
     {
         return asList(point(17, 20),
                       from(21, 10), pointInside(22, 21, 10), to(24, 10),
-                      from(26, 11), change(28, 11, 12).withPoint(22), to(30, 12), 
+                      from(26, 11), change(28, 11, 12).withPoint(22), to(30, 12),
                       from(33, 13).withPoint(23), to(34, 13),
                       from(36, 14), to(38, 14).withPoint(24));
     }
 
-    private void testMerges(RangeTrie<DeletionMarker> trie)
+    private void testMerges(RangeTrie<RangeMarker> trie)
     {
         testMerge("", trie, getTestRanges());
 
-        List<DeletionMarker> set1 = deletedRanges(null, of(24), of(25), of(29), of(32), null);
-        List<DeletionMarker> set2 = deletedRanges(of(14), of(17),
-                                              of(22), of(27),
-                                              of(28), of(30),
-                                              of(32), of(34),
-                                              of(36), of(40));
-        List<DeletionMarker> set3 = deletedRanges(of(17), of(18),
-                                              of(19), of(20),
-                                              of(21), of(22),
-                                              of(23), of(24),
-                                              of(25), of(26),
-                                              of(27), of(28),
-                                              of(29), of(30),
-                                              of(31), of(32),
-                                              of(33), of(34),
-                                              of(35), of(36),
-                                              of(37), of(38));
+        List<RangeMarker> set1 = deletedRanges(null, of(24), of(25), of(29), of(32), null);
+        List<RangeMarker> set2 = deletedRanges(of(14), of(17),
+                                               of(22), of(27),
+                                               of(28), of(30),
+                                               of(32), of(34),
+                                               of(36), of(40));
+        List<RangeMarker> set3 = deletedRanges(of(17), of(18),
+                                               of(19), of(20),
+                                               of(21), of(22),
+                                               of(23), of(24),
+                                               of(25), of(26),
+                                               of(27), of(28),
+                                               of(29), of(30),
+                                               of(31), of(32),
+                                               of(33), of(34),
+                                               of(35), of(36),
+                                               of(37), of(38));
 
         testMerges(trie, set1, set2, set3);
     }
 
-    private void testMerges(RangeTrie<DeletionMarker> trie, List<DeletionMarker> set1, List<DeletionMarker> set2, List<DeletionMarker> set3)
+    private void testMerges(RangeTrie<RangeMarker> trie, List<RangeMarker> set1, List<RangeMarker> set2, List<RangeMarker> set3)
     {
         // set1 = TrieSet.ranges(null, of(24), of(25), of(29), of(32), null);
         // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
@@ -301,16 +301,16 @@ public class RangeTrieMergeTest
         testMerge("123", set1, set2, set3);
     }
 
-    public void testMerge(String message, List<DeletionMarker>... sets)
+    public void testMerge(String message, List<RangeMarker>... sets)
     {
-        List<DeletionMarker> testRanges = getTestRanges();
+        List<RangeMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
         testCollectionMerge(message, Lists.newArrayList(fromList(testRanges)), testRanges, sets);
         testMergeByRangeIntersection(message, fromList(testRanges), testRanges, sets);
     }
 
 
-    public void testMerge(String message, RangeTrie<DeletionMarker> trie, List<DeletionMarker> merged, List<DeletionMarker>... sets)
+    public void testMerge(String message, RangeTrie<RangeMarker> trie, List<RangeMarker> merged, List<RangeMarker>... sets)
     {
         System.out.println("Markers: " + merged);
         verify(merged);
@@ -333,10 +333,10 @@ public class RangeTrieMergeTest
         {
             for (int toRemove = 0; toRemove < sets.length; ++toRemove)
             {
-                List<DeletionMarker> ranges = sets[toRemove];
+                List<RangeMarker> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 testMerge(message + " " + toRemove,
-                          trie.mergeWith(fromList(ranges), DeletionMarker::combine),
+                          trie.mergeWith(fromList(ranges), RangeMarker::combine),
                           mergeLists(merged, ranges),
                           Arrays.stream(sets)
                                 .filter(x -> x != ranges)
@@ -346,7 +346,7 @@ public class RangeTrieMergeTest
         }
     }
 
-    public void testCollectionMerge(String message, List<RangeTrie<DeletionMarker>> triesToMerge, List<DeletionMarker> merged, List<DeletionMarker>... sets)
+    public void testCollectionMerge(String message, List<RangeTrie<RangeMarker>> triesToMerge, List<RangeMarker> merged, List<RangeMarker>... sets)
     {
         System.out.println("Markers: " + merged);
         verify(merged);
@@ -354,7 +354,7 @@ public class RangeTrieMergeTest
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            RangeTrie<DeletionMarker> trie = RangeTrie.merge(triesToMerge, DeletionMarker::combineCollection);
+            RangeTrie<RangeMarker> trie = RangeTrie.merge(triesToMerge, RangeMarker::combineCollection);
             try
             {
                 assertEquals(message + " forward b" + bits, merged, toList(trie));
@@ -370,7 +370,7 @@ public class RangeTrieMergeTest
         {
             for (int toRemove = 0; toRemove < sets.length; ++toRemove)
             {
-                List<DeletionMarker> ranges = sets[toRemove];
+                List<RangeMarker> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 triesToMerge.add(fromList(ranges));
                 testCollectionMerge(message + " " + toRemove,
@@ -385,7 +385,7 @@ public class RangeTrieMergeTest
         }
     }
 
-    public void testMergeByRangeIntersection(String message, RangeTrie<DeletionMarker> trie, List<DeletionMarker> merged, List<DeletionMarker>... sets)
+    public void testMergeByRangeIntersection(String message, RangeTrie<RangeMarker> trie, List<RangeMarker> merged, List<RangeMarker>... sets)
     {
         System.out.println("Markers: " + merged);
         verify(merged);
@@ -408,10 +408,10 @@ public class RangeTrieMergeTest
         {
             for (int toRemove = 0; toRemove < sets.length; ++toRemove)
             {
-                List<DeletionMarker> ranges = sets[toRemove];
+                List<RangeMarker> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 testMergeByRangeIntersection(message + " " + toRemove,
-                          mergeByRangeIntersection(trie, fromList(ranges), DeletionMarker::combine),
+                          mergeByRangeIntersection(trie, fromList(ranges), RangeMarker::combine),
                           mergeLists(merged, ranges),
                           Arrays.stream(sets)
                                 .filter(x -> x != ranges)
@@ -457,7 +457,7 @@ public class RangeTrieMergeTest
             return data;
     }
 
-    DeletionMarker delete(int deletionTime, DeletionMarker marker)
+    RangeMarker delete(int deletionTime, RangeMarker marker)
     {
         if (deletionTime < 0)
             return marker;
@@ -469,17 +469,17 @@ public class RangeTrieMergeTest
             return null;
         if (newLeft == marker.leftSide && newAt == marker.at && newRight == marker.rightSide)
             return marker;
-        return new DeletionMarker(marker.position, newLeft, newAt, newRight);
+        return new RangeMarker(marker.position, newLeft, newAt, newRight);
     }
 
 
-    List<DeletionMarker> mergeLists(List<DeletionMarker> left, List<DeletionMarker> right)
+    List<RangeMarker> mergeLists(List<RangeMarker> left, List<RangeMarker> right)
     {
         int active = -1;
-        Iterator<DeletionMarker> rightIt = right.iterator();
-        DeletionMarker nextRight = rightIt.hasNext() ? rightIt.next() : null;
-        List<DeletionMarker> result = new ArrayList<>();
-        for (DeletionMarker nextLeft : left)
+        Iterator<RangeMarker> rightIt = right.iterator();
+        RangeMarker nextRight = rightIt.hasNext() ? rightIt.next() : null;
+        List<RangeMarker> result = new ArrayList<>();
+        for (RangeMarker nextLeft : left)
         {
             while (true)
             {
@@ -497,7 +497,7 @@ public class RangeTrieMergeTest
 
                 if (cmp == 0)
                 {
-                    DeletionMarker processed = DeletionMarker.combine(nextRight, nextLeft).toContent();
+                    RangeMarker processed = RangeMarker.combine(nextRight, nextLeft).toContent();
                     maybeAdd(result, processed);
                     nextRight = rightIt.hasNext() ? rightIt.next() : null;
                     break;
@@ -507,8 +507,8 @@ public class RangeTrieMergeTest
                     // Must close active if it becomes covered, and must open active if it is no longer covered.
                     if (active >= 0)
                     {
-                        DeletionMarker activeMarker = new DeletionMarker(nextRight.position, active, active, active);
-                        nextRight = DeletionMarker.combine(activeMarker, nextRight).toContent();
+                        RangeMarker activeMarker = new RangeMarker(nextRight.position, active, active, active);
+                        nextRight = RangeMarker.combine(activeMarker, nextRight).toContent();
                     }
                     maybeAdd(result, nextRight);
                 }

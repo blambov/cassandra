@@ -22,21 +22,29 @@ import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
 
-public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
+/**
+ *
+ * @param <U> Common superclass of the deletable and the deletion marker.
+ * @param <T>
+ * @param <D> Must be a subtype of U.
+ */
+public class InMemoryDeletionAwareTrie<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
 {
-    public InMemoryDTrie(BufferType bufferType)
+    public InMemoryDeletionAwareTrie(BufferType bufferType)
     {
         super(bufferType);
     }
 
-    static class DeterministicCursor<T> extends MemtableCursor<T> implements TrieImpl.Cursor<T>
+    static class DeletionAwareCursor<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends MemtableCursor<U> implements Cursor<T, D>
     {
-        DeterministicCursor(InMemoryReadTrie<T> trie, int root, int depth, int incomingTransition)
+        DeletionAwareCursor(InMemoryReadTrie<U> trie, int root, int depth, int incomingTransition)
         {
             super(trie, root, depth, incomingTransition);
         }
 
-        DeterministicCursor(DeterministicCursor<T> copyFrom)
+        DeletionAwareCursor(DeletionAwareCursor<U, T, D> copyFrom)
         {
             super(copyFrom);
         }
@@ -44,20 +52,28 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
         @Override
         public T content()
         {
-            return content;
+            return (T) content;
         }
 
         @Override
-        public DeterministicCursor<T> duplicate()
+        public RangeTrieImpl.Cursor<D> deletionBranch()
         {
-            return new DeterministicCursor<>(this);
+            return isNull(alternateBranch)
+                   ? null
+                   : new InMemoryRangeTrie.RangeCursor<>(trie, alternateBranch, depth() - 1, incomingTransition());
+        }
+
+        @Override
+        public DeletionAwareCursor duplicate()
+        {
+            return new DeletionAwareCursor(this);
         }
     }
 
     @Override
-    public Cursor<T> makeCursor()
+    public Cursor<T, D> makeCursor()
     {
-        return new DeterministicCursor<>(this, root, -1, -1);
+        return new DeletionAwareCursor<>(this, root, -1, -1);
     }
 
     /**
@@ -66,6 +82,6 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
      */
     public String dump(Function<T, String> contentToString)
     {
-        return dump(contentToString, root);
+        return dump(x -> contentToString.apply((T) x), root);
     }
 }

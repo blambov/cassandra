@@ -69,7 +69,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
             case AT_C1:
                 return checkOrder(c1.advance(), c2.depth());
             case AT_C2:
-                return checkOrder(c1.depth(), c1.advance());
+                return checkOrder(c1.depth(), c2.advance());
             case AT_BOTH:
                 return checkOrder(c1.advance(), c2.advance());
             default:
@@ -109,7 +109,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
             case AT_C1:
                 return checkOrder(c1.advanceMultiple(receiver), c2.depth());
             case AT_C2:
-                return checkOrder(c1.depth(), c1.advanceMultiple(receiver));
+                return checkOrder(c1.depth(), c2.advanceMultiple(receiver));
             // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
             case AT_BOTH:
                 return checkOrder(c1.advance(), c2.advance());
@@ -122,7 +122,13 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     {
         if (c1depth > c2depth)
         {
-            state = State.AT_C1;
+            if (c2depth < 0)
+            {
+                c2 = null;
+                state = State.C1_ONLY;
+            }
+            else
+                state = State.AT_C1;
             return c1depth;
         }
         if (c1depth < c2depth)

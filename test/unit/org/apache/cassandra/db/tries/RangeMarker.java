@@ -32,7 +32,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, DeletionMarker>, DataPoint
+class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
 {
     final ByteComparable position;
     final int leftSide;
@@ -41,7 +41,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     final int at;
     final boolean isReportableState;
 
-    DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide)
+    RangeMarker(ByteComparable position, int leftSide, int at, int rightSide)
     {
         this.position = position;
         this.leftSide = leftSide;
@@ -50,7 +50,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         this.isReportableState = at != leftSide || leftSide != rightSide;
     }
 
-    static DeletionMarker combine(DeletionMarker m1, DeletionMarker m2)
+    static RangeMarker combine(RangeMarker m1, RangeMarker m2)
     {
         int newLeft = Math.max(m1.leftSide, m2.leftSide);
         int newAt = Math.max(m1.at, m2.at);
@@ -58,17 +58,17 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
 
-        return new DeletionMarker(m2.position, newLeft, newAt, newRight);
+        return new RangeMarker(m2.position, newLeft, newAt, newRight);
     }
 
 
-    public static DeletionMarker combineCollection(Collection<DeletionMarker> rangeMarkers)
+    public static RangeMarker combineCollection(Collection<RangeMarker> rangeMarkers)
     {
         int newLeft = -1;
         int newAt = -1;
         int newRight = -1;
         ByteComparable position = null;
-        for (DeletionMarker marker : rangeMarkers)
+        for (RangeMarker marker : rangeMarkers)
         {
             newLeft = Math.max(newLeft, marker.leftSide);
             newAt = Math.max(newAt, marker.at);
@@ -78,42 +78,12 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
 
-        return new DeletionMarker(position, newLeft, newAt, newRight);
+        return new RangeMarker(position, newLeft, newAt, newRight);
     }
 
-    DeletionMarker withPoint(int value)
+    RangeMarker withPoint(int value)
     {
-        return new DeletionMarker(position, leftSide, value, rightSide);
-    }
-
-    @Override
-    public DeletionMarker marker()
-    {
-        return this;
-    }
-
-    @Override
-    public LivePoint live()
-    {
-        return null;
-    }
-
-    @Override
-    public ByteComparable position()
-    {
-        return position;
-    }
-
-    @Override
-    public DeletionMarker withMarker(DeletionMarker newMarker)
-    {
-        return newMarker;
-    }
-
-    @Override
-    public DeletionMarker remap(ByteComparable newKey)
-    {
-        return new DeletionMarker(newKey, leftSide, at, rightSide);
+        return new RangeMarker(position, leftSide, value, rightSide);
     }
 
     @Override
@@ -121,7 +91,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        DeletionMarker that = (DeletionMarker) o;
+        RangeMarker that = (RangeMarker) o;
         return ByteComparable.compare(this.position, that.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0
                && leftSide == that.leftSide
                && rightSide == that.rightSide
@@ -142,51 +112,51 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         String right = rightSide != at ? "<" : "<=";
 
         return (leftSide >= 0 ? leftSide + left : "") +
-               '"' + DataPoint.toString(position) + '"' +
+               '"' + toString(position) + '"' +
                (hasAt ? "=" + at : "") +
                (rightSide >= 0 ? right + rightSide : "");
     }
 
     @Override
-    public DeletionMarker toContent()
+    public RangeMarker toContent()
     {
         return isReportableState ? this : null;
     }
 
     @Override
-    public DeletionMarker leftSideAsCovering()
+    public RangeMarker leftSideAsCovering()
     {
         if (!isReportableState)
             return this;
         if (leftSide < 0)
             return null;
-        return new DeletionMarker(position, leftSide, leftSide, leftSide);
+        return new RangeMarker(position, leftSide, leftSide, leftSide);
     }
 
     @Override
-    public DeletionMarker rightSideAsCovering()
+    public RangeMarker rightSideAsCovering()
     {
         if (!isReportableState)
             return this;
         if (rightSide < 0)
             return null;
-        return new DeletionMarker(position, rightSide, rightSide, rightSide);
+        return new RangeMarker(position, rightSide, rightSide, rightSide);
     }
 
     @Override
-    public DeletionMarker asReportableStart()
+    public RangeMarker asReportableStart()
     {
         if (rightSide < 0 && at < 0)
             return null;
-        return new DeletionMarker(position, -1, at, rightSide);
+        return new RangeMarker(position, -1, at, rightSide);
     }
 
     @Override
-    public DeletionMarker asReportableEnd()
+    public RangeMarker asReportableEnd()
     {
         if (leftSide < 0)
             return null;
-        return new DeletionMarker(position, leftSide, -1, -1);
+        return new RangeMarker(position, leftSide, -1, -1);
     }
 
     @Override
@@ -195,17 +165,68 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         return leftSide >= 0;
     }
 
+    static String toString(ByteComparable position)
+    {
+        if (position == null)
+            return "null";
+        return position.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION);
+    }
+
+    static List<RangeMarker> verify(List<RangeMarker> markers)
+    {
+        int active = -1;
+        ByteComparable prev = null;
+        for (RangeMarker marker : markers)
+        {
+            assertTrue("Order violation " + toString(prev) + " vs " + toString(marker.position),
+                       prev == null || ByteComparable.compare(prev, marker.position, TrieImpl.BYTE_COMPARABLE_VERSION) < 0);
+            assertEquals("Range close violation", active, marker.leftSide);
+            assertTrue(marker.at != marker.leftSide || marker.at != marker.rightSide);
+            prev = marker.position;
+            active = marker.rightSide;
+        }
+        assertEquals(-1, active);
+        return markers;
+    }
+
+
+    /**
+     * Extract the values of the provided trie into a list.
+     */
+    static List<RangeMarker> toList(RangeTrie<RangeMarker> trie)
+    {
+        return Streams.stream(trie.entryIterator())
+                      .map(en -> remap(en.getValue(), en.getKey()))
+                      .collect(Collectors.toList());
+    }
+
+    static RangeMarker remap(RangeMarker dm, ByteComparable newKey)
+    {
+        return new RangeMarker(newKey, dm.leftSide, dm.at, dm.rightSide);
+    }
+
+    static RangeTrie<RangeMarker> fromList(List<RangeMarker> list)
+    {
+        InMemoryRangeTrie<RangeMarker> trie = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
+        for (RangeMarker i : list)
+        {
+            try
+            {
+                trie.putRecursive(i.position, i, (ex, n) -> n);
+            }
+            catch (InMemoryTrie.SpaceExhaustedException e)
+            {
+                throw Throwables.propagate(e);
+            }
+        }
+        return trie;
+    }
+
     @Override
-    public boolean agreesWith(DeletionMarker other)
+    public boolean agreesWith(RangeMarker other)
     {
         if (other == null)
             return false;
         return other.leftSide == leftSide && other.at == at && other.rightSide == rightSide;
-    }
-
-    @Override
-    public LivePoint delete(LivePoint content)
-    {
-        return content.delete(at);
     }
 }

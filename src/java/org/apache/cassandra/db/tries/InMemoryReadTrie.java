@@ -234,12 +234,12 @@ public class InMemoryReadTrie<T>
     /*
      Buffer, content list and block management
      */
-    int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
+    static int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
     {
         return 31 - minChunkShift - Integer.numberOfLeadingZeros(pos + minChunkSize);
     }
 
-    int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
+    static int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
     {
         return pos + minChunkSize - (minChunkSize << chunkIndex);
     }
@@ -250,7 +250,7 @@ public class InMemoryReadTrie<T>
         return buffers[leadBit];
     }
 
-    int inChunkPointer(int pos)
+    static int inChunkPointer(int pos)
     {
         int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
         return inChunkPointer(pos, leadBit, BUF_START_SIZE);
@@ -260,7 +260,7 @@ public class InMemoryReadTrie<T>
     /**
      * Pointer offset for a node pointer.
      */
-    int offset(int pos)
+    static int offset(int pos)
     {
         return pos & (BLOCK_SIZE - 1);
     }
@@ -292,17 +292,17 @@ public class InMemoryReadTrie<T>
      Reading node content
      */
 
-    boolean isNull(int node)
+    static boolean isNull(int node)
     {
         return node == NONE;
     }
 
-    boolean isLeaf(int node)
+    static boolean isLeaf(int node)
     {
         return node < NONE;
     }
 
-    boolean isNullOrLeaf(int node)
+    static boolean isNullOrLeaf(int node)
     {
         return node <= NONE;
     }
@@ -310,7 +310,7 @@ public class InMemoryReadTrie<T>
     /**
      * Returns the number of transitions in a chain block entered with the given pointer.
      */
-    private int chainBlockLength(int node)
+    static int chainBlockLength(int node)
     {
         return LAST_POINTER_OFFSET - offset(node);
     }
@@ -324,6 +324,9 @@ public class InMemoryReadTrie<T>
             return NONE;
 
         node = followPrefixTransition(node);
+
+        if (isNullOrLeaf(node))
+            return NONE;
 
         switch (offset(node))
         {
@@ -429,7 +432,7 @@ public class InMemoryReadTrie<T>
      * Given a transition, returns the corresponding index (within the node block) of the pointer to the mid block of
      * a split node.
      */
-    int splitNodeMidIndex(int trans)
+    static int splitNodeMidIndex(int trans)
     {
         // first 2 bits of the 2-3-3 split
         return (trans >> 6) & 0x3;
@@ -439,7 +442,7 @@ public class InMemoryReadTrie<T>
      * Given a transition, returns the corresponding index (within the mid block) of the pointer to the tail block of
      * a split node.
      */
-    int splitNodeTailIndex(int trans)
+    static int splitNodeTailIndex(int trans)
     {
         // second 3 bits of the 2-3-3 split
         return (trans >> 3) & 0x7;
@@ -449,7 +452,7 @@ public class InMemoryReadTrie<T>
      * Given a transition, returns the corresponding index (within the tail block) of the pointer to the child of
      * a split node.
      */
-    int splitNodeChildIndex(int trans)
+    static int splitNodeChildIndex(int trans)
     {
         // third 3 bits of the 2-3-3 split
         return trans & 0x7;
@@ -574,23 +577,26 @@ public class InMemoryReadTrie<T>
      * (i.e. it is positioned on a leaf node), it goes one level up the backtracking chain, where we are guaranteed to
      * have a remaining child to advance to. When there's nothing to backtrack to, the trie is exhausted.
      */
-    class MemtableCursor extends CursorBacktrackingState implements TrieImpl.Cursor<T>
+    static class MemtableCursor<T> extends CursorBacktrackingState implements CursorWalkable.Cursor
     {
+        final InMemoryReadTrie<T> trie;
         private int currentNode;
         private int incomingTransition;
-        private T content;
         private int depth;
+        protected T content;
         protected int alternateBranch;  // used by NonDeterministic and DeletionAware
 
-        MemtableCursor(int root, int depth, int incomingTransition)
+        MemtableCursor(InMemoryReadTrie<T> trie, int root, int depth, int incomingTransition)
         {
             this.depth = depth;
+            this.trie = trie;
             descendInto(root, incomingTransition);
         }
 
-        MemtableCursor(MemtableCursor copyFrom)
+        MemtableCursor(MemtableCursor<T> copyFrom)
         {
             super(copyFrom);
+            this.trie = copyFrom.trie;
             this.currentNode = copyFrom.currentNode;
             this.incomingTransition = copyFrom.incomingTransition;
             this.content = copyFrom.content;
@@ -615,7 +621,7 @@ public class InMemoryReadTrie<T>
                 return advance();
 
             // Jump directly to the chain's child.
-            UnsafeBuffer chunk = getChunk(node);
+            UnsafeBuffer chunk = trie.getChunk(node);
             int inChunkNode = inChunkPointer(node);
             int bytesJumped = chainBlockLength(node) - 1;   // leave the last byte for incomingTransition
             if (receiver != null && bytesJumped > 0)
@@ -666,21 +672,15 @@ public class InMemoryReadTrie<T>
         }
 
         @Override
-        public MemtableCursor duplicate()
+        public MemtableCursor<T> duplicate()
         {
-            return new MemtableCursor(this);
+            return new MemtableCursor<>(this);
         }
 
         @Override
         public int depth()
         {
             return depth;
-        }
-
-        @Override
-        public T content()
-        {
-            return content;
         }
 
         @Override
@@ -694,6 +694,7 @@ public class InMemoryReadTrie<T>
             content = null;
             incomingTransition = -1;
             depth = -1;
+            alternateBranch = NONE;
             return depth;
         }
 
@@ -715,7 +716,7 @@ public class InMemoryReadTrie<T>
                 case SPLIT_OFFSET:
                     return descendInSplitSublevel(node, SPLIT_START_LEVEL_LIMIT, 0, SPLIT_LEVEL_SHIFT * 2);
                 case SPARSE_OFFSET:
-                    return nextValidSparseTransition(node, getUnsignedShort(node + SPARSE_ORDER_OFFSET));
+                    return nextValidSparseTransition(node, trie.getUnsignedShort(node + SPARSE_ORDER_OFFSET));
                 default:
                     return getChainTransition(node);
             }
@@ -731,7 +732,7 @@ public class InMemoryReadTrie<T>
                 case SPLIT_OFFSET:
                     return descendInSplitSublevelWithTarget(node, SPLIT_START_LEVEL_LIMIT, 0, SPLIT_LEVEL_SHIFT * 2, skipTransition);
                 case SPARSE_OFFSET:
-                    return advanceToSparseTransition(node, getUnsignedShort(node + SPARSE_ORDER_OFFSET), skipTransition);
+                    return advanceToSparseTransition(node, trie.getUnsignedShort(node + SPARSE_ORDER_OFFSET), skipTransition);
                 default:
                     return advanceToChainTransition(node, skipTransition);
             }
@@ -789,7 +790,7 @@ public class InMemoryReadTrie<T>
                 // find the first non-null child
                 for (childIndex = 0; childIndex < limit; ++childIndex)
                 {
-                    child = getSplitBlockPointer(node, childIndex, limit);
+                    child = trie.getSplitBlockPointer(node, childIndex, limit);
                     if (!isNull(child))
                         break;
                 }
@@ -830,7 +831,7 @@ public class InMemoryReadTrie<T>
                 // find the first non-null child beyond minTransition
                 for (childIndex = minTransition >> shift; childIndex < limit; ++childIndex)
                 {
-                    child = getSplitBlockPointer(node, childIndex, limit);
+                    child = trie.getSplitBlockPointer(node, childIndex, limit);
                     if (!isNull(child))
                         break;
                 }
@@ -871,7 +872,7 @@ public class InMemoryReadTrie<T>
                                        SPLIT_OTHER_LEVEL_LIMIT,
                                        data & -(1 << (SPLIT_LEVEL_SHIFT * 1)),
                                        SPLIT_LEVEL_SHIFT * 0);
-                int child = getSplitBlockPointer(node, childIndex, SPLIT_OTHER_LEVEL_LIMIT);
+                int child = trie.getSplitBlockPointer(node, childIndex, SPLIT_OTHER_LEVEL_LIMIT);
                 return descendInto(child, data);
             }
             int tailIndex = splitNodeTailIndex(data);
@@ -882,7 +883,7 @@ public class InMemoryReadTrie<T>
                                        SPLIT_OTHER_LEVEL_LIMIT,
                                        data & -(1 << (SPLIT_LEVEL_SHIFT * 2)),
                                        SPLIT_LEVEL_SHIFT * 1);
-                int tail = getSplitBlockPointer(node, tailIndex, SPLIT_OTHER_LEVEL_LIMIT);
+                int tail = trie.getSplitBlockPointer(node, tailIndex, SPLIT_OTHER_LEVEL_LIMIT);
                 return descendInSplitSublevel(tail,
                                               SPLIT_OTHER_LEVEL_LIMIT,
                                               data,
@@ -895,7 +896,7 @@ public class InMemoryReadTrie<T>
                                    SPLIT_START_LEVEL_LIMIT,
                                    0,
                                    SPLIT_LEVEL_SHIFT * 2);
-            int mid = getSplitBlockPointer(node, midIndex, SPLIT_START_LEVEL_LIMIT);
+            int mid = trie.getSplitBlockPointer(node, midIndex, SPLIT_START_LEVEL_LIMIT);
             return descendInSplitSublevel(mid,
                                           SPLIT_OTHER_LEVEL_LIMIT,
                                           data,
@@ -942,7 +943,7 @@ public class InMemoryReadTrie<T>
             int nextChildIndex;
             for (nextChildIndex = startAfter + 1; nextChildIndex < limit; ++nextChildIndex)
             {
-                if (!isNull(getSplitBlockPointer(node, nextChildIndex, limit)))
+                if (!isNull(trie.getSplitBlockPointer(node, nextChildIndex, limit)))
                     break;
             }
             if (nextChildIndex < limit)
@@ -955,7 +956,7 @@ public class InMemoryReadTrie<T>
             int index = data % SPARSE_CHILD_COUNT;
             data = data / SPARSE_CHILD_COUNT;
 
-            UnsafeBuffer chunk = getChunk(node);
+            UnsafeBuffer chunk = trie.getChunk(node);
             int inChunkNode = inChunkPointer(node);
 
             // If there are remaining transitions, add backtracking entry.
@@ -970,7 +971,7 @@ public class InMemoryReadTrie<T>
 
         private int advanceToSparseTransition(int node, int data, int skipTransition)
         {
-            UnsafeBuffer chunk = getChunk(node);
+            UnsafeBuffer chunk = trie.getChunk(node);
             int inChunkNode = inChunkPointer(node);
             int index;
             int transition;
@@ -997,7 +998,7 @@ public class InMemoryReadTrie<T>
         private int getChainTransition(int node)
         {
             // No backtracking needed.
-            UnsafeBuffer chunk = getChunk(node);
+            UnsafeBuffer chunk = trie.getChunk(node);
             int inChunkNode = inChunkPointer(node);
             int transition = chunk.getByte(inChunkNode) & 0xFF;
             int next = node + 1;
@@ -1010,7 +1011,7 @@ public class InMemoryReadTrie<T>
         private int advanceToChainTransition(int node, int skipTransition)
         {
             // No backtracking needed.
-            UnsafeBuffer chunk = getChunk(node);
+            UnsafeBuffer chunk = trie.getChunk(node);
             int inChunkNode = inChunkPointer(node);
             int transition = chunk.getByte(inChunkNode) & 0xFF;
             if (skipTransition > transition)
@@ -1029,17 +1030,17 @@ public class InMemoryReadTrie<T>
             incomingTransition = transition;
             if (isNullOrLeaf(child))
             {
-                content = getNodeContent(child);
+                content = trie.getNodeContent(child);
                 alternateBranch = NONE;
                 currentNode = NONE;
             }
             else if (offset(child) == PREFIX_OFFSET)
             {
-                int b = getUnsignedByte(child + PREFIX_FLAGS_OFFSET);
-                int index = getInt(child + PREFIX_CONTENT_OFFSET);
+                int b = trie.getUnsignedByte(child + PREFIX_FLAGS_OFFSET);
+                int index = trie.getInt(child + PREFIX_CONTENT_OFFSET);
                 if ((b & PREFIX_ALTERNATE_PATH_FLAG) == 0)
                 {
-                    content = (index >= 0) ? getContent(index) : null;
+                    content = (index >= 0) ? trie.getContent(index) : null;
                     alternateBranch = NONE;
                 }
                 else
@@ -1047,7 +1048,7 @@ public class InMemoryReadTrie<T>
                     content = null;
                     alternateBranch = index;
                 }
-                currentNode = getPrefixChild(child, b);
+                currentNode = trie.getPrefixChild(child, b);
             }
             else
             {
@@ -1069,14 +1070,9 @@ public class InMemoryReadTrie<T>
         }
     }
 
-    private boolean isChainNode(int node)
+    static boolean isChainNode(int node)
     {
         return !isNullOrLeaf(node) && offset(node) <= CHAIN_MAX_OFFSET;
-    }
-
-    public MemtableCursor memtableCursor()
-    {
-        return new MemtableCursor(root, -1, -1);
     }
 
     /*
@@ -1109,15 +1105,6 @@ public class InMemoryReadTrie<T>
     }
 
     /**
-     * Override of dump to provide more detailed printout that includes the type of each node in the trie.
-     * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
-     */
-    public String dump(Function<T, String> contentToString)
-    {
-        return dump(contentToString, root);
-    }
-
-    /**
      * For use in debugging, dump the branch rooted at the given argument.
      */
     @SuppressWarnings("unused")
@@ -1126,13 +1113,13 @@ public class InMemoryReadTrie<T>
         return dump(Object::toString, root);
     }
 
-    private String dump(Function<T, String> contentToString, int root)
+    protected String dump(Function<T, String> contentToString, int root)
     {
         class TypedNodesCursor implements TrieImpl.Cursor<String>
         {
-            final MemtableCursor source;
+            final MemtableCursor<T> source;
 
-            TypedNodesCursor(MemtableCursor source)
+            TypedNodesCursor(MemtableCursor<T> source)
             {
                 this.source = source;
             }
@@ -1196,7 +1183,7 @@ public class InMemoryReadTrie<T>
                             break;
                     }
                 }
-                T content = source.content();
+                T content = source.content;
                 if (content != null)
                 {
                     if (type != null)
@@ -1208,7 +1195,7 @@ public class InMemoryReadTrie<T>
                     return type;
             }
         }
-        return TrieImpl.process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(new MemtableCursor(root, -1, -1)));
+        return TrieImpl.process(new TrieDumper<>(Function.identity()), new TypedNodesCursor(new MemtableCursor<>(this, root, -1, -1)));
     }
 
     /**

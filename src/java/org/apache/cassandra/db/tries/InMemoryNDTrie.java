@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.function.Function;
+
 import org.apache.cassandra.io.compress.BufferType;
 
 public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends InMemoryTrie<T> implements NonDeterministicTrieWithImpl<T>
@@ -27,34 +29,51 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         super(bufferType);
     }
 
-    class NonDeterministicCursor extends MemtableCursor implements NonDeterministicTrieImpl.Cursor<T>
+    static class NonDeterministicCursor<T extends NonDeterministicTrie.Mergeable<T>>
+    extends MemtableCursor<T>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministicCursor(int root, int depth, int incomingTransition)
+        NonDeterministicCursor(InMemoryReadTrie<T> trie, int root, int depth, int incomingTransition)
         {
-            super(root, depth, incomingTransition);
+            super(trie, root, depth, incomingTransition);
         }
 
-        NonDeterministicCursor(NonDeterministicCursor copyFrom)
+        NonDeterministicCursor(NonDeterministicCursor<T> copyFrom)
         {
             super(copyFrom);
         }
 
         @Override
-        public NonDeterministicCursor alternateBranch()
+        public NonDeterministicCursor<T> alternateBranch()
         {
-            return isNull(alternateBranch) ? null : new NonDeterministicCursor(alternateBranch, depth() - 1, incomingTransition());
+            return isNull(alternateBranch) ? null : new NonDeterministicCursor<>(trie, alternateBranch, depth() - 1, incomingTransition());
         }
 
         @Override
-        public NonDeterministicCursor duplicate()
+        public T content()
         {
-            return new NonDeterministicCursor(this);
+            return content;
+        }
+
+        @Override
+        public NonDeterministicCursor<T> duplicate()
+        {
+            return new NonDeterministicCursor<>(this);
         }
     }
 
     @Override
     public Cursor<T> makeCursor()
     {
-        return new NonDeterministicCursor(root, -1, -1);
+        return new NonDeterministicCursor<>(this, root, -1, -1);
+    }
+
+    /**
+     * Override of dump to provide more detailed printout that includes the type of each node in the trie.
+     * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
+     */
+    public String dump(Function<T, String> contentToString)
+    {
+        return dump(contentToString, root);
     }
 }
