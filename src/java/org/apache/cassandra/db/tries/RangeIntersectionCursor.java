@@ -107,7 +107,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
         this.controller = controller;
         this.c1 = c1;
         this.c2 = c2;
-        matchingPosition(0, -1);
+        matchingPosition(c1.depth(), c1.incomingTransition());
     }
 
     public RangeIntersectionCursor(RangeIntersectionCursor<C, D, Z> copyFrom)

@@ -285,7 +285,17 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
             RangeTrieImpl.Cursor<D> deletions = source.deletionBranch();
             if (deletions == null)
                 return null;
-            return new RangeIntersectionCursor<>(RangeTrieImpl.rangeAndSetIntersectionController(), set.duplicate(), deletions);
+            switch (state)
+            {
+                case INSIDE_SET_AHEAD:
+                    // Since the deletion branch cannot extend above this node, it is fully covered by the set.
+                    return deletions;
+                case INSIDE_MATCHING:
+                case OUTSIDE_MATCHING:
+                    return new RangeIntersectionCursor<>(RangeTrieImpl.rangeAndSetIntersectionController(), set.duplicate(), deletions);
+                default:
+                    throw new AssertionError();
+            }
         }
     }
 }

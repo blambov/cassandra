@@ -105,12 +105,12 @@ interface DataPoint extends DeletionAwareTrie.Deletable
             for (int i = 0; i < list.size(); ++i)
             {
                 DeletionMarker marker = list.get(i).marker();
-                if (marker == null)
+                if (marker == null || marker.leftSide == marker.rightSide)
                     continue;
                 assert marker.leftSide == active;
                 if (active != -1)
                 {
-                    if (marker.rightSide == active)
+                    if (marker == null || marker.leftSide == marker.rightSide)
                         continue;
 
                     DeletionMarker startMarker = list.get(activeStartedAt).marker();
@@ -125,12 +125,16 @@ interface DataPoint extends DeletionAwareTrie.Deletable
                         trie.putAlternativeRecursive(m.position, m, (ex, n) -> n);
                     }
                 }
-                else if (marker.rightSide == -1)
-                    // single deletion
-                    trie.putAlternativeRecursive(marker.position, marker, (ex, n) -> n);
 
                 active = marker.rightSide;
                 activeStartedAt = i;
+            }
+            for (DataPoint i : list)
+            {
+                // put single deletions separately to avoid creating invalid structure (deletion branch covering another)
+                DeletionMarker marker = i.marker();
+                if (marker != null && marker.leftSide == marker.rightSide)
+                    trie.putAlternativeRecursive(marker.position, marker, (ex, n) -> n);
             }
         }
         catch (InMemoryTrie.SpaceExhaustedException e)
