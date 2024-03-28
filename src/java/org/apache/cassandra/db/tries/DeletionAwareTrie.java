@@ -105,11 +105,10 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
         return (TrieWithImpl<T>) impl()::cursor;
     }
 
-    default Trie<D> deletionOnlyTrie()
+    default RangeTrie<D> deletionOnlyTrie()
     {
         // We must walk the main trie to find deletion branch roots.
-        // TODO: Stop following main trie once we do.
-        return (TrieWithImpl<D>) () -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>((l, d) -> d, impl().cursor());
+        return (RangeTrieWithImpl<D>) () -> new DeletionAwareTrieImpl.DeletionsTrieCursor<>(impl().cursor());
     }
 
     default <Z> Trie<Z> mergedTrie(BiFunction<T, D, Z> resolver)

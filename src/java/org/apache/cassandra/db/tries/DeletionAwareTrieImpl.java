@@ -113,4 +113,71 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
             return new LiveAndDeletionsMergeCursor<>(this);
         }
     }
+
+    class DeletionsTrieCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends FlexibleMergeCursor<Cursor<T, D>, RangeTrieImpl.Cursor<D>> implements RangeTrieImpl.Cursor<D>
+    {
+        DeletionsTrieCursor(DeletionAwareTrieImpl.Cursor<T, D> c1)
+        {
+            super(c1, null);
+            maybeAddDeletionsBranch(c1.depth());
+        }
+
+        public DeletionsTrieCursor(DeletionsTrieCursor<T, D> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public D coveringState()
+        {
+            return c2 != null ? c2.coveringState() : null;
+        }
+
+        @Override
+        public D content()
+        {
+            return c2 != null ? c2.content() : null;
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            if (state == State.C1_ONLY)
+            {
+                RangeTrieImpl.Cursor<D> deletionsBranch = c1.deletionBranch();
+                if (deletionsBranch != null)
+                {
+                    addCursor(deletionsBranch);
+                    c1.skipTo(c1.depth(), c1.incomingTransition() + 1); // skip past the deletion branch
+                    // TODO: Do we need to handle incomingTransition 256 here? Document in skipTo if not.
+                    state = State.AT_C2;
+                }
+            }
+            return depth;
+        }
+
+        @Override
+        public DeletionsTrieCursor<T, D> duplicate()
+        {
+            return new DeletionsTrieCursor<>(this);
+        }
+    }
 }

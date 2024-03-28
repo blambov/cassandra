@@ -85,6 +85,26 @@ interface DataPoint extends DeletionAwareTrie.Deletable
                       .collect(Collectors.toList());
     }
 
+    /**
+     * Extract the values of the provided trie into a list.
+     */
+    static List<LivePoint> contentOnlyList(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        return Streams.stream(trie.contentOnlyTrie().entryIterator())
+                      .map(en -> en.getValue().remap(en.getKey()))
+                      .collect(Collectors.toList());
+    }
+
+    /**
+     * Extract the values of the provided trie into a list.
+     */
+    static List<DeletionMarker> deletionOnlyList(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        return Streams.stream(trie.deletionOnlyTrie().entryIterator())
+                      .map(en -> en.getValue().remap(en.getKey()))
+                      .collect(Collectors.toList());
+    }
+
     static DeletionAwareTrie<LivePoint, DeletionMarker> fromList(List<DataPoint> list)
     {
         InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> trie = new InMemoryDeletionAwareTrie<>(BufferType.ON_HEAP);
