@@ -21,12 +21,16 @@ package org.apache.cassandra.db.tries;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
+import com.google.common.base.Predicates;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
+import static org.apache.cassandra.db.tries.DataPoint.deletionOnlyList;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
@@ -303,8 +307,21 @@ public class DeletionAwareIntersectionTest
         {
             try
             {
-                assertEquals(message + " forward b" + bits, intersected, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                message += " forward b" + bits;
+                assertEquals(message, intersected, toList(trie));
+                assertEquals(message + " live only",
+                             intersected.stream()
+                                        .map(DataPoint::live)
+                                        .filter(Predicates.notNull())
+                                        .collect(Collectors.toList()),
+                             contentOnlyList(trie));
+                assertEquals(message + " deletions",
+                             intersected.stream()
+                                        .map(DataPoint::marker)
+                                        .filter(Predicates.notNull())
+                                        .collect(Collectors.toList()),
+                             deletionOnlyList(trie));
+                System.out.println(message + " matched.");
             }
             catch (AssertionError e)
             {
