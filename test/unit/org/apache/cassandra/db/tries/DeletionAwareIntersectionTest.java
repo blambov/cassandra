@@ -90,7 +90,7 @@ public class DeletionAwareIntersectionTest
     @Test
     public void testSubtrie()
     {
-        for (bits = 4/*bitsNeeded*/; bits > 0; --bits)
+        for (bits = bitsNeeded; bits > 0; --bits)
         {
             testIntersection("no intersection");
 
