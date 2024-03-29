@@ -244,32 +244,107 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
             this.resolver = copyFrom.resolver;
         }
 
+        // The advancement methods are overridden so that we skip all sections where only c2 is active.
         @Override
         public int advance()
         {
-            return maybeSkipC2(super.advance());
+            switch (state)
+            {
+                case C1_ONLY:
+                    return c1.advance();
+                case AT_C1:
+                {
+                    int c1depth = c1.advance();
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.maybeSkipTo(c1depth, c1trans));
+                }
+                case AT_BOTH:
+                {
+                    int c1depth = c1.advance();
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
+                }
+                default:
+                    throw new AssertionError();
+            }
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            return maybeSkipC2(super.skipTo(skipDepth, skipTransition));
+            switch (state)
+            {
+                case C1_ONLY:
+                    return c1.skipTo(skipDepth, skipTransition);
+                case AT_C1:
+                {
+                    int c1depth = c1.skipTo(skipDepth, skipTransition);
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.maybeSkipTo(c1depth, c1trans));
+                }
+                case AT_BOTH:
+                {
+                    int c1depth = c1.skipTo(skipDepth, skipTransition);
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
+                }
+                default:
+                    throw new AssertionError();
+            }
         }
 
         @Override
         public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
         {
-            return maybeSkipC2(super.advanceMultiple(receiver));
+            switch (state)
+            {
+                case C1_ONLY:
+                    return c1.advanceMultiple(receiver);
+                // If we are in a branch that's only covered by one of the sources, we can use its advanceMultiple as it is
+                // only different from advance if it takes multiple steps down, which does not change the order of the
+                // cursors.
+                // Since it might ascend, we still have to check the order after the call.
+                case AT_C1:
+                {
+                    int c1depth = c1.advanceMultiple(receiver);
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.maybeSkipTo(c1depth, c1trans));
+                }
+                // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
+                case AT_BOTH:
+                {
+                    int c1depth = c1.advance();
+                    int c1trans = c1.incomingTransition();
+                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
+                }
+                default:
+                    throw new AssertionError();
+            }
         }
 
-        int maybeSkipC2(int depth)
+        @Override
+        int checkOrder(int c1depth, int c2depth)
         {
-            if (state != State.AT_C2)
-                return depth;
-            final int c1depth = c1.depth();
-            return checkOrder(c1depth, c2.skipTo(c1depth, c1.incomingTransition()));
+            if (c1depth > c2depth)
+            {
+                if (c2depth < 0)
+                {
+                    c2 = null;
+                    state = State.C1_ONLY;
+                }
+                else
+                    state = State.AT_C1;
+                return c1depth;
+            }
+
+            assert c1depth == c2depth;
+            int c1trans = c1.incomingTransition();
+            int c2trans = c2.incomingTransition();
+            assert c1trans <= c2trans;
+            boolean c2ahead = c1trans < c2trans;
+            state = c2ahead ? State.AT_C1 : State.AT_BOTH;
+            return c1depth;
         }
-        // TODO: This can be simplified (AT_C2 never happens)
 
         @Override
         public T content()
@@ -286,8 +361,6 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
                         return null;
                     applicableRange = c2.coveringState();
                     break;
-                case AT_C2:
-                    return null;
                 case AT_BOTH:
                     content = c1.content();
                     if (content == null)
