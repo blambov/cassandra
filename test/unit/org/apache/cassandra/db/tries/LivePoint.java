@@ -70,6 +70,12 @@ class LivePoint implements DataPoint
     }
 
     @Override
+    public DataPoint toContent()
+    {
+        return this;
+    }
+
+    @Override
     public String toString()
     {
         return '{' + DataPoint.toString(position) + "}L" + timestamp;
@@ -83,5 +89,10 @@ class LivePoint implements DataPoint
         LivePoint livePoint = (LivePoint) o;
         return timestamp == livePoint.timestamp
                && ByteComparable.compare(this.position, livePoint.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0;
+    }
+
+    static LivePoint combine(LivePoint a, LivePoint b)
+    {
+        return a.timestamp >= b.timestamp ? a : b;
     }
 }

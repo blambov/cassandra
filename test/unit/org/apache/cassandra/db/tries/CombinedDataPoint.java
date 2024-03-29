@@ -72,6 +72,13 @@ class CombinedDataPoint implements DataPoint
         return marker.toString() + 'L' + livePoint.timestamp;
     }
 
+    public DataPoint toContent()
+    {
+        if (marker.isReportableState)
+            return this;
+        return livePoint;
+    }
+
     @Override
     public boolean equals(Object o)
     {
