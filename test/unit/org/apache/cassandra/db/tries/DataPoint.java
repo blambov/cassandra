@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Throwables;
@@ -74,6 +75,24 @@ interface DataPoint extends DeletionAwareTrie.Deletable
             return a;
         return new CombinedDataPoint(a, m);
     }
+
+    static DataPoint combine(DataPoint a, DataPoint b)
+    {
+        LivePoint live = combine(a.live(), b.live(), LivePoint::combine);
+        DeletionMarker marker = combine(a.marker(), b.marker(), DeletionMarker::combine);
+        return resolve(live, marker);
+    }
+
+    static <T> T combine(T a, T b, BiFunction<T, T, T> combiner)
+    {
+        if (a == null)
+            return b;
+        if (b == null)
+            return a;
+        return combiner.apply(a, b);
+    }
+
+    DataPoint toContent();
 
     /**
      * Extract the values of the provided trie into a list.

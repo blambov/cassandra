@@ -221,27 +221,41 @@ public class DeletionAwareIntersectionTest
                       from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35));
     }
 
-//    private DeletionAwareTrie<Integer, DeletionMarker> mergeGeneratedRanges()
-//    {
-//        return fromList(asList(from(21, 10), to(24, 10),
-//                               from(26, 11), to(29, 11),
-//                               from(33, 13), to(34, 13),
-//                               from(36, 14), to(38, 14)))
-//               .mergeWith(fromList(asList(from(28, 12), to(30, 12))),
-//                          DataPoint::combine)
-//               .mergeWith(fromList(asList(deletedPoint(17, 20),
-//                                          deletedPoint(22, 21),
-//                                          deletedPoint(28, 22),
-//                                          deletedPoint(33, 23),
-//                                          deletedPoint(38, 24))),
-//                          DataPoint::combine)
-//               .mergeWith(fromList(asList(livePoint(19, 30),
-//                                          livePoint(23, 31),
-//                                          livePoint(27, 32),
-//                                          livePoint(32, 34),
-//                                          livePoint(39, 35))),
-//                          DataPoint::combine);
-//    }
+    private DeletionAwareTrie<LivePoint, DeletionMarker> mergeGeneratedRanges()
+    {
+        return fromList(asList(
+                                          from(21, 10), to(24, 10),
+                                          from(26, 11), to(29, 11),
+                                          from(33, 13), to(34, 13),
+                                          from(36, 14), to(38, 14)
+                          ))
+               .mergeWith(fromList(asList(
+                                          from(28, 12), to(30, 12)
+                          )),
+                          LivePoint::combine,
+                          DeletionMarker::combine,
+                          DeletionMarker::delete)
+               .mergeWith(fromList(asList(
+                                          deletedPoint(17, 20),
+                                          deletedPoint(22, 21),
+                                          deletedPoint(28, 22),
+                                          deletedPoint(33, 23),
+                                          deletedPoint(38, 24)
+                          )),
+                          LivePoint::combine,
+                          DeletionMarker::combine,
+                          DeletionMarker::delete)
+               .mergeWith(fromList(asList(
+                                          livePoint(19, 30),
+                                          livePoint(23, 31),
+                                          livePoint(27, 32),
+                                          livePoint(29, 33),
+                                          livePoint(32, 34),
+                                          livePoint(39, 35))),
+                          LivePoint::combine,
+                          DeletionMarker::combine,
+                          DeletionMarker::delete);
+    }
 
     private void testIntersections()
     {
@@ -294,7 +308,7 @@ public class DeletionAwareIntersectionTest
     {
         final List<DataPoint> testRanges = getTestRanges();
         testIntersection(message, fromList(testRanges), testRanges, sets);
-//        testIntersection(message + " on merge ", mergeGeneratedRanges(), testRanges, sets); // Mainly tests MergeCursor's skipTo
+        testIntersection(message + " on merge ", mergeGeneratedRanges(), testRanges, sets); // Mainly tests MergeCursor's skipTo
     }
 
     public void testIntersection(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> intersected, ByteComparable[]... sets)
@@ -308,7 +322,6 @@ public class DeletionAwareIntersectionTest
             try
             {
                 message += " forward b" + bits;
-                assertEquals(message, intersected, toList(trie));
                 assertEquals(message + " live only",
                              intersected.stream()
                                         .map(DataPoint::live)
@@ -321,6 +334,7 @@ public class DeletionAwareIntersectionTest
                                         .filter(Predicates.notNull())
                                         .collect(Collectors.toList()),
                              deletionOnlyList(trie));
+                assertEquals(message, intersected, toList(trie));
                 System.out.println(message + " matched.");
             }
             catch (AssertionError e)

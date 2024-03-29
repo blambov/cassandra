@@ -119,14 +119,6 @@ public interface VerificationCursor
             return verify(source.skipTo(skipDepth, skipTransition));
         }
 
-        @Override
-        public int maybeSkipTo(int skipDepth, int skipTransition)
-        {
-            if (skipDepth < returnedDepth)
-                verifySkipRequest(skipDepth, skipTransition);
-            return verify(source.maybeSkipTo(skipDepth, skipTransition));
-        }
-
         private void verifySkipRequest(int skipDepth, int skipTransition)
         {
             Preconditions.checkState(skipDepth <= returnedDepth + 1,

@@ -100,6 +100,18 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
         return (DeletionAwareTrieWithImpl<T, D>) () -> new IntersectionCursor.DeletionAware<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
     }
 
+    default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other,
+                                              Trie.MergeResolver<T> mergeResolver,
+                                              Trie.MergeResolver<D> deletionMerger,
+                                              BiFunction<D, T, T> deleter)
+    {
+        return (DeletionAwareTrieWithImpl<T, D>) () -> new MergeCursor.DeletionAware<>(mergeResolver,
+                                                                                       deletionMerger,
+                                                                                       deleter,
+                                                                                       impl().cursor(),
+                                                                                       DeletionAwareTrieImpl.impl(other).cursor());
+    }
+
     default Trie<T> contentOnlyTrie()
     {
         return (TrieWithImpl<T>) impl()::cursor;
@@ -120,6 +132,11 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     {
         return DeletionAwareTrieImpl.impl(this);
     }
+
+    // TODO: Construct from content-only and deletion-only tries (this could solve the "where to root the deletion in the memtable" question)
+    // TODO: Change test to work with the above
+
+    // TODO: deletion-only tries of merges/intersections can be transformed separately from deletion-only tries
 
     // TODO: Document no nested deletion branches
     // TODO: No nesting means deletions merge is limited in size, use same-size CMC for deletions branch; maybe create once and reuse

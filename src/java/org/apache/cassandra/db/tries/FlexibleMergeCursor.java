@@ -60,6 +60,11 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         this.state = State.AT_BOTH;
     }
 
+    public boolean hasSecondCursor()
+    {
+        return state != State.C1_ONLY;
+    }
+
     @Override
     public int advance()
     {
@@ -119,7 +124,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         }
     }
 
-    private int checkOrder(int c1depth, int c2depth)
+    int checkOrder(int c1depth, int c2depth)
     {
         if (c1depth > c2depth)
         {
@@ -221,4 +226,118 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         }
     }
 
+    static class RangeOnTrie<T, D extends RangeTrie.RangeMarker<D>, C extends TrieImpl.Cursor<T>>
+    extends FlexibleMergeCursor<C, RangeTrieImpl.Cursor<D>>
+    implements TrieImpl.Cursor<T>
+    {
+        final BiFunction<D, T, T> resolver;
+
+        RangeOnTrie(BiFunction<D, T, T> resolver, C c1, RangeTrieImpl.Cursor<D> c2)
+        {
+            super(c1, c2);
+            this.resolver = resolver;
+        }
+
+        public RangeOnTrie(RangeOnTrie<T, D, C> copyFrom)
+        {
+            super(copyFrom);
+            this.resolver = copyFrom.resolver;
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeSkipC2(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeSkipC2(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            return maybeSkipC2(super.advanceMultiple(receiver));
+        }
+
+        int maybeSkipC2(int depth)
+        {
+            if (state != State.AT_C2)
+                return depth;
+            final int c1depth = c1.depth();
+            return checkOrder(c1depth, c2.skipTo(c1depth, c1.incomingTransition()));
+        }
+        // TODO: This can be simplified (AT_C2 never happens)
+
+        @Override
+        public T content()
+        {
+            D applicableRange;
+            T content;
+            switch (state)
+            {
+                case C1_ONLY:
+                    return c1.content();
+                case AT_C1:
+                    content = c1.content();
+                    if (content == null)
+                        return null;
+                    applicableRange = c2.coveringState();
+                    break;
+                case AT_C2:
+                    return null;
+                case AT_BOTH:
+                    content = c1.content();
+                    if (content == null)
+                        return null;
+                    applicableRange = c2.content();
+                    if (applicableRange == null)
+                        applicableRange = c2.coveringState();
+                    break;
+                default:
+                    throw new AssertionError();
+            }
+
+            if (applicableRange == null)
+                return content;
+
+            return resolver.apply(applicableRange, content);
+        }
+
+        @Override
+        public RangeOnTrie<T, D, C> duplicate()
+        {
+            return new RangeOnTrie<>(this);
+        }
+    }
+
+    static class DeletionAwareSource<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends RangeOnTrie<T, D, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
+    {
+
+        DeletionAwareSource(DeletionAwareTrieImpl.Cursor<T, D> c1, BiFunction<D, T, T> resolver)
+        {
+            super(resolver, c1, null);
+        }
+
+        public DeletionAwareSource(DeletionAwareSource<T, D> copyFrom)
+        {
+            super(copyFrom);
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            // No processing, MergeCursor will handle that.
+            return c1.deletionBranch();
+        }
+
+        @Override
+        public DeletionAwareSource<T, D> duplicate()
+        {
+            return new DeletionAwareSource<>(this);
+        }
+    }
 }

@@ -82,7 +82,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             return checkOrder(c1.depth(), c2.advanceMultiple(receiver));
     }
 
-    private int checkOrder(int c1depth, int c2depth)
+    int checkOrder(int c1depth, int c2depth)
     {
         if (c1depth > c2depth)
         {
@@ -337,6 +337,34 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
 
         @Override
+        public int advance()
+        {
+            return maybeSkipC1(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeSkipC1(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            return maybeSkipC1(super.advanceMultiple(receiver));
+        }
+
+        int maybeSkipC1(int depth)
+        {
+            if (atC2)
+                return depth;
+            assert atC1;
+            final int c2depth = c2.depth();
+            return checkOrder(c1.skipTo(c2depth, c2.incomingTransition()), c2depth);
+        }
+        // TODO: This can be simplified a lot (atC2 is always true)
+
+        @Override
         public T content()
         {
             if (!atC2)
@@ -360,6 +388,117 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         public RangeOnTrie<M, T> duplicate()
         {
             return new RangeOnTrie<>(this);
+        }
+    }
+
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends MergeCursor.WithContent<T, FlexibleMergeCursor.DeletionAwareSource<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
+    {
+        final BiFunction<D, T, T> deleter;
+        final Trie.MergeResolver<D> deletionResolver;
+        int deletionBranchDepth = -1;
+
+        DeletionAware(Trie.MergeResolver<T> mergeResolver,
+                      Trie.MergeResolver<D> deletionResolver,
+                      BiFunction<D, T, T> deleter,
+                      DeletionAwareTrieImpl.Cursor<T, D> c1,
+                      DeletionAwareTrieImpl.Cursor<T, D> c2)
+        {
+            super(mergeResolver,
+                  new FlexibleMergeCursor.DeletionAwareSource<>(c1, deleter),
+                  new FlexibleMergeCursor.DeletionAwareSource<>(c2, deleter));
+            // We will add deletion sources to the above as we find them.
+            this.deletionResolver = deletionResolver;
+            this.deleter = deleter;
+            maybeAddDeletionsBranch(this.c1.depth());
+        }
+
+        public DeletionAware(DeletionAware<T, D> copyFrom)
+        {
+            super(copyFrom);
+            this.deleter = copyFrom.deleter;
+            this.deletionResolver = copyFrom.deletionResolver;
+            this.deletionBranchDepth = copyFrom.deletionBranchDepth;
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            if (depth <= deletionBranchDepth)   // ascending above common deletions root
+            {
+                deletionBranchDepth = -1;
+                assert !c1.hasSecondCursor() || depth == -1;    // we might not clear the second cursor when both are exhausted
+                assert !c2.hasSecondCursor() || depth == -1;
+            }
+
+            if (atC1 && atC2)
+            {
+                maybeAddDeletionsBranch(c1, c2);
+                maybeAddDeletionsBranch(c2, c1);
+            }   // otherwise even if there is deletion, the other cursor is ahead of it and can't be affected
+            return depth;
+        }
+
+        void maybeAddDeletionsBranch(FlexibleMergeCursor.DeletionAwareSource<T, D> c1,
+                                     FlexibleMergeCursor.DeletionAwareSource<T, D> c2)
+        {
+            if (c1.hasSecondCursor())
+                return;
+
+            RangeTrieImpl.Cursor<D> deletionsBranch = c2.deletionBranch();
+            if (deletionsBranch != null)
+                c1.addCursor(deletionsBranch);  // apply all c2 deletions to c1
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            int depth = depth();
+            if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
+                return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
+
+            if (!atC1)
+                return c2.deletionBranch(); // if c1 is ahead, it can't affect this deletion branch
+            if (!atC2)
+                return c1.deletionBranch();
+
+            // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
+            // deletion-tree branch of the other to make sure that we merge any lower-level deletion branch with it.
+            RangeTrieImpl.Cursor<D> b1 = c1.deletionBranch();
+            RangeTrieImpl.Cursor<D> b2 = c2.deletionBranch();
+            if (b1 == null && b2 == null)
+                return null;
+
+            deletionBranchDepth = depth;
+            if (b1 == null)
+                b1 = new DeletionAwareTrieImpl.DeletionsTrieCursor(c1.duplicate());
+            if (b2 == null)
+                b2 = new DeletionAwareTrieImpl.DeletionsTrieCursor(c2.duplicate());
+
+            return new Range<>(deletionResolver, b1, b2);
+        }
+
+        @Override
+        public DeletionAwareTrieImpl.Cursor<T, D> duplicate()
+        {
+            return new DeletionAware<>(this);
         }
     }
 
