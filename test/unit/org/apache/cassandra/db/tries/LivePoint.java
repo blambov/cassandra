@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.Collection;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 class LivePoint implements DataPoint
@@ -94,5 +96,10 @@ class LivePoint implements DataPoint
     static LivePoint combine(LivePoint a, LivePoint b)
     {
         return a.timestamp >= b.timestamp ? a : b;
+    }
+
+    static LivePoint combineCollection(Collection<LivePoint> values)
+    {
+        return values.stream().reduce(LivePoint::combine).orElseThrow();
     }
 }

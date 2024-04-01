@@ -394,7 +394,6 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends MergeCursor.WithContent<T, FlexibleMergeCursor.DeletionAwareSource<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
     {
-        final BiFunction<D, T, T> deleter;
         final Trie.MergeResolver<D> deletionResolver;
         int deletionBranchDepth = -1;
 
@@ -409,14 +408,12 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                   new FlexibleMergeCursor.DeletionAwareSource<>(c2, deleter));
             // We will add deletion sources to the above as we find them.
             this.deletionResolver = deletionResolver;
-            this.deleter = deleter;
             maybeAddDeletionsBranch(this.c1.depth());
         }
 
         public DeletionAware(DeletionAware<T, D> copyFrom)
         {
             super(copyFrom);
-            this.deleter = copyFrom.deleter;
             this.deletionResolver = copyFrom.deletionResolver;
             this.deletionBranchDepth = copyFrom.deletionBranchDepth;
         }
@@ -480,7 +477,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                 return c1.deletionBranch();
 
             // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
-            // deletion-tree branch of the other to make sure that we merge any lower-level deletion branch with it.
+            // deletion-tree branch of the other to make sure that we merge any higher-depth deletion branch with it.
             RangeTrieImpl.Cursor<D> b1 = c1.deletionBranch();
             RangeTrieImpl.Cursor<D> b2 = c2.deletionBranch();
             if (b1 == null && b2 == null)

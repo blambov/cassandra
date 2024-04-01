@@ -21,8 +21,10 @@ package org.apache.cassandra.db.tries;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /*
@@ -79,7 +81,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     private final C[] heap;
 
     @SuppressWarnings("unchecked")
-    <L> CollectionMergeCursor(Collection<L> inputs, Function<L, C> getter)
+    <L> CollectionMergeCursor(Collection<L> inputs, Function<L, C> getter, Class<? super C> cursorClass)
     {
         int count = inputs.size();
         Iterator<L> it = inputs.iterator();
@@ -88,7 +90,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         head = getter.apply(it.next());
 
         // Get cursors for all inputs. Put one of them in head and the rest in the heap.
-        heap = (C[]) Array.newInstance(head.getClass(), count - 1);
+        heap = (C[]) Array.newInstance(cursorClass, count - 1);
         int i = 0;
         while (it.hasNext())
             heap[i++] = getter.apply(it.next());
@@ -100,7 +102,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     CollectionMergeCursor(CollectionMergeCursor<C> copyFrom)
     {
         this.head = (C) copyFrom.head.duplicate();
-        C[] list = (C[]) Array.newInstance(copyFrom.head.getClass(), copyFrom.heap.length);
+        C[] list = (C[]) Array.newInstance(copyFrom.heap.getClass().getComponentType(), copyFrom.heap.length);
         for (int i = 0; i < list.length; ++i)
             list[i] = (C) copyFrom.heap[i].duplicate();
         this.heap = list;
@@ -260,6 +262,11 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     @Override
     public int advance()
     {
+        return doAdvance();
+    }
+
+    private int doAdvance()
+    {
         advanceEqualAndRestoreHeap(CursorWalkable.Cursor::advance);
         return maybeSwapHead(head.advance());
     }
@@ -269,8 +276,8 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     {
         // If the current position is present in just one cursor, we can safely descend multiple levels within
         // its branch as no one of the other tries has content for it.
-        if (equalCursor(heap[0], head))
-            return advance();   // More than one source at current position, do single-step advance.
+        if (branchHasMultipleSources())
+            return doAdvance();   // More than one source at current position, do single-step advance.
 
         // If there are no children, i.e. the cursor ascends, we have to check if it's become larger than some
         // other candidate.
@@ -322,6 +329,66 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         return head.incomingTransition();
     }
 
+    boolean branchHasMultipleSources()
+    {
+        return equalCursor(heap[0], head);
+    }
+
+    boolean isExhausted()
+    {
+        return head.depth() < 0;
+    }
+
+    boolean addCursor(C cursor)
+    {
+        if (isExhausted())
+        {
+            // easy case
+            head = cursor;
+            return true;
+        }
+
+        int index;
+        for (index = 0; index < heap.length; ++index)
+            if (heap[index].depth() < 0)
+                break;
+        if (index == heap.length)
+            return false;
+
+        heapifyUp(cursor, index);
+        return true;
+    }
+
+    /**
+     * Push the given state down in the heap from the given index until it finds its proper place among
+     * the subheap rooted at that position.
+     */
+    private void heapifyUp(C item, int index)
+    {
+        while (true)
+        {
+            if (index == 0)
+            {
+                if (greaterCursor(head, item))
+                {
+                    heap[0] = head;
+                    head = item;
+                    return;
+                }
+                else
+                    break;
+            }
+            int prev = (index - 1) / 2;
+
+            // If the parent is lesser or equal, the invariant has been restored.
+            if (!greaterCursor(heap[prev], item))
+                break;
+            heap[index] = heap[prev];
+            index = prev;
+        }
+        heap[index] = item;
+    }
+
     static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends CollectionMergeCursor<C> implements TrieImpl.Cursor<T>
     {
         final Trie.CollectionMergeResolver<T> resolver;
@@ -333,9 +400,9 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         T collectedContent;
         boolean contentCollected;
 
-        <L> WithContent(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, C> getter)
+        <L> WithContent(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, C> getter, Class<? super C> cursorClass)
         {
-            super(inputs, getter);
+            super(inputs, getter, cursorClass);
             this.resolver = resolver;
             contents = new ArrayList<>(inputs.size());
         }
@@ -380,7 +447,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             if (!contentCollected)
             {
-                collectedContent = collectContent();
+                collectedContent = isExhausted() ? null : collectContent();
                 contentCollected = true;
             }
             return collectedContent;
@@ -426,7 +493,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
 
         <L> Deterministic(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, TrieImpl.Cursor<T>> getter)
         {
-            super(resolver, inputs, getter);
+            super(resolver, inputs, getter, TrieImpl.Cursor.class);
         }
 
         Deterministic(Trie.CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
@@ -454,7 +521,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     {
         <L> NonDeterministic(Collection<L> inputs, Function<L, NonDeterministicTrieImpl.Cursor<T>> getter)
         {
-            super(NonDeterministic::resolve, inputs, getter);
+            super(NonDeterministic::resolve, inputs, getter, NonDeterministicTrieImpl.Cursor.class);
         }
 
         NonDeterministic(Collection<? extends NonDeterministicTrie<T>> inputs)
@@ -530,7 +597,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     {
         <L> Range(Trie.CollectionMergeResolver<M> resolver, Collection<L> inputs, Function<L, RangeTrieImpl.Cursor<M>> getter)
         {
-            super(resolver, inputs, getter);
+            super(resolver, inputs, getter, RangeTrieImpl.Cursor.class);
         }
 
         Range(Trie.CollectionMergeResolver<M> resolver, Collection<? extends RangeTrie<M>> inputs)
@@ -590,4 +657,210 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             return state != null ? state.toContent() : null;
         }
     }
+
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends CollectionMergeCursor.WithContent<T, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
+    {
+        final BiFunction<D, T, T> deleter;
+        final Trie.CollectionMergeResolver<D> deletionResolver;
+        final Range<D> relevantDeletions;
+        int deletionBranchDepth = -1;
+
+        enum DeletionState
+        {
+            NONE,
+            MATCHING,
+            AHEAD
+        }
+        DeletionState relevantDeletionsState = DeletionState.NONE;
+
+        <L> DeletionAware(Trie.CollectionMergeResolver<T> mergeResolver,
+                          Trie.CollectionMergeResolver<D> deletionResolver,
+                          BiFunction<D, T, T> deleter,
+                          Collection<L> inputs,
+                          Function<L, DeletionAwareTrieImpl.Cursor<T, D>> getter)
+        {
+            super(mergeResolver,
+                  inputs,
+                  getter,
+                  DeletionAwareTrieImpl.Cursor.class);
+            // We will add deletion sources to the above as we find them.
+            this.deletionResolver = deletionResolver;
+            this.deleter = deleter;
+            // Make a flexible merger for the deletion branches
+            relevantDeletions = new Range<D>(deletionResolver,
+                                             Collections.<RangeTrieImpl.Cursor<D>>nCopies(inputs.size(),
+                                                                                          RangeTrieImpl.done()),
+                                             x -> x);
+            maybeAddDeletionsBranch(this.depth());
+        }
+
+        DeletionAware(Trie.CollectionMergeResolver<T> mergeResolver,
+                      Trie.CollectionMergeResolver<D> deletionResolver,
+                      BiFunction<D, T, T> deleter,
+                      Collection<? extends DeletionAwareTrie<T, D>> inputs)
+        {
+            this(mergeResolver, deletionResolver, deleter, inputs, trie -> DeletionAwareTrieImpl.impl(trie).cursor());
+        }
+
+        public DeletionAware(DeletionAware<T, D> copyFrom)
+        {
+            super(copyFrom);
+            this.deleter = copyFrom.deleter;
+            this.deletionResolver = copyFrom.deletionResolver;
+            this.deletionBranchDepth = copyFrom.deletionBranchDepth;
+            this.relevantDeletions = copyFrom.relevantDeletions.duplicate();
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
+        {
+            if (relevantDeletionsState == DeletionState.MATCHING)
+                return advance();
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        void adjustDeletionState(int deletionDepth, int contentDepth, int contentTransition)
+        {
+            if (deletionDepth < 0)
+                relevantDeletionsState = DeletionState.NONE;
+            else if (deletionDepth < contentDepth)
+                relevantDeletionsState = DeletionState.AHEAD;
+            else if (contentTransition < relevantDeletions.incomingTransition())
+                relevantDeletionsState = DeletionState.AHEAD;
+            else
+                relevantDeletionsState = DeletionState.MATCHING;
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            int contentTransition = incomingTransition();
+            int deletionDepth;
+            switch (relevantDeletionsState)
+            {
+                case MATCHING:
+                    deletionDepth = relevantDeletions.skipTo(depth, contentTransition);
+                    break;
+                case AHEAD:
+                    deletionDepth = relevantDeletions.maybeSkipTo(depth, contentTransition);
+                    break;
+                default:
+                    deletionDepth = -1;
+                    break;
+            }
+
+            if (depth <= deletionBranchDepth)   // ascending above common deletions root
+            {
+                deletionBranchDepth = -1;
+                assert deletionDepth < 0;
+            }
+
+            if (branchHasMultipleSources())
+            {
+                maybeAddDeletionsBranch(head, 0, relevantDeletions);
+                applyToEqualOnHeap(DeletionAware::maybeAddDeletionsBranch, relevantDeletions);
+                deletionDepth = relevantDeletions.depth();  // newly inserted cursors may have adjusted the deletion cursor's position
+            }
+            // otherwise even if there is deletion, it cannot affect any of the other branches (and head is assumed to
+            // not have anything that can be affected by its own deletion trie).
+
+            adjustDeletionState(deletionDepth, depth, contentTransition);
+            return depth;
+        }
+
+        @Override
+        T resolveContent()
+        {
+            T content = super.resolveContent();
+            if (content == null)
+                return null;
+
+            D deletion;
+            switch (relevantDeletionsState)
+            {
+                case MATCHING:
+                    deletion = relevantDeletions.content();
+                    if (deletion != null)
+                        break;
+                    // else fall through
+                case AHEAD:
+                    deletion = relevantDeletions.coveringState();
+                    break;
+                default:
+                    deletion = null;
+            }
+            if (deletion == null)
+                return content;
+            return deletion.delete(content);
+        }
+
+        static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+        void maybeAddDeletionsBranch(DeletionAwareTrieImpl.Cursor<T, D> cursor, int index, Range<D> relevantDeletions)
+        {
+            RangeTrieImpl.Cursor<D> deletionsBranch = cursor.deletionBranch();
+            if (deletionsBranch != null)
+                addCursorOrThrow(relevantDeletions, deletionsBranch);
+        }
+
+        static <C extends CursorWalkable.Cursor> void addCursorOrThrow(CollectionMergeCursor<C> where, C cursor)
+        {
+            boolean succeeded = where.addCursor(cursor);
+            assert succeeded : "Too many deletion cursors added likely due to non-overlap of deletion branches violation.";
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            int depth = depth();
+            if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
+                return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
+
+            if (!branchHasMultipleSources())
+                return head.deletionBranch();
+
+            // We are positioned at a multi-source branch. If one has a deletion branch, we must combine it with the
+            // deletion-tree branch of the others to make sure that we merge any lower-level deletion branch with it.
+
+            // We have already created the merge of all present deletion branches in relevantDeletions. If that's empty,
+            // there's no deletion rooted here.
+            if (relevantDeletions.depth() < 0)
+                return null;
+
+            Range<D> deletions = relevantDeletions.duplicate();
+            // Now add the deletion-tree branch of all sources that did not present a deletion branch.
+            maybeAddDeletionTrieBranch(head, 0, deletions);
+            applyToEqualOnHeap(DeletionAware::maybeAddDeletionTrieBranch, deletions);
+
+            deletionBranchDepth = depth;
+            return deletions;
+        }
+
+        static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+        void maybeAddDeletionTrieBranch(DeletionAwareTrieImpl.Cursor<T,D> cursor, int i, Range<D> deletions)
+        {
+            RangeTrieImpl.Cursor<D> deletionsBranch = cursor.deletionBranch();
+            if (deletionsBranch == null)
+                addCursorOrThrow(deletions, new DeletionAwareTrieImpl.DeletionsTrieCursor(cursor.duplicate()));
+            // otherwise deletions already contains this cursor
+        }
+
+        @Override
+        public DeletionAwareTrieImpl.Cursor<T, D> duplicate()
+        {
+            return new DeletionAware<>(this);
+        }
+    }
+
 }

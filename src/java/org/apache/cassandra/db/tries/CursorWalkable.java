@@ -86,7 +86,10 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
 
         /**
          * A version of skipTo which checks if the requested position is ahead of the cursor's current position and only
-         * advances if it is.
+         * advances if it is. This can only be used if the skipTo instruction was issued for a position that was behind
+         * this cursor's (i.e. if the skipTo request is to descend, it is assumed to descend from a position _before_
+         * this cursor's and will not be acted on).
+         * TODO: recheck the above
          */
         default int maybeSkipTo(int skipDepth, int skipTransition)
         {

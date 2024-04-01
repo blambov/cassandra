@@ -76,7 +76,12 @@ public interface Trie<T> extends BaseTrie<T>
     // TODO: simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
-    // TODO: consider mayHaveAlternatives flag
+
+    // TODO: introduce and return flags instead of depth
+    // (e.g. DESCENDED, SKIP_TO_MATCHED, HAS_CONTENT, HAS_ALTERNATIVE/DELETION, HAS_DELETION_STATE)
+    // maybe combine depth with flags
+
+    // TODO: mayHaveDeletions flag or in-tree metadata for newest/oldest deletion and newest/oldest timestamp
 
     // TODO: comments are very out-of-date
 

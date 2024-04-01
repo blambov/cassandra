@@ -80,6 +80,8 @@ interface DataPoint extends DeletionAwareTrie.Deletable
     {
         LivePoint live = combine(a.live(), b.live(), LivePoint::combine);
         DeletionMarker marker = combine(a.marker(), b.marker(), DeletionMarker::combine);
+        if (marker != null && live != null)
+            live = marker.delete(live);
         return resolve(live, marker);
     }
 
