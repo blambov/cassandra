@@ -180,4 +180,23 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
             return new DeletionsTrieCursor<>(this);
         }
     }
+
+    static class EmptyCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends TrieImpl.EmptyCursor<T> implements Cursor<T, D>
+    {
+        @Override
+        public RangeTrieImpl.Cursor<D> deletionBranch()
+        {
+            return null;
+        }
+
+        @Override
+        public Cursor<T, D> duplicate()
+        {
+            return depth == 0 ? new EmptyCursor<>() : this;
+        }
+    }
+
+    @SuppressWarnings("rawtypes")
+    static DeletionAwareTrieWithImpl EMPTY = EmptyCursor::new;
 }

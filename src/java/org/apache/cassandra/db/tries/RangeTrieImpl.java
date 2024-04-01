@@ -73,8 +73,8 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
         }
     }
 
-    @SuppressWarnings("unchecked")
-    RangeTrieWithImpl EMPTY = EmptyCursor::new;
+    @SuppressWarnings("rawtypes")
+    static final RangeTrieWithImpl EMPTY = EmptyCursor::new;
 
 
     static <M extends RangeTrie.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()
@@ -117,6 +117,59 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
                     return null;
             }
         };
+    }
+
+    static class Done<M extends RangeTrie.RangeMarker<M>> implements Cursor<M>
+    {
+        @Override
+        public int depth()
+        {
+            return -1;
+        }
+
+        @Override
+        public int incomingTransition()
+        {
+            return -1;
+        }
+
+        @Override
+        public int advance()
+        {
+            return -1;
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return -1;
+        }
+
+        @Override
+        public M coveringState()
+        {
+            return null;
+        }
+
+        @Override
+        public M content()
+        {
+            return null;
+        }
+
+        @Override
+        public Cursor<M> duplicate()
+        {
+            return this;
+        }
+    }
+
+    @SuppressWarnings("rawtypes")
+    static final Done DONE = new Done();
+
+    static <M extends RangeTrie.RangeMarker<M>> Cursor<M> done()
+    {
+        return (Cursor<M>) DONE;
     }
 
     static <M extends RangeTrie.RangeMarker<M>> RangeTrieWithImpl<M> impl(RangeTrie<M> trieSet)

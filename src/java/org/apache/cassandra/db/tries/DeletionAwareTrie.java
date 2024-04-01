@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -112,6 +114,39 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
                                                                                        DeletionAwareTrieImpl.impl(other).cursor());
     }
 
+
+    /**
+     * Constructs a view of the merge of multiple tries. The view is live, i.e. any write to any of the
+     * sources will be reflected in the merged view.
+     * <p>
+     * If there is content for a given key in more than one sources, the resolver will be called to obtain the
+     * combination. (The resolver will not be called if there's content from only one source.)
+     */
+    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    DeletionAwareTrie<T, D> merge(Collection<? extends DeletionAwareTrie<T, D>> sources,
+                                  Trie.CollectionMergeResolver<T> mergeResolver,
+                                  Trie.CollectionMergeResolver<D> deletionResolver,
+                                  BiFunction<D, T, T> deleter)
+    {
+        switch (sources.size())
+        {
+            case 0:
+                return empty();
+            case 1:
+                return sources.iterator().next();
+            case 2:
+            {
+                Iterator<? extends DeletionAwareTrie<T, D>> it = sources.iterator();
+                DeletionAwareTrie<T, D> t1 = it.next();
+                DeletionAwareTrie<T, D> t2 = it.next();
+                return t1.mergeWith(t2, mergeResolver, deletionResolver, deleter);
+            }
+            default:
+                return (DeletionAwareTrieWithImpl<T, D>)
+                       () -> new CollectionMergeCursor.DeletionAware<>(mergeResolver, deletionResolver, deleter, sources);
+        }
+    }
+
     default Trie<T> contentOnlyTrie()
     {
         return (TrieWithImpl<T>) impl()::cursor;
@@ -128,21 +163,30 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
         return (TrieWithImpl<Z>) () -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>(resolver, impl().cursor());
     }
 
+    @SuppressWarnings("unchecked")
+    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    DeletionAwareTrie<T, D> empty()
+    {
+        return (DeletionAwareTrie<T, D>) DeletionAwareTrieImpl.EMPTY;
+    }
+
     private DeletionAwareTrieImpl<T, D> impl()
     {
         return DeletionAwareTrieImpl.impl(this);
     }
 
-    // TODO: Construct from content-only and deletion-only tries (this could solve the "where to root the deletion in the memtable" question)
-    // TODO: Change test to work with the above
+    // Maybe: Construct from content-only and deletion-only tries (this could solve the "where to root the deletion in the memtable" question)
+    // Maybe: Change test to work with the above
 
-    // TODO: deletion-only tries of merges/intersections can be transformed separately from deletion-only tries
+    // Maybe: deletion-only tries of merges/intersections can be transformed separately from deletion-only tries
 
-    // TODO: Document no nested deletion branches
-    // TODO: No nesting means deletions merge is limited in size, use same-size CMC for deletions branch; maybe create once and reuse
-    // TODO: CollectionMergeCursor cursor add; remove is difficult and reduces perf: add last-ish (ensuring exhausted) and bubble up
-    // TODO: Add debug mode with verification wrapper for cursor, checking no nesting, open and close matching, coveringState matching on both sides after skip
+    // done: Document no nested deletion branches
+    // done: No nesting means deletions merge is limited in size, use same-size CMC for deletions branch; maybe create once and reuse
+    // done: CollectionMergeCursor cursor add; remove is difficult and reduces perf: add last-ish (ensuring exhausted) and bubble up
+    // done: Add debug mode with verification wrapper for cursor, checking no nesting, open and close matching, coveringState matching on both sides after skip
 
     // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.
     // TODO: Make sure range trie state() and coveringState() (i.e. state().leftSideAsCovering()) are never recomputed
+
+    // TODO: Deletion-aware merges may report different results when deletionBranch is called differently (if common root is not queried)
 }

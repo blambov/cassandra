@@ -22,13 +22,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
+import static org.apache.cassandra.db.tries.DataPoint.deletionOnlyList;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
@@ -136,7 +140,7 @@ public class DeletionAwareMergeTest
     public void testSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-        for (deletionPoint = 4; deletionPoint < 40; deletionPoint += 9)
+        for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             testMerge("no merge");
 
@@ -203,7 +207,7 @@ public class DeletionAwareMergeTest
     public void testRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-        for (deletionPoint = 4; deletionPoint < 40; deletionPoint += 9)
+        for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             testMerge("fully covered ranges",
                       deletedRanges(of(20), of(25), of(25), of(33)));
@@ -229,7 +233,7 @@ public class DeletionAwareMergeTest
     public void testRangeOnSubtrie()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-        for (deletionPoint = 4; deletionPoint < 40; deletionPoint += 9)
+        for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             // non-overlapping
             testMerge("non-overlapping", deletedRanges(of(20), of(23)), deletedRanges(of(24), of(27)));
@@ -241,9 +245,9 @@ public class DeletionAwareMergeTest
             testMerge("overlapping2", deletedRanges(of(20), of(23)), deletedRanges(of(21), of(27)));
             // covered
             testMerge("covered1", deletedRanges(of(20), of(23)), deletedRanges(of(20), of(27)));
-            // covered
-            testMerge("covered2", deletedRanges(of(23), of(27)), deletedRanges(of(20), of(27)));
             // covered 2
+            testMerge("covered2", deletedRanges(of(23), of(27)), deletedRanges(of(20), of(27)));
+            // covered 3
             testMerge("covered3", deletedRanges(of(21), of(23)), deletedRanges(of(20), of(27)));
         }
     }
@@ -252,7 +256,7 @@ public class DeletionAwareMergeTest
     public void testRangesOnRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-        for (deletionPoint = 4; deletionPoint < 40; deletionPoint += 9)
+        for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
             testMerges(fromList(getTestRanges()));
     }
 
@@ -316,7 +320,7 @@ public class DeletionAwareMergeTest
     {
         List<DataPoint> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
-//        testCollectionMerge(message, Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
     }
 
 
@@ -356,44 +360,54 @@ public class DeletionAwareMergeTest
         }
     }
 
-//    public void testCollectionMerge(String message, List<DeletionAwareTrie<LivePoint, DeletionMarker>> triesToMerge, List<DataPoint> merged, List<DataPoint>... sets)
-//    {
-//        System.out.println("Markers: " + merged);
-//        verify(merged);
-//        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
-//        // Checks both forward and reverse iteration direction.
-//        if (sets.length == 0)
-//        {
-//            DeletionAwareTrie<LivePoint, DeletionMarker> trie = RangeTrie.merge(triesToMerge, DataPoint::combineCollection);
-//            try
-//            {
-//                assertEquals(message + " forward b" + bits, merged, toList(trie));
-//                System.out.println(message + " forward b" + bits + " matched.");
-//            }
-//            catch (AssertionError e)
-//            {
-//                System.out.println("\n" + trie.dump());
-//                throw e;
-//            }
-//        }
-//        else
-//        {
-//            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
-//            {
-//                List<DataPoint> ranges = sets[toRemove];
-//                System.out.println("Adding:  " + ranges);
-//                triesToMerge.add(fromList(ranges));
-//                testCollectionMerge(message + " " + toRemove,
-//                                    triesToMerge,
-//                                    mergeLists(merged, ranges),
-//                                    Arrays.stream(sets)
-//                                          .filter(x -> x != ranges)
-//                                          .toArray(List[]::new)
-//                );
-//                triesToMerge.remove(triesToMerge.size() - 1);
-//            }
-//        }
-//    }
+    public void testCollectionMerge(String message, List<DeletionAwareTrie<LivePoint, DeletionMarker>> triesToMerge, List<DataPoint> merged, List<DataPoint>... sets)
+    {
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            DeletionAwareTrie<LivePoint, DeletionMarker> trie = DeletionAwareTrie.merge(triesToMerge,
+                                                                                        LivePoint::combineCollection,
+                                                                                        DeletionMarker::combineCollection,
+                                                                                        DeletionMarker::delete);
+            try
+            {
+                String msg = message + " forward b" + bits;
+                assertEquals(msg + " live",
+                             merged.stream().map(DataPoint::live).filter(Predicates.notNull()).collect(Collectors.toList()),
+                             contentOnlyList(trie));
+                assertEquals(msg + " deletions",
+                             merged.stream().map(DataPoint::marker).filter(Predicates.notNull()).collect(Collectors.toList()),
+                             deletionOnlyList(trie));
+                assertEquals(msg, merged, toList(trie));
+                System.out.println(msg + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println("\n" + trie.dump());
+                throw e;
+            }
+        }
+        else
+        {
+            for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+            {
+                List<DataPoint> ranges = sets[toRemove];
+                System.out.println("Adding:  " + ranges);
+                triesToMerge.add(fromList(ranges));
+                testCollectionMerge(message + " " + toRemove,
+                                    triesToMerge,
+                                    mergeLists(merged, ranges),
+                                    Arrays.stream(sets)
+                                          .filter(x -> x != ranges)
+                                          .toArray(List[]::new)
+                );
+                triesToMerge.remove(triesToMerge.size() - 1);
+            }
+        }
+    }
 
 
     int delete(int deletionTime, int data)
