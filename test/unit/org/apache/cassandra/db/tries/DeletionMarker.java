@@ -32,6 +32,9 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     final int at;
     final boolean isReportableState;
 
+    final DeletionMarker leftSideAsCovering;
+    final DeletionMarker rightSideAsCovering;
+
     DeletionMarker(ByteComparable position, int leftSide, int at, int rightSide)
     {
         this.position = position;
@@ -39,6 +42,21 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         this.rightSide = rightSide;
         this.at = at;
         this.isReportableState = at != leftSide || leftSide != rightSide;
+
+        if (!isReportableState)
+            leftSideAsCovering = rightSideAsCovering = this;
+        else
+        {
+            if (this.leftSide < 0)
+                leftSideAsCovering = null;
+            else
+                leftSideAsCovering = new DeletionMarker(this.position, this.leftSide, this.leftSide, this.leftSide);
+
+            if (this.rightSide < 0)
+                rightSideAsCovering = null;
+            else
+                rightSideAsCovering = new DeletionMarker(this.position, this.rightSide, this.rightSide, this.rightSide);
+        }
     }
 
     static DeletionMarker combine(DeletionMarker m1, DeletionMarker m2)
@@ -147,21 +165,13 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     @Override
     public DeletionMarker leftSideAsCovering()
     {
-        if (!isReportableState)
-            return this;
-        if (leftSide < 0)
-            return null;
-        return new DeletionMarker(position, leftSide, leftSide, leftSide);
+        return leftSideAsCovering;
     }
 
     @Override
     public DeletionMarker rightSideAsCovering()
     {
-        if (!isReportableState)
-            return this;
-        if (rightSide < 0)
-            return null;
-        return new DeletionMarker(position, rightSide, rightSide, rightSide);
+        return rightSideAsCovering;
     }
 
     @Override
