@@ -349,7 +349,7 @@ public interface VerificationCursor
                                      agree(currentCoveringState, source.coveringState())
                                      ? "The values are equal but different object. This is not permitted for performance reasons."
                                      : "");
-            // == above is correct, we do not want covering state to be recreated
+            // == above is correct, we do not want covering state to be recreated unless some change happened to the cursor
             return currentCoveringState;
         }
 

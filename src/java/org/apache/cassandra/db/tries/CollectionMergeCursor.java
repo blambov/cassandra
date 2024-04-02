@@ -438,6 +438,14 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         }
 
         @Override
+        boolean addCursor(C cursor)
+        {
+            // Make sure we are adjusting the collected content when new cursors are added.
+            contentCollected = false;
+            return super.addCursor(cursor);
+        }
+
+        @Override
         public T content()
         {
             return maybeCollectContent();
