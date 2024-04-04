@@ -345,6 +345,39 @@ public class InMemoryReadTrie<T>
         }
     }
 
+    /**
+     * Returns first present transition byte in the node that is the same or greater as the given target transition.
+     */
+    int getNextTransition(int node, int trans)
+    {
+        if (isNullOrLeaf(node))
+            return Integer.MAX_VALUE;
+
+        node = followPrefixTransition(node);
+
+        if (isNullOrLeaf(node))
+            return Integer.MAX_VALUE;
+
+        switch (offset(node))
+        {
+            case SPARSE_OFFSET:
+                return getSparseNextTransition(node, trans);
+            case SPLIT_OFFSET:
+                return getSplitNextTransition(node, trans);
+            default:
+                return getChainNextTransition(node, trans);
+        }
+    }
+
+    int getNextChild(int node, int targetTransition)
+    {
+        int nextTransition = getNextTransition(node, targetTransition);
+        if (nextTransition <= 0xFF)
+            return getChild(node, nextTransition);
+        else
+            return NONE;
+    }
+
     protected int followPrefixTransition(int node)
     {
         while (true)
@@ -426,6 +459,72 @@ public class InMemoryReadTrie<T>
             }
         }
         return NONE;
+    }
+
+    int getSparseNextTransition(int node, int targetTransition)
+    {
+        UnsafeBuffer chunk = getChunk(node);
+        int inChunkNode = inChunkPointer(node);
+        int data = chunk.getShort(inChunkNode + SPARSE_ORDER_OFFSET) & 0xFFFF;
+        int index;
+        int transition;
+        do
+        {
+            // Peel off the next index.
+            index = data % SPARSE_CHILD_COUNT;
+            data = data / SPARSE_CHILD_COUNT;
+            transition = chunk.getByte(inChunkNode + SPARSE_BYTES_OFFSET + index) & 0xFF;
+        }
+        while (transition < targetTransition && data != 0);
+
+        if (transition < targetTransition)
+            return Integer.MAX_VALUE;
+        else
+            return transition;
+    }
+
+    int getChainNextTransition(int node, int targetTransition)
+    {
+        int transition = getUnsignedByte(node);
+        if (transition < targetTransition)
+            return Integer.MAX_VALUE;
+        else
+            return transition;
+    }
+
+    int getSplitNextTransition(int node, int targetTransition)
+    {
+        if (targetTransition < 0)
+            targetTransition = 0;
+        int midIndex = splitNodeMidIndex(targetTransition);
+        int tailIndex = splitNodeTailIndex(targetTransition);
+        int childIndex = splitNodeChildIndex(targetTransition);
+        while (midIndex < SPLIT_START_LEVEL_LIMIT)
+        {
+            int mid = getSplitBlockPointer(node, midIndex, SPLIT_START_LEVEL_LIMIT);
+            if (!isNull(mid))
+            {
+                while (tailIndex < SPLIT_OTHER_LEVEL_LIMIT)
+                {
+                    int tail = getSplitBlockPointer(mid, tailIndex, SPLIT_OTHER_LEVEL_LIMIT);
+                    if (!isNull(tail))
+                    {
+                        while (childIndex < SPLIT_OTHER_LEVEL_LIMIT)
+                        {
+                            int child = getSplitBlockPointer(tail, childIndex, SPLIT_OTHER_LEVEL_LIMIT);
+                            if (!isNull(child))
+                                return childIndex | (tailIndex << 3) | (midIndex << 6);
+                            ++childIndex;
+                        }
+                    }
+                    childIndex = 0;
+                    ++tailIndex;
+                }
+            }
+            tailIndex = 0;
+            ++midIndex;
+        }
+        return Integer.MAX_VALUE;
     }
 
     /**

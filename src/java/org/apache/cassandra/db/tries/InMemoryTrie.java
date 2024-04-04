@@ -161,7 +161,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return v;
     }
 
-    private int addContent(T value)
+    int addContent(T value)
     {
         int index = contentCount++;
         int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
@@ -177,7 +177,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return index;
     }
 
-    private void setContent(int index, T value)
+    void setContent(int index, T value)
     {
         int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
@@ -478,13 +478,13 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return allocateBlock() + SPLIT_OFFSET;
     }
 
-    private int createContentPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
+    int createContentPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
     {
         assert !isNullOrLeaf(child) : "Content prefix node cannot reference a childless node.";
         return createPrefixNode(contentIndex, child, isSafeChain, 0);
     }
 
-    private int createPrefixNode(int contentIndex, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
+    int createPrefixNode(int contentIndex, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
     {
         int offset = offset(child);
         int node;
@@ -509,7 +509,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
-    private int updatePrefixNodeChild(int node, int child) throws SpaceExhaustedException
+    int updatePrefixNodeChild(int node, int child) throws SpaceExhaustedException
     {
         assert offset(node) == PREFIX_OFFSET : "updatePrefix called on non-prefix node";
         assert !isNullOrLeaf(child) : "Prefix node cannot reference a childless node.";
@@ -584,12 +584,6 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int stackDepth = -1;
         int currentDepth = -1;
 
-        void reset()
-        {
-            stackDepth = -1;
-            currentDepth = -1;
-        }
-
         /**
          * Pointer to the existing node before skipping over content nodes, i.e. this is either the same as
          * existingPostContentNode or a pointer to a prefix or leaf node whose child is existingPostContentNode.
@@ -601,6 +595,10 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         void setExistingFullNode(int value)
         {
             data[stackDepth * 5 + 0] = value;
+        }
+        int existingFullNodeAtDepth(int stackDepth)
+        {
+            return data[stackDepth * 5 + 0];
         }
 
         /**
@@ -653,6 +651,10 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         {
             data[stackDepth * 5 + 2] = transition;
         }
+        int transitionAtDepth(int stackDepth)
+        {
+            return data[stackDepth * 5 + 2];
+        }
 
         /**
          * The compiled content index. Needed because we can only access a cursor's content on the way down but we can't
@@ -679,40 +681,94 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             data[stackDepth * 5 + 4] = value;
         }
 
+        int ascendLimit = -1;
+
+        int setAscendLimit(int newLimit)
+        {
+            int prev = ascendLimit;
+            ascendLimit = newLimit;
+            return prev;
+        }
+
+
+        ApplyState start()
+        {
+            int existingFullNode = root;
+            stackDepth = -1;
+            currentDepth = 0;
+            ascendLimit = 0;
+
+            descendInto(existingFullNode);
+            return this;
+        }
+
+        /**
+         * Returns true if the depth signals mutation cursor is exhausted.
+         */
+        boolean advanceTo(int depth, int transition) throws SpaceExhaustedException
+        {
+            while (currentDepth > Math.max(ascendLimit, depth - 1))
+            {
+                // There are no more children. Ascend to the parent state to continue walk.
+                attachAndMoveToParentState();
+            }
+            if (depth == -1)
+                return true;
+
+            // We have a transition, get child to descend into
+            descend(transition);
+            return false;
+        }
+
+        boolean advanceToNextExistingOr(int depth, int transition) throws SpaceExhaustedException
+        {
+            setTransition(-1); // we have newly descended to a node, start with its first child
+            while (currentDepth >= ascendLimit)
+            {
+                int currentTransition = transition();
+                int nextTransition = getNextTransition(existingFullNode(), currentTransition + 1);
+                if (currentDepth + 1 == depth && nextTransition >= transition)
+                {
+                    descend(transition);
+                    return true;
+                }
+                if (nextTransition <= 0xFF)
+                {
+                    descend(nextTransition);
+                    return false;
+                }
+                attachAndMoveToParentState();
+            }
+            assert depth == -1;
+            return true;
+        }
+
         /**
          * Descend to a child node. Prepares a new entry in the stack for the node.
          */
-        <U> void descend(int transition, U mutationContent, final UpsertTransformer<T, U> transformer)
+        void descend(int transition)
         {
-            int existingFullNode;
-            if (stackDepth < 0)
-                existingFullNode = root;
-            else
-            {
-                setTransition(transition);
-                existingFullNode = isNull(existingPostContentNode())
-                                         ? NONE
-                                         : getChild(existingPostContentNode(), transition);
-            }
+            setTransition(transition);
             ++currentDepth;
+            int existingFullNode = getChild(existingFullNode(), transition);
 
-            descendInto(existingFullNode, mutationContent, transformer);
+            descendInto(existingFullNode);
         }
 
         /**
          * Descend to the alternate (ie. 𝜀-transition) path of this node. Adds an entry to the stack but does not
          * increase the descent depth.
          */
-        <U> void descendToAlternate(U mutationContent, final UpsertTransformer<T, U> transformer)
+        void descendToAlternate()
         {
             // We are positioned on the corresponding normal node. Create a stack entry but do not increase
             // currentDepth.
             int existingFullNode = getAlternateBranch(existingFullNode());
             assert stackDepth >= 0;
-            descendInto(existingFullNode, mutationContent, transformer);
+            descendInto(existingFullNode);
         }
 
-        private <U> void descendInto(int existingFullNode, U mutationContent, UpsertTransformer<T, U> transformer)
+        private void descendInto(int existingFullNode)
         {
             ++stackDepth;
             if (stackDepth * 5 >= data.length)
@@ -740,35 +796,54 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             else
                 existingPostContentNode = node;
             setUpdatedPostContentNode(existingPostContentNode);
-
-            int contentIndex = updateContentIndex(mutationContent, existingContentIndex, transformer);
-            setContentIndex(contentIndex);
+            setContentIndex(existingContentIndex);
         }
 
-        /**
-         * Combine existing and new content.
-         */
-        private <U> int updateContentIndex(U mutationContent, int existingContentIndex, final UpsertTransformer<T, U> transformer)
+        T getContent()
         {
-            if (mutationContent != null)
+            int contentIndex = contentIndex();
+            if (contentIndex == -1)
+                return null;
+            return InMemoryTrie.this.getContent(contentIndex());
+        }
+
+        void setContent(T content)
+        {
+            int contentIndex = contentIndex();
+            if (contentIndex == -1)
             {
-                if (existingContentIndex != -1)
-                {
-                    final T existingContent = getContent(existingContentIndex);
-                    T combinedContent = transformer.apply(existingContent, mutationContent);
-                    assert (combinedContent != null) : "Transformer cannot be used to remove content.";
-                    setContent(existingContentIndex, combinedContent);
-                    return existingContentIndex;
-                }
-                else
-                {
-                    T combinedContent = transformer.apply(null, mutationContent);
-                    assert (combinedContent != null) : "Transformer cannot be used to remove content.";
-                    return addContent(combinedContent);
-                }
+                if (content != null)
+                    setContentIndex(InMemoryTrie.this.addContent(content));
             }
             else
-                return existingContentIndex;
+            {
+                InMemoryTrie.this.setContent(contentIndex, content);
+                // TODO: setContentIndex(NONE);
+                //  and release contentIndex
+            }
+        }
+
+        T getNearestContent()
+        {
+            // Assume any dead branch is deleted, thus: go upstack until first node for which we have a higher transition
+            // and then repeatedly descend into first child until content.
+            int stackPos = stackDepth;
+            int node = NONE;
+            setTransition(-1);      // In the node we have just descended to, start with its first child
+            for (; stackPos >= 0 && node == NONE; --stackPos)
+            {
+                // TODO: accelerate this, especially going through prefix nodes
+                node = getNextChild(existingFullNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
+            }
+
+            while (node != NONE)
+            {
+                T content = InMemoryTrie.this.getNodeContent(node);
+                if (content != null)
+                    return content;
+                node = getNextChild(node, 0);
+            }
+            return null;
         }
 
         /**
@@ -854,7 +929,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * content to the compiled updatedPostContentNode and creating a mapping in the parent to it (or updating if
          * one already exists).
          */
-        private void attachAndMoveToParentState() throws SpaceExhaustedException
+        void attachAndMoveToParentState() throws SpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes();
             int existingFullNode = existingFullNode();
@@ -869,7 +944,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Ascend and update the root at the end of processing.
          */
-        private void attachRoot() throws SpaceExhaustedException
+        void attachRoot() throws SpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes();
             int existingFullNode = existingFullNode();
@@ -885,7 +960,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Ascend and update the alternate link at the end of alternate branch processing.
          */
-        private void attachAlternate() throws SpaceExhaustedException
+        void attachAlternate() throws SpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes();
             int existingFullNode = existingFullNode();
@@ -929,83 +1004,36 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     {
         TrieImpl.Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor();
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
-        ApplyState state = applyState;
-        state.reset();
-        state.descend(-1, mutationCursor.content(), transformer);
+        ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         apply(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         state.attachRoot();
     }
 
-    private <U> void apply(ApplyState state, TrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    static <T, U> void apply(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
-        int finalDepthToDescend = state.currentDepth + 1;
+        int prevAscendLimit = state.setAscendLimit(state.currentDepth);
         while (true)
         {
-            int depth = mutationCursor.advance();
-            while (state.currentDepth >= Math.max(finalDepthToDescend, depth))
-            {
-                // There are no more children. Ascend to the parent state to continue walk.
-                state.attachAndMoveToParentState();
-            }
-            if (depth == -1)
-                return;
+            applyContent(state, mutationCursor, transformer);
 
-            // We have a transition, get child to descend into
-            state.descend(mutationCursor.incomingTransition(), mutationCursor.content(), transformer);
+            int depth = mutationCursor.advance();
+            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+                break;
             assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
         }
+        state.setAscendLimit(prevAscendLimit);
     }
 
-    /**
-     * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-     * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-     * @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
-     * different than the element type for this memtable trie.
-     * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-     * value. Applied even if there's no pre-existing value in the memtable trie.
-     */
-    public <U extends NonDeterministicTrie.Mergeable<U>> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    static <T, U> void applyContent(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer)
     {
-        NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor();
-        assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
-        ApplyState state = applyState;
-        state.reset();
-        state.descend(-1, mutationCursor.content(), transformer);
-        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        apply(state, mutationCursor, transformer);
-        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
-    }
-
-    private <U extends NonDeterministicTrie.Mergeable<U>> void apply(ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
-    {
-        int finalDepthToDescend = state.currentDepth + 1;
-        while (true)
+        U content = mutationCursor.content();
+        if (content != null)
         {
-            NonDeterministicTrieImpl.Cursor<U> alternate = mutationCursor.alternateBranch();
-            if (alternate != null)
-            {
-                // Note: This will blow if we can have deep chain of alternates of alternates.
-                // The latter is not something we need to support.
-                state.descendToAlternate(alternate.content(), transformer);
-                apply(state, alternate, transformer);
-                state.attachAlternate();
-            }
-
-            int depth = mutationCursor.advance();
-            while (state.currentDepth >= Math.max(finalDepthToDescend, depth))
-            {
-                // There are no more children. Ascend to the parent state to continue walk.
-                state.attachAndMoveToParentState();
-            }
-            if (depth == -1)
-                return;
-
-            // We have a transition, get child to descend into
-            state.descend(mutationCursor.incomingTransition(), mutationCursor.content(), transformer);
-            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+            T existingContent = state.getContent();
+            T combinedContent = transformer.apply(existingContent, content);
+            state.setContent(combinedContent);
         }
     }
 
@@ -1061,7 +1089,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             root = newRoot;
     }
 
-    private <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
         int transition = key.next();
         if (transition == ByteSource.END_OF_STREAM)
@@ -1213,7 +1241,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return completeUpdate(node, keyHead, getChild(node, keyHead), newChild);
     }
 
-    private int completeUpdate(int node, int transition, int oldChild, int newChild) throws SpaceExhaustedException
+    int completeUpdate(int node, int transition, int oldChild, int newChild) throws SpaceExhaustedException
     {
         if (newChild == oldChild)
             return node;

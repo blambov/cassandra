@@ -205,7 +205,7 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
         return new RangeMarker(newKey, dm.leftSide, dm.at, dm.rightSide);
     }
 
-    static RangeTrie<RangeMarker> fromList(List<RangeMarker> list)
+    static InMemoryRangeTrie<RangeMarker> fromList(List<RangeMarker> list)
     {
         InMemoryRangeTrie<RangeMarker> trie = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
         for (RangeMarker i : list)

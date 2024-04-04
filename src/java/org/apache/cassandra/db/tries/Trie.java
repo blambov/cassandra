@@ -59,6 +59,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  */
 public interface Trie<T> extends BaseTrie<T>
 {
+    // Necessary:
     // done: determinization / mergeAlternatives (needed to run any tests)
     // done: alternate branch merge
     // done: alternate branch intersect
@@ -71,8 +72,13 @@ public interface Trie<T> extends BaseTrie<T>
     // done: test put/apply alternate range with LCA test
     // done: test duplicate impl (ByteSource and Cursor)
     // done: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
-    // TODO: deletion-aware merge (pluggable)
+    // done: deletion-aware merge (pluggable)
     // TODO: deletion-aware InMemoryTrie methods (pluggable)
+
+    // TODO: reverse iteration
+    // TODO: consistency levels / copy on write + node reuse
+
+    // Optimizations:
     // TODO: simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
@@ -83,10 +89,9 @@ public interface Trie<T> extends BaseTrie<T>
 
     // TODO: mayHaveDeletions flag or in-tree metadata for newest/oldest deletion and newest/oldest timestamp
 
+    // Cleanup:
     // TODO: comments are very out-of-date
 
-    // TODO: reverse iteration
-    // TODO: consistency levels / copy on write + node reuse
 
     static final boolean DEBUG = CassandraRelevantProperties.TRIE_DEBUG.getBoolean();
 

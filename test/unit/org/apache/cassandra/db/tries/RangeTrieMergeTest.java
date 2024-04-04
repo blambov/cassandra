@@ -306,6 +306,7 @@ public class RangeTrieMergeTest
         List<RangeMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
         testCollectionMerge(message, Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMergeToInMemoryTrie(message, fromList(testRanges), testRanges, sets);
         testMergeByRangeIntersection(message, fromList(testRanges), testRanges, sets);
     }
 
@@ -344,6 +345,60 @@ public class RangeTrieMergeTest
                 );
             }
         }
+    }
+
+    public void testMergeToInMemoryTrie(String message, InMemoryRangeTrie<RangeMarker> trie, List<RangeMarker> merged, List<RangeMarker>... sets)
+    {
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        System.out.println("Trie: \n" + trie.dump());
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            try
+            {
+                assertEquals(message + " forward b" + bits, merged, toList(trie));
+                System.out.println(message + " forward b" + bits + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println("\n" + trie.dump());
+                throw e;
+            }
+        }
+        else
+        {
+            try
+            {
+                for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+                {
+                    List<RangeMarker> ranges = sets[toRemove];
+                    System.out.println("Adding:  " + ranges);
+                    trie.apply(fromList(ranges), this::upsertMarkers);
+                    testMergeToInMemoryTrie(message + " " + toRemove,
+                                            trie,
+                                            mergeLists(merged, ranges),
+                                            Arrays.stream(sets)
+                                                  .filter(x -> x != ranges)
+                                                  .toArray(List[]::new)
+                    );
+                }
+            }
+            catch (InMemoryTrie.SpaceExhaustedException e)
+            {
+                throw new AssertionError(e);
+            }
+        }
+    }
+
+    RangeMarker upsertMarkers(RangeMarker left, RangeMarker right)
+    {
+        if (left == null)
+            return right;
+        if (right == null)
+            return left;
+        return RangeMarker.combine(left, right);
     }
 
     public void testCollectionMerge(String message, List<RangeTrie<RangeMarker>> triesToMerge, List<RangeMarker> merged, List<RangeMarker>... sets)
