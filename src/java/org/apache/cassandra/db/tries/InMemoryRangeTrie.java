@@ -131,7 +131,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         private void setActiveState()
         {
             assert content() == null;
-            M nearestContent = (M) duplicate().advanceToContent(null);
+            M nearestContent = duplicate().advanceToContent(null);
             activeRange = nearestContent != null ? nearestContent.leftSideAsCovering() : null;
             prevContent = null;
             activeIsSet = true;
@@ -140,7 +140,141 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         @Override
         public RangeCursor<M, Q> duplicate()
         {
-            return new RangeCursor<M, Q>(this);
+            return new RangeCursor<>(this);
+        }
+    }
+
+
+    /**
+     * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+     * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+     * @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+     * different than the element type for this memtable trie.
+     * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+     * value. Applied even if there's no pre-existing value in the memtable trie.
+     */
+    public <U extends RangeMarker<U>> void apply(RangeTrie<U> mutation, final UpsertTransformer<M, U> transformer) throws SpaceExhaustedException
+    {
+        RangeTrieImpl.Cursor<U> mutationCursor = RangeTrieImpl.impl(mutation).cursor();
+        assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
+        ApplyState state = applyState.start();
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        apply(state, mutationCursor, transformer);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        state.attachRoot();
+    }
+
+    static <M extends RangeMarker<M>, N extends RangeMarker<N>>
+    void apply(InMemoryTrie<M>.ApplyState state,
+               RangeTrieImpl.Cursor<N> mutationCursor,
+               final UpsertTransformer<M, N> transformer)
+    throws SpaceExhaustedException
+    {
+        // While activeDeletion is not set, follow the mutation trie.
+        // When a deletion is found, get existing covering state, combine and apply/store.
+        // Get rightSideAsCovering and walk the full existing trie to apply, advancing mutation cursor in parallel
+        // until we see another entry in mutation trie.
+        // Repeat until mutation trie is exhausted.
+        int prevAscendDepth = state.setAscendLimit(state.currentDepth);
+        while (true)
+        {
+            N content = mutationCursor.content();
+            if (content != null)
+            {
+                final M existingCoveringState = getExistingCoveringState(state);
+                applyContent(state, transformer, existingCoveringState, content);
+                N mutationCoveringState = content.rightSideAsCovering();
+                // Several cases:
+                // - New deletion is point deletion: Apply it and move on to next mutation branch.
+                // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
+                //   parallel to apply deletion and adjust on any change.
+                // - New deletion starts range and existing beats it: We still have to walk both tries in parallel,
+                //   because existing deletion may end before the newly introduced one, and we want to apply that when
+                //   it does.
+                if (mutationCoveringState != null)
+                    applyDeletionRange(state, mutationCursor, transformer, rightSideAsCovering(existingCoveringState), mutationCoveringState);
+            }
+
+            int depth = mutationCursor.advance();
+            // Descend but do not modify anything yet.
+            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+                break;
+            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+        }
+        state.setAscendLimit(prevAscendDepth);
+    }
+
+    static <M extends RangeMarker<M>> M rightSideAsCovering(M rangeMarker)
+    {
+        if (rangeMarker == null)
+            return null;
+        return rangeMarker.rightSideAsCovering();
+    }
+
+    private static <M extends RangeMarker<M>, N extends RangeMarker<N>>
+    void applyContent(InMemoryTrie<M>.ApplyState state, UpsertTransformer<M, N> transformer, M existingState, N mutationState)
+    {
+        M combined = transformer.apply(existingState, mutationState);
+        if (combined != null)
+            combined = combined.toContent();
+        state.setContent(combined); // can be null
+    }
+
+    static <M extends RangeMarker<M>>
+    M getExistingCoveringState(InMemoryTrie<M>.ApplyState state)
+    {
+        M existingCoveringState = state.getContent();
+        if (existingCoveringState == null)
+        {
+            existingCoveringState = state.getNearestContent();    // without advancing, just get
+            if (existingCoveringState != null)
+                existingCoveringState = existingCoveringState.leftSideAsCovering();
+        }
+        return existingCoveringState;
+    }
+
+    static <M extends RangeMarker<M>, N extends RangeMarker<N>>
+    void applyDeletionRange(InMemoryTrie<M>.ApplyState state,
+                            Cursor<N> mutationCursor,
+                            UpsertTransformer<M,N> transformer,
+                            M existingCoveringState,
+                            N mutationCoveringState)
+    throws SpaceExhaustedException
+    {
+        boolean atMutation = true;
+        int depth = mutationCursor.depth();
+        int transition = mutationCursor.incomingTransition();
+        // We are walking both tries in parallel.
+        while (true)
+        {
+            if (atMutation)
+            {
+                depth = mutationCursor.advance();
+                transition = mutationCursor.incomingTransition();
+                assert depth >= 0 : "Mutation trie did not close deletion " + mutationCoveringState;
+            }
+            atMutation = state.advanceToNextExistingOr(depth, transition);
+            if (atMutation && depth == -1)
+                break;
+
+            M existingContent = state.getContent();
+            N mutationContent = atMutation ? mutationCursor.content() : null;
+            if (existingContent != null || mutationContent != null)
+            {
+                // TODO: maybe assert correct closing of ranges
+                if (existingContent == null)
+                    existingContent = existingCoveringState;
+                if (mutationContent == null)
+                    mutationContent = mutationCoveringState;
+                applyContent(state, transformer, existingContent, mutationContent);
+                mutationCoveringState = mutationContent.rightSideAsCovering();
+                existingCoveringState = rightSideAsCovering(existingContent);
+                if (mutationCoveringState == null)
+                {
+                    assert atMutation; // mutation covering state can only change when mutation content is present
+                    return; // mutation deletion range was closed, we can continue normal mutation cursor iteration
+                }
+            }
         }
     }
 

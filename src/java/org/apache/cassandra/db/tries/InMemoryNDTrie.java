@@ -68,6 +68,56 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         return new NonDeterministicCursor<>(this, root, -1, -1);
     }
 
+
+
+    /**
+     * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+     * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+     * @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+     * different than the element type for this memtable trie.
+     * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+     * value. Applied even if there's no pre-existing value in the memtable trie.
+     */
+    public <U extends NonDeterministicTrie.Mergeable<U>> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor();
+        assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
+        ApplyState state = applyState.start();
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        apply(state, mutationCursor, transformer);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        state.attachRoot();
+    }
+
+    static <T extends Mergeable<T>, U extends Mergeable<U>> void apply(InMemoryTrie<T>.ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        int prevAscendLimit = state.setAscendLimit(state.currentDepth);
+        while (true)
+        {
+            applyContent(state, mutationCursor, transformer);
+            applyAlternate(state, mutationCursor, transformer);
+            int depth = mutationCursor.advance();
+            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+                break;
+            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+        }
+        state.setAscendLimit(prevAscendLimit);
+    }
+
+    static <T extends Mergeable<T>, U extends Mergeable<U>> void applyAlternate(InMemoryTrie<T>.ApplyState state, Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    {
+        Cursor<U> alternate = mutationCursor.alternateBranch();
+        if (alternate != null)
+        {
+            // Note: This will blow if we can have deep chain of alternates of alternates.
+            // The latter is not something we need to support.
+            state.descendToAlternate();
+            apply(state, alternate, transformer);
+            state.attachAlternate();
+        }
+    }
+
+
     /**
      * Override of dump to provide more detailed printout that includes the type of each node in the trie.
      * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
