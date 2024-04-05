@@ -818,6 +818,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             else
             {
                 InMemoryTrie.this.setContent(contentIndex, content);
+                // TODO: Delete on the way up
                 // TODO: setContentIndex(NONE);
                 //  and release contentIndex
             }
