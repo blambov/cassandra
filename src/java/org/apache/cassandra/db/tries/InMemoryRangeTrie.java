@@ -64,6 +64,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
             this.prevContent = copyFrom.prevContent;
         }
 
+        @SuppressWarnings("unchecked")
         @Override
         public M content()
         {
@@ -159,15 +160,15 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        apply(state, mutationCursor, transformer);
+        applyRanges(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         state.attachRoot();
     }
 
     static <M extends RangeMarker<M>, N extends RangeMarker<N>>
-    void apply(InMemoryTrie<M>.ApplyState state,
-               RangeTrieImpl.Cursor<N> mutationCursor,
-               final UpsertTransformer<M, N> transformer)
+    void applyRanges(InMemoryTrie<M>.ApplyState state,
+                     RangeTrieImpl.Cursor<N> mutationCursor,
+                     final UpsertTransformer<M, N> transformer)
     throws SpaceExhaustedException
     {
         // While activeDeletion is not set, follow the mutation trie.
@@ -192,7 +193,11 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                 //   because existing deletion may end before the newly introduced one, and we want to apply that when
                 //   it does.
                 if (mutationCoveringState != null)
-                    applyDeletionRange(state, mutationCursor, transformer, rightSideAsCovering(existingCoveringState), mutationCoveringState);
+                {
+                    boolean done = applyDeletionRange(state, mutationCursor, transformer, rightSideAsCovering(existingCoveringState), mutationCoveringState);
+                    if (done)
+                        break;
+                }
             }
 
             int depth = mutationCursor.advance();
@@ -234,11 +239,11 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     }
 
     static <M extends RangeMarker<M>, N extends RangeMarker<N>>
-    void applyDeletionRange(InMemoryTrie<M>.ApplyState state,
-                            Cursor<N> mutationCursor,
-                            UpsertTransformer<M,N> transformer,
-                            M existingCoveringState,
-                            N mutationCoveringState)
+    boolean applyDeletionRange(InMemoryTrie<M>.ApplyState state,
+                               Cursor<N> mutationCursor,
+                               UpsertTransformer<M,N> transformer,
+                               M existingCoveringState,
+                               N mutationCoveringState)
     throws SpaceExhaustedException
     {
         boolean atMutation = true;
@@ -251,11 +256,10 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
             {
                 depth = mutationCursor.advance();
                 transition = mutationCursor.incomingTransition();
-                assert depth >= 0 : "Mutation trie did not close deletion " + mutationCoveringState;
             }
             atMutation = state.advanceToNextExistingOr(depth, transition);
             if (atMutation && depth == -1)
-                break;
+                return true;
 
             M existingContent = state.getContent();
             N mutationContent = atMutation ? mutationCursor.content() : null;
@@ -272,7 +276,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                 if (mutationCoveringState == null)
                 {
                     assert atMutation; // mutation covering state can only change when mutation content is present
-                    return; // mutation deletion range was closed, we can continue normal mutation cursor iteration
+                    return false; // mutation deletion range was closed, we can continue normal mutation cursor iteration
                 }
             }
         }
