@@ -49,7 +49,7 @@ public class IntersectionTrieTest
     int bits = bitsNeeded;
 
 
-    public static final Trie.CollectionMergeResolver<Integer> RESOLVER = new Trie.CollectionMergeResolver<Integer>()
+    public static final Trie.CollectionMergeResolver<Integer> RESOLVER = new Trie.CollectionMergeResolver<>()
     {
         public Integer resolve(Collection<Integer> contents)
         {
@@ -394,9 +394,10 @@ public class IntersectionTrieTest
     public void testIntersection(String message, List<Integer> expected, Trie<Integer> trie, TrieSet... sets)
     {
         testIntersectionTries(message, expected, trie, sets);
-        testIntersectionTriesByRangeApplyTo(message, expected, trie, sets);
-        testIntersectionSets(message, expected, trie, TrieSet.range(null, null), sets);
-        testIntersectionSetsByRangeIntersector(message, expected, trie, TrieSet.range(null, null), sets);
+        testIntersectionTriesByRangeApplyTo(message + " applyTo", expected, trie, sets);
+        testIntersectionSets(message + " setix", expected, trie, TrieSet.range(null, null), sets);
+        testIntersectionSetsByRangeIntersector(message + " rangeix", expected, trie, TrieSet.range(null, null), sets);
+        testIntersectionInMemoryTrieDelete(message + " delete", expected, trie, sets);
     }
 
     public void testIntersectionSetsByRangeIntersector(String message, List<Integer> expected, Trie<Integer> trie, TrieSet intersectedSet, TrieSet[] sets)
@@ -503,6 +504,52 @@ public class IntersectionTrieTest
                                                           .filter(x -> x != set)
                                                           .toArray(TrieSet[]::new)
                 );
+            }
+        }
+    }
+
+    private static InMemoryDTrie<Integer> duplicateTrie(Trie<Integer> trie)
+    {
+        try
+        {
+            InMemoryDTrie<Integer> dupe = new InMemoryDTrie<>(BufferType.ON_HEAP);
+            dupe.apply(trie, (x, y) -> y);
+            return dupe;
+        }
+        catch (InMemoryTrie.SpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
+    public void testIntersectionInMemoryTrieDelete(String message, List<Integer> expected, Trie<Integer> trie, TrieSet[] sets)
+    {
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            assertEquals(message + " forward b" + bits, expected, toList(trie));
+        }
+        else
+        {
+            try
+            {
+                for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+                {
+                    TrieSet set = sets[toRemove];
+                    InMemoryDTrie<Integer> ix = duplicateTrie(trie);
+                    ix.deleteAllExcept(set);
+                    testIntersectionInMemoryTrieDelete(message + " " + toRemove, expected,
+                                                       ix,
+                                                       Arrays.stream(sets)
+                                                             .filter(x -> x != set)
+                                                             .toArray(TrieSet[]::new)
+                    );
+                }
+            }
+            catch (InMemoryTrie.SpaceExhaustedException e)
+            {
+                throw new AssertionError(e);
             }
         }
     }

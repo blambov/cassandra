@@ -28,6 +28,7 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -257,7 +258,7 @@ public class DeletionAwareMergeTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
-            testMerges(fromList(getTestRanges()));
+            testMerges();
     }
 
     private List<DataPoint> getTestRanges()
@@ -270,9 +271,9 @@ public class DeletionAwareMergeTest
                       from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35));
     }
 
-    private void testMerges(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    private void testMerges()
     {
-        testMerge("", trie, getTestRanges());
+        testMerge("", fromList(getTestRanges()), getTestRanges());
 
         List<DataPoint> set1 = deletedRanges(null, of(24), of(25), of(29), of(32), null);
         List<DataPoint> set2 = deletedRanges(of(14), of(17),
@@ -292,10 +293,10 @@ public class DeletionAwareMergeTest
                                                of(35), of(36),
                                                of(37), of(38));
 
-        testMerges(trie, set1, set2, set3);
+        testMerges(set1, set2, set3);
     }
 
-    private void testMerges(DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> set1, List<DataPoint> set2, List<DataPoint> set3)
+    private void testMerges(List<DataPoint> set1, List<DataPoint> set2, List<DataPoint> set3)
     {
         // set1 = TrieSet.ranges(null, of(24), of(25), of(29), of(32), null);
         // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
@@ -316,11 +317,13 @@ public class DeletionAwareMergeTest
         testMerge("123", set1, set2, set3);
     }
 
-    public void testMerge(String message, List<DataPoint>... sets)
+    @SafeVarargs
+    public final void testMerge(String message, List<DataPoint>... sets)
     {
         List<DataPoint> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
         testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMergeInMemoryTrie(message + " inmem.apply", moveDeletionBranchToRoot(fromList(testRanges)), testRanges, sets);
     }
 
 
@@ -409,13 +412,144 @@ public class DeletionAwareMergeTest
         }
     }
 
-
-    int delete(int deletionTime, int data)
+    public void testMergeInMemoryTrie(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> merged, List<DataPoint>... sets)
     {
-        if (data <= deletionTime)
-            return -1;
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            try
+            {
+                assertEquals(message + " forward b" + bits, merged, toList(trie));
+                System.out.println(message + " forward b" + bits + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println("\n" + trie.dump());
+                throw e;
+            }
+        }
         else
-            return data;
+        {
+            try
+            {
+                for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+                {
+                    List<DataPoint> ranges = sets[toRemove];
+                    System.out.println("Adding:  " + ranges);
+                    var dupe = duplicateTrie(trie);
+                    dupe.apply(moveDeletionBranchToRoot(fromList(ranges)),
+                               DeletionAwareMergeTest::combineLive,
+                               DeletionAwareMergeTest::combineDeletion,
+                               DeletionAwareMergeTest::deleteLive);
+                    testMerge(message + " " + toRemove,
+                              dupe,
+                              mergeLists(merged, ranges),
+                              Arrays.stream(sets)
+                                    .filter(x -> x != ranges)
+                                    .toArray(List[]::new)
+                    );
+                }
+            }
+            catch (InMemoryTrie.SpaceExhaustedException e)
+            {
+                throw new AssertionError(e);
+            }
+        }
+    }
+
+    private DeletionAwareTrie<LivePoint, DeletionMarker> moveDeletionBranchToRoot(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        // Because the in-memory trie can't resolve overlapping deletion branches, move the argument's deletion branch to the root
+        RangeTrieImpl<DeletionMarker> deletions = RangeTrieImpl.impl(trie.deletionOnlyTrie());
+        TrieImpl<LivePoint> lives = TrieImpl.impl(trie.contentOnlyTrie());
+        return (DeletionAwareTrieWithImpl<LivePoint, DeletionMarker>) () -> new DeletionAwareTrieImpl.Cursor<>()
+        {
+            TrieImpl.Cursor<LivePoint> liveCursor = lives.cursor();
+
+            @Override
+            public RangeTrieImpl.Cursor<DeletionMarker> deletionBranch()
+            {
+                return depth() == 0 ? deletions.cursor() : null;
+            }
+
+            @Override
+            public DeletionAwareTrieImpl.Cursor<LivePoint, DeletionMarker> duplicate()
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public LivePoint content()
+            {
+                return liveCursor.content();
+            }
+
+            @Override
+            public int depth()
+            {
+                return liveCursor.depth();
+            }
+
+            @Override
+            public int incomingTransition()
+            {
+                return liveCursor.incomingTransition();
+            }
+
+            @Override
+            public int advance()
+            {
+                return liveCursor.advance();
+            }
+
+            @Override
+            public int skipTo(int skipDepth, int skipTransition)
+            {
+                return liveCursor.skipTo(skipDepth, skipTransition);
+            }
+        };
+    }
+
+    InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> duplicateTrie(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        try
+        {
+            InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> copy = new InMemoryDeletionAwareTrie<>(BufferType.ON_HEAP);
+            copy.apply(trie, DeletionAwareMergeTest::combineLive, DeletionAwareMergeTest::combineDeletion, DeletionAwareMergeTest::deleteLive);
+            return copy;
+        }
+        catch (InMemoryTrie.SpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
+    static LivePoint combineLive(LivePoint a, LivePoint b)
+    {
+        if (a == null)
+            return b;
+        if (b == null)
+            return a;
+        return LivePoint.combine(a, b);
+    }
+
+    static DeletionMarker combineDeletion(DeletionMarker a, DeletionMarker b)
+    {
+        if (a == null)
+            return b;
+        if (b == null)
+            return a;
+        return DeletionMarker.combine(a, b);
+    }
+
+    static LivePoint deleteLive(LivePoint live, DeletionMarker deletion)
+    {
+        if (deletion == null || live == null)
+            return live;
+        return deletion.delete(live);
     }
 
     DeletionMarker delete(int deletionTime, DeletionMarker marker)

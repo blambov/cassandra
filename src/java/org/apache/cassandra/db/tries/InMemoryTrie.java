@@ -723,7 +723,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         boolean advanceToNextExistingOr(int depth, int transition) throws SpaceExhaustedException
         {
             setTransition(-1); // we have newly descended to a node, start with its first child
-            while (currentDepth >= ascendLimit)
+            while (true)
             {
                 int currentTransition = transition();
                 int nextTransition = getNextTransition(existingFullNode(), currentTransition + 1);
@@ -737,6 +737,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                     descend(nextTransition);
                     return false;
                 }
+                if (currentDepth <= ascendLimit)
+                    break;
                 attachAndMoveToParentState();
             }
             assert depth == -1;
@@ -1034,7 +1036,117 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         {
             T existingContent = state.getContent();
             T combinedContent = transformer.apply(existingContent, content);
-            state.setContent(combinedContent);
+            state.setContent(combinedContent); // can be null
+        }
+    }
+
+    private static <T, U>
+    void deleteContent(InMemoryTrie<T>.ApplyState state, UpsertTransformer<T, U> transformer, U mutationContent)
+    {
+        T existingContent = state.getContent();
+        if (existingContent != null)
+        {
+            T combinedContent = transformer.apply(existingContent, mutationContent);
+            state.setContent(combinedContent); // can be null
+        }
+    }
+
+    public void delete(TrieSet set) throws SpaceExhaustedException
+    {
+        TrieSetImpl.Cursor cursor = TrieSetImpl.impl(set).cursor();
+        ApplyState state = applyState.start();
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        delete(state, cursor, InMemoryTrie::deleteEntry);
+        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+        state.attachRoot();
+    }
+
+    public void deleteAllExcept(TrieSet set) throws SpaceExhaustedException
+    {
+        delete(set.negation());
+    }
+
+    private static <T> T deleteEntry(T entry, TrieSetImpl.RangeState state)
+    {
+        return state.matchingIncluded() ? null : entry;
+    }
+
+    static <T, M extends RangeTrie.RangeMarker<M>>
+    void delete(InMemoryTrie<T>.ApplyState state, RangeTrieImpl.Cursor<M> mutationCursor, UpsertTransformer<T, M> transformer)
+    throws SpaceExhaustedException
+    {
+        // While activeDeletion is not set, follow the mutation trie.
+        // When a deletion is found, get existing covering state, combine and apply/store.
+        // Get rightSideAsCovering and walk the full existing trie to apply, advancing mutation cursor in parallel
+        // until we see another entry in mutation trie.
+        // Repeat until mutation trie is exhausted.
+        int prevAscendDepth = state.setAscendLimit(state.currentDepth);
+        while (true)
+        {
+            M content = mutationCursor.content();
+            if (content != null)
+            {
+                deleteContent(state, transformer, content);
+                M mutationCoveringState = content.rightSideAsCovering();
+                // Several cases:
+                // - New deletion is point deletion: Apply it and move on to next mutation branch.
+                // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
+                //   parallel to apply deletion and adjust on any change.
+                // - New deletion starts range and existing beats it: We still have to walk both tries in parallel,
+                //   because existing deletion may end before the newly introduced one, and we want to apply that when
+                //   it does.
+                if (mutationCoveringState != null)
+                {
+                    boolean done = deleteRange(state, mutationCursor, transformer, mutationCoveringState);
+                    if (done)
+                        break;
+                }
+            }
+
+            int depth = mutationCursor.advance();
+            // Descend but do not modify anything yet.
+            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+                break;
+            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+        }
+        state.setAscendLimit(prevAscendDepth);
+
+    }
+
+    static <T, M extends RangeTrie.RangeMarker<M>>
+    boolean deleteRange(InMemoryTrie<T>.ApplyState state,
+                        RangeTrieImpl.Cursor<M> mutationCursor,
+                        UpsertTransformer<T, M> transformer,
+                        M mutationCoveringState)
+    throws SpaceExhaustedException
+    {
+        boolean atMutation = true;
+        int depth = mutationCursor.depth();
+        int transition = mutationCursor.incomingTransition();
+        // We are walking both tries in parallel.
+        while (true)
+        {
+            if (atMutation)
+            {
+                depth = mutationCursor.advance();
+                transition = mutationCursor.incomingTransition();
+            }
+            atMutation = state.advanceToNextExistingOr(depth, transition);
+            if (atMutation && depth == -1)
+                return true;
+
+            T existingContent = state.getContent();
+            M mutationContent = atMutation ? mutationCursor.content() : null;
+            if (mutationContent != null)
+            {
+                // TODO: maybe assert correct closing of ranges
+                deleteContent(state, transformer, mutationContent);
+                mutationCoveringState = mutationContent.rightSideAsCovering();
+                if (mutationCoveringState == null)
+                    return false; // mutation deletion range was closed, we can continue normal mutation cursor iteration
+            }
+            else if (existingContent != null)
+                deleteContent(state, transformer, mutationCoveringState);
         }
     }
 
@@ -1318,7 +1430,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     public Iterable<T> valuesUnordered()
     {
-        return () -> new Iterator<T>()
+        return () -> new Iterator<>()
         {
             int idx = 0;
 

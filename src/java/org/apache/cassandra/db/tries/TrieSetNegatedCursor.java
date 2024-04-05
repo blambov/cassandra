@@ -47,18 +47,49 @@ public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
     @Override
     public TrieSetImpl.RangeState state()
     {
-        switch (source.state())
+        final int depth = depth();
+        switch (depth)
         {
-            case OUTSIDE_PREFIX:
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
-            case INSIDE_PREFIX:
-                return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
-            case START:
-                return TrieSetImpl.RangeState.END;
-            case END:
-                return TrieSetImpl.RangeState.START;
+            case 0:
+                // iteration start: must convert outside_prefix<->start
+                switch (source.state())
+                {
+                    case END:
+                    case OUTSIDE_PREFIX:
+                        return TrieSetImpl.RangeState.START;
+                    case START:
+                    case INSIDE_PREFIX:
+                        return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+                    default:
+                        throw new AssertionError();
+                }
+            case -1:
+                // exhausted / end: must convert outside_prefix<->end
+                switch (source.state())
+                {
+                    case OUTSIDE_PREFIX:
+                    case START:
+                        return TrieSetImpl.RangeState.END;
+                    case INSIDE_PREFIX:
+                    case END:
+                        return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+                    default:
+                        throw new AssertionError();
+                }
             default:
-                throw new AssertionError();
+                switch (source.state())
+                {
+                    case OUTSIDE_PREFIX:
+                        return TrieSetImpl.RangeState.INSIDE_PREFIX;
+                    case INSIDE_PREFIX:
+                        return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+                    case START:
+                        return TrieSetImpl.RangeState.END;
+                    case END:
+                        return TrieSetImpl.RangeState.START;
+                    default:
+                        throw new AssertionError();
+                }
         }
     }
 

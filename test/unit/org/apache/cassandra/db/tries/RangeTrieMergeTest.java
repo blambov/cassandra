@@ -26,6 +26,7 @@ import java.util.List;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -243,7 +244,7 @@ public class RangeTrieMergeTest
     public void testRangesOnRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-            testMerges(fromList(getTestRanges()));
+            testMerges();
     }
 
     private List<RangeMarker> getTestRanges()
@@ -255,9 +256,9 @@ public class RangeTrieMergeTest
                       from(36, 14), to(38, 14).withPoint(24));
     }
 
-    private void testMerges(RangeTrie<RangeMarker> trie)
+    private void testMerges()
     {
-        testMerge("", trie, getTestRanges());
+        testMerge("", fromList(getTestRanges()), getTestRanges());
 
         List<RangeMarker> set1 = deletedRanges(null, of(24), of(25), of(29), of(32), null);
         List<RangeMarker> set2 = deletedRanges(of(14), of(17),
@@ -277,10 +278,10 @@ public class RangeTrieMergeTest
                                                of(35), of(36),
                                                of(37), of(38));
 
-        testMerges(trie, set1, set2, set3);
+        testMerges(set1, set2, set3);
     }
 
-    private void testMerges(RangeTrie<RangeMarker> trie, List<RangeMarker> set1, List<RangeMarker> set2, List<RangeMarker> set3)
+    private void testMerges(List<RangeMarker> set1, List<RangeMarker> set2, List<RangeMarker> set3)
     {
         // set1 = TrieSet.ranges(null, of(24), of(25), of(29), of(32), null);
         // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
@@ -301,13 +302,14 @@ public class RangeTrieMergeTest
         testMerge("123", set1, set2, set3);
     }
 
-    public void testMerge(String message, List<RangeMarker>... sets)
+    @SafeVarargs
+    public final void testMerge(String message, List<RangeMarker>... sets)
     {
         List<RangeMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
-        testCollectionMerge(message, Lists.newArrayList(fromList(testRanges)), testRanges, sets);
-        testMergeToInMemoryTrie(message, fromList(testRanges), testRanges, sets);
-        testMergeByRangeIntersection(message, fromList(testRanges), testRanges, sets);
+        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
+        testMergeByRangeIntersection(message + " rangeix", fromList(testRanges), testRanges, sets);
     }
 
 
@@ -347,6 +349,20 @@ public class RangeTrieMergeTest
         }
     }
 
+    InMemoryRangeTrie<RangeMarker> duplicateTrie(RangeTrie<RangeMarker> trie)
+    {
+        try
+        {
+            InMemoryRangeTrie<RangeMarker> dupe = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
+            dupe.apply(trie, this::upsertMarkers);
+            return dupe;
+        }
+        catch (InMemoryTrie.SpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
     public void testMergeToInMemoryTrie(String message, InMemoryRangeTrie<RangeMarker> trie, List<RangeMarker> merged, List<RangeMarker>... sets)
     {
         System.out.println("Markers: " + merged);
@@ -375,9 +391,10 @@ public class RangeTrieMergeTest
                 {
                     List<RangeMarker> ranges = sets[toRemove];
                     System.out.println("Adding:  " + ranges);
-                    trie.apply(fromList(ranges), this::upsertMarkers);
+                    InMemoryRangeTrie<RangeMarker> dupe = duplicateTrie(trie);
+                    dupe.apply(fromList(ranges), this::upsertMarkers);
                     testMergeToInMemoryTrie(message + " " + toRemove,
-                                            trie,
+                                            dupe,
                                             mergeLists(merged, ranges),
                                             Arrays.stream(sets)
                                                   .filter(x -> x != ranges)
