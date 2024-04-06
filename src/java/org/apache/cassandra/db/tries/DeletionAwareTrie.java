@@ -174,14 +174,4 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     {
         return DeletionAwareTrieImpl.impl(this);
     }
-
-    // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.
-    // TODO: Make sure range trie state() and coveringState() (i.e. state().leftSideAsCovering()) are never recomputed
-
-    // TODO: Deletion-aware merges may report different results when deletionBranch is called differently (if common root is not queried)
-
-    // TODO Maybe: Construct from content-only and deletion-only tries (this could solve the "where to root the deletion in the memtable" question)
-    // TODO Maybe: Change test to work with the above
-
-    // TODO Maybe: deletion-only tries of merges/intersections can be transformed separately from deletion-only tries
 }

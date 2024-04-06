@@ -152,7 +152,4 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
     {
         return dump(x -> contentToString.apply((T) x), root);
     }
-
-    // TODO: Delete on the way back in apply; clean range trie tests
-    // TODO: Singleton/range deletion cursor to use for apply operations
 }

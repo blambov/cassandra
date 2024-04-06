@@ -73,24 +73,37 @@ public interface Trie<T> extends BaseTrie<T>
     // done: test duplicate impl (ByteSource and Cursor)
     // done: range-deletion-aware intersections (pluggable) (where active range is presented at boundary)
     // done: deletion-aware merge (pluggable)
-    // TODO: deletion-aware InMemoryTrie methods (pluggable)
+    // done: deletion-aware InMemoryTrie methods (pluggable)
 
     // TODO: reverse iteration
-    // TODO: consistency levels / copy on write + node reuse
+    // TODO: Singleton/range deletion cursor to use for apply operations in PartitionUpdate
 
+    // Necessary post-POC improvements:
+    // TODO: node reuse
+    // TODO: delete on the way back in apply
+    // TODO: consistency/copy-on-write levels
     // Optimizations:
     // TODO: simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
 
+    // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.
+    // TODO: Make sure range trie state() and coveringState() (i.e. state().leftSideAsCovering()) are never recomputed
+
     // TODO: introduce and return flags instead of depth
-    // (e.g. DESCENDED, SKIP_TO_MATCHED, HAS_CONTENT, HAS_ALTERNATIVE/DELETION, HAS_DELETION_STATE)
+    // (e.g. DESCENDED, EXHAUSTED, SKIP_TO_MATCHED, HAS_CONTENT, HAS_ALTERNATIVE/DELETION, HAS_DELETION_STATE)
     // maybe combine depth with flags
 
     // TODO: mayHaveDeletions flag or in-tree metadata for newest/oldest deletion and newest/oldest timestamp
 
+    // Maybe: Construct from content-only and deletion-only tries (this could solve the "where to root the deletion in the memtable" question)
+    // Maybe: Change test to work with the above
+
+    // Maybe: deletion-only tries of merges/intersections can be transformed separately from deletion-only tries
+
     // Cleanup:
     // TODO: comments are very out-of-date
+    // TODO: Deletion-aware merges may report different results when deletionBranch is called differently (if common root is not queried)
 
 
     static final boolean DEBUG = CassandraRelevantProperties.TRIE_DEBUG.getBoolean();
