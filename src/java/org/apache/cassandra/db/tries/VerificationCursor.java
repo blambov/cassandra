@@ -44,6 +44,7 @@ public interface VerificationCursor
      */
     class Walkable<C extends CursorWalkable.Cursor> implements CursorWalkable.Cursor, CursorWalkable.TransitionsReceiver
     {
+        final Direction direction;
         final C source;
         final int minDepth;
         int returnedDepth;
@@ -53,8 +54,9 @@ public interface VerificationCursor
         transient CursorWalkable.TransitionsReceiver chainedReceiver = null;
         transient boolean advanceMultipleCalledReceiver;
 
-        Walkable(C cursor, int minDepth, int expectedDepth, int expectedTransition)
+        Walkable(Direction direction, C cursor, int minDepth, int expectedDepth, int expectedTransition)
         {
+            this.direction = direction;
             this.source = cursor;
             this.minDepth = minDepth;
             this.returnedDepth = expectedDepth;
@@ -70,6 +72,7 @@ public interface VerificationCursor
         @SuppressWarnings("unchecked")
         Walkable(Walkable<C> copyFrom)
         {
+            this.direction = copyFrom.direction;
             this.source = (C) copyFrom.source.duplicate();
             this.minDepth = copyFrom.minDepth;
             this.returnedDepth = copyFrom.returnedDepth;
@@ -126,7 +129,7 @@ public interface VerificationCursor
                                      returnedDepth,
                                      skipDepth);
             if (skipDepth <= returnedDepth && skipDepth > minDepth)
-                Preconditions.checkState(getByte(skipDepth) < skipTransition,
+                Preconditions.checkState(direction.lt(getByte(skipDepth), skipTransition),
                                          "Skip goes backwards to %s at depth %s where it already visited %s",
                                          skipTransition, skipDepth, getByte(skipDepth));
 
@@ -151,7 +154,7 @@ public interface VerificationCursor
             }
             else if (depth <= returnedDepth)
             {
-                Preconditions.checkState(getByte(depth) < transition,
+                Preconditions.checkState(direction.lt(getByte(depth), transition),
                                          "Cursor went backwards to %s at depth %s where it already visited %s",
                                          transition, depth, getByte(depth));
             }
@@ -222,9 +225,9 @@ public interface VerificationCursor
 
     abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends Walkable<C> implements TrieImpl.Cursor<T>
     {
-        WithContent(C source, int minDepth, int expectedDepth, int expectedTransition)
+        WithContent(Direction direction, C source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         WithContent(WithContent<T, C> copyFrom)
@@ -244,14 +247,14 @@ public interface VerificationCursor
 
     class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
     {
-        Deterministic(TrieImpl.Cursor<T> source)
+        Deterministic(Direction direction, TrieImpl.Cursor<T> source)
         {
-            this(source, 0, 0, INITIAL_TRANSITION);
+            this(direction, source, 0, 0, INITIAL_TRANSITION);
         }
 
-        Deterministic(TrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
+        Deterministic(Direction direction, TrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         Deterministic(Deterministic<T> copyFrom)
@@ -270,14 +273,14 @@ public interface VerificationCursor
     extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source)
+        NonDeterministic(Direction direction, NonDeterministicTrieImpl.Cursor<T> source)
         {
-            this(source, 0, 0, INITIAL_TRANSITION);
+            this(direction, source, 0, 0, INITIAL_TRANSITION);
         }
 
-        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
+        NonDeterministic(Direction direction, NonDeterministicTrieImpl.Cursor<T> source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         NonDeterministic(NonDeterministic<T> copyFrom)
@@ -291,7 +294,7 @@ public interface VerificationCursor
             var alternate = source.alternateBranch();
             if (alternate == null)
                 return null;
-            return new NonDeterministic<>(alternate, returnedDepth, returnedDepth, returnedTransition);
+            return new NonDeterministic<>(direction, alternate, returnedDepth, returnedDepth, returnedTransition);
         }
 
         @Override
@@ -308,9 +311,9 @@ public interface VerificationCursor
         M currentCoveringState = null;
         M nextCoveringState = null;
 
-        WithRanges(C source, int minDepth, int expectedDepth, int expectedTransition)
+        WithRanges(Direction direction, C source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         WithRanges(WithRanges<M, C> copyFrom)
@@ -405,14 +408,14 @@ public interface VerificationCursor
 
     class Range<M extends RangeTrie.RangeMarker<M>> extends WithRanges<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
-        Range(RangeTrieImpl.Cursor<M> source)
+        Range(Direction direction, RangeTrieImpl.Cursor<M> source)
         {
-            this(source, 0, 0, INITIAL_TRANSITION);
+            this(direction, source, 0, 0, INITIAL_TRANSITION);
         }
 
-        Range(RangeTrieImpl.Cursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
+        Range(Direction direction, RangeTrieImpl.Cursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         Range(Range<M> copyFrom)
@@ -429,17 +432,17 @@ public interface VerificationCursor
 
     class TrieSet extends WithRanges<TrieSetImpl.RangeState, TrieSetImpl.Cursor> implements TrieSetImpl.Cursor
     {
-        TrieSet(TrieSetImpl.Cursor source)
+        TrieSet(Direction direction, TrieSetImpl.Cursor source)
         {
-            this(source, 0, 0, INITIAL_TRANSITION);
+            this(direction, source, 0, 0, INITIAL_TRANSITION);
             // start state can be non-null for sets
             currentCoveringState = source.coveringState();
             nextCoveringState = source.content() != null ? source.content().rightSideAsCovering() : currentCoveringState;
         }
 
-        TrieSet(TrieSetImpl.Cursor source, int minDepth, int expectedDepth, int expectedTransition)
+        TrieSet(Direction direction, TrieSetImpl.Cursor source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
         }
 
         TrieSet(TrieSet copyFrom)
@@ -472,14 +475,14 @@ public interface VerificationCursor
     {
         int deletionBranchDepth;
 
-        DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source)
+        DeletionAware(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> source)
         {
-            this(source, 0, 0, INITIAL_TRANSITION);
+            this(direction, source, 0, 0, INITIAL_TRANSITION);
         }
 
-        DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source, int minDepth, int expectedDepth, int expectedTransition)
+        DeletionAware(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> source, int minDepth, int expectedDepth, int expectedTransition)
         {
-            super(source, minDepth, expectedDepth, expectedTransition);
+            super(direction, source, minDepth, expectedDepth, expectedTransition);
             this.deletionBranchDepth = -1;
             verifyDeletionBranch(expectedDepth);
         }
@@ -521,7 +524,7 @@ public interface VerificationCursor
             final RangeTrieImpl.Cursor<D> deletionBranch = source.deletionBranch();
             if (deletionBranch == null)
                 return null;
-            return new Range<>(deletionBranch, returnedDepth, returnedDepth, returnedTransition);
+            return new Range<>(direction, deletionBranch, returnedDepth, returnedDepth, returnedTransition);
         }
 
         int verifyDeletionBranch(int depth)

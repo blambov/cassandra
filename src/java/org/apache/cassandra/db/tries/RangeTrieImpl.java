@@ -47,9 +47,9 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(TrieImpl.Walker<M, R> walker)
+    default <R> R process(TrieImpl.Walker<M, R> walker, Direction direction)
     {
-        return TrieImpl.process(walker, cursor());
+        return TrieImpl.process(walker, cursor(direction));
     }
 
     class EmptyCursor<M extends RangeTrie.RangeMarker<M>> extends TrieImpl.EmptyCursor<M> implements Cursor<M>
@@ -74,7 +74,7 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
     }
 
     @SuppressWarnings("rawtypes")
-    static final RangeTrieWithImpl EMPTY = EmptyCursor::new;
+    static final RangeTrieWithImpl EMPTY = dir -> new EmptyCursor();
 
 
     static <M extends RangeTrie.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()

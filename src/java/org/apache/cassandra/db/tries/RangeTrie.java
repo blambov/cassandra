@@ -47,27 +47,35 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     /**
      * Call the given consumer on all content values in the trie in order.
      */
-    default void forEachValue(ValueConsumer<M> consumer)
+    default void forEachValue(ValueConsumer<M> consumer, Direction direction)
     {
-        impl().process(consumer);
+        impl().process(consumer, direction);
     }
 
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
-    default void forEachEntry(BiConsumer<ByteComparable, M> consumer)
+    default void forEachEntry(BiConsumer<ByteComparable, M> consumer, Direction direction)
     {
-        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer));
+        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer), direction);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
 
     /**
-     * Constuct a textual representation of the trie.
+     * Returns the ordered entry set of this trie's content in an iterator.
      */
-    default String dump()
+    default Iterator<Map.Entry<ByteComparable, M>> entryIterator(Direction direction)
     {
-        return dump(Object::toString);
+        return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    default Iterator<M> valueIterator(Direction direction)
+    {
+        return new TrieValuesIterator<>(impl().cursor(direction));
     }
 
     /**
@@ -75,7 +83,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
      */
     default String dump(Function<M, String> contentToString)
     {
-        return impl().process(new TrieDumper<>(contentToString));
+        return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
     }
 
     /**
@@ -83,7 +91,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
      */
     static <T extends RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, T v)
     {
-        return (RangeTrieWithImpl<T>) () -> new SingletonCursor.Range<>(b, v);
+        return (RangeTrieWithImpl<T>) dir -> new SingletonCursor.Range<>(b, v);
     }
 
     /**
@@ -140,39 +148,10 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
 
     default RangeTrie<M> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> controller)
     {
-        return (RangeTrieWithImpl<M>) () -> new RangeIntersectionCursor<>(controller, TrieSetImpl.impl(set).cursor(), impl().cursor());
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content as an iterable.
-     */
-    default Iterable<Map.Entry<ByteComparable, M>> entrySet()
-    {
-        return this::entryIterator;
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content in an iterator.
-     */
-    default Iterator<Map.Entry<ByteComparable, M>> entryIterator()
-    {
-        return new TrieEntriesIterator.AsEntries<>(impl().cursor());
-    }
-
-    /**
-     * Returns the ordered set of values of this trie as an iterable.
-     */
-    default Iterable<M> values()
-    {
-        return this::valueIterator;
-    }
-
-    /**
-     * Returns the ordered set of values of this trie in an iterator.
-     */
-    default Iterator<M> valueIterator()
-    {
-        return new TrieValuesIterator<>(impl().cursor());
+        return (RangeTrieWithImpl<M>) dir -> new RangeIntersectionCursor<>(dir,
+                                                                           controller,
+                                                                           TrieSetImpl.impl(set).cursor(dir),
+                                                                           impl().cursor(dir));
     }
 
     /**
@@ -184,7 +163,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
      */
     default RangeTrie<M> mergeWith(RangeTrie<M> other, Trie.MergeResolver<M> resolver)
     {
-        return (RangeTrieWithImpl<M>) () -> new MergeCursor.Range<>(resolver, impl(), other.impl());
+        return (RangeTrieWithImpl<M>) dir -> new MergeCursor.Range<>(dir, resolver, impl(), other.impl());
     }
 
     /**
@@ -210,7 +189,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
                 return t1.mergeWith(t2, resolver);
             }
             default:
-                return (RangeTrieWithImpl<M>) () -> new CollectionMergeCursor.Range<>(resolver, sources);
+                return (RangeTrieWithImpl<M>) dir -> new CollectionMergeCursor.Range<>(dir, resolver, sources);
         }
     }
 
@@ -221,7 +200,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
      */
     default <T> Trie<T> applyTo(Trie<T> source, BiFunction<M, T, T> mapper)
     {
-        return (TrieWithImpl<T>) () -> new MergeCursor.RangeOnTrie<>(mapper, impl(), TrieImpl.impl(source));
+        return (TrieWithImpl<T>) dir -> new MergeCursor.RangeOnTrie<>(dir, mapper, impl(), TrieImpl.impl(source));
     }
 
     @SuppressWarnings("unchecked")

@@ -22,14 +22,16 @@ import java.util.function.BiFunction;
 
 abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
 {
+    final Direction direction;
     final C c1;
     final D c2;
 
     boolean atC1;
     boolean atC2;
 
-    MergeCursor(C c1, D c2)
+    MergeCursor(Direction direction, C c1, D c2)
     {
+        this.direction = direction;
         this.c1 = c1;
         this.c2 = c2;
         atC1 = atC2 = true;
@@ -38,6 +40,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     @SuppressWarnings("unchecked")
     public MergeCursor(MergeCursor<C, D> copyFrom)
     {
+        this.direction = copyFrom.direction;
         this.c1 = (C) copyFrom.c1.duplicate();
         this.c2 = (D) copyFrom.c2.duplicate();
         this.atC1 = copyFrom.atC1;
@@ -57,9 +60,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         int c1depth = c1.depth();
         int c2depth = c2.depth();
         assert depth <= c1depth + 1 || depth <= c2depth + 1;
-        if (atC1 || depth < c1depth || depth == c1depth && incomingTransition > c1.incomingTransition())
+        if (atC1 || depth < c1depth || depth == c1depth && direction.gt(incomingTransition, c1.incomingTransition()))
             c1depth = c1.skipTo(depth, incomingTransition);
-        if (atC2 || depth < c2depth || depth == c2depth && incomingTransition > c2.incomingTransition())
+        if (atC2 || depth < c2depth || depth == c2depth && direction.gt(incomingTransition, c2.incomingTransition()))
             c2depth = c2.skipTo(depth, incomingTransition);
 
         return checkOrder(c1depth, c2depth);
@@ -84,13 +87,13 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
 
     int checkOrder(int c1depth, int c2depth)
     {
-        if (c1depth > c2depth)
+        if (direction.gt(c1depth, c2depth))
         {
             atC1 = true;
             atC2 = false;
             return c1depth;
         }
-        if (c1depth < c2depth)
+        if (direction.lt(c1depth, c2depth))
         {
             atC1 = false;
             atC2 = true;
@@ -99,8 +102,8 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         // c1depth == c2depth
         int c1trans = c1.incomingTransition();
         int c2trans = c2.incomingTransition();
-        atC1 = c1trans <= c2trans;
-        atC2 = c1trans >= c2trans;
+        atC1 = direction.le(c1trans, c2trans);
+        atC2 = direction.ge(c1trans, c2trans);
         return c1depth;
     }
 
@@ -120,9 +123,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     {
         final Trie.MergeResolver<T> resolver;
 
-        WithContent(Trie.MergeResolver<T> resolver, C c1, C c2)
+        WithContent(Direction direction, Trie.MergeResolver<T> resolver, C c1, C c2)
         {
-            super(c1, c2);
+            super(direction, c1, c2);
             this.resolver = resolver;
         }
 
@@ -148,9 +151,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
 
     static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
     {
-        Deterministic(Trie.MergeResolver<T> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<T> c2)
+        Deterministic(Direction direction, Trie.MergeResolver<T> resolver, TrieImpl.Cursor<T> c1, TrieImpl.Cursor<T> c2)
         {
-            super(resolver, c1, c2);
+            super(direction, resolver, c1, c2);
         }
 
         public Deterministic(Deterministic<T> copyFrom)
@@ -158,9 +161,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             super(copyFrom);
         }
 
-        Deterministic(Trie.MergeResolver<T> resolver, TrieImpl<T> t1, TrieImpl<T> t2)
+        Deterministic(Direction direction, Trie.MergeResolver<T> resolver, TrieImpl<T> t1, TrieImpl<T> t2)
         {
-            this(resolver, t1.cursor(), t2.cursor());
+            this(direction, resolver, t1.cursor(direction), t2.cursor(direction));
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
@@ -177,9 +180,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministic(NonDeterministicTrieImpl.Cursor<T> c1, NonDeterministicTrieImpl.Cursor<T> c2)
+        NonDeterministic(Direction direction, NonDeterministicTrieImpl.Cursor<T> c1, NonDeterministicTrieImpl.Cursor<T> c2)
         {
-            super(NonDeterministicTrie.Mergeable::mergeWith, c1, c2);
+            super(direction, NonDeterministicTrie.Mergeable::mergeWith, c1, c2);
         }
 
         public NonDeterministic(NonDeterministic<T> copyFrom)
@@ -187,9 +190,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             super(copyFrom);
         }
 
-        NonDeterministic(NonDeterministicTrieImpl<T> t1, NonDeterministicTrieImpl<T> t2)
+        NonDeterministic(Direction direction, NonDeterministicTrieImpl<T> t1, NonDeterministicTrieImpl<T> t2)
         {
-            this(t1.cursor(), t2.cursor());
+            this(direction, t1.cursor(direction), t2.cursor(direction));
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
@@ -203,7 +206,7 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                 return ac2; // may be null
             if (ac2 == null)
                 return ac1;
-            return new NonDeterministic<>(ac1, ac2);
+            return new NonDeterministic<>(direction, ac1, ac2);
         }
 
         @Override
@@ -218,9 +221,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         private M coveringState;
         boolean coveringStateSet;
 
-        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
+        Range(Direction direction, Trie.MergeResolver<M> resolver, RangeTrieImpl.Cursor<M> c1, RangeTrieImpl.Cursor<M> c2)
         {
-            super(resolver, c1, c2);
+            super(direction, resolver, c1, c2);
         }
 
         public Range(Range<M> copyFrom)
@@ -230,9 +233,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             this.coveringState = copyFrom.coveringState;
         }
 
-        Range(Trie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
+        Range(Direction direction, Trie.MergeResolver<M> resolver, RangeTrieImpl<M> t1, RangeTrieImpl<M> t2)
         {
-            this(resolver, t1.cursor(), t2.cursor());
+            this(direction, resolver, t1.cursor(direction), t2.cursor(direction));
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
@@ -317,9 +320,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     {
         final BiFunction<M, T, T> resolver;
 
-        RangeOnTrie(BiFunction<M, T, T> resolver, RangeTrieImpl.Cursor<M> c1, TrieImpl.Cursor<T> c2)
+        RangeOnTrie(Direction direction, BiFunction<M, T, T> resolver, RangeTrieImpl.Cursor<M> c1, TrieImpl.Cursor<T> c2)
         {
-            super(c1, c2);
+            super(direction, c1, c2);
             this.resolver = resolver;
         }
 
@@ -329,9 +332,9 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             this.resolver = copyFrom.resolver;
         }
 
-        RangeOnTrie(BiFunction<M, T, T> resolver, RangeTrieImpl<M> t1, TrieImpl<T> t2)
+        RangeOnTrie(Direction direction, BiFunction<M, T, T> resolver, RangeTrieImpl<M> t1, TrieImpl<T> t2)
         {
-            this(resolver, t1.cursor(), t2.cursor());
+            this(direction, resolver, t1.cursor(direction), t2.cursor(direction));
             assert c1.depth() == 0;
             assert c2.depth() == 0;
         }
@@ -397,15 +400,17 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         final Trie.MergeResolver<D> deletionResolver;
         int deletionBranchDepth = -1;
 
-        DeletionAware(Trie.MergeResolver<T> mergeResolver,
+        DeletionAware(Direction direction,
+                      Trie.MergeResolver<T> mergeResolver,
                       Trie.MergeResolver<D> deletionResolver,
                       BiFunction<D, T, T> deleter,
                       DeletionAwareTrieImpl.Cursor<T, D> c1,
                       DeletionAwareTrieImpl.Cursor<T, D> c2)
         {
-            super(mergeResolver,
-                  new FlexibleMergeCursor.DeletionAwareSource<>(c1, deleter),
-                  new FlexibleMergeCursor.DeletionAwareSource<>(c2, deleter));
+            super(direction,
+                  mergeResolver,
+                  new FlexibleMergeCursor.DeletionAwareSource<>(direction, c1, deleter),
+                  new FlexibleMergeCursor.DeletionAwareSource<>(direction, c2, deleter));
             // We will add deletion sources to the above as we find them.
             this.deletionResolver = deletionResolver;
             maybeAddDeletionsBranch(this.c1.depth());
@@ -485,11 +490,11 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
 
             deletionBranchDepth = depth;
             if (b1 == null)
-                b1 = new DeletionAwareTrieImpl.DeletionsTrieCursor(c1.duplicate());
+                b1 = new DeletionAwareTrieImpl.DeletionsTrieCursor(direction, c1.duplicate());
             if (b2 == null)
-                b2 = new DeletionAwareTrieImpl.DeletionsTrieCursor(c2.duplicate());
+                b2 = new DeletionAwareTrieImpl.DeletionsTrieCursor(direction, c2.duplicate());
 
-            return new Range<>(deletionResolver, b1, b2);
+            return new Range<>(direction, deletionResolver, b1, b2);
         }
 
         @Override

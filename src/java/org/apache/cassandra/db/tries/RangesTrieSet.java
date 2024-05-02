@@ -71,9 +71,9 @@ public class RangesTrieSet implements TrieSetWithImpl
     }
 
     @Override
-    public Cursor makeCursor()
+    public Cursor makeCursor(Direction direction)
     {
-        return new RangesCursor(boundaries);
+        return new RangesCursor(direction, boundaries);
     }
 
     static final RangeState CONTAINED_SELECTIONS[] = new RangeState[]
@@ -86,6 +86,7 @@ public class RangesTrieSet implements TrieSetWithImpl
 
     private static class RangesCursor implements Cursor
     {
+        private final Direction direction;
         ByteSource[] sources;
         int[] nexts;
         int[] depths;
@@ -94,8 +95,9 @@ public class RangesTrieSet implements TrieSetWithImpl
         int currentTransition;
         RangeState currentState;
 
-        public RangesCursor(ByteComparable[] boundaries)
+        public RangesCursor(Direction direction, ByteComparable[] boundaries)
         {
+            this.direction = direction;
             // handle empty array (== full range) and nulls at the end (same as not there, odd length == open end range)
             int length = boundaries.length;
             if (length == 0)
@@ -109,7 +111,7 @@ public class RangesTrieSet implements TrieSetWithImpl
             nexts = new int[length];
             depths = new int[length];
             sources = new ByteSource[length];
-            currentIdx = 0;
+            currentIdx = direction.select(0, length - 1);
             for (int i = 0; i < length; ++i)
             {
                 depths[i] = 1;
@@ -128,24 +130,29 @@ public class RangesTrieSet implements TrieSetWithImpl
             }
             currentDepth = 0;
             currentTransition = -1;
-            skipCompletedAndSelectContained(nexts[0], length);
+            skipCompletedAndSelectContained(nexts[currentIdx], direction.select(length - 1, 0));
         }
 
         RangesCursor(RangesCursor copyFrom)
         {
-            // An even number of completed sources can be dropped.
-            int toDrop = copyFrom.currentIdx & -2;
-            this.nexts = Arrays.copyOfRange(copyFrom.nexts, toDrop, copyFrom.nexts.length);
-            this.depths = Arrays.copyOfRange(copyFrom.depths, toDrop, copyFrom.depths.length);
-            this.sources = new ByteSource[copyFrom.sources.length - toDrop];
-            for (int i = copyFrom.currentIdx; i < copyFrom.sources.length; i++)
+            this.direction = copyFrom.direction;
+            // In forward direction, an even number of completed sources can be dropped.
+            int first = direction.select(copyFrom.currentIdx & -2, 0);
+            // In reverse, any completed one can be dropped.
+            int last = direction.select(copyFrom.sources.length, copyFrom.currentIdx + 1);
+            this.nexts = Arrays.copyOfRange(copyFrom.nexts, first, last);
+            this.depths = Arrays.copyOfRange(copyFrom.depths, first, last);
+            this.sources = new ByteSource[last - first];
+            for (int i = copyFrom.currentIdx;
+                 direction.inLoop(i,  first, last - 1);
+                 i += direction.increase)
                 if (copyFrom.sources[i] != null)
                 {
                     ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
                     copyFrom.sources[i] = dupe;
-                    sources[i - toDrop] = dupe.duplicate();
+                    sources[i - first] = dupe.duplicate();
                 }
-            this.currentIdx = copyFrom.currentIdx - toDrop;
+            this.currentIdx = copyFrom.currentIdx - first;
             this.currentDepth = copyFrom.currentDepth;
             this.currentTransition = copyFrom.currentTransition;
             this.currentState = copyFrom.currentState;
@@ -172,20 +179,21 @@ public class RangesTrieSet implements TrieSetWithImpl
         @Override
         public int advance()
         {
-            if (currentIdx >= nexts.length)
+            if (!direction.inLoop(currentIdx, 0, nexts.length - 1))
                 return exhausted();
             currentTransition = nexts[currentIdx];
             currentDepth = depths[currentIdx]++;
             int next = nexts[currentIdx] = sources[currentIdx].next();
-            int endIdx = currentIdx + 1;
-            while (endIdx < nexts.length && depths[endIdx] == currentDepth && nexts[endIdx] == currentTransition)
+            int endIdx = currentIdx + direction.increase;
+            while (direction.inLoop(endIdx, 0, nexts.length - 1)
+                   && depths[endIdx] == currentDepth && nexts[endIdx] == currentTransition)
             {
                 depths[endIdx]++;
                 nexts[endIdx] = sources[endIdx].next();
-                ++endIdx;
+                endIdx += direction.increase;
             }
 
-            return skipCompletedAndSelectContained(next, endIdx);
+            return skipCompletedAndSelectContained(next, endIdx - direction.increase);
         }
 
         private int skipCompletedAndSelectContained(int next, int endIdx)
@@ -193,13 +201,13 @@ public class RangesTrieSet implements TrieSetWithImpl
             int containedSelection = 0;
             if (next == ByteSource.END_OF_STREAM)
             {
-                while (currentIdx < endIdx && nexts[currentIdx] == ByteSource.END_OF_STREAM)
+                while (direction.le(currentIdx, endIdx) && nexts[currentIdx] == ByteSource.END_OF_STREAM)
                 {
-                    ++currentIdx;
+                    currentIdx += direction.increase;
                     containedSelection ^= 2;    // only an odd number of completed sources has any effect
                 }
             }
-            containedSelection |= currentIdx & 1; // 1 if odd index
+            containedSelection |= (currentIdx & 1) ^ (direction.isForward() ? 0 : 1); // 1 if odd index
             currentState = CONTAINED_SELECTIONS[containedSelection];
             return currentDepth;
         }
@@ -207,10 +215,10 @@ public class RangesTrieSet implements TrieSetWithImpl
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            while (currentIdx < nexts.length &&
-                    (depths[currentIdx] > skipDepth ||
-                     depths[currentIdx] == skipDepth && nexts[currentIdx] < skipTransition))
-                ++currentIdx;
+            while (direction.inLoop(currentIdx, 0, nexts.length - 1)
+                   && (depths[currentIdx] > skipDepth ||
+                       depths[currentIdx] == skipDepth && direction.lt(nexts[currentIdx], skipTransition)))
+                currentIdx += direction.increase;
             return advance();
         }
 
@@ -218,7 +226,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         {
             currentDepth = -1;
             currentTransition = -1;
-            return skipCompletedAndSelectContained(0, nexts.length);
+            return skipCompletedAndSelectContained(0, nexts.length - 1);
         }
 
         @Override

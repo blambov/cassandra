@@ -55,14 +55,14 @@ interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> 
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(TrieImpl.Walker<T, R> walker)
+    default <R> R process(TrieImpl.Walker<T, R> walker, Direction direction)
     {
-        return TrieImpl.process(walker, alternativesMergingCursor());
+        return TrieImpl.process(walker, alternativesMergingCursor(direction));
     }
 
-    default TrieImpl.Cursor<T> alternativesMergingCursor()
+    default TrieImpl.Cursor<T> alternativesMergingCursor(Direction direction)
     {
-        return new MergeAlternativeBranchesTrie.MergeAlternativesCursor<>(cursor(), false);
+        return new MergeAlternativeBranchesTrie.MergeAlternativesCursor<>(direction, cursor(direction), false);
     }
 
     class EmptyCursor<T extends NonDeterministicTrie.Mergeable<T>> extends TrieImpl.EmptyCursor<T> implements Cursor<T>
@@ -81,7 +81,7 @@ interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> 
     }
 
     @SuppressWarnings("rawtypes")
-    NonDeterministicTrieWithImpl EMPTY = EmptyCursor::new;
+    NonDeterministicTrieWithImpl EMPTY = dir -> new EmptyCursor();
 
     static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> impl(NonDeterministicTrie<T> trie)
     {

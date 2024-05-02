@@ -39,17 +39,17 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * and {@link TrieEntriesIterator} (to iterator) base classes, which provide the necessary mechanisms to handle walking
  * the trie.
  * <p>
- * The internal representation of tries using this interface is defined in the {@link TrieImpl.Cursor} interface.
+ * The internal representation of tries using this interface is defined in the {@link CursorWalkable.Cursor} interface.
  * <p>
  * Cursors are a method of presenting the internal structure of a trie without representing nodes as objects, which is
  * still useful for performing the basic operations on tries (iteration, slicing/intersection and merging). A cursor
  * will list the nodes of a trie in order, together with information about the path that was taken to reach them.
  * <p>
- * To begin traversal over a trie, one must retrieve a cursor by calling {@link TrieImpl#cursor()}. Because cursors are
- * stateful, the traversal must always proceed from one thread. Should concurrent reads be required, separate calls to
- * {@link TrieImpl#cursor()} must be made. Any modification that has completed before the construction of a cursor must
- * be visible, but any later concurrent modifications may be presented fully, partially or not at all; this also means
- * that if multiple are made, the cursor may see any part of any subset of them.
+ * To begin traversal over a trie, one must retrieve a cursor by calling {@link CursorWalkable#cursor}. Because cursors
+ * are stateful, the traversal must always proceed from one thread. Should concurrent reads be required, separate calls
+ * to {@link CursorWalkable#cursor(Direction)} must be made. Any modification that has completed before the construction
+ * of a cursor must be visible, but any later concurrent modifications may be presented fully, partially or not at all;
+ * this also means that if multiple are made, the cursor may see any part of any subset of them.
  * <p>
  * Note: This model only supports depth-first traversals. We do not currently have a need for breadth-first walks.
  * <p>
@@ -111,27 +111,43 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Call the given consumer on all content values in the trie in order.
      */
-    default void forEachValue(ValueConsumer<T> consumer)
+    default void forEachValue(ValueConsumer<T> consumer, Direction direction)
     {
-        impl().process(consumer);
+        impl().process(consumer, direction);
     }
 
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
-    default void forEachEntry(BiConsumer<ByteComparable, T> consumer)
+    default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
-        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer));
+        impl().process(new TrieEntriesWalker.WithConsumer<T>(consumer), direction);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
 
     /**
-     * Constuct a textual representation of the trie.
+     * Returns the ordered entry set of this trie's content in an iterator.
      */
-    default String dump()
+    default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
-        return dump(Object::toString);
+        return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    default Iterator<T> valueIterator(Direction direction)
+    {
+        return new TrieValuesIterator<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the values in any order. For some tries this is much faster than the ordered iterable.
+     */
+    default Iterable<T> valuesUnordered()
+    {
+        return values();
     }
 
     /**
@@ -139,7 +155,7 @@ public interface Trie<T> extends BaseTrie<T>
      */
     default String dump(Function<T, String> contentToString)
     {
-        return impl().process(new TrieDumper<>(contentToString));
+        return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
     }
 
     /**
@@ -147,7 +163,7 @@ public interface Trie<T> extends BaseTrie<T>
      */
     static <T> Trie<T> singleton(ByteComparable b, T v)
     {
-        return (TrieWithImpl<T>) () -> new SingletonCursor<>(b, v);
+        return (TrieWithImpl<T>) dir -> new SingletonCursor<>(b, v);
     }
 
     /**
@@ -198,47 +214,7 @@ public interface Trie<T> extends BaseTrie<T>
      */
     default Trie<T> intersect(TrieSet set)
     {
-        return (TrieWithImpl<T>) () -> new IntersectionCursor.Deterministic<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content as an iterable.
-     */
-    default Iterable<Map.Entry<ByteComparable, T>> entrySet()
-    {
-        return this::entryIterator;
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content in an iterator.
-     */
-    default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
-    {
-        return new TrieEntriesIterator.AsEntries<>(impl().cursor());
-    }
-
-    /**
-     * Returns the ordered set of values of this trie as an iterable.
-     */
-    default Iterable<T> values()
-    {
-        return this::valueIterator;
-    }
-
-    /**
-     * Returns the ordered set of values of this trie in an iterator.
-     */
-    default Iterator<T> valueIterator()
-    {
-        return new TrieValuesIterator<>(impl().cursor());
-    }
-
-    /**
-     * Returns the values in any order. For some tries this is much faster than the ordered iterable.
-     */
-    default Iterable<T> valuesUnordered()
-    {
-        return values();
+        return (TrieWithImpl<T>) dir -> new IntersectionCursor.Deterministic<>(dir, impl().cursor(dir), TrieSetImpl.impl(set).cursor(dir));
     }
 
     /**
@@ -260,7 +236,7 @@ public interface Trie<T> extends BaseTrie<T>
      */
     default Trie<T> mergeWith(Trie<T> other, MergeResolver<T> resolver)
     {
-        return (TrieWithImpl<T>) () -> new MergeCursor.Deterministic<>(resolver, impl(), other.impl());
+        return (TrieWithImpl<T>) dir -> new MergeCursor.Deterministic<>(dir, resolver, impl(), other.impl());
     }
 
     /**
@@ -316,7 +292,7 @@ public interface Trie<T> extends BaseTrie<T>
             return t1.mergeWith(t2, resolver);
         }
         default:
-            return (TrieWithImpl<T>) () -> new CollectionMergeCursor.Deterministic<>(resolver, sources);
+            return (TrieWithImpl<T>) dir -> new CollectionMergeCursor.Deterministic<>(dir, resolver, sources);
         }
     }
 
@@ -342,9 +318,9 @@ public interface Trie<T> extends BaseTrie<T>
             return new TrieWithImpl<T>()
             {
                 @Override
-                public Cursor<T> makeCursor()
+                public Cursor<T> makeCursor(Direction direction)
                 {
-                    return new MergeCursor.Deterministic<>(throwingResolver(), t1.impl(), t2.impl());
+                    return new MergeCursor.Deterministic<>(direction, throwingResolver(), t1.impl(), t2.impl());
                 }
 
                 @Override
@@ -358,9 +334,9 @@ public interface Trie<T> extends BaseTrie<T>
             return new TrieWithImpl<T>()
             {
                 @Override
-                public Cursor<T> makeCursor()
+                public Cursor<T> makeCursor(Direction direction)
                 {
-                    return new CollectionMergeCursor.Deterministic<>(throwingResolver(), sources);
+                    return new CollectionMergeCursor.Deterministic<>(direction, throwingResolver(), sources);
                 }
 
                 @Override

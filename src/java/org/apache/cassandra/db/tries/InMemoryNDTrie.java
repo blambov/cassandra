@@ -33,9 +33,9 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
     extends MemtableCursor<T>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministicCursor(InMemoryReadTrie<T> trie, int root, int depth, int incomingTransition)
+        NonDeterministicCursor(InMemoryReadTrie<T> trie, Direction direction, int root, int depth, int incomingTransition)
         {
-            super(trie, root, depth, incomingTransition);
+            super(trie, direction, root, depth, incomingTransition);
         }
 
         NonDeterministicCursor(NonDeterministicCursor<T> copyFrom)
@@ -46,7 +46,12 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         @Override
         public NonDeterministicCursor<T> alternateBranch()
         {
-            return isNull(alternateBranch) ? null : new NonDeterministicCursor<>(trie, alternateBranch, depth() - 1, incomingTransition());
+            return isNull(alternateBranch) ? null
+                                           : new NonDeterministicCursor<>(trie,
+                                                                          direction,
+                                                                          alternateBranch,
+                                                                          depth() - 1,
+                                                                          incomingTransition());
         }
 
         @Override
@@ -63,9 +68,9 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
     }
 
     @Override
-    public Cursor<T> makeCursor()
+    public Cursor<T> makeCursor(Direction direction)
     {
-        return new NonDeterministicCursor<>(this, root, -1, -1);
+        return new NonDeterministicCursor<>(this, direction, root, -1, -1);
     }
 
 
@@ -78,9 +83,12 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
      * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
      * value. Applied even if there's no pre-existing value in the memtable trie.
      */
-    public <U extends NonDeterministicTrie.Mergeable<U>> void apply(NonDeterministicTrie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    public <U extends NonDeterministicTrie.Mergeable<U>>
+    void apply(NonDeterministicTrie<U> mutation,
+               final UpsertTransformer<T, U> transformer)
+    throws SpaceExhaustedException
     {
-        NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor();
+        NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
@@ -89,7 +97,11 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         state.attachRoot();
     }
 
-    static <T extends Mergeable<T>, U extends Mergeable<U>> void apply(InMemoryTrie<T>.ApplyState state, NonDeterministicTrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    static <T extends Mergeable<T>, U extends Mergeable<U>>
+    void apply(InMemoryTrie<T>.ApplyState state,
+               NonDeterministicTrieImpl.Cursor<U> mutationCursor,
+               final UpsertTransformer<T, U> transformer)
+    throws SpaceExhaustedException
     {
         int prevAscendLimit = state.setAscendLimit(state.currentDepth);
         while (true)
@@ -104,7 +116,11 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         state.setAscendLimit(prevAscendLimit);
     }
 
-    static <T extends Mergeable<T>, U extends Mergeable<U>> void applyAlternate(InMemoryTrie<T>.ApplyState state, Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    static <T extends Mergeable<T>, U extends Mergeable<U>>
+    void applyAlternate(InMemoryTrie<T>.ApplyState state,
+                        Cursor<U> mutationCursor,
+                        UpsertTransformer<T, U> transformer)
+    throws SpaceExhaustedException
     {
         Cursor<U> alternate = mutationCursor.alternateBranch();
         if (alternate != null)

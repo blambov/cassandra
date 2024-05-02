@@ -35,27 +35,43 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
     /**
      * Call the given consumer on all content values in the trie in order.
      */
-    default void forEachValue(ValueConsumer<T> consumer)
+    default void forEachValue(ValueConsumer<T> consumer, Direction direction)
     {
-        impl().process(consumer);
+        impl().process(consumer, direction);
     }
 
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
-    default void forEachEntry(BiConsumer<ByteComparable, T> consumer)
+    default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
-        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer));
+        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer), direction);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
 
     /**
-     * Constuct a textual representation of the trie.
+     * Returns the ordered entry set of this trie's content in an iterator.
      */
-    default String dump()
+    default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
-        return dump(Object::toString);
+        return new TrieEntriesIterator.AsEntries<>(impl().alternativesMergingCursor(direction));
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    default Iterator<T> valueIterator(Direction direction)
+    {
+        return new TrieValuesIterator<>(impl().alternativesMergingCursor(direction));
+    }
+
+    /**
+     * Returns the values in any order. For some tries this is much faster than the ordered iterable.
+     */
+    default Iterable<T> valuesUnordered()
+    {
+        return values();
     }
 
     /**
@@ -63,7 +79,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
      */
     default String dump(Function<T, String> contentToString)
     {
-        return impl().process(new TrieDumper<>(contentToString));
+        return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
     }
 
     /**
@@ -71,7 +87,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
      */
     static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrie<T> singleton(ByteComparable b, T v)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new SingletonCursor.NonDeterministic<>(b, v);
+        return (NonDeterministicTrieWithImpl<T>) dir -> new SingletonCursor.NonDeterministic<>(b, v);
     }
 
     /**
@@ -122,47 +138,10 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
      */
     default NonDeterministicTrie<T> intersect(TrieSet set)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new IntersectionCursor.NonDeterministic<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content as an iterable.
-     */
-    default Iterable<Map.Entry<ByteComparable, T>> entrySet()
-    {
-        return this::entryIterator;
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content in an iterator.
-     */
-    default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
-    {
-        return new TrieEntriesIterator.AsEntries<>(impl().alternativesMergingCursor());
-    }
-
-    /**
-     * Returns the ordered set of values of this trie as an iterable.
-     */
-    default Iterable<T> values()
-    {
-        return this::valueIterator;
-    }
-
-    /**
-     * Returns the ordered set of values of this trie in an iterator.
-     */
-    default Iterator<T> valueIterator()
-    {
-        return new TrieValuesIterator<>(impl().alternativesMergingCursor());
-    }
-
-    /**
-     * Returns the values in any order. For some tries this is much faster than the ordered iterable.
-     */
-    default Iterable<T> valuesUnordered()
-    {
-        return values();
+        return (NonDeterministicTrieWithImpl<T>)
+               dir -> new IntersectionCursor.NonDeterministic<>(dir,
+                                                                impl().cursor(dir),
+                                                                TrieSetImpl.impl(set).cursor(dir));
     }
 
     /**
@@ -174,7 +153,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
      */
     default NonDeterministicTrie<T> mergeWith(NonDeterministicTrie<T> other)
     {
-        return (NonDeterministicTrieWithImpl<T>) () -> new MergeCursor.NonDeterministic<>(impl(), other.impl());
+        return (NonDeterministicTrieWithImpl<T>) dir -> new MergeCursor.NonDeterministic<>(dir, impl(), other.impl());
     }
 
     /**
@@ -201,7 +180,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
                 return t1.mergeWith(t2);
             }
             default:
-                return (NonDeterministicTrieWithImpl<T>) () -> new CollectionMergeCursor.NonDeterministic<>(sources);
+                return (NonDeterministicTrieWithImpl<T>) dir -> new CollectionMergeCursor.NonDeterministic<>(dir, sources);
         }
     }
 

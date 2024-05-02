@@ -31,18 +31,19 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
     }
 
     @Override
-    public Cursor<T> makeCursor()
+    public Cursor<T> makeCursor(Direction direction)
     {
-        return apply(source.cursor());
+        return apply(direction, source.cursor(direction));
     }
 
-    public static <T> Cursor<T> apply(Cursor<T> source)
+    public static <T> Cursor<T> apply(Direction direction, Cursor<T> source)
     {
-        return new DeadBranchRemovalCursor<>(source);
+        return new DeadBranchRemovalCursor<>(direction, source);
     }
 
     private static class DeadBranchRemovalCursor<T> implements Cursor<T>, TransitionsReceiver
     {
+        private final Direction direction;
         private final Cursor<T> source;
         final UnsafeBuffer buffer;
         int buffered;
@@ -50,8 +51,9 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
         int incomingTransition;
         int depth;
 
-        DeadBranchRemovalCursor(Cursor<T> source)
+        DeadBranchRemovalCursor(Direction direction, Cursor<T> source)
         {
+            this.direction = direction;
             this.source = source;
             this.buffer = new UnsafeBuffer(new byte[16]);
             this.incomingTransition = source.incomingTransition();
@@ -159,7 +161,7 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
             {
                 assert skipDepth == depth + 1;
                 int next = consume();
-                if (next >= skipTransition)
+                if (direction.ge(next, skipTransition))
                 {
                     incomingTransition = next;
                     return ++depth;
@@ -194,7 +196,7 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
         @Override
         public Cursor<T> duplicate()
         {
-            return apply(source.duplicate());
+            return apply(direction, source.duplicate());
         }
 
         @Override

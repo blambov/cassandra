@@ -40,6 +40,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         }
     }
 
+    final Direction direction;
     final TrieSetImpl.Cursor c1;
     final TrieSetImpl.Cursor c2;
     int currentDepth;
@@ -47,8 +48,9 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
     TrieSetImpl.RangeState currentRangeState;
     State state;
 
-    public TrieSetIntersectionCursor(TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
+    public TrieSetIntersectionCursor(Direction direction, TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
     {
+        this.direction = direction;
         this.c1 = c1;
         this.c2 = c2;
         matchingPosition(0, -1);
@@ -56,6 +58,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
 
     public TrieSetIntersectionCursor(TrieSetIntersectionCursor copyFrom)
     {
+        this.direction = copyFrom.direction;
         this.c1 = copyFrom.c1.duplicate();
         this.c2 = copyFrom.c2.duplicate();
         this.currentDepth = copyFrom.currentDepth;
@@ -163,7 +166,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
             return coveredAreaWithSetAhead(advDepth, advTransition, advancing, state);
         if (advDepth == aheadDepth)
         {
-            if (advTransition < aheadTransition)
+            if (direction.lt(advTransition, aheadTransition))
                 return coveredAreaWithSetAhead(advDepth, advTransition, advancing, state);
             if (advTransition == aheadTransition)
                 return matchingPosition(advDepth, advTransition);
@@ -240,9 +243,9 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
 
     static class UnionCursor extends TrieSetIntersectionCursor
     {
-        public UnionCursor(TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
+        public UnionCursor(Direction direction, TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
         {
-            super(c1, c2);
+            super(direction, c1, c2);
         }
 
         public UnionCursor(UnionCursor copyFrom)

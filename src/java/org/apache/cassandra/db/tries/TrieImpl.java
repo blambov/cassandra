@@ -178,9 +178,9 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(Walker<T, R> walker)
+    default <R> R process(Walker<T, R> walker, Direction direction)
     {
-        return process(walker, cursor());
+        return process(walker, cursor(direction));
     }
 
     static <T, R> R process(Walker<T, R> walker, Cursor<T> cursor)
@@ -247,7 +247,7 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
         }
     }
 
-    TrieWithImpl<Object> EMPTY = EmptyCursor<Object>::new;
+    TrieWithImpl<Object> EMPTY = dir -> new EmptyCursor<Object>();
 
     static <T> TrieWithImpl<T> impl(Trie<T> trie)
     {

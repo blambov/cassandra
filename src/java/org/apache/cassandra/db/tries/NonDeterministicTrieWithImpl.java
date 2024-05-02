@@ -20,10 +20,12 @@ package org.apache.cassandra.db.tries;
 
 interface NonDeterministicTrieWithImpl<T extends NonDeterministicTrie.Mergeable<T>> extends NonDeterministicTrie<T>, NonDeterministicTrieImpl<T>
 {
-    NonDeterministicTrieImpl.Cursor<T> makeCursor();
+    NonDeterministicTrieImpl.Cursor<T> makeCursor(Direction direction);
 
-    default NonDeterministicTrieWithImpl.Cursor<T> cursor()
+    @Override
+    default NonDeterministicTrieWithImpl.Cursor<T> cursor(Direction direction)
     {
-        return Trie.DEBUG ? new VerificationCursor.NonDeterministic<>(makeCursor()) : makeCursor();
+        return Trie.DEBUG ? new VerificationCursor.NonDeterministic<>(direction, makeCursor(direction))
+                          : makeCursor(direction);
     }
 }

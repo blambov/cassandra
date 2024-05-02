@@ -20,13 +20,14 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> extends BaseTrie<T>
 {
     interface Deletable
     {
@@ -43,29 +44,36 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
      * Call the given consumer on all content values in the trie in order.
      * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
      */
-    default void forEachValue(BaseTrie.ValueConsumer<T> consumer)
+    default void forEachValue(BaseTrie.ValueConsumer<T> consumer, Direction direction)
     {
-        impl().process(consumer);
+        impl().process(consumer, direction);
     }
 
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
      */
-    default void forEachEntry(BiConsumer<ByteComparable, T> consumer)
+    default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
-        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer));
+        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer), direction);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
 
     /**
-     * Constuct a textual representation of the trie.
-     * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
+     * Returns the ordered entry set of this trie's content in an iterator.
      */
-    default String dump()
+    default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
-        return dump(Object::toString);
+        return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    default Iterator<T> valueIterator(Direction direction)
+    {
+        return new TrieValuesIterator<>(impl().cursor(direction));
     }
 
     /**
@@ -74,7 +82,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
      */
     default String dump(Function<T, String> contentToString)
     {
-        return impl().process(new TrieDumper<>(contentToString));
+        return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
     }
 
     /**
@@ -83,7 +91,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     DeletionAwareTrie<T, D> singleton(ByteComparable b, T v)
     {
-        return (DeletionAwareTrieWithImpl<T, D>) () -> new SingletonCursor.DeletionAware<>(b, v);
+        return (DeletionAwareTrieWithImpl<T, D>) dir -> new SingletonCursor.DeletionAware<>(b, v);
     }
 
     default DeletionAwareTrie<T, D> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
@@ -99,7 +107,9 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     }
     default DeletionAwareTrie<T, D> intersect(TrieSet set)
     {
-        return (DeletionAwareTrieWithImpl<T, D>) () -> new IntersectionCursor.DeletionAware<>(impl().cursor(), TrieSetImpl.impl(set).cursor());
+        return (DeletionAwareTrieWithImpl<T, D>) dir -> new IntersectionCursor.DeletionAware<>(dir,
+                                                                                               impl().cursor(dir),
+                                                                                               TrieSetImpl.impl(set).cursor(dir));
     }
 
     default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other,
@@ -107,11 +117,13 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
                                               Trie.MergeResolver<D> deletionMerger,
                                               BiFunction<D, T, T> deleter)
     {
-        return (DeletionAwareTrieWithImpl<T, D>) () -> new MergeCursor.DeletionAware<>(mergeResolver,
-                                                                                       deletionMerger,
-                                                                                       deleter,
-                                                                                       impl().cursor(),
-                                                                                       DeletionAwareTrieImpl.impl(other).cursor());
+        return (DeletionAwareTrieWithImpl<T, D>)
+               dir -> new MergeCursor.DeletionAware<>(dir,
+                                                      mergeResolver,
+                                                      deletionMerger,
+                                                      deleter,
+                                                      impl().cursor(dir),
+                                                      DeletionAwareTrieImpl.impl(other).cursor(dir));
     }
 
 
@@ -143,7 +155,11 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
             }
             default:
                 return (DeletionAwareTrieWithImpl<T, D>)
-                       () -> new CollectionMergeCursor.DeletionAware<>(mergeResolver, deletionResolver, deleter, sources);
+                       dir -> new CollectionMergeCursor.DeletionAware<>(dir,
+                                                                        mergeResolver,
+                                                                        deletionResolver,
+                                                                        deleter,
+                                                                        sources);
         }
     }
 
@@ -155,12 +171,12 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     default RangeTrie<D> deletionOnlyTrie()
     {
         // We must walk the main trie to find deletion branch roots.
-        return (RangeTrieWithImpl<D>) () -> new DeletionAwareTrieImpl.DeletionsTrieCursor<>(impl().cursor());
+        return (RangeTrieWithImpl<D>) dir -> new DeletionAwareTrieImpl.DeletionsTrieCursor<>(dir, impl().cursor(dir));
     }
 
     default <Z> Trie<Z> mergedTrie(BiFunction<T, D, Z> resolver)
     {
-        return (TrieWithImpl<Z>) () -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>(resolver, impl().cursor());
+        return (TrieWithImpl<Z>) dir -> new DeletionAwareTrieImpl.LiveAndDeletionsMergeCursor<>(dir, resolver, impl().cursor(dir));
     }
 
     @SuppressWarnings("unchecked")

@@ -31,9 +31,9 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
 
     static class DeterministicCursor<T> extends MemtableCursor<T> implements TrieImpl.Cursor<T>
     {
-        DeterministicCursor(InMemoryReadTrie<T> trie, int root, int depth, int incomingTransition)
+        DeterministicCursor(InMemoryReadTrie<T> trie, Direction direction, int root, int depth, int incomingTransition)
         {
-            super(trie, root, depth, incomingTransition);
+            super(trie, direction, root, depth, incomingTransition);
         }
 
         DeterministicCursor(DeterministicCursor<T> copyFrom)
@@ -55,9 +55,9 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
     }
 
     @Override
-    public Cursor<T> makeCursor()
+    public Cursor<T> makeCursor(Direction direction)
     {
-        return new DeterministicCursor<>(this, root, -1, -1);
+        return new DeterministicCursor<>(this, direction, root, -1, -1);
     }
 
     /**

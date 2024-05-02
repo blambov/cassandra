@@ -39,9 +39,9 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
     static class DeletionAwareCursor<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends MemtableCursor<U> implements Cursor<T, D>
     {
-        DeletionAwareCursor(InMemoryReadTrie<U> trie, int root, int depth, int incomingTransition)
+        DeletionAwareCursor(InMemoryReadTrie<U> trie, Direction direction, int root, int depth, int incomingTransition)
         {
-            super(trie, root, depth, incomingTransition);
+            super(trie, direction, root, depth, incomingTransition);
         }
 
         DeletionAwareCursor(DeletionAwareCursor<U, T, D> copyFrom)
@@ -61,7 +61,7 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
         {
             return isNull(alternateBranch)
                    ? null
-                   : new InMemoryRangeTrie.RangeCursor<>(trie, alternateBranch, depth() - 1, incomingTransition());
+                   : new InMemoryRangeTrie.RangeCursor<>(trie, direction, alternateBranch, depth() - 1, incomingTransition());
         }
 
         @Override
@@ -72,9 +72,9 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
     }
 
     @Override
-    public Cursor<T, D> makeCursor()
+    public Cursor<T, D> makeCursor(Direction direction)
     {
-        return new DeletionAwareCursor<>(this, root, -1, -1);
+        return new DeletionAwareCursor<>(this, direction, root, -1, -1);
     }
 
 
@@ -93,7 +93,7 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
                final UpsertTransformer<T, E> deleter)
     throws SpaceExhaustedException
     {
-        DeletionAwareTrieImpl.Cursor<V, E> mutationCursor = DeletionAwareTrieImpl.impl(mutation).cursor();
+        DeletionAwareTrieImpl.Cursor<V, E> mutationCursor = DeletionAwareTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
