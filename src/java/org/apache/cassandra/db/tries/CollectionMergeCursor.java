@@ -79,10 +79,12 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      * heap[i] <= heap[i*2 + 1] && heap[i] <= heap[i*2 + 2]
      */
     private final C[] heap;
+    final Direction direction;
 
     @SuppressWarnings("unchecked")
-    <L> CollectionMergeCursor(Collection<L> inputs, Function<L, C> getter, Class<? super C> cursorClass)
+    <L> CollectionMergeCursor(Direction direction, Collection<L> inputs, Function<L, C> getter, Class<? super C> cursorClass)
     {
+        this.direction = direction;
         int count = inputs.size();
         Iterator<L> it = inputs.iterator();
         if (!it.hasNext())
@@ -101,6 +103,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     @SuppressWarnings("unchecked")
     CollectionMergeCursor(CollectionMergeCursor<C> copyFrom)
     {
+        this.direction = copyFrom.direction;
         this.head = (C) copyFrom.head.duplicate();
         C[] list = (C[]) Array.newInstance(copyFrom.heap.getClass().getComponentType(), copyFrom.heap.length);
         for (int i = 0; i < list.length; ++i)
@@ -113,13 +116,13 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      * - its depth is greater, or
      * - its depth is equal, and the incoming transition is smaller.
      */
-    static <C extends CursorWalkable.Cursor> boolean greaterCursor(C c1, C c2)
+    static <C extends CursorWalkable.Cursor> boolean greaterCursor(Direction direction, C c1, C c2)
     {
         int c1depth = c1.depth();
         int c2depth = c2.depth();
         if (c1depth != c2depth)
             return c1depth < c2depth;
-        return c1.incomingTransition() > c2.incomingTransition();
+        return direction.gt(c1.incomingTransition(), c2.incomingTransition());
     }
 
     static <C extends CursorWalkable.Cursor> boolean equalCursor(C c1, C c2)
@@ -227,10 +230,10 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             if (next >= heap.length)
                 break;
             // Select the smaller of the two children to push down to.
-            if (next + 1 < heap.length && greaterCursor(heap[next], heap[next + 1]))
+            if (next + 1 < heap.length && greaterCursor(direction, heap[next], heap[next + 1]))
                 ++next;
             // If the child is greater or equal, the invariant has been restored.
-            if (!greaterCursor(item, heap[next]))
+            if (!greaterCursor(direction, item, heap[next]))
                 break;
             heap[index] = heap[next];
             index = next;
@@ -249,7 +252,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     {
         int heap0Depth = heap[0].depth();
         if (headDepth > heap0Depth ||
-            (headDepth == heap0Depth && head.incomingTransition() <= heap[0].incomingTransition()))
+            (headDepth == heap0Depth && direction.le(head.incomingTransition(), heap[0].incomingTransition())))
             return headDepth;   // head is still smallest
 
         // otherwise we need to swap heap and heap[0]
@@ -303,7 +306,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
                 // to skip only if it would be before it.
                 int childDepth = child.depth();
                 return childDepth > skipDepth ||
-                       childDepth == skipDepth && child.incomingTransition() < skipTransition;
+                       childDepth == skipDepth && direction.lt(child.incomingTransition(), skipTransition);
             }
 
             @Override
@@ -369,7 +372,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             if (index == 0)
             {
-                if (greaterCursor(head, item))
+                if (greaterCursor(direction, head, item))
                 {
                     heap[0] = head;
                     head = item;
@@ -381,7 +384,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             int prev = (index - 1) / 2;
 
             // If the parent is lesser or equal, the invariant has been restored.
-            if (!greaterCursor(heap[prev], item))
+            if (!greaterCursor(direction, heap[prev], item))
                 break;
             heap[index] = heap[prev];
             index = prev;
@@ -400,9 +403,13 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         T collectedContent;
         boolean contentCollected;
 
-        <L> WithContent(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, C> getter, Class<? super C> cursorClass)
+        <L> WithContent(Direction direction,
+                        Trie.CollectionMergeResolver<T> resolver,
+                        Collection<L> inputs,
+                        Function<L, C> getter,
+                        Class<? super C> cursorClass)
         {
-            super(inputs, getter, cursorClass);
+            super(direction, inputs, getter, cursorClass);
             this.resolver = resolver;
             contents = new ArrayList<>(inputs.size());
         }
@@ -499,14 +506,17 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
     {
 
-        <L> Deterministic(Trie.CollectionMergeResolver<T> resolver, Collection<L> inputs, Function<L, TrieImpl.Cursor<T>> getter)
+        <L> Deterministic(Direction direction,
+                          Trie.CollectionMergeResolver<T> resolver,
+                          Collection<L> inputs,
+                          Function<L, TrieImpl.Cursor<T>> getter)
         {
-            super(resolver, inputs, getter, TrieImpl.Cursor.class);
+            super(direction, resolver, inputs, getter, TrieImpl.Cursor.class);
         }
 
-        Deterministic(Trie.CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
+        Deterministic(Direction direction, Trie.CollectionMergeResolver<T> resolver, Collection<? extends Trie<T>> inputs)
         {
-            this(resolver, inputs, trie -> TrieImpl.impl(trie).cursor());
+            this(direction, resolver, inputs, trie -> TrieImpl.impl(trie).cursor(direction));
         }
 
         Deterministic(WithContent<T, TrieImpl.Cursor<T>> copyFrom)
@@ -527,14 +537,16 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        <L> NonDeterministic(Collection<L> inputs, Function<L, NonDeterministicTrieImpl.Cursor<T>> getter)
+        <L> NonDeterministic(Direction direction,
+                             Collection<L> inputs,
+                             Function<L, NonDeterministicTrieImpl.Cursor<T>> getter)
         {
-            super(NonDeterministic::resolve, inputs, getter, NonDeterministicTrieImpl.Cursor.class);
+            super(direction, NonDeterministic::resolve, inputs, getter, NonDeterministicTrieImpl.Cursor.class);
         }
 
-        NonDeterministic(Collection<? extends NonDeterministicTrie<T>> inputs)
+        NonDeterministic(Direction direction, Collection<? extends NonDeterministicTrie<T>> inputs)
         {
-            this(inputs, trie -> NonDeterministicTrieImpl.impl(trie).cursor());
+            this(direction, inputs, trie -> NonDeterministicTrieImpl.impl(trie).cursor(direction));
         }
 
         NonDeterministic(WithContent<T, NonDeterministicTrieImpl.Cursor<T>> copyFrom)
@@ -590,7 +602,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             if (collector.list == null)
                 return collector.first;
 
-            return new NonDeterministic<>(collector.list, x -> x);
+            return new NonDeterministic<>(direction, collector.list, x -> x);
         }
 
         @Override
@@ -603,14 +615,17 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
     
     static class Range<M extends RangeTrie.RangeMarker<M>> extends WithContent<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
     {
-        <L> Range(Trie.CollectionMergeResolver<M> resolver, Collection<L> inputs, Function<L, RangeTrieImpl.Cursor<M>> getter)
+        <L> Range(Direction direction,
+                  Trie.CollectionMergeResolver<M> resolver,
+                  Collection<L> inputs,
+                  Function<L, RangeTrieImpl.Cursor<M>> getter)
         {
-            super(resolver, inputs, getter, RangeTrieImpl.Cursor.class);
+            super(direction, resolver, inputs, getter, RangeTrieImpl.Cursor.class);
         }
 
-        Range(Trie.CollectionMergeResolver<M> resolver, Collection<? extends RangeTrie<M>> inputs)
+        Range(Direction direction, Trie.CollectionMergeResolver<M> resolver, Collection<? extends RangeTrie<M>> inputs)
         {
-            this(resolver, inputs, trie -> RangeTrieImpl.impl(trie).cursor());
+            this(direction, resolver, inputs, trie -> RangeTrieImpl.impl(trie).cursor(direction));
         }
 
         Range(WithContent<M, RangeTrieImpl.Cursor<M>> copyFrom)
@@ -682,13 +697,15 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         }
         DeletionState relevantDeletionsState = DeletionState.NONE;
 
-        <L> DeletionAware(Trie.CollectionMergeResolver<T> mergeResolver,
+        <L> DeletionAware(Direction direction,
+                          Trie.CollectionMergeResolver<T> mergeResolver,
                           Trie.CollectionMergeResolver<D> deletionResolver,
                           BiFunction<D, T, T> deleter,
                           Collection<L> inputs,
                           Function<L, DeletionAwareTrieImpl.Cursor<T, D>> getter)
         {
-            super(mergeResolver,
+            super(direction,
+                  mergeResolver,
                   inputs,
                   getter,
                   DeletionAwareTrieImpl.Cursor.class);
@@ -696,19 +713,26 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             this.deletionResolver = deletionResolver;
             this.deleter = deleter;
             // Make a flexible merger for the deletion branches
-            relevantDeletions = new Range<D>(deletionResolver,
+            relevantDeletions = new Range<D>(direction,
+                                             deletionResolver,
                                              Collections.<RangeTrieImpl.Cursor<D>>nCopies(inputs.size(),
                                                                                           RangeTrieImpl.done()),
                                              x -> x);
             maybeAddDeletionsBranch(this.depth());
         }
 
-        DeletionAware(Trie.CollectionMergeResolver<T> mergeResolver,
+        DeletionAware(Direction direction,
+                      Trie.CollectionMergeResolver<T> mergeResolver,
                       Trie.CollectionMergeResolver<D> deletionResolver,
                       BiFunction<D, T, T> deleter,
                       Collection<? extends DeletionAwareTrie<T, D>> inputs)
         {
-            this(mergeResolver, deletionResolver, deleter, inputs, trie -> DeletionAwareTrieImpl.impl(trie).cursor());
+            this(direction,
+                 mergeResolver,
+                 deletionResolver,
+                 deleter,
+                 inputs,
+                 trie -> DeletionAwareTrieImpl.impl(trie).cursor(direction));
         }
 
         public DeletionAware(DeletionAware<T, D> copyFrom)
@@ -746,7 +770,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
                 relevantDeletionsState = DeletionState.NONE;
             else if (deletionDepth < contentDepth)
                 relevantDeletionsState = DeletionState.AHEAD;
-            else if (contentTransition < relevantDeletions.incomingTransition())
+            else if (direction.lt(contentTransition, relevantDeletions.incomingTransition()))
                 relevantDeletionsState = DeletionState.AHEAD;
             else
                 relevantDeletionsState = DeletionState.MATCHING;
@@ -860,7 +884,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             RangeTrieImpl.Cursor<D> deletionsBranch = cursor.deletionBranch();
             if (deletionsBranch == null)
-                addCursorOrThrow(deletions, new DeletionAwareTrieImpl.DeletionsTrieCursor(cursor.duplicate()));
+                addCursorOrThrow(deletions, new DeletionAwareTrieImpl.DeletionsTrieCursor(deletions.direction, cursor.duplicate()));
             // otherwise deletions already contains this cursor
         }
 
@@ -870,5 +894,4 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
             return new DeletionAware<>(this);
         }
     }
-
 }

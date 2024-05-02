@@ -123,7 +123,8 @@ public class IntersectionTrieTest
 
         Trie<ByteBuffer> intersection = op.apply(t1, l, r);
 
-        assertMapEquals(intersection.entrySet(), imap.entrySet());
+        assertMapEquals(intersection, imap, Direction.FORWARD);
+        assertMapEquals(intersection, imap, Direction.REVERSE);
     }
 
     /**
@@ -291,7 +292,7 @@ public class IntersectionTrieTest
         {
             List<Trie<Integer>> inputs = ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
                                                           fromList(4, 6, 7, 9, 10, 11, 12, 13));
-            testIntersections((TrieWithImpl<Integer>) () -> new CollectionMergeCursor.Deterministic<>(RESOLVER, inputs));
+            testIntersections((TrieWithImpl<Integer>) dir -> new CollectionMergeCursor.Deterministic<>(dir, RESOLVER, inputs));
         }
     }
 
@@ -426,16 +427,18 @@ public class IntersectionTrieTest
 
     private static TrieSetWithImpl intersectByRangeIntersector(TrieSet set1, TrieSet set2)
     {
-        return () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.INTERSECTION_CONTROLLER,
-                                                         ((TrieSetImpl) set1).cursor(),
-                                                         ((TrieSetImpl) set2).cursor());
+        return dir -> new RangeIntersectionCursor.TrieSet(dir,
+                                                          TrieSetImpl.INTERSECTION_CONTROLLER,
+                                                          ((TrieSetImpl) set1).cursor(dir),
+                                                          ((TrieSetImpl) set2).cursor(dir));
     }
 
     private static TrieSetWithImpl unionByRangeIntersector(TrieSet set1, TrieSet set2)
     {
-        return () -> new RangeIntersectionCursor.TrieSet(TrieSetImpl.UNION_CONTROLLER,
-                                                         ((TrieSetImpl) set1).cursor(),
-                                                         ((TrieSetImpl) set2).cursor());
+        return dir -> new RangeIntersectionCursor.TrieSet(dir,
+                                                          TrieSetImpl.UNION_CONTROLLER,
+                                                          ((TrieSetImpl) set1).cursor(dir),
+                                                          ((TrieSetImpl) set2).cursor(dir));
     }
 
     public void testIntersectionSets(String message, List<Integer> expected, Trie<Integer> trie, TrieSet intersectedSet, TrieSet[] sets)
@@ -559,16 +562,16 @@ public class IntersectionTrieTest
         RangeTrieWithImpl<TrieSetImpl.RangeState> setAsRangeTrie = new RangeTrieWithImpl<TrieSetImpl.RangeState>()
         {
             @Override
-            public Cursor<TrieSetImpl.RangeState> makeCursor()
+            public Cursor<TrieSetImpl.RangeState> makeCursor(Direction direction)
             {
                 throw new AssertionError();
             }
 
             @Override
-            public Cursor<TrieSetImpl.RangeState> cursor()
+            public Cursor<TrieSetImpl.RangeState> cursor(Direction direction)
             {
                 // disable debug verification (cursor is already checked by TrieSetWithImpl.cursor())
-                return TrieSetImpl.impl(set).cursor();
+                return TrieSetImpl.impl(set).cursor(direction);
             }
         };
         return setAsRangeTrie.applyTo(trie, (range, value) -> range.matchingIncluded() ? value : null);

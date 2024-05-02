@@ -68,9 +68,10 @@ public class TrieDuplicationTest
         testDuplicationRange(this::alternateRange);
     }
 
-    private <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
+    private <T extends NonDeterministicTrie.Mergeable<T>>
+    NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
     {
-        return () -> new AlternateRangeCursor<>(left, leftValue, right, rightValue);
+        return dir -> new AlternateRangeCursor<>(dir, left, leftValue, right, rightValue);
     }
 
     @Test
@@ -302,8 +303,13 @@ public class TrieDuplicationTest
 
     private <T> void testDuplicationVersion(Trie<T> trie, String msg)
     {
+        for (Direction dir : Direction.values())
+            testDuplicationVersion(trie, msg + " " + dir, dir);
+    }
+    private <T> void testDuplicationVersion(Trie<T> trie, String msg, Direction direction)
+    {
         List<WalkState<T>> walk = new ArrayList<>();
-        TrieImpl.Cursor<T> cursor = TrieImpl.impl(trie).cursor();
+        TrieImpl.Cursor<T> cursor = TrieImpl.impl(trie).cursor(direction);
         walk.add(new WalkState<>(cursor));
         while (cursor.advance() >= 0)
             walk.add(new WalkState<>(cursor));
@@ -314,7 +320,7 @@ public class TrieDuplicationTest
         List<TrieImpl.Cursor<T>> sources = new ArrayList<>();
         for (int test = 0; test < Math.max(1, TRIES / walk.size()); ++test)
         {
-            sources.add(TrieImpl.impl(trie).cursor());
+            sources.add(TrieImpl.impl(trie).cursor(direction));
             positions.add(0);
 
             while (!sources.isEmpty())

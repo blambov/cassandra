@@ -20,10 +20,12 @@ package org.apache.cassandra.db.tries;
 
 interface TrieWithImpl<T> extends Trie<T>, TrieImpl<T>
 {
-    Cursor<T> makeCursor();
+    Cursor<T> makeCursor(Direction direction);
 
-    default Cursor<T> cursor()
+    @Override
+    default Cursor<T> cursor(Direction direction)
     {
-        return Trie.DEBUG ? new VerificationCursor.Deterministic<>(makeCursor()) : makeCursor();
+        return Trie.DEBUG ? new VerificationCursor.Deterministic<>(direction, makeCursor(direction))
+                          : makeCursor(direction);
     }
 }

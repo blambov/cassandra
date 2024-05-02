@@ -42,27 +42,19 @@ public interface TrieSet
         return new RangesTrieSet(boundaries);
     }
 
-    /**
-     * Constuct a textual representation of the trie using the given content-to-string mapper.
-     */
-    default String dump()
-    {
-        return impl().process(new TrieDumper<>(Object::toString));
-    }
-
     default TrieSet negation()
     {
-        return (TrieSetWithImpl) () -> new TrieSetNegatedCursor(impl().cursor());
+        return (TrieSetWithImpl) dir -> new TrieSetNegatedCursor(impl().cursor(dir));
     }
 
     default TrieSet union(TrieSet other)
     {
-        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor.UnionCursor(impl().cursor(), other.impl().cursor());
+        return (TrieSetWithImpl) dir -> new TrieSetIntersectionCursor.UnionCursor(dir, impl().cursor(dir), other.impl().cursor(dir));
     }
 
     default TrieSet intersection(TrieSet other)
     {
-        return (TrieSetWithImpl) () -> new TrieSetIntersectionCursor(impl().cursor(), other.impl().cursor());
+        return (TrieSetWithImpl) dir -> new TrieSetIntersectionCursor(dir, impl().cursor(dir), other.impl().cursor(dir));
     }
 
     private TrieSetImpl impl()

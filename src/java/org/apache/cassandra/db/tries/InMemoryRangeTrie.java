@@ -30,9 +30,9 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     }
 
     @Override
-    public Cursor<M> makeCursor()
+    public Cursor<M> makeCursor(Direction direction)
     {
-        return new RangeCursor<>(this, root, -1, -1);
+        return new RangeCursor<>(this, direction, root, -1, -1);
     }
 
 
@@ -48,9 +48,9 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         M activeRange;  // only non-null if activeIsSet
         M prevContent;  // can only be non-null if activeIsSet
 
-        RangeCursor(InMemoryReadTrie<Q> trie, int root, int depth, int incomingTransition)
+        RangeCursor(InMemoryReadTrie<Q> trie, Direction direction, int root, int depth, int incomingTransition)
         {
-            super(trie, root, depth, incomingTransition);
+            super(trie, direction, root, depth, incomingTransition);
             activeIsSet = true;
             activeRange = null;
             prevContent = null;
@@ -156,7 +156,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
      */
     public <U extends RangeMarker<U>> void apply(RangeTrie<U> mutation, final UpsertTransformer<M, U> transformer) throws SpaceExhaustedException
     {
-        RangeTrieImpl.Cursor<U> mutationCursor = RangeTrieImpl.impl(mutation).cursor();
+        RangeTrieImpl.Cursor<U> mutationCursor = RangeTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";

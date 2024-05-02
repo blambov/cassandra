@@ -92,6 +92,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
         C2_AHEAD;
     }
 
+    final Direction direction;
     final IntersectionController<C, D, Z> controller;
     final RangeTrieImpl.Cursor<C> c1;
     final RangeTrieImpl.Cursor<D> c2;
@@ -102,8 +103,9 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
     Z currentContent;
     State state;
 
-    public RangeIntersectionCursor(IntersectionController<C, D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
+    public RangeIntersectionCursor(Direction direction, IntersectionController<C, D, Z> controller, RangeTrieImpl.Cursor<C> c1, RangeTrieImpl.Cursor<D> c2)
     {
+        this.direction = direction;
         this.controller = controller;
         this.c1 = c1;
         this.c2 = c2;
@@ -112,6 +114,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
 
     public RangeIntersectionCursor(RangeIntersectionCursor<C, D, Z> copyFrom)
     {
+        this.direction = copyFrom.direction;
         this.controller = copyFrom.controller;
         this.c1 = copyFrom.c1.duplicate();
         this.c2 = copyFrom.c2.duplicate();
@@ -185,7 +188,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
                 int leftDepth = c1.depth();
-                if (leftDepth < skipDepth || leftDepth == skipDepth && c1.incomingTransition() >= skipTransition)
+                if (leftDepth < skipDepth || leftDepth == skipDepth && direction.ge(c1.incomingTransition(), skipTransition))
                     return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
@@ -194,7 +197,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
                 int rightDepth = c2.depth();
-                if (rightDepth < skipDepth || rightDepth == skipDepth && c2.incomingTransition() >= skipTransition)
+                if (rightDepth < skipDepth || rightDepth == skipDepth && direction.ge(c2.incomingTransition(), skipTransition))
                     return advanceWithRightAhead(c1.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
@@ -245,7 +248,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
             return coveredAreaWithLeftAhead(rightDepth, rightTransition);
         if (rightDepth == leftDepth)
         {
-            if (rightTransition < leftTransition)
+            if (direction.lt(rightTransition, leftTransition))
                 return coveredAreaWithLeftAhead(rightDepth, rightTransition);
             if (rightTransition == leftTransition)
                 return matchingPosition(rightDepth, rightTransition);
@@ -267,7 +270,7 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
             return coveredAreaWithRightAhead(leftDepth, leftTransition);
         if (leftDepth == rightDepth)
         {
-            if (leftTransition < rightTransition)
+            if (direction.lt(leftTransition, rightTransition))
                 return coveredAreaWithRightAhead(leftDepth, leftTransition);
             if (leftTransition == rightTransition)
                 return matchingPosition(leftDepth, leftTransition);
@@ -360,9 +363,12 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
 
     static class TrieSet extends RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> implements TrieSetImpl.Cursor
     {
-        public TrieSet(IntersectionController<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> controller, RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c1, RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c2)
+        public TrieSet(Direction direction,
+                       IntersectionController<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> controller,
+                       RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c1,
+                       RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c2)
         {
-            super(controller, c1, c2);
+            super(direction, controller, c1, c2);
         }
 
         public TrieSet(RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> copyFrom)

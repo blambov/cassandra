@@ -34,11 +34,11 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
     }
 
     @Override
-    public Cursor<T> makeCursor()
+    public Cursor<T> makeCursor(Direction direction)
     {
-        Cursor<T> cursor = new MergeAlternativesCursor<>(source.cursor(), omitMain);
+        Cursor<T> cursor = new MergeAlternativesCursor<>(direction, source.cursor(direction), omitMain);
         if (omitMain)
-            cursor = DeadBranchRemoval.apply(cursor);
+            cursor = DeadBranchRemoval.apply(direction, cursor);
         return cursor;
     }
 
@@ -47,13 +47,13 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
      * - its depth is greater, or
      * - its depth is equal, and the incoming transition is smaller.
      */
-    static <T> boolean greaterCursor(Cursor<T> c1, Cursor<T> c2)
+    static <T> boolean greaterCursor(Direction direction, Cursor<T> c1, Cursor<T> c2)
     {
         int c1depth = c1.depth();
         int c2depth = c2.depth();
         if (c1depth != c2depth)
             return c1depth < c2depth;
-        return c1.incomingTransition() > c2.incomingTransition();
+        return direction.gt(c1.incomingTransition(), c2.incomingTransition());
     }
 
     static <T> boolean equalCursor(Cursor<T> c1, Cursor<T> c2)
@@ -102,6 +102,7 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
      */
     static class MergeAlternativesCursor<T extends NonDeterministicTrie.Mergeable<T>> implements Cursor<T>
     {
+        private final Direction direction;
         private final NonDeterministicTrieImpl.Cursor<T> cursorToOmit;
 
         /**
@@ -121,8 +122,9 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
          */
         private T content;
 
-        MergeAlternativesCursor(NonDeterministicTrieImpl.Cursor<T> source, boolean omitMain)
+        MergeAlternativesCursor(Direction direction, NonDeterministicTrieImpl.Cursor<T> source, boolean omitMain)
         {
+            this.direction = direction;
             head = source;
             cursorToOmit = omitMain ? head : null;
             heap = new ArrayList<>();
@@ -147,6 +149,7 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
             if (copyFrom.head == copyFrom.cursorToOmit)
                 toOmit = this.head;
             this.cursorToOmit = toOmit;
+            this.direction = copyFrom.direction;
         }
 
         /**
@@ -243,10 +246,10 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
                 if (next >= heap.size())
                     break;
                 // Select the smaller of the two children to push down to.
-                if (next + 1 < heap.size() && greaterCursor(heap.get(next), heap.get(next + 1)))
+                if (next + 1 < heap.size() && greaterCursor(direction, heap.get(next), heap.get(next + 1)))
                     ++next;
                 // If the child is greater or equal, the invariant has been restored.
-                if (!greaterCursor(item, heap.get(next)))
+                if (!greaterCursor(direction, item, heap.get(next)))
                     break;
                 heap.set(index, heap.get(next));
                 index = next;
@@ -262,7 +265,7 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
             while (index > 0)
             {
                 int parent = (index - 1) / 2;
-                if (!greaterCursor(heap.get(parent), item))
+                if (!greaterCursor(direction, heap.get(parent), item))
                     break;
                 heap.set(index, heap.get(parent));
                 index = parent;
@@ -283,7 +286,7 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
 
             int heap0Depth = heap.get(0).depth();
             if (headDepth > heap0Depth ||
-                (headDepth == heap0Depth && head.incomingTransition() <= heap.get(0).incomingTransition()))
+                (headDepth == heap0Depth && direction.le(head.incomingTransition(), heap.get(0).incomingTransition())))
                 return headDepth;   // head is still smallest
 
             // otherwise we need to swap heap and heap.get(0)
@@ -369,7 +372,7 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
                     // to skip only if it would be before it.
                     int childDepth = child.depth();
                     return childDepth > skipDepth ||
-                           childDepth == skipDepth && child.incomingTransition() < skipTransition;
+                           childDepth == skipDepth && direction.lt(child.incomingTransition(), skipTransition);
                 }
 
                 @Override

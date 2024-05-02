@@ -465,14 +465,14 @@ public class DeletionAwareMergeTest
         // Because the in-memory trie can't resolve overlapping deletion branches, move the argument's deletion branch to the root
         RangeTrieImpl<DeletionMarker> deletions = RangeTrieImpl.impl(trie.deletionOnlyTrie());
         TrieImpl<LivePoint> lives = TrieImpl.impl(trie.contentOnlyTrie());
-        return (DeletionAwareTrieWithImpl<LivePoint, DeletionMarker>) () -> new DeletionAwareTrieImpl.Cursor<>()
+        return (DeletionAwareTrieWithImpl<LivePoint, DeletionMarker>) dir -> new DeletionAwareTrieImpl.Cursor<>()
         {
-            TrieImpl.Cursor<LivePoint> liveCursor = lives.cursor();
+            TrieImpl.Cursor<LivePoint> liveCursor = lives.cursor(dir);
 
             @Override
             public RangeTrieImpl.Cursor<DeletionMarker> deletionBranch()
             {
-                return depth() == 0 ? deletions.cursor() : null;
+                return depth() == 0 ? deletions.cursor(dir) : null;
             }
 
             @Override

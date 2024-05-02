@@ -23,7 +23,88 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 interface CursorWalkable<C extends CursorWalkable.Cursor>
 {
-    C cursor();
+    /**
+     * A trie cursor.
+     *
+     * This is the internal representation of the trie, which enables efficient walks and basic operations (merge,
+     * slice) on tries.
+     *
+     * The cursor represents the state of a walk over the nodes of trie. It provides three main features:
+     * - the current "depth" or descend-depth in the trie;
+     * - the "incomingTransition", i.e. the byte that was used to reach the current point;
+     * - the "content" associated with the current node,
+     * and provides methods for advancing to the next position.  This is enough information to extract all paths, and
+     * also to easily compare cursors over different tries that are advanced together. Advancing is always done in
+     * order; if one imagines the set of nodes in the trie with their associated paths, a cursor may only advance from a
+     * node with a lexicographically smaller path to one with bigger. The "advance" operation moves to the immediate
+     * next, it is also possible to skip over some items e.g. all children of the current node ("skipChildren").
+     *
+     * Moving to the immediate next position in the lexicographic order is accomplished by:
+     * - if the current node has children, moving to its first child;
+     * - otherwise, ascend the parent chain and return the next child of the closest parent that still has any.
+     * As long as the trie is not exhausted, advancing always takes one step down, from the current node, or from a node
+     * on the parent chain. By comparing the new depth (which "advance" also returns) with the one before the advance,
+     * one can tell if the former was the case (if newDepth == oldDepth + 1) and how many steps up we had to take
+     * (oldDepth + 1 - newDepth). When following a path down, the cursor will stop on all prefixes.
+     *
+     * When it is created the cursor is placed on the root node with depth() = 0, incomingTransition() = -1. Since
+     * tries can have mappings for empty, content() can possibly be non-null. It is not allowed for a cursor to start
+     * in exhausted state (i.e. with depth() = -1).
+     *
+     * For example, the following trie:
+     *  t
+     *   r
+     *    e
+     *     e *
+     *    i
+     *     e *
+     *     p *
+     *  w
+     *   i
+     *    n  *
+     * has nodes reachable with the paths
+     *  "", t, tr, tre, tree*, tri, trie*, trip*, w, wi, win*
+     * and the cursor will list them with the following (depth, incomingTransition) pairs:
+     *  (0, -1), (1, t), (2, r), (3, e), (4, e)*, (3, i), (4, e)*, (4, p)*, (1, w), (2, i), (3, n)*
+     *
+     * Because we exhaust transitions on bigger depths before we go the next transition on the smaller ones, when
+     * cursors are advanced together their positions can be easily compared using only the depth and incomingTransition:
+     * - one that is higher in depth is before one that is lower;
+     * - for equal depths, the one with smaller incomingTransition is first.
+     *
+     * If we consider walking the trie above in parallel with this:
+     *  t
+     *   r
+     *    i
+     *     c
+     *      k *
+     *  u
+     *   p *
+     * the combined iteration will proceed as follows:
+     *  (0, -1)+    (0, -1)+               cursors equal, advance both
+     *  (1, t)+     (1, t)+        t       cursors equal, advance both
+     *  (2, r)+     (2, r)+        tr      cursors equal, advance both
+     *  (3, e)+  <  (3, i)         tre     cursors not equal, advance smaller (3 = 3, e < i)
+     *  (4, e)+  <  (3, i)         tree*   cursors not equal, advance smaller (4 > 3)
+     *  (3, i)+     (3, i)+        tri     cursors equal, advance both
+     *  (4, e)   >  (4, c)+        tric    cursors not equal, advance smaller (4 = 4, e > c)
+     *  (4, e)   >  (5, k)+        trick*  cursors not equal, advance smaller (4 < 5)
+     *  (4, e)+  <  (1, u)         trie*   cursors not equal, advance smaller (4 > 1)
+     *  (4, p)+  <  (1, u)         trip*   cursors not equal, advance smaller (4 > 1)
+     *  (1, w)   >  (1, u)         u       cursors not equal, advance smaller (1 = 1, w > u)
+     *  (1, w)   >  (2, p)         up*     cursors not equal, advance smaller (1 = 1, w > u)
+     *  (1, w)+  <  (-1, -1)       w       cursors not equal, advance smaller (1 > -1)
+     *  (2, i)+  <  (-1, -1)       wi      cursors not equal, advance smaller (2 > -1)
+     *  (3, n)+  <  (-1, -1)       win*    cursors not equal, advance smaller (3 > -1)
+     *  (-1, -1)    (-1, -1)               both exhasted
+     *
+     * Cursors are created with a direction (forward or reverse), which specifies the order in which a node's children
+     * are iterated (smaller first or larger first). Note that entries returned in reverse direction are in
+     * lexicographic order for the inverted alphabet, which is not the same as being presented in reverse. For example,
+     * a cursor for a trie containing "ab", "abc" and "cba", will visit the nodes in order "cba", "ab", "abc", i.e.
+     * prefixes will still be reported before their descendants.
+     */
+    C cursor(Direction direction);
 
     interface Cursor
     {

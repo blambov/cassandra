@@ -43,6 +43,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.VERSION;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.comparable;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.maybeReversed;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.specifiedNonDeterministicTrie;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -107,7 +108,7 @@ public class AlternativeBranchesTest
             )
         });
 
-        assertMapEquals(specified.entrySet(),
+        assertTrieEquals(specified,
                         ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
@@ -116,16 +117,14 @@ public class AlternativeBranchesTest
                                         comparable("012"), of(13),
                                         comparable("020"), of(2),
                                         comparable("021"), of(13),
-                                        comparable("022"), of(18))
-                                    .entrySet());
-        assertMapEquals(specified.mainPathOnly().entrySet(),
+                                        comparable("022"), of(18)));
+        assertTrieEquals(specified.mainPathOnly(),
                         ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
                                         comparable("020"), of(2),
-                                        comparable("022"), of(4))
-                                    .entrySet());
-        assertMapEquals(specified.deterministic().entrySet(),
+                                        comparable("022"), of(4)));
+        assertTrieEquals(specified.deterministic(),
                         ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
@@ -134,8 +133,7 @@ public class AlternativeBranchesTest
                                         comparable("012"), of(13),
                                         comparable("020"), of(2),
                                         comparable("021"), of(13),
-                                        comparable("022"), of(18))
-                                    .entrySet());
+                                        comparable("022"), of(18)));
     }
 
     static <T extends NonDeterministicTrie.Mergeable<T>> TrieWithImpl<T> mainBranch(NonDeterministicTrie<T> ndtrie)
@@ -323,9 +321,9 @@ public class AlternativeBranchesTest
     NonDeterministicTrieWithImpl<T> alternateRange(ByteComparable sComparable, T svalue, ByteComparable eComparable, T evalue)
     {
         if (ByteComparable.compare(sComparable, eComparable, TrieImpl.BYTE_COMPARABLE_VERSION) > 0)
-            return () -> new AlternateRangeCursor<>(eComparable, evalue, sComparable, svalue);
+            return dir -> new AlternateRangeCursor<>(dir, eComparable, evalue, sComparable, svalue);
         else
-            return () -> new AlternateRangeCursor<>(sComparable, svalue, eComparable, evalue);
+            return dir -> new AlternateRangeCursor<>(dir, sComparable, svalue, eComparable, evalue);
     }
 
     @Test
@@ -399,7 +397,8 @@ public class AlternativeBranchesTest
         covered.putIfAbsent(eComparable, null);
         for (var entry : covered.entrySet())
         {
-            NonDeterministicTrieImpl.Cursor<MergeableInteger> c = NonDeterministicTrieImpl.impl(trie).cursor();
+            // TODO: Test reverse iteration
+            NonDeterministicTrieImpl.Cursor<MergeableInteger> c = NonDeterministicTrieImpl.impl(trie).cursor(Direction.FORWARD);
             var key = entry.getKey().asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
             var start = ByteSource.duplicatable(sComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
             var end = ByteSource.duplicatable(eComparable.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION));
@@ -467,14 +466,14 @@ public class AlternativeBranchesTest
 //        System.out.println("Merged:\n" + trie.deterministic()(RESOLVER_FIRST).dump());
 //        System.out.println("Alt   :\n" + trie.alternateView(RESOLVER_FIRST).dump());
 
-        assertMapEquals(mainBranch(trie).entrySet(), normals.entrySet());
-        assertMapEquals(alternatesOnly(trie).entrySet(), alternates.entrySet());
-        assertMapEquals(trie.entrySet(), both.entrySet());
+        assertTrieEquals(mainBranch(trie), normals);
+        assertTrieEquals(alternatesOnly(trie), alternates);
+        assertTrieEquals(trie, both);
 
         NonDeterministicTrie<MergeableInteger> ix = trie.subtrie(left, right);
-        assertMapEquals(mainBranch(ix).entrySet(), normals.subMap(left, right).entrySet());
-        assertMapEquals(alternatesOnly(ix).entrySet(), alternates.subMap(left, right).entrySet());
-        assertMapEquals(ix.entrySet(), both.subMap(left, right).entrySet());
+        assertTrieEquals(mainBranch(ix), normals.subMap(left, right));
+        assertTrieEquals(alternatesOnly(ix), alternates.subMap(left, right));
+        assertTrieEquals(ix, both.subMap(left, right));
 
 //        System.out.println("Bounds " + asString(left) + " to " + asString(right));
 //        System.out.println("IX Normal:\n" + ix.dump());
@@ -511,6 +510,12 @@ public class AlternativeBranchesTest
         Object[] arr = new Object[10];
         arr[s.charAt(0) - '0'] = child;
         return arr;
+    }
+
+    static <T> void assertTrieEquals(BaseTrie<T> trie, Map<ByteComparable, T> map)
+    {
+        for (Direction direction : Direction.values())
+            assertMapEquals(trie.entrySet(direction), maybeReversed(direction, map).entrySet());
     }
 
     static <T> void assertMapEquals(Iterable<Map.Entry<ByteComparable, T>> container1,

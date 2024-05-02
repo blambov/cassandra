@@ -52,9 +52,9 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         Cursor<T, D> duplicate();
     }
 
-    default <R> R process(TrieImpl.Walker<T, R> walker)
+    default <R> R process(TrieImpl.Walker<T, R> walker, Direction direction)
     {
-        return TrieImpl.process(walker, cursor());
+        return TrieImpl.process(walker, cursor(direction));
     }
 
     @SuppressWarnings("unchecked")
@@ -67,9 +67,9 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
     class LiveAndDeletionsMergeCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>, Z>
     extends FlexibleMergeCursor.WithMappedContent<T, D, DeletionAwareTrieImpl.Cursor<T, D>, RangeTrieImpl.Cursor<D>, Z>
     {
-        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareTrieImpl.Cursor<T, D> c1)
+        LiveAndDeletionsMergeCursor(Direction direction, BiFunction<T, D, Z> resolver, DeletionAwareTrieImpl.Cursor<T, D> c1)
         {
-            super(resolver, c1, null);
+            super(direction, resolver, c1, null);
             maybeAddDeletionsBranch(c1.depth());
         }
 
@@ -117,9 +117,9 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
     class DeletionsTrieCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends FlexibleMergeCursor<Cursor<T, D>, RangeTrieImpl.Cursor<D>> implements RangeTrieImpl.Cursor<D>
     {
-        DeletionsTrieCursor(DeletionAwareTrieImpl.Cursor<T, D> c1)
+        DeletionsTrieCursor(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> c1)
         {
-            super(c1, null);
+            super(direction, c1, null);
             maybeAddDeletionsBranch(c1.depth());
         }
 
@@ -166,7 +166,7 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
                 if (deletionsBranch != null)
                 {
                     addCursor(deletionsBranch);
-                    c1.skipTo(c1.depth(), c1.incomingTransition() + 1); // skip past the deletion branch
+                    c1.skipTo(c1.depth(), c1.incomingTransition() + direction.increase); // skip past the deletion branch
                     // TODO: Do we need to handle incomingTransition 256 here? Document in skipTo if not.
                     state = State.AT_C2;
                 }
@@ -198,5 +198,5 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
     }
 
     @SuppressWarnings("rawtypes")
-    static DeletionAwareTrieWithImpl EMPTY = EmptyCursor::new;
+    static DeletionAwareTrieWithImpl EMPTY = dir -> new EmptyCursor();
 }

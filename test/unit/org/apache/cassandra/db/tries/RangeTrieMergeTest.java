@@ -495,7 +495,7 @@ public class RangeTrieMergeTest
 
     private <M extends RangeTrie.RangeMarker<M>> RangeTrieWithImpl<M> mergeByRangeIntersection(RangeTrie<M> trie1, RangeTrie<M> trie2, Trie.MergeResolver<M> resolver)
     {
-        return () -> new RangeIntersectionCursor<>(new RangeIntersectionCursor.IntersectionController<M, M, M>()
+        return dir -> new RangeIntersectionCursor<>(dir, new RangeIntersectionCursor.IntersectionController<M, M, M>()
         {
             @Override
             public M combineState(M lState, M rState)
@@ -518,7 +518,7 @@ public class RangeTrieMergeTest
             {
                 return true;
             }
-        }, ((RangeTrieImpl<M>) trie1).cursor(), ((RangeTrieImpl<M>) trie2).cursor());
+        }, ((RangeTrieImpl<M>) trie1).cursor(dir), ((RangeTrieImpl<M>) trie2).cursor(dir));
     }
 
     int delete(int deletionTime, int data)

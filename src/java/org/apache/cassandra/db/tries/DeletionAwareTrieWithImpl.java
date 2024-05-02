@@ -21,10 +21,12 @@ package org.apache.cassandra.db.tries;
 public interface DeletionAwareTrieWithImpl<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
 extends DeletionAwareTrie<T, D>, DeletionAwareTrieImpl<T, D>
 {
-    DeletionAwareTrieImpl.Cursor<T, D> makeCursor();
+    DeletionAwareTrieImpl.Cursor<T, D> makeCursor(Direction direction);
 
-    default DeletionAwareTrieImpl.Cursor<T, D> cursor()
+    @Override
+    default DeletionAwareTrieImpl.Cursor<T, D> cursor(Direction direction)
     {
-        return Trie.DEBUG ? new VerificationCursor.DeletionAware<>(makeCursor()) : makeCursor();
+        return Trie.DEBUG ? new VerificationCursor.DeletionAware<>(direction, makeCursor(direction))
+                          : makeCursor(direction);
     }
 }

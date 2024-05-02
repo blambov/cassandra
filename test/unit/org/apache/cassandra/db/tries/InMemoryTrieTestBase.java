@@ -21,6 +21,8 @@ package org.apache.cassandra.db.tries;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +31,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -44,6 +47,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.junit.Assert.assertEquals;
 
@@ -62,7 +66,26 @@ public abstract class InMemoryTrieTestBase
 
     static final ByteComparable.Version VERSION = InMemoryDTrie.BYTE_COMPARABLE_VERSION;
 
+    public static final Comparator<ByteComparable> FORWARD_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION);
+    public static final Comparator<ByteComparable> REVERSE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(invert(bytes1), invert(bytes2), VERSION);
+
     abstract boolean usePut();
+
+    static ByteComparable invert(ByteComparable b)
+    {
+        return version -> invert(b.asComparableBytes(version));
+    }
+
+    static ByteSource invert(ByteSource src)
+    {
+        return () ->
+        {
+            int v = src.next();
+            if (v == ByteSource.END_OF_STREAM)
+                return v;
+            return v ^ 0xFF;
+        };
+    }
 
     @Test
     public void testSingle()
@@ -157,29 +180,32 @@ public abstract class InMemoryTrieTestBase
         SpecStackEntry parent;
         Object alternateBranch;
 
-        public SpecStackEntry(Object[] spec, Object content, Object alternateBranch, SpecStackEntry parent)
+        public SpecStackEntry(Object[] spec, Object content, Object alternateBranch, SpecStackEntry parent, int curChild)
         {
             this.children = spec;
             this.content = content;
             this.parent = parent;
             this.alternateBranch = alternateBranch;
-            this.curChild = -1;
+            this.curChild = curChild;
         }
     }
-    static SpecStackEntry makeSpecStackEntry(Object spec, SpecStackEntry parent)
+    static SpecStackEntry makeSpecStackEntry(Direction direction, Object spec, SpecStackEntry parent)
     {
         if (spec instanceof Pair)
-            return makeSpecStackEntry(((Pair) spec).left(), ((Pair) spec).right(), parent);
+            return makeSpecStackEntry(direction, ((Pair) spec).left(), ((Pair) spec).right(), parent);
         else
-            return makeSpecStackEntry(spec, null, parent);
+            return makeSpecStackEntry(direction, spec, null, parent);
     }
-    static SpecStackEntry makeSpecStackEntry(Object spec, Object alternateBranch, SpecStackEntry parent)
+    static SpecStackEntry makeSpecStackEntry(Direction direction, Object spec, Object alternateBranch, SpecStackEntry parent)
     {
         assert !(spec instanceof Pair);
         if (spec instanceof Object[])
-            return new SpecStackEntry((Object[]) spec, null, alternateBranch, parent);
+        {
+            final Object[] specArray = (Object[]) spec;
+            return new SpecStackEntry(specArray, null, alternateBranch, parent, direction.select(-1, specArray.length));
+        }
         else
-            return new SpecStackEntry(new Object[0], spec, alternateBranch, parent);
+            return new SpecStackEntry(new Object[0], spec, alternateBranch, parent, direction.select(-1, 1));
 
     }
 
@@ -188,10 +214,12 @@ public abstract class InMemoryTrieTestBase
         SpecStackEntry stack;
         int depth;
         int leadingTransition;
+        Direction direction;
 
-        CursorFromSpec(Object[] spec)
+        CursorFromSpec(Object[] spec, Direction direction)
         {
-            stack = makeSpecStackEntry(spec, null, null);
+            this.direction = direction;
+            stack = makeSpecStackEntry(direction, spec, null, null);
             depth = 0;
             leadingTransition = -1;
         }
@@ -206,53 +234,25 @@ public abstract class InMemoryTrieTestBase
         @Override
         public int advance()
         {
-            Object child;
             SpecStackEntry current = stack;
-            do
+            while (current != null
+                   && !direction.inLoop(current.curChild += direction.increase, 0, current.children.length - 1))
             {
-                while (current != null && ++current.curChild >= current.children.length)
-                {
-                    current = current.parent;
-                    --depth;
-                }
-                if (current == null)
-                {
-                    stack = null;
-                    leadingTransition = -1;
-                    return depth = -1;
-                }
-
-                child = current.children[current.curChild];
+                current = current.parent;
+                --depth;
             }
-            while (child == null);
-            stack = makeSpecStackEntry(child, current);
+            if (current == null)
+            {
+                stack = null;
+                leadingTransition = -1;
+                return depth = -1;
+            }
+
+            Object child = current.children[current.curChild];
+            stack = makeSpecStackEntry(direction, child, current);
 
             return ++depth;
         }
-
-//        @Override
-//        public int advanceMultiple(Trie.TransitionsReceiver receiver)
-//        {
-//            if (stack == null || stack.curChild + 1 >= stack.children.length)
-//                return advance();
-//
-//            ++stack.curChild;
-//            Object child = stack.children[stack.curChild];
-//            while (child instanceof Object[])
-//            {
-//                stack = new SpecStackEntry((Object[]) child, null, null, stack);
-//                if (receiver != null)
-//                    receiver.addPathByte(0x30);
-//                ++depth;
-//                if (stack.children.length == 0)
-//                    return depth;
-//                child = stack.children[++stack.curChild];
-//            }
-//            stack = makeSpecStackEntry(child, stack);
-//
-//
-//            return ++depth;
-//        }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
@@ -271,7 +271,7 @@ public abstract class InMemoryTrieTestBase
             }
 
             int index = skipTransition - 0x30;
-            stack.curChild = Math.max(stack.curChild, index - 1);
+            stack.curChild = direction.max(stack.curChild, index - 1);
             return advance();
         }
 
@@ -304,7 +304,7 @@ public abstract class InMemoryTrieTestBase
         {
             if (stack == null)
                 return null;
-            return new SpecStackEntry(stack.children, stack.content, stack.alternateBranch, copyStack(stack.parent));
+            return new SpecStackEntry(stack.children, stack.content, stack.alternateBranch, copyStack(stack.parent), stack.curChild);
         }
 
         @Override
@@ -332,9 +332,9 @@ public abstract class InMemoryTrieTestBase
     extends CursorFromSpec<T>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NDCursorFromSpec(Object[] spec)
+        NDCursorFromSpec(Object[] spec, Direction direction)
         {
-            super(spec);
+            super(spec, direction);
         }
 
         NDCursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition)
@@ -347,7 +347,9 @@ public abstract class InMemoryTrieTestBase
         {
             if (stack.alternateBranch == null)
                 return null;
-            return new NDCursorFromSpec<>(makeSpecStackEntry(stack.alternateBranch, null), depth, incomingTransition());
+            return new NDCursorFromSpec<>(makeSpecStackEntry(direction, stack.alternateBranch, null),
+                                          depth,
+                                          incomingTransition());
         }
 
         @Override
@@ -359,12 +361,12 @@ public abstract class InMemoryTrieTestBase
 
     static <T> TrieWithImpl<T> specifiedTrie(Object[] nodeDef)
     {
-        return () -> new CursorFromSpec<>(nodeDef);
+        return dir -> new CursorFromSpec<>(nodeDef, dir);
     }
 
     static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrieWithImpl<T> specifiedNonDeterministicTrie(Object[] nodeDef)
     {
-        return () -> new NDCursorFromSpec<>(nodeDef);
+        return dir -> new NDCursorFromSpec<>(nodeDef, dir);
     }
 
     @Test
@@ -396,7 +398,7 @@ public abstract class InMemoryTrieTestBase
                                            ByteBufferUtil.bytes(6) // 6
                                    };
 
-        SortedMap<ByteComparable, ByteBuffer> expected = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
+        SortedMap<ByteComparable, ByteBuffer> expected = new TreeMap<>(FORWARD_COMPARATOR);
         expected.put(comparable("00"), ByteBufferUtil.bytes(1));
         expected.put(comparable("01"), ByteBufferUtil.bytes(2));
         expected.put(comparable("2"), ByteBufferUtil.bytes(3));
@@ -419,7 +421,7 @@ public abstract class InMemoryTrieTestBase
     public void testDirect()
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
+        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>(FORWARD_COMPARATOR);
         InMemoryDTrie<ByteBuffer> trie = makeInMemoryDTrie(src, content, usePut());
         int keysize = Arrays.stream(src)
                             .mapToInt(src1 -> ByteComparable.length(src1, VERSION))
@@ -571,16 +573,19 @@ public abstract class InMemoryTrieTestBase
 
     static void assertSameContent(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
     {
-        assertMapEquals(trie, map);
-        assertForEachEntryEquals(trie, map);
-        assertValuesEqual(trie, map);
-        assertForEachValueEquals(trie, map);
+        for (Direction dir : Direction.values())
+        {
+            assertMapEquals(trie, map, dir);
+            assertForEachEntryEquals(trie, map, dir);
+            assertValuesEqual(trie, map, dir);
+            assertForEachValueEquals(trie, map, dir);
+        }
         assertUnorderedValuesEqual(trie, map);
     }
 
-    private static void assertValuesEqual(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
+    private static void assertValuesEqual(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
     {
-        assertIterablesEqual(trie.values(), map.values());
+        assertIterablesEqual(trie.values(direction), maybeReversed(direction, map).values());
     }
 
     private static void assertUnorderedValuesEqual(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
@@ -600,39 +605,61 @@ public abstract class InMemoryTrieTestBase
         assertEquals("", errors.toString());
     }
 
-    private static void assertForEachEntryEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
+     static Collection<ByteComparable> maybeReversed(Direction direction, Collection<ByteComparable> data)
     {
-        Iterator<Map.Entry<ByteComparable, ByteBuffer>> it = map.entrySet().iterator();
+        return direction.isForward() ? data : reorderBy(data, REVERSE_COMPARATOR);
+    }
+
+    static <V> Map<ByteComparable, V> maybeReversed(Direction direction, Map<ByteComparable, V> data)
+    {
+        return direction.isForward() ? data : reorderBy(data, REVERSE_COMPARATOR);
+    }
+
+    private static <V> Map<ByteComparable, V> reorderBy(Map<ByteComparable, V> data, Comparator<ByteComparable> comparator)
+    {
+        Map<ByteComparable, V> newMap = new TreeMap<>(comparator);
+        newMap.putAll(data);
+        return newMap;
+    }
+
+    private static void assertForEachEntryEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
+    {
+        Iterator<Map.Entry<ByteComparable, ByteBuffer>> it = maybeReversed(direction, map).entrySet().iterator();
         trie.forEachEntry((key, value) -> {
             Assert.assertTrue("Map exhausted first, key " + asString(key), it.hasNext());
             Map.Entry<ByteComparable, ByteBuffer> entry = it.next();
             assertEquals(0, ByteComparable.compare(entry.getKey(), key, TrieImpl.BYTE_COMPARABLE_VERSION));
             assertEquals(entry.getValue(), value);
-        });
+        }, direction);
         Assert.assertFalse("Trie exhausted first", it.hasNext());
     }
 
-    private static void assertForEachValueEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
+    private static void assertForEachValueEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
     {
         Iterator<ByteBuffer> it = map.values().iterator();
         trie.forEachValue(value -> {
             Assert.assertTrue("Map exhausted first, value " + ByteBufferUtil.bytesToHex(value), it.hasNext());
             ByteBuffer entry = it.next();
             assertEquals(entry, value);
-        });
+        }, direction);
         Assert.assertFalse("Trie exhausted first", it.hasNext());
     }
 
-    static void assertMapEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map)
+    static void assertMapEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
     {
-        assertMapEquals(trie.entrySet(), map.entrySet());
+        assertMapEquals(trie.entryIterator(direction), maybeReversed(direction, map).entrySet().iterator());
     }
 
-    static void assertMapEquals(Iterable<Map.Entry<ByteComparable, ByteBuffer>> container1,
-                                Iterable<Map.Entry<ByteComparable, ByteBuffer>> container2)
+    static <E> Collection<E> reorderBy(Collection<E> original, Comparator<E> comparator)
     {
-        Iterator<Map.Entry<ByteComparable, ByteBuffer>> it1 = container1.iterator();
-        Iterator<Map.Entry<ByteComparable, ByteBuffer>> it2 = container2.iterator();
+        List<E> list = original.stream().collect(Collectors.toList());
+        list.sort(comparator);
+        return list;
+    }
+
+    static void assertMapEquals(Iterator<Map.Entry<ByteComparable, ByteBuffer>> it1,
+                                Iterator<Map.Entry<ByteComparable, ByteBuffer>> it2)
+    {
         List<ByteComparable> failedAt = new ArrayList<>();
         StringBuilder b = new StringBuilder();
         while (it1.hasNext() && it2.hasNext())
@@ -682,7 +709,7 @@ public abstract class InMemoryTrieTestBase
     static ByteComparable[] generateKeys(Random rand, int count)
     {
         ByteComparable[] sources = new ByteComparable[count];
-        TreeSet<ByteComparable> added = new TreeSet<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, VERSION));
+        TreeSet<ByteComparable> added = new TreeSet<>(FORWARD_COMPARATOR);
         for (int i = 0; i < count; ++i)
         {
             sources[i] = generateKey(rand);

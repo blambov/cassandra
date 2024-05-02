@@ -144,9 +144,9 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
     /**
      * Process the trie using the given Walker.
      */
-    default <R> R process(TrieImpl.Walker<RangeState, R> walker)
+    default <R> R process(TrieImpl.Walker<RangeState, R> walker, Direction direction)
     {
-        return TrieImpl.process(walker, cursor());
+        return TrieImpl.process(walker, cursor(direction));
     }
 
 

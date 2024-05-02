@@ -100,17 +100,110 @@ public interface BaseTrie<T>
     /**
      * Call the given consumer on all content values in the trie in order.
      */
-    void forEachValue(ValueConsumer<T> consumer);
+    default void forEachValue(ValueConsumer<T> consumer)
+    {
+        forEachValue(consumer, Direction.FORWARD);
+    }
+
+    /**
+     * Call the given consumer on all content values in the trie in order.
+     */
+    void forEachValue(ValueConsumer<T> consumer, Direction direction);
 
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
-    void forEachEntry(BiConsumer<ByteComparable, T> consumer);
+    default void forEachEntry(BiConsumer<ByteComparable, T> consumer)
+    {
+        forEachEntry(consumer, Direction.FORWARD);
+    }
+
+    /**
+     * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
+     */
+    void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction);
+
+    /**
+     * Returns the ordered entry set of this trie's content as an iterable.
+     */
+    default Iterable<Map.Entry<ByteComparable, T>> entrySet()
+    {
+        return this::entryIterator;
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content as an iterable.
+     */
+    default Iterable<Map.Entry<ByteComparable, T>> entrySet(Direction direction)
+    {
+        return direction.isForward() ? this::entryIterator : this::reverseEntryIterator;
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator.
+     */
+    default Iterator<Map.Entry<ByteComparable, T>> entryIterator()
+    {
+        return entryIterator(Direction.FORWARD);
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator.
+     */
+    default Iterator<Map.Entry<ByteComparable, T>> reverseEntryIterator()
+    {
+        return entryIterator(Direction.REVERSE);
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator.
+     */
+    Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction);
+
+    /**
+     * Returns the ordered set of values of this trie as an iterable.
+     */
+    default Iterable<T> values()
+    {
+        return this::valueIterator;
+    }
+
+    /**
+     * Returns the ordered set of values of this trie as an iterable.
+     */
+    default Iterable<T> values(Direction direction)
+    {
+        return direction.isForward() ? this::valueIterator : this::reverseValueIterator;
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    default Iterator<T> valueIterator()
+    {
+        return valueIterator(Direction.FORWARD);
+    }
+
+    /**
+     * Returns the inversely ordered set of values of this trie in an iterator.
+     */
+    default Iterator<T> reverseValueIterator()
+    {
+        return valueIterator(Direction.REVERSE);
+    }
+
+    /**
+     * Returns the ordered set of values of this trie in an iterator.
+     */
+    Iterator<T> valueIterator(Direction direction);
 
     /**
      * Constuct a textual representation of the trie.
      */
-    String dump();
+    default String dump()
+    {
+        return dump(Object::toString);
+    }
 
     /**
      * Constuct a textual representation of the trie using the given content-to-string mapper.
@@ -156,30 +249,4 @@ public interface BaseTrie<T>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
     BaseTrie<T> intersect(TrieSet set);
-
-    /**
-     * Returns the ordered entry set of this trie's content as an iterable.
-     */
-    default Iterable<Map.Entry<ByteComparable, T>> entrySet()
-    {
-        return this::entryIterator;
-    }
-
-    /**
-     * Returns the ordered entry set of this trie's content in an iterator.
-     */
-    Iterator<Map.Entry<ByteComparable, T>> entryIterator();
-
-    /**
-     * Returns the ordered set of values of this trie as an iterable.
-     */
-    default Iterable<T> values()
-    {
-        return this::valueIterator;
-    }
-
-    /**
-     * Returns the ordered set of values of this trie in an iterator.
-     */
-    Iterator<T> valueIterator();
 }

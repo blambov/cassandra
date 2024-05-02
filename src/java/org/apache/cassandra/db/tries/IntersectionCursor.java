@@ -38,10 +38,12 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     final C source;
     final TrieSetImpl.Cursor set;
+    final Direction direction;
     State state;
 
-    public IntersectionCursor(C source, TrieSetImpl.Cursor set)
+    public IntersectionCursor(Direction direction, C source, TrieSetImpl.Cursor set)
     {
+        this.direction = direction;
         this.source = source;
         this.set = set;
         matchingPosition(depth());
@@ -49,6 +51,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     public IntersectionCursor(IntersectionCursor<C> copyFrom, C withSource)
     {
+        this.direction = copyFrom.direction;
         this.source = withSource;
         this.set = copyFrom.set.duplicate();
         this.state = copyFrom.state;
@@ -117,7 +120,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         if (sourceDepth == setDepth)
         {
             int setTransition = set.incomingTransition();
-            if (sourceTransition < setTransition)
+            if (direction.lt(sourceTransition, setTransition))
                 return coveredAreaWithSetAhead(sourceDepth);
             if (sourceTransition == setTransition)
                 return matchingPosition(sourceDepth);
@@ -186,9 +189,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends IntersectionCursor<C> implements TrieImpl.Cursor<T>
     {
-        public WithContent(C source, TrieSetImpl.Cursor set)
+        public WithContent(Direction direction, C source, TrieSetImpl.Cursor set)
         {
-            super(source, set);
+            super(direction, source, set);
         }
 
         public WithContent(IntersectionCursor<C> copyFrom, C withSource)
@@ -207,9 +210,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
     {
-        public Deterministic(TrieImpl.Cursor<T> source, TrieSetImpl.Cursor set)
+        public Deterministic(Direction direction, TrieImpl.Cursor<T> source, TrieSetImpl.Cursor set)
         {
-            super(source, set);
+            super(direction, source, set);
         }
 
         public Deterministic(Deterministic<T> copyFrom)
@@ -229,9 +232,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        public NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source, TrieSetImpl.Cursor set)
+        public NonDeterministic(Direction direction, NonDeterministicTrieImpl.Cursor<T> source, TrieSetImpl.Cursor set)
         {
-            super(source, set);
+            super(direction, source, set);
         }
 
         public NonDeterministic(NonDeterministic<T> copyFrom, NonDeterministicTrieImpl.Cursor<T> withSource)
@@ -261,9 +264,9 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     {
         RangeTrieImpl.Cursor<D> applicableDeletionBranch;
 
-        public DeletionAware(DeletionAwareTrieImpl.Cursor<T, D> source, TrieSetImpl.Cursor set)
+        public DeletionAware(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> source, TrieSetImpl.Cursor set)
         {
-            super(source, set);
+            super(direction, source, set);
             applicableDeletionBranch = null;
         }
 
@@ -292,7 +295,10 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
                     return deletions;
                 case INSIDE_MATCHING:
                 case OUTSIDE_MATCHING:
-                    return new RangeIntersectionCursor<>(RangeTrieImpl.rangeAndSetIntersectionController(), set.duplicate(), deletions);
+                    return new RangeIntersectionCursor<>(direction,
+                                                         RangeTrieImpl.rangeAndSetIntersectionController(),
+                                                         set.duplicate(),
+                                                         deletions);
                 default:
                     throw new AssertionError();
             }

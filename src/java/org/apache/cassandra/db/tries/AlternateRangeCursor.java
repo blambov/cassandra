@@ -25,6 +25,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> implements NonDeterministicTrieImpl.Cursor<T>
 {
+    final Direction direction;
     ByteSource lsrc;
     ByteSource rsrc;
 
@@ -36,12 +37,13 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
     final T leftValue;
     final T rightValue;
 
-    AlternateRangeCursor(ByteComparable left, T leftValue, ByteComparable right, T rightValue)
+    AlternateRangeCursor(Direction direction, ByteComparable left, T leftValue, ByteComparable right, T rightValue)
     {
-        lsrc = left.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
-        rsrc = right.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
-        this.leftValue = leftValue;
-        this.rightValue = rightValue;
+        this.direction = direction;
+        lsrc = direction.select(left, right).asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
+        rsrc = direction.select(right, left).asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
+        this.leftValue = direction.select(leftValue, rightValue);
+        this.rightValue = direction.select(rightValue, leftValue);
         lnext = lsrc.next();
         rnext = rsrc.next();
         depth = 0;
@@ -50,6 +52,7 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
 
     AlternateRangeCursor(AlternateRangeCursor<T> copyFrom)
     {
+        this.direction = copyFrom.direction;
         ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.lsrc);
         copyFrom.lsrc = dupe;
         lsrc = dupe.duplicate();
@@ -98,7 +101,7 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
     @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
-        if (skipDepth <= depth || skipTransition > lnext)
+        if (skipDepth <= depth || direction.gt(skipTransition, lnext))
             return exhausted();
         else
             return descend();
@@ -150,13 +153,14 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
     public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
     {
         if (nextsSplit())
-            return new TailCursor<>(lsrc, lnext, rsrc, rnext, depth, incomingTransition, leftValue, rightValue);
+            return new TailCursor<>(direction, lsrc, lnext, rsrc, rnext, depth, incomingTransition, leftValue, rightValue);
         else
             return null;
     }
 
     private static class TailCursor<T extends NonDeterministicTrie.Mergeable<T>> implements NonDeterministicTrieImpl.Cursor<T>
     {
+        final Direction direction;
         ByteSource src;
         int next;
         int depth;
@@ -168,8 +172,9 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
         int otherDepth;
         T otherValue;
 
-        public TailCursor(ByteSource lsrc, int lnext, ByteSource rsrc, int rnext, int startDepth, int startIncomingTransition, T leftValue, T rightValue)
+        public TailCursor(Direction direction, ByteSource lsrc, int lnext, ByteSource rsrc, int rnext, int startDepth, int startIncomingTransition, T leftValue, T rightValue)
         {
+            this.direction = direction;
             this.src = lsrc;
             this.next = lnext;
             this.depth = startDepth;
@@ -183,6 +188,7 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
 
         TailCursor(TailCursor<T> copyFrom)
         {
+            this.direction = copyFrom.direction;
             boolean copyFromSwitched = copyFrom.src == copyFrom.otherSrc;
             ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
             copyFrom.src = dupe;
@@ -292,11 +298,11 @@ public class AlternateRangeCursor<T extends NonDeterministicTrie.Mergeable<T>> i
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            if (depth + 1 == skipDepth && skipTransition <= next)
+            if (depth + 1 == skipDepth && direction.le(skipTransition, next))
                 return descend();
             if (!switchSource())
                 return exhausted();
-            if (depth + 1 == skipDepth && skipTransition <= next)
+            if (depth + 1 == skipDepth && direction.le(skipTransition, next))
                 return descend();
             else
                 return exhausted();

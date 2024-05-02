@@ -23,6 +23,7 @@ import javax.annotation.Nullable;
 
 abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
 {
+    final Direction direction;
     final C c1;
     @Nullable
     D c2;
@@ -36,8 +37,9 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     }
     State state;
 
-    FlexibleMergeCursor(C c1, D c2)
+    FlexibleMergeCursor(Direction direction, C c1, D c2)
     {
+        this.direction = direction;
         this.c1 = c1;
         this.c2 = c2;
         state = c2 != null ? State.AT_BOTH : State.C1_ONLY;
@@ -46,6 +48,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     @SuppressWarnings("unchecked")
     public FlexibleMergeCursor(FlexibleMergeCursor<C, D> copyFrom)
     {
+        this.direction = copyFrom.direction;
         this.c1 = (C) copyFrom.c1.duplicate();
         this.c2 = copyFrom.c2 != null ? (D) copyFrom.c2.duplicate() : null;
         this.state = copyFrom.state;
@@ -137,7 +140,7 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
                 state = State.AT_C1;
             return c1depth;
         }
-        if (c1depth < c2depth)
+        if (direction.lt(c1depth, c2depth))
         {
             state = State.AT_C2;
             return c2depth;
@@ -145,8 +148,8 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         // c1depth == c2depth
         int c1trans = c1.incomingTransition();
         int c2trans = c2.incomingTransition();
-        boolean c1ahead = c1trans > c2trans;
-        boolean c2ahead = c1trans < c2trans;
+        boolean c1ahead = direction.gt(c1trans, c2trans);
+        boolean c2ahead = direction.lt(c1trans, c2trans);
         state = c2ahead ? State.AT_C1 : c1ahead ? State.AT_C2 : State.AT_BOTH;
         return c1depth;
     }
@@ -187,9 +190,9 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     {
         final BiFunction<T, U, Z> resolver;
 
-        WithMappedContent(BiFunction<T, U, Z> resolver, C c1, D c2)
+        WithMappedContent(Direction direction, BiFunction<T, U, Z> resolver, C c1, D c2)
         {
-            super(c1, c2);
+            super(direction, c1, c2);
             this.resolver = resolver;
         }
 
@@ -232,9 +235,9 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     {
         final BiFunction<D, T, T> resolver;
 
-        RangeOnTrie(BiFunction<D, T, T> resolver, C c1, RangeTrieImpl.Cursor<D> c2)
+        RangeOnTrie(Direction direction, BiFunction<D, T, T> resolver, C c1, RangeTrieImpl.Cursor<D> c2)
         {
-            super(c1, c2);
+            super(direction, c1, c2);
             this.resolver = resolver;
         }
 
@@ -340,8 +343,8 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
             assert c1depth == c2depth;
             int c1trans = c1.incomingTransition();
             int c2trans = c2.incomingTransition();
-            assert c1trans <= c2trans;
-            boolean c2ahead = c1trans < c2trans;
+            assert direction.le(c1trans, c2trans);
+            boolean c2ahead = direction.lt(c1trans, c2trans);
             state = c2ahead ? State.AT_C1 : State.AT_BOTH;
             return c1depth;
         }
@@ -390,9 +393,9 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
     extends RangeOnTrie<T, D, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
     {
 
-        DeletionAwareSource(DeletionAwareTrieImpl.Cursor<T, D> c1, BiFunction<D, T, T> resolver)
+        DeletionAwareSource(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> c1, BiFunction<D, T, T> resolver)
         {
-            super(resolver, c1, null);
+            super(direction, resolver, c1, null);
         }
 
         public DeletionAwareSource(DeletionAwareSource<T, D> copyFrom)

@@ -1005,7 +1005,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     public <U> void apply(Trie<U> mutation, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
     {
-        TrieImpl.Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor();
+        TrieImpl.Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
@@ -1053,7 +1053,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     public void delete(TrieSet set) throws SpaceExhaustedException
     {
-        TrieSetImpl.Cursor cursor = TrieSetImpl.impl(set).cursor();
+        TrieSetImpl.Cursor cursor = TrieSetImpl.impl(set).cursor(Direction.FORWARD);
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         delete(state, cursor, InMemoryTrie::deleteEntry);
