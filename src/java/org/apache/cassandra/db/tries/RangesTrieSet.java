@@ -25,30 +25,33 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 public class RangesTrieSet implements TrieSetWithImpl
 {
-    final ByteComparable[] boundaries;  // start, end, start, end, ...
+    interface Add0Check
+    {
+        boolean shouldAdd0(int index, Direction direction);
+    }
 
-    public RangesTrieSet(ByteComparable... boundaries)
+    final ByteComparable[] boundaries;  // start, end, start, end, ...
+    final Add0Check shouldAdd0;
+
+    static final Add0Check ALTERNATE_OUT_IN = (index, direction) -> !direction.isForward();
+
+    public RangesTrieSet(Add0Check shouldAdd0, ByteComparable... boundaries)
     {
         this.boundaries = boundaries;
+        this.shouldAdd0 = shouldAdd0;
+    }
+
+    public static TrieSetWithImpl create(ByteComparable... boundaries)
+    {
+        return new RangesTrieSet(ALTERNATE_OUT_IN, boundaries);
     }
 
     public static TrieSetWithImpl create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
     {
-        if (!includeLeft && left != null)
-            left = add0(left);
-        if (includeRight && right != null)
-            right = add0(right);
-        return create(left, right);
-    }
-
-    public static TrieSetWithImpl create(ByteComparable left, ByteComparable right)
-    {
-        return new RangesTrieSet(left, right);
-    }
-
-    private static ByteComparable add0(ByteComparable v)
-    {
-        return version -> add0(v.asComparableBytes(version));
+        return new RangesTrieSet((index, direction) -> index == 0
+                                                       ? direction.isForward() ^ includeLeft
+                                                       : !direction.isForward() ^ includeRight,
+                                 left, right);
     }
 
     private static ByteSource add0(ByteSource src)
@@ -70,10 +73,15 @@ public class RangesTrieSet implements TrieSetWithImpl
         };
     }
 
+    private static ByteSource maybeAdd0(int index, Direction direction, Add0Check function, ByteSource src)
+    {
+        return function.shouldAdd0(index, direction) ? add0(src) : src;
+    }
+
     @Override
     public Cursor makeCursor(Direction direction)
     {
-        return new RangesCursor(direction, boundaries);
+        return new RangesCursor(direction, shouldAdd0, boundaries);
     }
 
     static final RangeState CONTAINED_SELECTIONS[] = new RangeState[]
@@ -95,7 +103,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         int currentTransition;
         RangeState currentState;
 
-        public RangesCursor(Direction direction, ByteComparable[] boundaries)
+        public RangesCursor(Direction direction, Add0Check shouldAdd0, ByteComparable[] boundaries)
         {
             this.direction = direction;
             // handle empty array (== full range) and nulls at the end (same as not there, odd length == open end range)
@@ -117,7 +125,7 @@ public class RangesTrieSet implements TrieSetWithImpl
                 depths[i] = 1;
                 if (boundaries[i] != null)
                 {
-                    sources[i] = boundaries[i].asComparableBytes(BYTE_COMPARABLE_VERSION);
+                    sources[i] = maybeAdd0(i, direction, shouldAdd0, boundaries[i].asComparableBytes(BYTE_COMPARABLE_VERSION));
                     nexts[i] = sources[i].next();
                 }
                 else if (i == 0)
@@ -183,7 +191,10 @@ public class RangesTrieSet implements TrieSetWithImpl
                 return exhausted();
             currentTransition = nexts[currentIdx];
             currentDepth = depths[currentIdx]++;
-            int next = nexts[currentIdx] = sources[currentIdx].next();
+            int next = currentTransition != ByteSource.END_OF_STREAM
+                       ? nexts[currentIdx] = sources[currentIdx].next()
+                       : ByteSource.END_OF_STREAM;
+
             int endIdx = currentIdx + direction.increase;
             while (direction.inLoop(endIdx, 0, nexts.length - 1)
                    && depths[endIdx] == currentDepth && nexts[endIdx] == currentTransition)
