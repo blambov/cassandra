@@ -39,7 +39,7 @@ public interface TrieSet
 
     static TrieSet ranges(ByteComparable... boundaries)
     {
-        return new RangesTrieSet(boundaries);
+        return RangesTrieSet.create(boundaries);
     }
 
     default TrieSet negation()
