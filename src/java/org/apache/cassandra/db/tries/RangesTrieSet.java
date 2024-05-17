@@ -25,63 +25,22 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 public class RangesTrieSet implements TrieSetWithImpl
 {
-    interface Add0Check
-    {
-        boolean shouldAdd0(int index, Direction direction);
-    }
-
     final ByteComparable[] boundaries;  // start, end, start, end, ...
-    final Add0Check shouldAdd0;
 
-    static final Add0Check ALTERNATE_OUT_IN = (index, direction) -> !direction.isForward();
-
-    public RangesTrieSet(Add0Check shouldAdd0, ByteComparable... boundaries)
+    public RangesTrieSet(ByteComparable... boundaries)
     {
         this.boundaries = boundaries;
-        this.shouldAdd0 = shouldAdd0;
     }
 
     public static TrieSetWithImpl create(ByteComparable... boundaries)
     {
-        return new RangesTrieSet(ALTERNATE_OUT_IN, boundaries);
-    }
-
-    public static TrieSetWithImpl create(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
-    {
-        return new RangesTrieSet((index, direction) -> index == 0
-                                                       ? direction.isForward() ^ includeLeft
-                                                       : !direction.isForward() ^ includeRight,
-                                 left, right);
-    }
-
-    private static ByteSource add0(ByteSource src)
-    {
-        return new ByteSource()
-        {
-            boolean done = false;
-            @Override
-            public int next()
-            {
-                if (done)
-                    return END_OF_STREAM;
-                int v = src.next();
-                if (v != END_OF_STREAM)
-                    return v;
-                done = true;
-                return 0;
-            }
-        };
-    }
-
-    private static ByteSource maybeAdd0(int index, Direction direction, Add0Check function, ByteSource src)
-    {
-        return function.shouldAdd0(index, direction) ? add0(src) : src;
+        return new RangesTrieSet(boundaries);
     }
 
     @Override
     public Cursor makeCursor(Direction direction)
     {
-        return new RangesCursor(direction, shouldAdd0, boundaries);
+        return new RangesCursor(direction, boundaries);
     }
 
     static final RangeState CONTAINED_SELECTIONS[] = new RangeState[]
@@ -103,7 +62,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         int currentTransition;
         RangeState currentState;
 
-        public RangesCursor(Direction direction, Add0Check shouldAdd0, ByteComparable[] boundaries)
+        public RangesCursor(Direction direction, ByteComparable[] boundaries)
         {
             this.direction = direction;
             // handle empty array (== full range) and nulls at the end (same as not there, odd length == open end range)
@@ -125,7 +84,7 @@ public class RangesTrieSet implements TrieSetWithImpl
                 depths[i] = 1;
                 if (boundaries[i] != null)
                 {
-                    sources[i] = maybeAdd0(i, direction, shouldAdd0, boundaries[i].asComparableBytes(BYTE_COMPARABLE_VERSION));
+                    sources[i] = boundaries[i].asComparableBytes(BYTE_COMPARABLE_VERSION);
                     nexts[i] = sources[i].next();
                 }
                 else if (i == 0)

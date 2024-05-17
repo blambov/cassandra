@@ -114,6 +114,7 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Call the given consumer on all content values in the trie in order.
      */
+    @Override
     default void forEachValue(ValueConsumer<T> consumer, Direction direction)
     {
         impl().process(consumer, direction);
@@ -122,6 +123,7 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      */
+    @Override
     default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
         impl().process(new TrieEntriesWalker.WithConsumer<T>(consumer), direction);
@@ -132,6 +134,7 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Returns the ordered entry set of this trie's content in an iterator.
      */
+    @Override
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
@@ -140,6 +143,7 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Returns the ordered set of values of this trie in an iterator.
      */
+    @Override
     default Iterator<T> valueIterator(Direction direction)
     {
         return new TrieValuesIterator<>(impl().cursor(direction));
@@ -156,6 +160,7 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Constuct a textual representation of the trie using the given content-to-string mapper.
      */
+    @Override
     default String dump(Function<T, String> contentToString)
     {
         return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
@@ -170,41 +175,26 @@ public interface Trie<T> extends BaseTrie<T>
     }
 
     /**
-     * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries.
-     * The view is live, i.e. any write to the source will be reflected in the subtrie.
-     * <p>
-     * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
-     * if the right bound is smaller than the left.
-     * <p>
-     * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
-     * @param includeLeft whether {@code left} is an inclusive bound of not.
-     * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
-     * @param includeRight whether {@code right} is an inclusive bound of not.
-     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
-     * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
-     */
-    default Trie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
-    {
-        if (left == null && right == null)
-            return this;
-        return intersect(RangesTrieSet.create(left, includeLeft, right, includeRight));
-    }
-
-    /**
      * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries,
-     * left-inclusive and right-exclusive.
+     * inclusive of both bounds and any prefix of the bounds.
+     * <p>
      * The view is live, i.e. any write to the source will be reflected in the subtrie.
      * <p>
-     * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
-     * if the right bound is smaller than the left.
+     * This method will not check its arguments for correctness. The resulting trie may throw an exception if the right
+     * bound is smaller than the left.
      * <p>
-     * Equivalent to calling subtrie(left, true, right, false).
+     * This package is designed to walk tries efficiently using cursors that necessarily present prefix nodes before
+     * children. Lexicographically correct slices (where e.g. the left bound and prefixes of the right are included in
+     * the set but prefixes of the left are not) are not contiguous in this representation in both iteration directions
+     * (because a prefix of the left bound must necessarily be presented before the left bound itself in reverse order)
+     * and are thus not supported. However, if the encoded keys are prefix-free, this limitation is immaterial.
      * <p>
      * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
      * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
-     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
-     * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
+     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} and {@code right},
+     * including both bounds and any prefix of the bounds.
      */
+    @Override
     default Trie<T> subtrie(ByteComparable left, ByteComparable right)
     {
         return intersect(RangesTrieSet.create(left, right));
@@ -215,6 +205,7 @@ public interface Trie<T> extends BaseTrie<T>
      * <p>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
+    @Override
     default Trie<T> intersect(TrieSet set)
     {
         return (TrieWithImpl<T>) dir -> new IntersectionCursor.Deterministic<>(dir, impl().cursor(dir), TrieSetImpl.impl(set).cursor(dir));

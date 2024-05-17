@@ -70,16 +70,16 @@ public class IntersectionTrieTest
     @Test
     public void testIntersectRangeDirect() throws Exception
     {
-        testIntersectRange(COUNT, Trie::subtrie, false);
+        testIntersectRange(COUNT, Trie::subtrie);
     }
 
     @Test
     public void testIntersectRangesOneDirect() throws Exception
     {
-        testIntersectRange(COUNT, (t, l, r) -> t.intersect(TrieSet.ranges(l, r)), false);
+        testIntersectRange(COUNT, (t, l, r) -> t.intersect(TrieSet.ranges(l, r)));
     }
 
-    public void testIntersectRange(int count, RangeOp<ByteBuffer> op, boolean endInclusive) throws Exception
+    public void testIntersectRange(int count, RangeOp<ByteBuffer> op) throws Exception
     {
         System.out.format("intersectrange seed %d\n", ++seed);
         rand.setSeed(seed);
@@ -90,9 +90,9 @@ public class IntersectionTrieTest
 
         Trie<ByteBuffer> t1 = trie1;
 
-        checkEqualRange(content1, t1, null, null, op, endInclusive);
-        checkEqualRange(content1, t1, InMemoryTrieTestBase.generateKey(rand), null, op, endInclusive);
-        checkEqualRange(content1, t1, null, InMemoryTrieTestBase.generateKey(rand), op, endInclusive);
+        checkEqualRange(content1, t1, null, null, op);
+        checkEqualRange(content1, t1, InMemoryTrieTestBase.generateKey(rand), null, op);
+        checkEqualRange(content1, t1, null, InMemoryTrieTestBase.generateKey(rand), op);
 
         ByteComparable l = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
         ByteComparable r = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
@@ -102,24 +102,17 @@ public class IntersectionTrieTest
             ByteComparable t = l;l = r;r = t; // swap
         }
 
-        checkEqualRange(content1, t1, l, r, op, endInclusive);
+        checkEqualRange(content1, t1, l, r, op);
     }
 
     public void checkEqualRange(NavigableMap<ByteComparable, ByteBuffer> content1,
                                 Trie<ByteBuffer> t1,
                                 ByteComparable l,
                                 ByteComparable r,
-                                RangeOp<ByteBuffer> op,
-                                boolean endInclusive) throws Exception
+                                RangeOp<ByteBuffer> op) throws Exception
     {
-        System.out.format("Intersection with [%s:%s%c\n", asString(l), asString(r), endInclusive ? ']' : ')');
-        NavigableMap<ByteComparable, ByteBuffer> imap = l == null
-                                                        ? r == null
-                                                          ? content1
-                                                          : content1.headMap(r, endInclusive)
-                                                        : r == null
-                                                          ? content1.tailMap(l, true)
-                                                          : content1.subMap(l, true, r, endInclusive);
+        System.out.format("Intersection with [%s:%s]\n", asString(l), asString(r));
+        NavigableMap<ByteComparable, ByteBuffer> imap = SlicedTrieTest.boundedMap(content1, l, r);
 
         Trie<ByteBuffer> intersection = op.apply(t1, l, r);
 

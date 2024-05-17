@@ -211,7 +211,14 @@ public class TrieMemoryIndex
     private ByteComparable asComparableBytes(ByteBuffer input)
     {
         return isLiteral ? version -> terminated(ByteSource.of(input, version))
-                         : version -> TypeUtil.asComparableBytes(input, validator, version);
+                         : version -> terminated(TypeUtil.asComparableBytes(input, validator, version));
+    }
+
+    private ByteComparable asComparableBound(ByteBuffer input, boolean inclusive)
+    {
+        int term = inclusive ? ByteSource.LT_NEXT_COMPONENT : ByteSource.GT_NEXT_COMPONENT;
+        return isLiteral ? version -> terminated(ByteSource.of(input, version), term)
+                         : version -> terminated(TypeUtil.asComparableBytes(input, validator, version), term);
     }
 
     private ByteComparable decode(ByteComparable term)
@@ -221,6 +228,11 @@ public class TrieMemoryIndex
     }
 
     private ByteSource terminated(ByteSource src)
+    {
+        return terminated(src, ByteSource.TERMINATOR);
+    }
+
+    private ByteSource terminated(ByteSource src, int terminator)
     {
         return new ByteSource()
         {
@@ -322,29 +334,29 @@ public class TrieMemoryIndex
         boolean lowerInclusive, upperInclusive;
         if (expression.lower != null)
         {
-            lowerBound = asComparableBytes(expression.lower.value.encoded);
             lowerInclusive = expression.lower.inclusive;
+            lowerBound = asComparableBound(expression.lower.value.encoded, lowerInclusive);
         }
         else
         {
-            lowerBound = ByteComparable.EMPTY;
             lowerInclusive = false;
+            lowerBound = ByteComparable.EMPTY;
         }
 
         if (expression.upper != null)
         {
-            upperBound = asComparableBytes(expression.upper.value.encoded);
             upperInclusive = expression.upper.inclusive;
+            upperBound = asComparableBound(expression.upper.value.encoded, upperInclusive);
         }
         else
         {
-            upperBound = null;
             upperInclusive = false;
+            upperBound = null;
         }
 
         Collector cd = new Collector(keyRange);
 
-        data.subtrie(lowerBound, lowerInclusive, upperBound, upperInclusive)
+        data.subtrie(lowerBound, upperBound)
             .values()
             .forEach(cd::processContent);
 

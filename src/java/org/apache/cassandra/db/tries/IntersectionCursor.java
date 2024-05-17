@@ -202,9 +202,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         @Override
         public T content()
         {
-            return state != State.OUTSIDE_MATCHING
-                   ? source.content()
-                   : null;
+            return source.content();
         }
     }
 

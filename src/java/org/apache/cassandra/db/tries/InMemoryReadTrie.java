@@ -834,7 +834,7 @@ public class InMemoryReadTrie<T>
                 case SPLIT_OFFSET:
                     return descendInSplitSublevelWithTarget(node, SPLIT_START_LEVEL_LIMIT, 0, SPLIT_LEVEL_SHIFT * 2, skipTransition);
                 case SPARSE_OFFSET:
-                    return advanceToSparseTransition(node, trie.getUnsignedShort(node + SPARSE_ORDER_OFFSET), skipTransition);
+                    return advanceToSparseTransition(node, prepareOrderWord(node), skipTransition);
                 default:
                     return advanceToChainTransition(node, skipTransition);
             }

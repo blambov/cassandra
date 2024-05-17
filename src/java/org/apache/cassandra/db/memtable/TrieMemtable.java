@@ -313,11 +313,8 @@ public class TrieMemtable extends AbstractShardedMemtable
         if (right.isMinimum())
             right = null;
 
-        boolean isBound = keyRange instanceof Bounds;
-        boolean includeStart = isBound || keyRange instanceof IncludingExcludingBounds;
-        boolean includeStop = isBound || keyRange instanceof Range;
-
-        Trie<BTreePartitionData> subMap = mergedTrie.subtrie(left, includeStart, right, includeStop);
+        // TODO: Check if these partition positions are properly encoded to include/exclude ends
+        Trie<BTreePartitionData> subMap = mergedTrie.subtrie(left, right);
 
         return new MemtableUnfilteredPartitionIterator(metadata(),
                                                        allocator.ensureOnHeap(),
@@ -371,7 +368,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     public FlushablePartitionSet<MemtablePartition> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
-        Trie<BTreePartitionData> toFlush = mergedTrie.subtrie(from, true, to, false);
+        Trie<BTreePartitionData> toFlush = mergedTrie.subtrie(from, to);
         long keySize = 0;
         int keyCount = 0;
 
