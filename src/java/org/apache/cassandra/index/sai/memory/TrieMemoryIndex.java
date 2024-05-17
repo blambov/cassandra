@@ -327,8 +327,8 @@ public class TrieMemoryIndex extends MemoryIndex
         }
         else
         {
-            lowerBound = ByteComparable.EMPTY;
             lowerInclusive = false;
+            lowerBound = ByteComparable.EMPTY;
         }
 
         if (expression.upper() != null)
@@ -338,13 +338,13 @@ public class TrieMemoryIndex extends MemoryIndex
         }
         else
         {
-            upperBound = null;
             upperInclusive = false;
+            upperBound = null;
         }
 
         Collector cd = new Collector(keyRange);
 
-        data.subtrie(lowerBound, lowerInclusive, upperBound, upperInclusive)
+        data.subtrie(lowerBound, upperBound)
             .values()
             .forEach(cd::processContent);
 

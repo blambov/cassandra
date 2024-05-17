@@ -134,9 +134,7 @@ public class InMemoryTrieUnionBench
     public int iterateValuesLimited()
     {
         Iterable<Byte> values = trie.subtrie(ByteComparable.of(0L),
-                                             true,
-                                             ByteComparable.of(Long.MAX_VALUE / 2),         // 1/4 of all
-                                             false)
+                                             ByteComparable.of(Long.MAX_VALUE / 2))         // 1/4 of all
                                     .values();
         int sum = 0;
         for (byte b : values)

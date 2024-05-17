@@ -288,7 +288,7 @@ public class ComparisonReadBench
         void put(long v, byte b);
         byte get(long v);
         Iterable<Byte> values();
-        Iterable<Byte> valuesSlice(long left, boolean includeLeft, long right, boolean includeRight);
+        Iterable<Byte> valuesSlice(long left, long right);
         Iterable<Map.Entry<T, Byte>> entrySet();
         void consumeValues(Consumer<Byte> consumer);
         void consumeEntries(BiConsumer<T, Byte> consumer);
@@ -335,9 +335,9 @@ public class ComparisonReadBench
             return trie.values();
         }
 
-        public Iterable<Byte> valuesSlice(long left, boolean includeLeft, long right, boolean includeRight)
+        public Iterable<Byte> valuesSlice(long left, long right)
         {
-            return trie.subtrie(type.longToByteComparable(left), includeLeft, type.longToByteComparable(right), includeRight)
+            return trie.subtrie(type.longToByteComparable(left), type.longToByteComparable(right))
                        .values();
         }
 
@@ -394,9 +394,9 @@ public class ComparisonReadBench
             return navigableMap.values();
         }
 
-        public Iterable<Byte> valuesSlice(long left, boolean includeLeft, long right, boolean includeRight)
+        public Iterable<Byte> valuesSlice(long left, long right)
         {
-            return navigableMap.subMap(type.fromLong(left), includeLeft, type.fromLong(right), includeRight)
+            return navigableMap.subMap(type.fromLong(left), type.fromLong(right))
                                .values();
         }
 
@@ -500,7 +500,7 @@ public class ComparisonReadBench
         for (int i = 0; i < count; ++i)
         {
             long v = rand.nextLong();
-            Iterable<Byte> values = access.valuesSlice(v, true, v, true);
+            Iterable<Byte> values = access.valuesSlice(v, v);
             for (byte b : values)
                 sum += b;
         }
@@ -511,7 +511,7 @@ public class ComparisonReadBench
     public int iterateValuesLimited()
     {
         int sum = 0;
-        Iterable<Byte> values = access.valuesSlice(0L, false, Long.MAX_VALUE / 2, true); // 1/4
+        Iterable<Byte> values = access.valuesSlice(0L, Long.MAX_VALUE / 2); // 1/4
         for (byte b : values)
             sum += b;
         return sum;

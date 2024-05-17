@@ -24,17 +24,12 @@ public interface TrieSet
 {
     static TrieSet singleton(ByteComparable b)
     {
-        return RangesTrieSet.create(b, true, b, true);
+        return RangesTrieSet.create(b, b);
     }
 
     static TrieSet range(ByteComparable left, ByteComparable right)
     {
         return RangesTrieSet.create(left, right);
-    }
-
-    static TrieSet range(ByteComparable left, boolean leftInclusive, ByteComparable right, boolean rightInclusive)
-    {
-        return RangesTrieSet.create(left, leftInclusive, right, rightInclusive);
     }
 
     static TrieSet ranges(ByteComparable... boundaries)

@@ -44,6 +44,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
      * Call the given consumer on all content values in the trie in order.
      * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
      */
+    @Override
     default void forEachValue(BaseTrie.ValueConsumer<T> consumer, Direction direction)
     {
         impl().process(consumer, direction);
@@ -53,6 +54,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
      * Call the given consumer on all (path, content) pairs with non-null content in the trie in order.
      * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
      */
+    @Override
     default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
         impl().process(new TrieEntriesWalker.WithConsumer<>(consumer), direction);
@@ -63,6 +65,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     /**
      * Returns the ordered entry set of this trie's content in an iterator.
      */
+    @Override
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
@@ -71,6 +74,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     /**
      * Returns the ordered set of values of this trie in an iterator.
      */
+    @Override
     default Iterator<T> valueIterator(Direction direction)
     {
         return new TrieValuesIterator<>(impl().cursor(direction));
@@ -80,6 +84,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
      * Constuct a textual representation of the trie using the given content-to-string mapper.
      * Note: This will not present any deletions; use mergedTrie() to get a view of the trie with deletions included.
      */
+    @Override
     default String dump(Function<T, String> contentToString)
     {
         return impl().process(new TrieDumper<>(contentToString), Direction.FORWARD);
@@ -94,17 +99,13 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
         return (DeletionAwareTrieWithImpl<T, D>) dir -> new SingletonCursor.DeletionAware<>(b, v);
     }
 
-    default DeletionAwareTrie<T, D> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight)
-    {
-        if (left == null && right == null)
-            return this;
-        return intersect(RangesTrieSet.create(left, includeLeft, right, includeRight));
-    }
-
+    @Override
     default DeletionAwareTrie<T, D> subtrie(ByteComparable left, ByteComparable right)
     {
         return intersect(RangesTrieSet.create(left, right));
     }
+
+    @Override
     default DeletionAwareTrie<T, D> intersect(TrieSet set)
     {
         return (DeletionAwareTrieWithImpl<T, D>) dir -> new IntersectionCursor.DeletionAware<>(dir,

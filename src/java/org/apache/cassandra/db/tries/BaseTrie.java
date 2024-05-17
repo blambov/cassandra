@@ -211,35 +211,24 @@ public interface BaseTrie<T>
     String dump(Function<T, String> contentToString);
 
     /**
-     * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries.
-     * The view is live, i.e. any write to the source will be reflected in the subtrie.
-     * <p>
-     * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
-     * if the right bound is smaller than the left.
-     * <p>
-     * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
-     * @param includeLeft whether {@code left} is an inclusive bound of not.
-     * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
-     * @param includeRight whether {@code right} is an inclusive bound of not.
-     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
-     * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
-     */
-    BaseTrie<T> subtrie(ByteComparable left, boolean includeLeft, ByteComparable right, boolean includeRight);
-
-    /**
      * Returns a view of the subtrie containing everything in this trie whose keys fall between the given boundaries,
-     * left-inclusive and right-exclusive.
+     * inclusive of both bounds and any prefix of the bounds.
+     * <p>
      * The view is live, i.e. any write to the source will be reflected in the subtrie.
      * <p>
-     * This method will not check its arguments for correctness. The resulting trie may be empty or throw an exception
-     * if the right bound is smaller than the left.
+     * This method will not check its arguments for correctness. The resulting trie may throw an exception if the right
+     * bound is smaller than the left.
      * <p>
-     * Equivalent to calling subtrie(left, true, right, false).
+     * This package is designed to walk tries efficiently using cursors that necessarily present prefix nodes before
+     * children. Lexicographically correct slices (where e.g. the left bound and prefixes of the right are included in
+     * the set but prefixes of the left are not) are not contiguous in this representation in both iteration directions
+     * (because a prefix of the left bound must necessarily be presented before the left bound itself in reverse order)
+     * and are thus not supported. However, if the encoded keys are prefix-free, this limitation is immaterial.
      * <p>
      * @param left the left bound for the returned subtrie. If {@code null}, the resulting subtrie is not left-bounded.
      * @param right the right bound for the returned subtrie. If {@code null}, the resulting subtrie is not right-bounded.
-     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} (inclusively if
-     * {@code includeLeft}) and {@code right} (inclusively if {@code includeRight}).
+     * @return a view of the subtrie containing all the keys of this trie falling between {@code left} and {@code right},
+     * including both bounds and any prefix of the bounds.
      */
     BaseTrie<T> subtrie(ByteComparable left, ByteComparable right);
 
