@@ -114,14 +114,14 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
             M content = content();
             if (content != null)
             {
-                activeRange = content.leftSideAsCovering();
+                activeRange = content.asCoveringState(direction);
                 prevContent = content;
                 activeIsSet = true;
             }
             else if (prevContent != null)
             {
                 // If the previous state was exact, its right side is what we now have.
-                activeRange = prevContent.rightSideAsCovering();
+                activeRange = prevContent.asCoveringState(direction.opposite());
                 prevContent = null;
                 assert activeIsSet;
             }
@@ -133,7 +133,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         {
             assert content() == null;
             M nearestContent = duplicate().advanceToContent(null);
-            activeRange = nearestContent != null ? nearestContent.leftSideAsCovering() : null;
+            activeRange = nearestContent != null ? nearestContent.asCoveringState(direction) : null;
             prevContent = null;
             activeIsSet = true;
         }
@@ -184,7 +184,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
             {
                 final M existingCoveringState = getExistingCoveringState(state);
                 applyContent(state, transformer, existingCoveringState, content);
-                N mutationCoveringState = content.rightSideAsCovering();
+                N mutationCoveringState = content.asCoveringState(Direction.REVERSE);
                 // Several cases:
                 // - New deletion is point deletion: Apply it and move on to next mutation branch.
                 // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
@@ -213,7 +213,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     {
         if (rangeMarker == null)
             return null;
-        return rangeMarker.rightSideAsCovering();
+        return rangeMarker.asCoveringState(Direction.REVERSE);
     }
 
     private static <M extends RangeMarker<M>, N extends RangeMarker<N>>
@@ -233,7 +233,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         {
             existingCoveringState = state.getNearestContent();    // without advancing, just get
             if (existingCoveringState != null)
-                existingCoveringState = existingCoveringState.leftSideAsCovering();
+                existingCoveringState = existingCoveringState.asCoveringState(Direction.FORWARD);
         }
         return existingCoveringState;
     }
@@ -271,7 +271,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                 if (mutationContent == null)
                     mutationContent = mutationCoveringState;
                 applyContent(state, transformer, existingContent, mutationContent);
-                mutationCoveringState = mutationContent.rightSideAsCovering();
+                mutationCoveringState = mutationContent.asCoveringState(Direction.FORWARD);
                 existingCoveringState = rightSideAsCovering(existingContent);
                 if (mutationCoveringState == null)
                 {

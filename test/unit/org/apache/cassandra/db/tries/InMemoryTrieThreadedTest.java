@@ -33,8 +33,8 @@ import org.junit.Test;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.VERSION;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
+import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 
 public class InMemoryTrieThreadedTest
 {

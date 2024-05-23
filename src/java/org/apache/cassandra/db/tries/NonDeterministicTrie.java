@@ -92,7 +92,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
      */
     static <T extends NonDeterministicTrie.Mergeable<T>> NonDeterministicTrie<T> singleton(ByteComparable b, T v)
     {
-        return (NonDeterministicTrieWithImpl<T>) dir -> new SingletonCursor.NonDeterministic<>(b, v);
+        return (NonDeterministicTrieWithImpl<T>) dir -> new SingletonCursor.NonDeterministic<>(dir, b, v);
     }
 
     /**

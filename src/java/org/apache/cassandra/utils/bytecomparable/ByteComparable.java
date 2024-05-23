@@ -60,7 +60,8 @@ public interface ByteComparable
 
     static ByteComparable of(String s)
     {
-        return v -> ByteSource.of(s, v);
+        // TODO: remove
+        return v -> ByteSource.withTerminator(ByteSource.TERMINATOR, ByteSource.of(s, v));
     }
 
     static ByteComparable of(long value)

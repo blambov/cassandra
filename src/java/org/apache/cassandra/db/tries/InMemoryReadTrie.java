@@ -791,6 +791,11 @@ public class InMemoryReadTrie<T>
             return incomingTransition;
         }
 
+        public Direction direction()
+        {
+            return direction;
+        }
+
         private int exhausted()
         {
             content = null;

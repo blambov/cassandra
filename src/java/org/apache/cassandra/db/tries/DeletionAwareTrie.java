@@ -96,7 +96,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     DeletionAwareTrie<T, D> singleton(ByteComparable b, T v)
     {
-        return (DeletionAwareTrieWithImpl<T, D>) dir -> new SingletonCursor.DeletionAware<>(b, v);
+        return (DeletionAwareTrieWithImpl<T, D>) dir -> new SingletonCursor.DeletionAware<>(dir, b, v);
     }
 
     @Override

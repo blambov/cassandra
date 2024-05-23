@@ -163,37 +163,29 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     }
 
     @Override
-    public DeletionMarker leftSideAsCovering()
+    public DeletionMarker asCoveringState(Direction direction)
     {
-        return leftSideAsCovering;
+        return direction.select(leftSideAsCovering, rightSideAsCovering);
     }
 
     @Override
-    public DeletionMarker rightSideAsCovering()
+    public DeletionMarker asReportablePoint(boolean applicableBefore, boolean applicableAfter)
     {
-        return rightSideAsCovering;
-    }
-
-    @Override
-    public DeletionMarker asReportableStart()
-    {
-        if (rightSide < 0 && at < 0)
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || rightSide < 0))
+            return this;
+        int newAt = at;
+        int newLeft = applicableBefore ? leftSide : -1;
+        int newRight = applicableAfter ? rightSide : -1;
+        if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
+            return new DeletionMarker(position, applicableBefore ? leftSide : -1, at, applicableAfter ? rightSide : -1);
+        else
             return null;
-        return new DeletionMarker(position, -1, at, rightSide);
     }
 
     @Override
-    public DeletionMarker asReportableEnd()
+    public boolean precedingIncluded(Direction direction)
     {
-        if (leftSide < 0)
-            return null;
-        return new DeletionMarker(position, leftSide, -1, -1);
-    }
-
-    @Override
-    public boolean lesserIncluded()
-    {
-        return leftSide >= 0;
+        return direction.select(leftSide, rightSide) >= 0;
     }
 
     @Override

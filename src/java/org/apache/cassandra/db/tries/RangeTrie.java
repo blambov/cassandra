@@ -32,12 +32,10 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     interface RangeMarker<M extends RangeMarker<M>>
     {
         M toContent();
-        M leftSideAsCovering(/*side*/); // TODO: For reverse iteration this should accept a direction
-        M rightSideAsCovering();  // TODO: combine with above when reversed iteration is done
-        M asReportableStart(); // from covering state; TODO: direction parameter and combine with next
-        M asReportableEnd();
+        M asCoveringState(Direction direction);
+        M asReportablePoint(boolean applicableBefore, boolean applicableAfter);
 
-        boolean lesserIncluded();
+        boolean precedingIncluded(Direction direction);
         default boolean agreesWith(M other)
         {
             return equals(other);
@@ -96,7 +94,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
      */
     static <T extends RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, T v)
     {
-        return (RangeTrieWithImpl<T>) dir -> new SingletonCursor.Range<>(b, v);
+        return (RangeTrieWithImpl<T>) dir -> new SingletonCursor.Range<>(dir, b, v);
     }
 
     /**

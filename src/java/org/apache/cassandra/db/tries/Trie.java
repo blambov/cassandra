@@ -171,7 +171,7 @@ public interface Trie<T> extends BaseTrie<T>
      */
     static <T> Trie<T> singleton(ByteComparable b, T v)
     {
-        return (TrieWithImpl<T>) dir -> new SingletonCursor<>(b, v);
+        return (TrieWithImpl<T>) dir -> new SingletonCursor<>(dir, b, v);
     }
 
     /**

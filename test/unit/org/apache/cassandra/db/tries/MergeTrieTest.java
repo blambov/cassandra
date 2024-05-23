@@ -20,7 +20,6 @@ package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Random;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -40,10 +39,10 @@ public class MergeTrieTest
     @Test
     public void testDirect()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
 
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
@@ -51,45 +50,45 @@ public class MergeTrieTest
         content1.putAll(content2);
         Trie<ByteBuffer> union = trie1.mergeWith(trie2, (x, y) -> x);
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     @Test
     public void testWithDuplicates()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
 
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
-        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content1, trie1, true);
-        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content2, trie2, true);
+        addToInMemoryDTrie(TrieUtil.generateKeys(new Random(5), COUNT), content1, trie1, true);
+        addToInMemoryDTrie(TrieUtil.generateKeys(new Random(5), COUNT), content2, trie2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = trie1.mergeWith(trie2, (x, y) -> y);
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     @Test
     public void testDistinct()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
         src2 = removeDuplicates(src2, content1);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = Trie.mergeDistinct(ImmutableList.of(trie1, trie2));
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     static ByteComparable[] removeDuplicates(ByteComparable[] keys, SortedMap<ByteComparable, ByteBuffer> content1)

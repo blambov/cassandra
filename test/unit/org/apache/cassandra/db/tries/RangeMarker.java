@@ -124,45 +124,34 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
     }
 
     @Override
-    public RangeMarker leftSideAsCovering()
+    public RangeMarker asCoveringState(Direction direction)
     {
         if (!isReportableState)
             return this;
-        if (leftSide < 0)
+        int applicable = direction.select(leftSide, rightSide);
+        if (applicable < 0)
             return null;
-        return new RangeMarker(position, leftSide, leftSide, leftSide);
+        return new RangeMarker(position, applicable, applicable, applicable);
     }
 
     @Override
-    public RangeMarker rightSideAsCovering()
+    public RangeMarker asReportablePoint(boolean applicableBefore, boolean applicableAfter)
     {
-        if (!isReportableState)
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || rightSide < 0))
             return this;
-        if (rightSide < 0)
+        int newAt = at;
+        int newLeft = applicableBefore ? leftSide : -1;
+        int newRight = applicableAfter ? rightSide : -1;
+        if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
+            return new RangeMarker(position, applicableBefore ? leftSide : -1, at, applicableAfter ? rightSide : -1);
+        else
             return null;
-        return new RangeMarker(position, rightSide, rightSide, rightSide);
     }
 
     @Override
-    public RangeMarker asReportableStart()
+    public boolean precedingIncluded(Direction direction)
     {
-        if (rightSide < 0 && at < 0)
-            return null;
-        return new RangeMarker(position, -1, at, rightSide);
-    }
-
-    @Override
-    public RangeMarker asReportableEnd()
-    {
-        if (leftSide < 0)
-            return null;
-        return new RangeMarker(position, leftSide, -1, -1);
-    }
-
-    @Override
-    public boolean lesserIncluded()
-    {
-        return leftSide >= 0;
+        return direction.select(leftSide, rightSide) >= 0;
     }
 
     static String toString(ByteComparable position)

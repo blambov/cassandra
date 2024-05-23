@@ -23,14 +23,16 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 class SingletonCursor<T> implements TrieImpl.Cursor<T>
 {
+    private final Direction direction;
     private ByteSource src;
     private int currentDepth;
     private int currentTransition;
     private int nextTransition;
     private final T value;
 
-    SingletonCursor(ByteComparable key, T value)
+    SingletonCursor(Direction direction, ByteComparable key, T value)
     {
+        this.direction = direction;
         src = key.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION);
         this.value = value;
         currentDepth = 0;
@@ -43,6 +45,7 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
         copyFrom.src = dupe;
         src = dupe.duplicate();
+        direction = copyFrom.direction;
         currentDepth = copyFrom.currentDepth;
         currentTransition = copyFrom.currentTransition;
         nextTransition = copyFrom.nextTransition;
@@ -97,10 +100,10 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
     {
         if (depth <= currentDepth)
         {
-            assert depth < currentDepth || incomingTransition > currentTransition || depth == -1;
+            assert depth < currentDepth || direction.gt(incomingTransition, currentTransition) || depth == -1;
             return exhausted();  // no alternatives
         }
-        if (incomingTransition > nextTransition)
+        if (direction.gt(incomingTransition, nextTransition))
             return exhausted();   // request is skipping over our path
 
         return advance();
@@ -131,13 +134,18 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         return currentTransition;
     }
 
+    public Direction direction()
+    {
+        return direction;
+    }
+
     static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
     extends SingletonCursor<T>
     implements NonDeterministicTrieImpl.Cursor<T>
     {
-        NonDeterministic(ByteComparable key, T value)
+        NonDeterministic(Direction direction, ByteComparable key, T value)
         {
-            super(key, value);
+            super(direction, key, value);
         }
 
         NonDeterministic(SingletonCursor<T> copyFrom)
@@ -160,9 +168,9 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
 
     static class Range<T extends RangeTrie.RangeMarker<T>> extends SingletonCursor<T> implements RangeTrieImpl.Cursor<T>
     {
-        Range(ByteComparable key, T value)
+        Range(Direction direction, ByteComparable key, T value)
         {
-            super(key, value);
+            super(direction, key, value);
         }
 
         Range(SingletonCursor<T> copyFrom)
@@ -187,9 +195,9 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
     static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends SingletonCursor<T> implements DeletionAwareTrieImpl.Cursor<T, D>
     {
-        DeletionAware(ByteComparable key, T value)
+        DeletionAware(Direction direction, ByteComparable key, T value)
         {
-            super(key, value);
+            super(direction, key, value);
         }
 
         DeletionAware(SingletonCursor<T> copyFrom)

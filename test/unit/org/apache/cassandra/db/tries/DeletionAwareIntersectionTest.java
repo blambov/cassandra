@@ -434,12 +434,12 @@ public class DeletionAwareIntersectionTest
 
     DeletionMarker startOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportableStart() : null;
+        return marker != null ? marker.asReportablePoint(true, false) : null;
     }
 
     DeletionMarker endOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportableEnd() : null;
+        return marker != null ? marker.asReportablePoint(false, true) : null;
     }
 
     private static DeletionMarker makeActiveMarker(int active, int rangeIndex, ByteComparable nextRange)
