@@ -271,7 +271,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                 if (mutationContent == null)
                     mutationContent = mutationCoveringState;
                 applyContent(state, transformer, existingContent, mutationContent);
-                mutationCoveringState = mutationContent.asCoveringState(Direction.FORWARD);
+                mutationCoveringState = mutationContent.asCoveringState(Direction.REVERSE);
                 existingCoveringState = rightSideAsCovering(existingContent);
                 if (mutationCoveringState == null)
                 {

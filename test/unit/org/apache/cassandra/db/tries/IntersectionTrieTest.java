@@ -116,7 +116,7 @@ public class IntersectionTrieTest
                                 RangeOp<ByteBuffer> op) throws Exception
     {
         System.out.format("Intersection with [%s:%s]\n", asString(l), asString(r));
-        NavigableMap<ByteComparable, ByteBuffer> imap = SlicedTrieTest.boundedMap(content1, l, r);
+        NavigableMap<ByteComparable, ByteBuffer> imap = SlicedTrieTest.boundedMap(content1, l, true, r, false);
 
         Trie<ByteBuffer> intersection = op.apply(t1, l, r);
 
@@ -145,7 +145,6 @@ public class IntersectionTrieTest
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value, int terminator)
     {
-        // TODO: Add trailing byte to make prefix-free, adjust from/to to use smaller trailing byte
         // TODO: Also in all other tests of this type
         assert value >= 0 && value <= Byte.MAX_VALUE;
 

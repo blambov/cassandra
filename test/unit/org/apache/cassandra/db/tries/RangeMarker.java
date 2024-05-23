@@ -137,13 +137,13 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
     @Override
     public RangeMarker asReportablePoint(boolean applicableBefore, boolean applicableAfter)
     {
-        if ((applicableBefore || leftSide < 0) && (applicableAfter || rightSide < 0))
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)))
             return this;
-        int newAt = at;
+        int newAt = applicableAfter ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
         if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
-            return new RangeMarker(position, applicableBefore ? leftSide : -1, at, applicableAfter ? rightSide : -1);
+            return new RangeMarker(position, newLeft, newAt, newRight);
         else
             return null;
     }
@@ -174,7 +174,7 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
             prev = marker.position;
             active = marker.rightSide;
         }
-        assertEquals(-1, active);
+        assertEquals("Unclosed range", -1, active);
         return markers;
     }
 
@@ -182,9 +182,9 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
     /**
      * Extract the values of the provided trie into a list.
      */
-    static List<RangeMarker> toList(RangeTrie<RangeMarker> trie)
+    static List<RangeMarker> toList(RangeTrie<RangeMarker> trie, Direction direction)
     {
-        return Streams.stream(trie.entryIterator())
+        return Streams.stream(trie.entryIterator(direction))
                       .map(en -> remap(en.getValue(), en.getKey()))
                       .collect(Collectors.toList());
     }

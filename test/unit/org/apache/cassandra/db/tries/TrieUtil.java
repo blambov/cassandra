@@ -23,9 +23,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.Random;
 import java.util.Set;
 import java.util.SortedMap;
@@ -45,7 +45,6 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
-import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
@@ -65,18 +64,20 @@ public class TrieUtil
 
     static <T> void assertTrieEquals(BaseTrie<T> trie, Map<ByteComparable, T> map)
     {
-        for (Direction direction : Direction.values())
-            assertMapEquals(trie.entrySet(direction),
-                            maybeReversed(direction, map).entrySet(),
-                            direction.select(FORWARD_COMPARATOR, REVERSE_COMPARATOR));
+        assertMapEquals(trie.entrySet(Direction.FORWARD),
+                        map.entrySet(),
+                        FORWARD_COMPARATOR);
+        assertMapEquals(trie.entrySet(Direction.REVERSE),
+                        reorderBy(map, REVERSE_COMPARATOR).entrySet(),
+                        REVERSE_COMPARATOR);
     }
 
     static <T> void assertMapEquals(Iterable<Map.Entry<ByteComparable, T>> container1,
                                     Iterable<Map.Entry<ByteComparable, T>> container2,
                                     Comparator<ByteComparable> comparator)
     {
-        NavigableMap<String, String> values1 = collectAsStrings(container1, comparator);
-        NavigableMap<String, String> values2 = collectAsStrings(container2, comparator);
+        Map<String, String> values1 = collectAsStrings(container1, comparator);
+        Map<String, String> values2 = collectAsStrings(container2, comparator);
         if (values1.equals(values2))
             return;
 
@@ -84,7 +85,7 @@ public class TrieUtil
         final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
         Set<String> keyDifference = allKeys.stream()
                                            .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
-                                           .collect(Collectors.toSet());
+                                           .collect(Collectors.toCollection(() -> new TreeSet<>()));
         System.err.println("All data");
         dumpDiff(values1, values2, allKeys);
         System.err.println("\nDifferences");
@@ -92,7 +93,7 @@ public class TrieUtil
         fail("Maps are not equal at " + keyDifference);
     }
 
-    private static void dumpDiff(NavigableMap<String, String> values1, NavigableMap<String, String> values2, Set<String> set)
+    private static void dumpDiff(Map<String, String> values1, Map<String, String> values2, Set<String> set)
     {
         for (String key : set)
         {
@@ -105,12 +106,12 @@ public class TrieUtil
         }
     }
 
-    private static <T> TreeMap<String, String> collectAsStrings(Iterable<Map.Entry<ByteComparable, T>> container1,
-                                                                Comparator<ByteComparable> comparator)
+    private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<ByteComparable, T>> container,
+                                                            Comparator<ByteComparable> comparator)
     {
-        var map = new TreeMap<String, String>();
+        var map = new LinkedHashMap<String, String>();
         ByteComparable prevKey = null;
-        for (var e : container1)
+        for (var e : container)
         {
             var key = e.getKey();
             if (prevKey != null && comparator.compare(prevKey, key) >= 0)
@@ -239,11 +240,11 @@ public class TrieUtil
 
     private static void assertForEachValueEquals(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
     {
-        Iterator<ByteBuffer> it = map.values().iterator();
+        Iterator<ByteBuffer> it = maybeReversed(direction, map).values().iterator();
         trie.forEachValue(value -> {
             Assert.assertTrue("Map exhausted first, value " + ByteBufferUtil.bytesToHex(value), it.hasNext());
             ByteBuffer entry = it.next();
-            assertEquals(entry, value);
+            assertEquals("Map " + ByteBufferUtil.bytesToHex(entry) + " vs trie " + ByteBufferUtil.bytesToHex(value), entry, value);
         }, direction);
         Assert.assertFalse("Trie exhausted first", it.hasNext());
     }
@@ -379,8 +380,16 @@ public class TrieUtil
 
     static ByteComparable toBound(ByteComparable bc)
     {
-        ByteComparable res = v -> new SwappedLastByte(bc.asComparableBytes(v), ByteSource.LT_NEXT_COMPONENT);
-        System.out.println(bc.byteComparableAsString(VERSION) + " -> " + res.byteComparableAsString(VERSION));
+        return toBound(bc, false);
+    }
+
+    static ByteComparable toBound(ByteComparable bc, boolean greater)
+    {
+        if (bc == null)
+            return null;
+
+        ByteComparable res = v -> new SwappedLastByte(bc.asComparableBytes(v), greater ? ByteSource.GT_NEXT_COMPONENT : ByteSource.LT_NEXT_COMPONENT);
+//        System.out.println(bc.byteComparableAsString(VERSION) + " -> " + res.byteComparableAsString(VERSION));
         return res;
     }
 
@@ -422,8 +431,9 @@ public class TrieUtil
             leadingTransition = -1;
         }
 
-        CursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition)
+        CursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition, Direction direction)
         {
+            this.direction = direction;
             this.stack = stack;
             this.depth = depth;
             this.leadingTransition = leadingTransition;
@@ -433,20 +443,26 @@ public class TrieUtil
         public int advance()
         {
             SpecStackEntry current = stack;
-            while (current != null
-                   && !direction.inLoop(current.curChild += direction.increase, 0, current.children.length - 1))
+            Object child;
+            do
             {
-                current = current.parent;
-                --depth;
-            }
-            if (current == null)
-            {
-                stack = null;
-                leadingTransition = -1;
-                return depth = -1;
-            }
+                while (current != null
+                       && (current.children.length == 0
+                           || !direction.inLoop(current.curChild += direction.increase, 0, current.children.length - 1)))
+                {
+                    current = current.parent;
+                    --depth;
+                }
+                if (current == null)
+                {
+                    stack = null;
+                    leadingTransition = -1;
+                    return depth = -1;
+                }
 
-            Object child = current.children[current.curChild];
+                child = current.children[current.curChild];
+            }
+            while (child == null);
             stack = makeSpecStackEntry(direction, child, current);
 
             return ++depth;
@@ -469,7 +485,7 @@ public class TrieUtil
             }
 
             int index = skipTransition - 0x30;
-            stack.curChild = direction.max(stack.curChild, index - 1);
+            stack.curChild = direction.max(stack.curChild, index - direction.increase);
             return advance();
         }
 
@@ -495,7 +511,7 @@ public class TrieUtil
         @Override
         public TrieImpl.Cursor<T> duplicate()
         {
-            return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition);
+            return new CursorFromSpec<>(copyStack(stack), depth, leadingTransition, direction);
         }
 
         static SpecStackEntry copyStack(SpecStackEntry stack)
@@ -535,9 +551,9 @@ public class TrieUtil
             super(spec, direction);
         }
 
-        NDCursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition)
+        NDCursorFromSpec(SpecStackEntry stack, int depth, int leadingTransition, Direction direction)
         {
-            super(stack, depth, leadingTransition);
+            super(stack, depth, leadingTransition, direction);
         }
 
         @Override
@@ -547,13 +563,14 @@ public class TrieUtil
                 return null;
             return new NDCursorFromSpec<>(makeSpecStackEntry(direction, stack.alternateBranch, null),
                                           depth,
-                                          incomingTransition());
+                                          incomingTransition(),
+                                          direction);
         }
 
         @Override
         public NonDeterministicTrieImpl.Cursor<T> duplicate()
         {
-            return new NDCursorFromSpec<>(copyStack(stack), depth, leadingTransition);
+            return new NDCursorFromSpec<>(copyStack(stack), depth, leadingTransition, direction);
         }
     }
 }

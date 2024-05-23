@@ -27,6 +27,7 @@ import com.google.common.base.Predicates;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
@@ -415,7 +416,7 @@ public class DeletionAwareIntersectionTest
                     if ((rangeIndex & 1) == 0)
                         maybeAdd(result, dp.withMarker(startOf(adjustedMarker)));
                     else
-                        maybeAdd(result, endOf(adjustedMarker));   // live points are not included at ends
+                        maybeAdd(result, dp.withMarker(endOf(adjustedMarker)));   // live points are included at starts as well as ends
 
                     nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
                     break;
@@ -434,12 +435,12 @@ public class DeletionAwareIntersectionTest
 
     DeletionMarker startOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportablePoint(true, false) : null;
+        return marker != null ? marker.asReportablePoint(false, true) : null;
     }
 
     DeletionMarker endOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportablePoint(false, true) : null;
+        return marker != null ? marker.asReportablePoint(true, false) : null;
     }
 
     private static DeletionMarker makeActiveMarker(int active, int rangeIndex, ByteComparable nextRange)

@@ -323,8 +323,9 @@ public class RangeTrieMergeTest
         {
             try
             {
-                assertEquals(message + " forward b" + bits, merged, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                assertEquals(message + " forward b" + bits, merged, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(merged), toList(trie, Direction.REVERSE));
+                System.out.println(message + " b" + bits + " matched.");
             }
             catch (AssertionError e)
             {
@@ -374,8 +375,9 @@ public class RangeTrieMergeTest
         {
             try
             {
-                assertEquals(message + " forward b" + bits, merged, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                assertEquals(message + " forward b" + bits, merged, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(merged), toList(trie, Direction.REVERSE));
+                System.out.println(message + " b" + bits + " matched.");
             }
             catch (AssertionError e)
             {
@@ -429,8 +431,9 @@ public class RangeTrieMergeTest
             RangeTrie<RangeMarker> trie = RangeTrie.merge(triesToMerge, RangeMarker::combineCollection);
             try
             {
-                assertEquals(message + " forward b" + bits, merged, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                assertEquals(message + " forward b" + bits, merged, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(merged), toList(trie, Direction.REVERSE));
+                System.out.println(message + " b" + bits + " matched.");
             }
             catch (AssertionError e)
             {
@@ -467,8 +470,9 @@ public class RangeTrieMergeTest
         {
             try
             {
-                assertEquals(message + " forward b" + bits, merged, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                assertEquals(message + " forward b" + bits, merged, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(merged), toList(trie, Direction.REVERSE));
+                System.out.println(message + " b" + bits + " matched.");
             }
             catch (AssertionError e)
             {

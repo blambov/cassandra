@@ -173,7 +173,12 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     private int matchingPosition(int depth)
     {
-        state = State.MATCHING;
+        // If we are matching a bound of the set, include all its children by using a set-ahead state, ensuring that the
+        // set will only be advanced once the source ascends to its depth again.
+        if (set.content() == null)
+            state = State.MATCHING;
+        else
+            state = State.SET_AHEAD;
         return depth;
     }
 

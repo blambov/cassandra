@@ -171,13 +171,13 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     @Override
     public DeletionMarker asReportablePoint(boolean applicableBefore, boolean applicableAfter)
     {
-        if ((applicableBefore || leftSide < 0) && (applicableAfter || rightSide < 0))
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)))
             return this;
-        int newAt = at;
+        int newAt = applicableAfter ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
         if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
-            return new DeletionMarker(position, applicableBefore ? leftSide : -1, at, applicableAfter ? rightSide : -1);
+            return new DeletionMarker(position, newLeft, newAt, newRight);
         else
             return null;
     }
