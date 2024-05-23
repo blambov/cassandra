@@ -958,7 +958,7 @@ public class InMemoryReadTrie<T>
                 if (isExact)
                     minTransition -= childIndex << shift;
                 else
-                    minTransition = direction.select(0, (limit << shift) - 1);
+                    minTransition = direction.select(0, (1 << shift) - 1);
 
                 // continue with next sublevel; same as
                 // return descendInSplitSublevelWithTarget(child + SPLIT_OFFSET, 8, collected, shift - 3, minTransition)
