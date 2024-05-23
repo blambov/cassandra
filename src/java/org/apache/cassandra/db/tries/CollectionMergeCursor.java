@@ -332,6 +332,11 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         return head.incomingTransition();
     }
 
+    public Direction direction()
+    {
+        return direction;
+    }
+
     boolean branchHasMultipleSources()
     {
         return equalCursor(heap[0], head);
@@ -670,7 +675,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         public M coveringState()
         {
             final M state = maybeCollectContent();
-            return state != null ? state.leftSideAsCovering() : null;
+            return state != null ? state.asCoveringState(direction) : null;
         }
 
         @Override

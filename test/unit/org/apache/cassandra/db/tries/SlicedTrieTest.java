@@ -36,9 +36,9 @@ import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertSameContent;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
+import static org.apache.cassandra.db.tries.TrieUtil.asString;
+import static org.apache.cassandra.db.tries.TrieUtil.assertSameContent;
+import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
@@ -102,10 +102,10 @@ public class SlicedTrieTest
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
         checkEqualRange(content1, trie1, null, null);
-        checkEqualRange(content1, trie1, InMemoryTrieTestBase.generateKey(rand), null);
-        checkEqualRange(content1, trie1, null, InMemoryTrieTestBase.generateKey(rand));
-        ByteComparable l = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
-        ByteComparable r = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
+        checkEqualRange(content1, trie1, TrieUtil.generateKey(rand), null);
+        checkEqualRange(content1, trie1, null, TrieUtil.generateKey(rand));
+        ByteComparable l = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
+        ByteComparable r = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
         int cmp = ByteComparable.compare(l, r, TrieImpl.BYTE_COMPARABLE_VERSION);
         if (cmp > 0)
         {

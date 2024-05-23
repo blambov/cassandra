@@ -21,10 +21,12 @@ package org.apache.cassandra.db.tries;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Random;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
@@ -32,12 +34,14 @@ import org.junit.Test;
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertMapEquals;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
+import static org.apache.cassandra.db.tries.TrieUtil.asString;
+import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
+import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
+import static org.apache.cassandra.db.tries.TrieUtil.toBound;
 import static org.junit.Assert.assertEquals;
 
 public class IntersectionTrieTest
@@ -91,11 +95,11 @@ public class IntersectionTrieTest
         Trie<ByteBuffer> t1 = trie1;
 
         checkEqualRange(content1, t1, null, null, op);
-        checkEqualRange(content1, t1, InMemoryTrieTestBase.generateKey(rand), null, op);
-        checkEqualRange(content1, t1, null, InMemoryTrieTestBase.generateKey(rand), op);
+        checkEqualRange(content1, t1, TrieUtil.generateKeyBound(rand), null, op);
+        checkEqualRange(content1, t1, null, TrieUtil.generateKeyBound(rand), op);
 
-        ByteComparable l = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
-        ByteComparable r = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
+        ByteComparable l = rand.nextBoolean() ? TrieUtil.generateKeyBound(rand) : toBound(src1[rand.nextInt(src1.length)]);
+        ByteComparable r = rand.nextBoolean() ? TrieUtil.generateKeyBound(rand) : toBound(src1[rand.nextInt(src1.length)]);
         int cmp = ByteComparable.compare(l, r, TrieImpl.BYTE_COMPARABLE_VERSION);
         if (cmp > 0)
         {
@@ -123,9 +127,9 @@ public class IntersectionTrieTest
     /**
      * Extract the values of the provide trie into a list.
      */
-    private static <T> List<T> toList(Trie<T> trie)
+    private static <T> List<T> toList(Trie<T> trie, Direction direction)
     {
-        return Iterables.toList(trie.values());
+        return Iterables.toList(trie.values(direction));
     }
 
     private Trie<Integer> fromList(int... list) throws InMemoryDTrie.SpaceExhaustedException
@@ -133,24 +137,37 @@ public class IntersectionTrieTest
         InMemoryDTrie<Integer> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
         for (int i : list)
         {
-            trie.putRecursive(of(i), i, (ex, n) -> n);
+            trie.putRecursive(at(i), i, (ex, n) -> n);
         }
         return trie;
     }
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
-    private ByteComparable of(int value)
+    private ByteComparable of(int value, int terminator)
     {
+        // TODO: Add trailing byte to make prefix-free, adjust from/to to use smaller trailing byte
+        // TODO: Also in all other tests of this type
         assert value >= 0 && value <= Byte.MAX_VALUE;
 
-        byte[] splitBytes = new byte[(bitsNeeded + bits - 1) / bits];
+        byte[] splitBytes = new byte[(bitsNeeded + bits - 1) / bits + 1];
         int pos = 0;
         int mask = (1 << bits) - 1;
         for (int i = bitsNeeded - bits; i > 0; i -= bits)
             splitBytes[pos++] = (byte) ((value >> i) & mask);
 
         splitBytes[pos++] = (byte) (value & mask);
+        splitBytes[pos++] = (byte) terminator;
         return ByteComparable.fixedLength(splitBytes);
+    }
+
+    private ByteComparable at(int value)
+    {
+        return of(value, ByteSource.TERMINATOR);
+    }
+
+    private ByteComparable before(int value)
+    {
+        return of(value, ByteSource.LT_NEXT_COMPONENT);
     }
 
     @Test
@@ -162,15 +179,15 @@ public class IntersectionTrieTest
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
-            testIntersection("", asList(3, 4, 5, 6), trie, TrieSet.range(of(3), of(7)));
+            testIntersection("", asList(3, 4, 5, 6), trie, TrieSet.range(before(3), before(7)));
 
-            testIntersection("", asList(0, 1, 2, 3, 4, 5, 6), trie, TrieSet.range(null, of(7)));
+            testIntersection("", asList(0, 1, 2, 3, 4, 5, 6), trie, TrieSet.range(null, before(7)));
 
-            testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie, TrieSet.range(of(3), null));
+            testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie, TrieSet.range(before(3), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie, TrieSet.range(null, null));
 
-            testIntersection("", asList(), trie, TrieSet.range(of(7), of(7)));
+            testIntersection("", asList(), trie, TrieSet.range(before(7), before(7)));
         }
     }
 
@@ -182,17 +199,17 @@ public class IntersectionTrieTest
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 
             // non-overlapping
-            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(4), of(7)));
+            testIntersection("", asList(), trie, TrieSet.range(before(0), before(3)), TrieSet.range(before(4), before(7)));
             // touching, i.e. still non-overlapping
-            testIntersection("", asList(), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(3), of(7)));
+            testIntersection("", asList(), trie, TrieSet.range(before(0), before(3)), TrieSet.range(before(3), before(7)));
             // overlapping 1
-            testIntersection("", asList(2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(2), of(7)));
+            testIntersection("", asList(2), trie, TrieSet.range(before(0), before(3)), TrieSet.range(before(2), before(7)));
             // overlapping 2
-            testIntersection("", asList(1, 2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(1), of(7)));
+            testIntersection("", asList(1, 2), trie, TrieSet.range(before(0), before(3)), TrieSet.range(before(1), before(7)));
             // covered
-            testIntersection("", asList(0, 1, 2), trie, TrieSet.range(of(0), of(3)), TrieSet.range(of(0), of(7)));
+            testIntersection("", asList(0, 1, 2), trie, TrieSet.range(before(0), before(3)), TrieSet.range(before(0), before(7)));
             // covered 2
-            testIntersection("", asList(1, 2), trie, TrieSet.range(of(1), of(3)), TrieSet.range(of(0), of(7)));
+            testIntersection("", asList(1, 2), trie, TrieSet.range(before(1), before(3)), TrieSet.range(before(0), before(7)));
         }
     }
 
@@ -205,35 +222,35 @@ public class IntersectionTrieTest
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
-            testIntersection("", asList(3, 4, 5, 6), trie, TrieSet.ranges(of(3), of(7)));
+            testIntersection("", asList(3, 4, 5, 6), trie, TrieSet.ranges(before(3), before(7)));
 
-            testIntersection("", asList(3), trie, TrieSet.ranges(of(3), of(4)));
+            testIntersection("", asList(3), trie, TrieSet.ranges(before(3), before(4)));
 
-            testIntersection("", asList(0, 1, 2, 3, 4, 5, 6), trie, TrieSet.ranges(null, of(7)));
+            testIntersection("", asList(0, 1, 2, 3, 4, 5, 6), trie, TrieSet.ranges(null, before(7)));
 
-            testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie, TrieSet.ranges(of(3), null));
+            testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie, TrieSet.ranges(before(3), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie, TrieSet.ranges(null, null));
 
-            testIntersection("", asList(3, 4, 5, 7, 8), trie, TrieSet.ranges(of(3), of(6), of(7), of(9)));
+            testIntersection("", asList(3, 4, 5, 7, 8), trie, TrieSet.ranges(before(3), before(6), before(7), before(9)));
 
-            testIntersection("", asList(3, 7, 8), trie, TrieSet.ranges(of(3), of(4), of(7), of(9)));
+            testIntersection("", asList(3, 7, 8), trie, TrieSet.ranges(before(3), before(4), before(7), before(9)));
 
-            testIntersection("", asList(3, 7, 8), trie, TrieSet.ranges(of(3), of(4), of(7), of(9), of(12), of(15)));
+            testIntersection("", asList(3, 7, 8), trie, TrieSet.ranges(before(3), before(4), before(7), before(9), before(12), before(15)));
 
-            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie, TrieSet.ranges(of(3), of(9)));
+            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie, TrieSet.ranges(before(3), before(9)));
 
-            testIntersection("", asList(3), trie, TrieSet.ranges(of(3), of(4)));
+            testIntersection("", asList(3), trie, TrieSet.ranges(before(3), before(4)));
 
-            testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8), trie, TrieSet.ranges(null, of(6), of(7), of(9)));
+            testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8), trie, TrieSet.ranges(null, before(6), before(7), before(9)));
 
-            testIntersection("", asList(3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(of(3), of(6), of(7), null));
+            testIntersection("", asList(3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(before(3), before(6), before(7), null));
 
-            testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(null, of(6), of(7), null));
+            testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8, 9), trie, TrieSet.ranges(null, before(6), before(7), null));
 
-            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie, TrieSet.ranges(of(3), of(6), of(6), of(9)));
+            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie, TrieSet.ranges(before(3), before(6), before(6), before(9)));
 
-            testIntersection("", asList(3, 4, 5, 7, 8), trie, TrieSet.ranges(of(3), of(6), of(6), of(6), of(7), of(9)));
+            testIntersection("", asList(3, 4, 5, 7, 8), trie, TrieSet.ranges(before(3), before(6), before(6), before(6), before(7), before(9)));
         }
     }
 
@@ -245,19 +262,19 @@ public class IntersectionTrieTest
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
 
             // non-overlapping
-            testIntersection("non-overlapping", asList(), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(4), of(8)));
+            testIntersection("non-overlapping", asList(), trie, TrieSet.ranges(before(0), before(4)), TrieSet.ranges(before(4), before(8)));
             // touching
-            testIntersection("touching", asList(3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(3), of(8)));
+            testIntersection("touching", asList(3), trie, TrieSet.ranges(before(0), before(4)), TrieSet.ranges(before(3), before(8)));
             // overlapping 1
-            testIntersection("overlapping A", asList(2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(2), of(8)));
+            testIntersection("overlapping A", asList(2, 3), trie, TrieSet.ranges(before(0), before(4)), TrieSet.ranges(before(2), before(8)));
             // overlapping 2
-            testIntersection("overlapping B", asList(1, 2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(1), of(8)));
+            testIntersection("overlapping B", asList(1, 2, 3), trie, TrieSet.ranges(before(0), before(4)), TrieSet.ranges(before(1), before(8)));
             // covered
-            testIntersection("covered same end A", asList(0, 1, 2, 3), trie, TrieSet.ranges(of(0), of(4)), TrieSet.ranges(of(0), of(8)));
+            testIntersection("covered same end A", asList(0, 1, 2, 3), trie, TrieSet.ranges(before(0), before(4)), TrieSet.ranges(before(0), before(8)));
             // covered 2
-            testIntersection("covered same end B", asList(4, 5, 6, 7), trie, TrieSet.ranges(of(4), of(8)), TrieSet.ranges(of(0), of(8)));
+            testIntersection("covered same end B", asList(4, 5, 6, 7), trie, TrieSet.ranges(before(4), before(8)), TrieSet.ranges(before(0), before(8)));
             // covered 3
-            testIntersection("covered", asList(1, 2, 3), trie, TrieSet.ranges(of(1), of(4)), TrieSet.ranges(of(0), of(8)));
+            testIntersection("covered", asList(1, 2, 3), trie, TrieSet.ranges(before(1), before(4)), TrieSet.ranges(before(0), before(8)));
         }
     }
 
@@ -322,9 +339,9 @@ public class IntersectionTrieTest
     {
         testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14), trie);
 
-        TrieSet set1 = TrieSet.ranges(null, of(4), of(5), of(9), of(12), null);
-        TrieSet set2 = TrieSet.ranges(of(2), of(7), of(8), of(10), of(12), of(14));
-        TrieSet set3 = TrieSet.ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
+        TrieSet set1 = TrieSet.ranges(null, before(4), before(5), before(9), before(12), null);
+        TrieSet set2 = TrieSet.ranges(before(2), before(7), before(8), before(10), before(12), before(14));
+        TrieSet set3 = TrieSet.ranges(before(1), before(2), before(3), before(4), before(5), before(6), before(7), before(8), before(9), before(10));
 
         testIntersections(trie, set1, set2, set3);
 
@@ -333,37 +350,37 @@ public class IntersectionTrieTest
 
     private void testSetAlgebraIntersection(Trie<Integer> trie)
     {
-        TrieSet set1 = TrieSet.range(null, of(3))
-                              .union(TrieSet.range(of(2), of(4)))
-                              .union(TrieSet.range(of(5), of(7)))
-                              .union(TrieSet.range(of(7), of(9)))
-                              .union(TrieSet.range(of(14), of(16)))
-                              .union(TrieSet.range(of(12), null));
-        TrieSet set2 = TrieSet.range(of(2), of(7))
-                              .union(TrieSet.ranges(null, of(8), of(10), null).negation())
-                              .union(TrieSet.ranges(of(8), of(10), of(12), of(14)));
-        TrieSet set3 = TrieSet.range(of(1), of(2))
-                              .union(TrieSet.range(of(3), of(4)))
-                              .union(TrieSet.range(of(5), of(6)))
-                              .union(TrieSet.range(of(7), of(8)))
-                              .union(TrieSet.range(of(9), of(10)));
+        TrieSet set1 = TrieSet.range(null, before(3))
+                              .union(TrieSet.range(before(2), before(4)))
+                              .union(TrieSet.range(before(5), before(7)))
+                              .union(TrieSet.range(before(7), before(9)))
+                              .union(TrieSet.range(before(14), before(16)))
+                              .union(TrieSet.range(before(12), null));
+        TrieSet set2 = TrieSet.range(before(2), before(7))
+                              .union(TrieSet.ranges(null, before(8), before(10), null).weakNegation())
+                              .union(TrieSet.ranges(before(8), before(10), before(12), before(14)));
+        TrieSet set3 = TrieSet.range(before(1), before(2))
+                              .union(TrieSet.range(before(3), before(4)))
+                              .union(TrieSet.range(before(5), before(6)))
+                              .union(TrieSet.range(before(7), before(8)))
+                              .union(TrieSet.range(before(9), before(10)));
 
         testIntersections(trie, set1, set2, set3);
 
-        set1 = TrieSet.range(null, of(3));
-        set1 = unionByRangeIntersector(set1, TrieSet.range(of(2), of(4)));
-        set1 = unionByRangeIntersector(set1, TrieSet.range(of(5), of(7)));
-        set1 = unionByRangeIntersector(set1, TrieSet.range(of(7), of(9)));
-        set1 = unionByRangeIntersector(set1, TrieSet.range(of(14), of(16)));
-        set1 = unionByRangeIntersector(set1, TrieSet.range(of(12), null));
-        set2 = TrieSet.range(of(2), of(7));
-        set2 = unionByRangeIntersector(set2, TrieSet.ranges(null, of(8), of(10), null).negation());
-        set2 = unionByRangeIntersector(set2, TrieSet.ranges(of(8), of(10), of(12), of(14)));;
-        set3 = TrieSet.range(of(1), of(2));
-        set3 = unionByRangeIntersector(set3, TrieSet.range(of(3), of(4)));
-        set3 = unionByRangeIntersector(set3, TrieSet.range(of(5), of(6)));
-        set3 = unionByRangeIntersector(set3, TrieSet.range(of(7), of(8)));
-        set3 = unionByRangeIntersector(set3, TrieSet.range(of(9), of(10)));
+        set1 = TrieSet.range(null, before(3));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(before(2), before(4)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(before(5), before(7)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(before(7), before(9)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(before(14), before(16)));
+        set1 = unionByRangeIntersector(set1, TrieSet.range(before(12), null));
+        set2 = TrieSet.range(before(2), before(7));
+        set2 = unionByRangeIntersector(set2, TrieSet.ranges(null, before(8), before(10), null).weakNegation());
+        set2 = unionByRangeIntersector(set2, TrieSet.ranges(before(8), before(10), before(12), before(14)));;
+        set3 = TrieSet.range(before(1), before(2));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(before(3), before(4)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(before(5), before(6)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(before(7), before(8)));
+        set3 = unionByRangeIntersector(set3, TrieSet.range(before(9), before(10)));
 
         testIntersections(trie, set1, set2, set3);
     }
@@ -394,13 +411,22 @@ public class IntersectionTrieTest
         testIntersectionInMemoryTrieDelete(message + " delete", expected, trie, sets);
     }
 
+    public void checkEqual(String message, List<Integer> expected, Trie<Integer> trie)
+    {
+        assertEquals(message + " forward", expected, toList(trie, Direction.FORWARD));
+        assertEquals(message + " reverse", expected.stream()
+                                                   .sorted(Comparator.<Integer>naturalOrder().reversed())
+                                                   .collect(Collectors.toList()),
+                     toList(trie, Direction.REVERSE));
+    }
+
     public void testIntersectionSetsByRangeIntersector(String message, List<Integer> expected, Trie<Integer> trie, TrieSet intersectedSet, TrieSet[] sets)
     {
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            assertEquals(message + " sets b" + bits, expected, toList(trie.intersect(intersectedSet)));
+            checkEqual(message + " b" + bits, expected, trie.intersect(intersectedSet));
         }
         else
         {
@@ -440,7 +466,7 @@ public class IntersectionTrieTest
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            assertEquals(message + " sets b" + bits, expected, toList(trie.intersect(intersectedSet)));
+            checkEqual(message + " b" + bits, expected, trie.intersect(intersectedSet));
         }
         else
         {
@@ -464,7 +490,7 @@ public class IntersectionTrieTest
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            assertEquals(message + " forward b" + bits, expected, toList(trie));
+            checkEqual(message + " b" + bits, expected, trie);
         }
         else
         {
@@ -487,7 +513,7 @@ public class IntersectionTrieTest
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            assertEquals(message + " forward b" + bits, expected, toList(trie));
+            checkEqual(message + " b" + bits, expected, trie);
         }
         else
         {
@@ -524,7 +550,7 @@ public class IntersectionTrieTest
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            assertEquals(message + " forward b" + bits, expected, toList(trie));
+            checkEqual(message + " b" + bits, expected, trie);
         }
         else
         {
@@ -534,7 +560,7 @@ public class IntersectionTrieTest
                 {
                     TrieSet set = sets[toRemove];
                     InMemoryDTrie<Integer> ix = duplicateTrie(trie);
-                    ix.deleteAllExcept(set);
+                    ix.delete(set.weakNegation());
                     testIntersectionInMemoryTrieDelete(message + " " + toRemove, expected,
                                                        ix,
                                                        Arrays.stream(sets)
@@ -567,6 +593,6 @@ public class IntersectionTrieTest
                 return TrieSetImpl.impl(set).cursor(direction);
             }
         };
-        return setAsRangeTrie.applyTo(trie, (range, value) -> range.matchingIncluded() ? value : null);
+        return setAsRangeTrie.applyTo(trie, (range, value) -> range.applicableBefore ? value : null);
     }
 }

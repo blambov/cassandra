@@ -1056,19 +1056,31 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         TrieSetImpl.Cursor cursor = TrieSetImpl.impl(set).cursor(Direction.FORWARD);
         ApplyState state = applyState.start();
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        delete(state, cursor, InMemoryTrie::deleteEntry);
+        delete(state, cursor);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         state.attachRoot();
     }
 
-    public void deleteAllExcept(TrieSet set) throws SpaceExhaustedException
-    {
-        delete(set.negation());
-    }
-
     private static <T> T deleteEntry(T entry, TrieSetImpl.RangeState state)
     {
-        return state.matchingIncluded() ? null : entry;
+        return state.applicableBefore ? null : entry;
+    }
+
+    void delete(InMemoryTrie<T>.ApplyState state, TrieSetImpl.Cursor mutationCursor)
+    throws SpaceExhaustedException
+    {
+        int prevAscendDepth = state.setAscendLimit(state.currentDepth);
+        UpsertTransformer<T, TrieSetImpl.RangeState> transformer = InMemoryTrie::deleteEntry;
+        TrieSetImpl.RangeState content = mutationCursor.state();
+        // The set may start already in a deleted range. If so, pretend there's a START at the initial position.
+        if (content.asContent == null && content.applicableBefore)
+            content = TrieSetImpl.RangeState.START;
+        else
+            content = content.asContent;
+
+        while (!deleteStep(state, mutationCursor, transformer, content))
+            content = mutationCursor.content();
+        state.setAscendLimit(prevAscendDepth);
     }
 
     static <T, M extends RangeTrie.RangeMarker<M>>
@@ -1081,36 +1093,39 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         // until we see another entry in mutation trie.
         // Repeat until mutation trie is exhausted.
         int prevAscendDepth = state.setAscendLimit(state.currentDepth);
-        while (true)
-        {
-            M content = mutationCursor.content();
-            if (content != null)
-            {
-                deleteContent(state, transformer, content);
-                M mutationCoveringState = content.rightSideAsCovering();
-                // Several cases:
-                // - New deletion is point deletion: Apply it and move on to next mutation branch.
-                // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
-                //   parallel to apply deletion and adjust on any change.
-                // - New deletion starts range and existing beats it: We still have to walk both tries in parallel,
-                //   because existing deletion may end before the newly introduced one, and we want to apply that when
-                //   it does.
-                if (mutationCoveringState != null)
-                {
-                    boolean done = deleteRange(state, mutationCursor, transformer, mutationCoveringState);
-                    if (done)
-                        break;
-                }
-            }
-
-            int depth = mutationCursor.advance();
-            // Descend but do not modify anything yet.
-            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
-                break;
-            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
-        }
+        while (!deleteStep(state, mutationCursor, transformer, mutationCursor.content())) {}
         state.setAscendLimit(prevAscendDepth);
+    }
 
+    private static <T, M extends RangeTrie.RangeMarker<M>>
+    boolean deleteStep(InMemoryTrie<T>.ApplyState state, RangeTrieImpl.Cursor<M> mutationCursor, UpsertTransformer<T, M> transformer, M content)
+    throws SpaceExhaustedException
+    {
+        if (content != null)
+        {
+            deleteContent(state, transformer, content);
+            M mutationCoveringState = content.asCoveringState(Direction.REVERSE); // Use the right side of the deletion
+            // Several cases:
+            // - New deletion is point deletion: Apply it and move on to next mutation branch.
+            // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
+            //   parallel to apply deletion and adjust on any change.
+            // - New deletion starts range and existing beats it: We still have to walk both tries in parallel,
+            //   because existing deletion may end before the newly introduced one, and we want to apply that when
+            //   it does.
+            if (mutationCoveringState != null)
+            {
+                boolean done = deleteRange(state, mutationCursor, transformer, mutationCoveringState);
+                if (done)
+                    return true;
+            }
+        }
+
+        int depth = mutationCursor.advance();
+        // Descend but do not modify anything yet.
+        if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+            return true;
+        assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+        return false;
     }
 
     static <T, M extends RangeTrie.RangeMarker<M>>
@@ -1141,8 +1156,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             {
                 // TODO: maybe assert correct closing of ranges
                 deleteContent(state, transformer, mutationContent);
-                mutationCoveringState = mutationContent.rightSideAsCovering();
-                if (mutationCoveringState == null)
+                mutationCoveringState = mutationContent.asCoveringState(Direction.REVERSE);
+                if (mutationCoveringState == null || !mutationCoveringState.precedingIncluded(Direction.REVERSE))
                     return false; // mutation deletion range was closed, we can continue normal mutation cursor iteration
             }
             else if (existingContent != null)

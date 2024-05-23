@@ -23,16 +23,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Random;
-import java.util.Set;
-import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.function.IntPredicate;
-import java.util.stream.Collectors;
 
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
@@ -40,11 +35,12 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.VERSION;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.asString;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.comparable;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.maybeReversed;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.specifiedNonDeterministicTrie;
+import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
+import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.asString;
+import static org.apache.cassandra.db.tries.TrieUtil.comparable;
+import static org.apache.cassandra.db.tries.TrieUtil.maybeReversed;
+import static org.apache.cassandra.db.tries.TrieUtil.specifiedNonDeterministicTrie;
 import static org.apache.cassandra.db.tries.SlicedTrieTest.boundedMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -109,8 +105,8 @@ public class AlternativeBranchesTest
             )
         });
 
-        assertTrieEquals(specified,
-                        ImmutableMap.of(comparable("000"), of(0),
+        TrieUtil.assertTrieEquals(specified,
+                                  ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
                                         comparable("010"), of(11),
@@ -119,14 +115,14 @@ public class AlternativeBranchesTest
                                         comparable("020"), of(2),
                                         comparable("021"), of(13),
                                         comparable("022"), of(18)));
-        assertTrieEquals(specified.mainPathOnly(),
-                        ImmutableMap.of(comparable("000"), of(0),
+        TrieUtil.assertTrieEquals(specified.mainPathOnly(),
+                                  ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
                                         comparable("020"), of(2),
                                         comparable("022"), of(4)));
-        assertTrieEquals(specified.deterministic(),
-                        ImmutableMap.of(comparable("000"), of(0),
+        TrieUtil.assertTrieEquals(specified.deterministic(),
+                                  ImmutableMap.of(comparable("000"), of(0),
                                         comparable("001"), of(1),
                                         comparable("002"), of(2),
                                         comparable("010"), of(11),
@@ -469,29 +465,31 @@ public class AlternativeBranchesTest
 //        System.out.println("Merged:\n" + trie.deterministic()(RESOLVER_FIRST).dump());
 //        System.out.println("Alt   :\n" + trie.alternateView(RESOLVER_FIRST).dump());
 
-        assertTrieEquals(mainBranch(trie), normals);
-        assertTrieEquals(alternatesOnly(trie), alternates);
-        assertTrieEquals(trie, both);
+        TrieUtil.assertTrieEquals(mainBranch(trie), normals);
+        TrieUtil.assertTrieEquals(alternatesOnly(trie), alternates);
+        TrieUtil.assertTrieEquals(trie, both);
 
         NonDeterministicTrie<MergeableInteger> ix = trie.subtrie(left, right);
-        assertTrieEquals(mainBranch(ix), boundedMap(normals, left, right));
-        assertTrieEquals(alternatesOnly(ix), boundedMap(alternates, left, right));
-        assertTrieEquals(ix, boundedMap(both, left, right));
+        TrieUtil.assertTrieEquals(mainBranch(ix), boundedMap(normals, left, right));
+        TrieUtil.assertTrieEquals(alternatesOnly(ix), boundedMap(alternates, left, right));
+        TrieUtil.assertTrieEquals(ix, boundedMap(both, left, right));
 
 //        System.out.println("Bounds " + asString(left) + " to " + asString(right));
 //        System.out.println("IX Normal:\n" + ix.dump());
 //        System.out.println("IX Merged:\n" + ix.deterministic()(RESOLVER_FIRST).dump());
 //        System.out.println("IX Alt   :\n" + alternatesOnly(ix).dump());
 
-        assertMapEquals(alternatesOnly(trie)
+        TrieUtil.assertMapEquals(alternatesOnly(trie)
                             .subtrie(left, right)
                             .entrySet(),
-                        boundedMap(alternates, left, right)
-                                  .entrySet());
-        assertMapEquals(trie.subtrie(left, right)
+                                 boundedMap(alternates, left, right)
+                                  .entrySet(),
+                                 FORWARD_COMPARATOR);
+        TrieUtil.assertMapEquals(trie.subtrie(left, right)
+                                     .entrySet(),
+                                 boundedMap(both, left, right)
                             .entrySet(),
-                        boundedMap(both, left, right)
-                            .entrySet());
+                                 FORWARD_COMPARATOR);
     }
 
     String makeSpecKey(Random rand)
@@ -513,59 +511,5 @@ public class AlternativeBranchesTest
         Object[] arr = new Object[10];
         arr[s.charAt(0) - '0'] = child;
         return arr;
-    }
-
-    static <T> void assertTrieEquals(BaseTrie<T> trie, Map<ByteComparable, T> map)
-    {
-        for (Direction direction : Direction.values())
-            assertMapEquals(trie.entrySet(direction), maybeReversed(direction, map).entrySet());
-    }
-
-    static <T> void assertMapEquals(Iterable<Map.Entry<ByteComparable, T>> container1,
-                                    Iterable<Map.Entry<ByteComparable, T>> container2)
-    {
-        NavigableMap<String, String> values1 = collectAsStrings(container1);
-        NavigableMap<String, String> values2 = collectAsStrings(container2);
-        if (values1.equals(values2))
-            return;
-
-        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
-        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
-        Set<String> keyDifference = allKeys.stream()
-                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
-                                           .collect(Collectors.toSet());
-        System.err.println("All data");
-        dumpDiff(values1, values2, allKeys);
-        System.err.println("\nDifferences");
-        dumpDiff(values1, values2, keyDifference);
-        fail("Maps are not equal at " + keyDifference);
-    }
-
-    private static void dumpDiff(NavigableMap<String, String> values1, NavigableMap<String, String> values2, Set<String> set)
-    {
-        for (String key : set)
-        {
-            String v1 = values1.get(key);
-            if (v1 != null)
-                System.err.println(String.format("Trie    %s:%s", key, v1));
-            String v2 = values2.get(key);
-            if (v2 != null)
-                System.err.println(String.format("TreeSet %s:%s", key, v2));
-        }
-    }
-
-    private static <T> TreeMap<String, String> collectAsStrings(Iterable<Map.Entry<ByteComparable, T>> container1)
-    {
-        var map = new TreeMap<String, String>();
-        ByteComparable prevKey = null;
-        for (var e : container1)
-        {
-            var key = e.getKey();
-            if (prevKey != null && ByteComparable.compare(prevKey, key, VERSION) >= 0)
-                fail("Keys are not sorted: " + asString(prevKey) + " >= " + asString(key));
-            prevKey = key;
-            map.put(asString(key), e.getValue().toString());
-        }
-        return map;
     }
 }

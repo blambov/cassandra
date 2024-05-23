@@ -87,13 +87,13 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
 
     int checkOrder(int c1depth, int c2depth)
     {
-        if (direction.gt(c1depth, c2depth))
+        if (c1depth > c2depth)
         {
             atC1 = true;
             atC2 = false;
             return c1depth;
         }
-        if (direction.lt(c1depth, c2depth))
+        if (c1depth < c2depth)
         {
             atC1 = false;
             atC2 = true;
@@ -117,6 +117,11 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
     public int incomingTransition()
     {
         return atC1 ? c1.incomingTransition() : c2.incomingTransition();
+    }
+
+    public Direction direction()
+    {
+        return direction;
     }
 
     static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends MergeCursor<C, C> implements TrieImpl.Cursor<T>

@@ -80,6 +80,12 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
     }
 
     @Override
+    public Direction direction()
+    {
+        return direction;
+    }
+
+    @Override
     public TrieSetImpl.RangeState state()
     {
         return currentRangeState;
@@ -87,7 +93,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
 
     boolean lesserInSet(TrieSetImpl.Cursor cursor)
     {
-        return cursor.state().lesserIncluded();
+        return cursor.state().precedingIncluded(direction);
     }
 
     @Override
@@ -223,16 +229,7 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
 
     TrieSetImpl.RangeState combineState(TrieSetImpl.RangeState cl, TrieSetImpl.RangeState cr)
     {
-        if (cl == TrieSetImpl.RangeState.OUTSIDE_PREFIX || cr == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-            return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
-        else if (cl == TrieSetImpl.RangeState.INSIDE_PREFIX)
-            return cr;
-        else if (cr == TrieSetImpl.RangeState.INSIDE_PREFIX)
-            return cl;
-        else if (cl == cr)
-            return cl;
-        else // start and end combination
-            return TrieSetImpl.RangeState.OUTSIDE_PREFIX;
+        return cl.intersect(cr);
     }
 
     @Override
@@ -256,22 +253,13 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         @Override
         boolean lesserInSet(TrieSetImpl.Cursor cursor)
         {
-            return !cursor.state().lesserIncluded();
+            return !cursor.state().precedingIncluded(direction);
         }
 
         @Override
         TrieSetImpl.RangeState combineState(TrieSetImpl.RangeState cl, TrieSetImpl.RangeState cr)
         {
-            if (cl == TrieSetImpl.RangeState.INSIDE_PREFIX || cr == TrieSetImpl.RangeState.INSIDE_PREFIX)
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
-            else if (cl == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-                return cr;
-            else if (cr == TrieSetImpl.RangeState.OUTSIDE_PREFIX)
-                return cl;
-            else if (cl == cr)
-                return cl;
-            else // start and end combination
-                return TrieSetImpl.RangeState.INSIDE_PREFIX;
+            return cl.union(cr);
         }
 
         @Override

@@ -22,32 +22,32 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 {
     enum RangeState implements RangeTrie.RangeMarker<RangeState>
     {
-        OUTSIDE_PREFIX(false, false, false),
-        INSIDE_PREFIX(true, true, false),
+        // TODO: Define masks and comment
+        START_END_PREFIX(false, false, false),
+        END_PREFIX(true, false, false),
+        START_PREFIX(false, true, false),
+        END_START_PREFIX(true, true, false),
+        POINT(false, false, true),
+        END(true, false, true),
         START(false, true, true),
-        END(true, false, true);
+        COVERED(true, true, true); // end and start, does not change anything
 
         final boolean applicableBefore;
-        final boolean applicableAt;
+        final boolean applicableAfter;
         final RangeState asContent;
 
-        RangeState(boolean applicableBefore, boolean applicableAt, boolean reportAsContent)
+        RangeState(boolean applicableBefore, boolean applicableAfter, boolean reportAsContent)
         {
             this.applicableBefore = applicableBefore;
-            this.applicableAt = applicableAt;
+            this.applicableAfter = applicableAfter;
             this.asContent = reportAsContent ? this : null;
         }
 
 
         @Override
-        public boolean lesserIncluded()
+        public boolean precedingIncluded(Direction direction)
         {
-            return applicableBefore;
-        }
-
-        public boolean matchingIncluded()
-        {
-            return applicableAt;
+            return direction.select(applicableBefore, applicableAfter);
         }
 
         @Override
@@ -57,63 +57,27 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         }
 
         @Override
-        public RangeState leftSideAsCovering()
+        public RangeState asCoveringState(Direction direction)
         {
-            switch (this)
-            {
-                case END:
-                    return INSIDE_PREFIX;
-                case START:
-                    return OUTSIDE_PREFIX;
-                default:
-                    return this;
-            }
+            return direction.select(applicableBefore, applicableAfter) ? END_START_PREFIX : START_END_PREFIX;
         }
 
         @Override
-        public RangeState rightSideAsCovering()
+        public RangeState asReportablePoint(boolean includeBefore, boolean includeAfter)
         {
-            switch (this)
-            {
-                case END:
-                    return OUTSIDE_PREFIX;
-                case START:
-                    return INSIDE_PREFIX;
-                default:
-                    return this;
-            }
+            int ord = (includeBefore ? 1 : 0) | (includeAfter ? 2 : 0) | 4;
+            ord &= ordinal();
+            return (ord & 4) != 0 ? values()[ord] : null;
         }
 
-        @Override
-        public RangeState asReportableStart()
+        public RangeState intersect(RangeState other)
         {
-            switch (this)
-            {
-                case END:
-                case OUTSIDE_PREFIX:
-                    return OUTSIDE_PREFIX;
-                case START:
-                case INSIDE_PREFIX:
-                    return START;
-                default:
-                    return this;
-            }
+            return values()[ordinal() & other.ordinal()];
         }
 
-        @Override
-        public RangeState asReportableEnd()
+        public RangeState union(RangeState other)
         {
-            switch (this)
-            {
-                case START:
-                case OUTSIDE_PREFIX:
-                    return OUTSIDE_PREFIX;
-                case END:
-                case INSIDE_PREFIX:
-                    return END;
-                default:
-                    return this;
-            }
+            return values()[ordinal() | other.ordinal()];
         }
     }
 
@@ -129,7 +93,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
         default RangeState coveringState()
         {
-            return state().leftSideAsCovering();
+            return state().asCoveringState(direction());
         }
 
         default RangeState content()
@@ -161,34 +125,25 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public RangeState combineState(RangeState lState, RangeState rState)
         {
-            if (lState == RangeState.OUTSIDE_PREFIX || rState == RangeState.OUTSIDE_PREFIX)
-                return RangeState.OUTSIDE_PREFIX;
-            else if (lState == RangeState.INSIDE_PREFIX)
-                return rState;
-            else if (rState == RangeState.INSIDE_PREFIX)
-                return lState;
-            else if (lState == rState)
-                return lState;
-            else // start and end combination
-                return null;
+            return lState.intersect(rState);
         }
 
         @Override
         public boolean includeLesserLeft(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return cursor.coveringState().lesserIncluded();
+            return cursor.coveringState().applicableBefore;
         }
 
         @Override
         public boolean includeLesserRight(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return cursor.coveringState().lesserIncluded();
+            return cursor.coveringState().applicableBefore;
         }
 
         @Override
         public RangeState combineContentLeftAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            if (lCursor.coveringState().lesserIncluded())
+            if (lCursor.coveringState().applicableBefore)
                 return rCursor.content();
             else
                 return null;
@@ -197,7 +152,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public RangeState combineContentRightAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            if (rCursor.coveringState().lesserIncluded())
+            if (rCursor.coveringState().applicableBefore)
                 return lCursor.content();
             else
                 return null;
@@ -210,34 +165,25 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public RangeState combineState(RangeState lState, RangeState rState)
         {
-            if (lState == RangeState.INSIDE_PREFIX || rState == RangeState.INSIDE_PREFIX)
-                return RangeState.INSIDE_PREFIX;
-            else if (lState == RangeState.OUTSIDE_PREFIX)
-                return rState;
-            else if (rState == RangeState.OUTSIDE_PREFIX)
-                return lState;
-            else if (lState == rState)
-                return lState;
-            else // start and end combination
-                return null;
+            return lState.union(rState);
         }
 
         @Override
         public boolean includeLesserLeft(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return !cursor.coveringState().lesserIncluded();
+            return !cursor.coveringState().applicableBefore;
         }
 
         @Override
         public boolean includeLesserRight(RangeTrieImpl.Cursor<RangeState> cursor)
         {
-            return !cursor.coveringState().lesserIncluded();
+            return !cursor.coveringState().applicableBefore;
         }
 
         @Override
         public RangeState combineContentLeftAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            if (!lCursor.coveringState().lesserIncluded())
+            if (!lCursor.coveringState().applicableBefore)
                 return rCursor.content();
             else
                 return null;
@@ -246,7 +192,7 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
         @Override
         public RangeState combineContentRightAhead(RangeTrieImpl.Cursor<RangeState> lCursor, RangeTrieImpl.Cursor<RangeState> rCursor)
         {
-            if (!rCursor.coveringState().lesserIncluded())
+            if (!rCursor.coveringState().applicableBefore)
                 return lCursor.content();
             else
                 return null;

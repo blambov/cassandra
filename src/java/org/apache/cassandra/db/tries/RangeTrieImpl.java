@@ -26,7 +26,8 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
          * Returns a range that covers positions before this, including this position if content() is null.
          * This is the range that is active at (i.e. covers) a position that was skipped to, when the range trie jumps
          * past the requested position or does not have content.
-         * Cannot be a reportable range (i.e. coveringState().toContent() must be null).
+         * Cannot be a reportable range (i.e. coveringState().toContent() must be null) and must be a state that is the
+         * for preceding and succeeding positions (see e.g. {@link TrieSetImpl.RangeState#asCoveringState(Direction)}).
          * Note that this may also be non-null when the cursor is in an exhausted state, as well as immediately
          * after cursor construction, signifying, respectively, right and left unbounded ranges.
          */
@@ -41,6 +42,11 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
 
         @Override
         Cursor<M> duplicate();
+
+        /**
+         * Return the cursor's iteration direction.
+         */
+        Direction direction();
     }
 
 
@@ -67,6 +73,12 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
         }
 
         @Override
+        public Direction direction()
+        {
+            throw new AssertionError();
+        }
+
+        @Override
         public Cursor<M> duplicate()
         {
             return depth == 0 ? new EmptyCursor<>() : this;
@@ -87,31 +99,19 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
                 if (rState == null)
                     return null;
 
-                switch (lState)
-                {
-                    case OUTSIDE_PREFIX:
-                        return null;
-                    case INSIDE_PREFIX:
-                        return rState;
-                    case END:
-                        return rState.asReportableEnd();
-                    case START:
-                        return rState.asReportableStart();
-                    default:
-                        throw new AssertionError();
-                }
+                return rState.asReportablePoint(lState.applicableBefore, lState.applicableAfter);
             }
 
             @Override
             public boolean includeLesserLeft(Cursor<TrieSetImpl.RangeState> cursor)
             {
-                return cursor.coveringState().lesserIncluded();
+                return cursor.coveringState() != null;
             }
 
             @Override
             public M combineContentLeftAhead(Cursor<TrieSetImpl.RangeState> lCursor, Cursor<M> rCursor)
             {
-                if (lCursor.coveringState().lesserIncluded())
+                if (lCursor.coveringState() != null)
                     return rCursor.content();
                 else
                     return null;
@@ -156,6 +156,9 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
         {
             return null;
         }
+
+        @Override
+        public Direction direction() { throw new AssertionError(); };
 
         @Override
         public Cursor<M> duplicate()

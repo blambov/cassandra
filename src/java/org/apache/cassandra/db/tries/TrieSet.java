@@ -37,11 +37,6 @@ public interface TrieSet
         return RangesTrieSet.create(boundaries);
     }
 
-    default TrieSet negation()
-    {
-        return (TrieSetWithImpl) dir -> new TrieSetNegatedCursor(impl().cursor(dir));
-    }
-
     default TrieSet union(TrieSet other)
     {
         return (TrieSetWithImpl) dir -> new TrieSetIntersectionCursor.UnionCursor(dir, impl().cursor(dir), other.impl().cursor(dir));
@@ -50,6 +45,26 @@ public interface TrieSet
     default TrieSet intersection(TrieSet other)
     {
         return (TrieSetWithImpl) dir -> new TrieSetIntersectionCursor(dir, impl().cursor(dir), other.impl().cursor(dir));
+    }
+
+    /**
+     * Represents the set inverse of the given set plus all prefixes and descendants of all boundaries of the set.
+     * E.g. the inverse of the set [a, b] is the set union([null, a], [b, null]), and
+     * intersection([a, b], weakNegation([a, b])) equals union([a, a], [b, b]).
+     * <p>
+     * True negation is not feasible in this design (exact points are always included together with all their children).
+     */
+    default TrieSet weakNegation()
+    {
+        return (TrieSetWithImpl) dir -> new TrieSetNegatedCursor(impl().cursor(dir));
+    }
+
+    /**
+     * Constuct a textual representation of the trie using the given content-to-string mapper.
+     */
+    default String dump()
+    {
+        return impl().process(new TrieDumper<>(Object::toString), Direction.FORWARD);
     }
 
     private TrieSetImpl impl()

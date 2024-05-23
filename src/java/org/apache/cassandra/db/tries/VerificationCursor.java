@@ -96,6 +96,11 @@ public interface VerificationCursor
             return source.incomingTransition();
         }
 
+        public Direction direction()
+        {
+            return direction;
+        }
+
         @Override
         public int advance()
         {
@@ -378,10 +383,10 @@ public interface VerificationCursor
             M content = source.content();
             if (content != null)
             {
-                Preconditions.checkState(agree(currentCoveringState, content.leftSideAsCovering()),
+                Preconditions.checkState(agree(currentCoveringState, content.asCoveringState(direction)),
                                          "Range end %s does not close covering state %s",
-                                         content.leftSideAsCovering(), currentCoveringState);
-                nextCoveringState = content.rightSideAsCovering();
+                                         content.asCoveringState(direction), currentCoveringState);
+                nextCoveringState = content.asCoveringState(direction.opposite());
             }
 
             if (depth < 0)
@@ -437,7 +442,7 @@ public interface VerificationCursor
             this(direction, source, 0, 0, INITIAL_TRANSITION);
             // start state can be non-null for sets
             currentCoveringState = source.coveringState();
-            nextCoveringState = source.content() != null ? source.content().rightSideAsCovering() : currentCoveringState;
+            nextCoveringState = source.content() != null ? source.content().asCoveringState(direction.opposite()) : currentCoveringState;
         }
 
         TrieSet(Direction direction, TrieSetImpl.Cursor source, int minDepth, int expectedDepth, int expectedTransition)

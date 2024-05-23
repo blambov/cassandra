@@ -366,9 +366,9 @@ public class RangeTrieIntersectionWithPointsTest
                 if (cmp == 0)
                 {
                     if ((rangeIndex & 1) != 0)
-                        maybeAdd(result, marker.asReportableEnd());
+                        maybeAdd(result, marker.asReportablePoint(false, true));
                     else
-                        maybeAdd(result, marker.asReportableStart());
+                        maybeAdd(result, marker.asReportablePoint(true, false));
                     nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
                     break;
                 }

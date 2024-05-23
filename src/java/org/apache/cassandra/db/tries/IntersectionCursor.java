@@ -23,17 +23,13 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     enum State
     {
         /**
-         * The exact position is outside the set, source and set cursors are at the same position.
-         */
-        OUTSIDE_MATCHING,
-        /**
          * The exact position is inside the set, source and set cursors are at the same position.
          */
-        INSIDE_MATCHING,
+        MATCHING,
         /**
          * The set cursor is ahead; the current position, as well as any before the set cursor's are inside the set.
          */
-        INSIDE_SET_AHEAD
+        SET_AHEAD
     }
 
     final C source;
@@ -72,7 +68,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     @Override
     public int advance()
     {
-        if (state == State.INSIDE_SET_AHEAD)
+        if (state == State.SET_AHEAD)
             return advanceInCoveredBranch(set.depth(), source.advance());
 
         // The set is assumed sparser, so we advance that first.
@@ -86,7 +82,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
-        if (state == State.INSIDE_SET_AHEAD)
+        if (state == State.SET_AHEAD)
             return advanceInCoveredBranch(set.depth(), source.skipTo(skipDepth, skipTransition));
 
         int setDepth = set.skipTo(skipDepth, skipTransition);
@@ -99,7 +95,7 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
     @Override
     public int advanceMultiple(CursorWalkable.TransitionsReceiver receiver)
     {
-        if (state == State.INSIDE_SET_AHEAD)
+        if (state == State.SET_AHEAD)
             return advanceInCoveredBranch(set.depth(), source.advanceMultiple(receiver));
 
         int setDepth = set.advance();
@@ -166,24 +162,24 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
 
     private boolean inSetCoveredArea()
     {
-        return set.state().lesserIncluded();
+        return set.state().precedingIncluded(direction);
     }
 
     private int coveredAreaWithSetAhead(int depth)
     {
-        state = State.INSIDE_SET_AHEAD;
+        state = State.SET_AHEAD;
         return depth;
     }
 
     private int matchingPosition(int depth)
     {
-        state = set.state().matchingIncluded() ? State.INSIDE_MATCHING : State.OUTSIDE_MATCHING;
+        state = State.MATCHING;
         return depth;
     }
 
     private int exhausted()
     {
-        state = State.OUTSIDE_MATCHING;
+        state = State.MATCHING;
         return -1;
     }
 
@@ -288,11 +284,10 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
                 return null;
             switch (state)
             {
-                case INSIDE_SET_AHEAD:
+                case SET_AHEAD:
                     // Since the deletion branch cannot extend above this node, it is fully covered by the set.
                     return deletions;
-                case INSIDE_MATCHING:
-                case OUTSIDE_MATCHING:
+                case MATCHING:
                     return new RangeIntersectionCursor<>(direction,
                                                          RangeTrieImpl.rangeAndSetIntersectionController(),
                                                          set.duplicate(),

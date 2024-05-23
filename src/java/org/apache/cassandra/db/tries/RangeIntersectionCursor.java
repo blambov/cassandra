@@ -27,13 +27,13 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
         default boolean includeLesserLeft(RangeTrieImpl.Cursor<C> cursor)
         {
             C lState = cursor.coveringState();
-            return lState != null ? lState.lesserIncluded() : false;
+            return lState != null ? lState.precedingIncluded(cursor.direction()) : false;
         }
 
         default boolean includeLesserRight(RangeTrieImpl.Cursor<D> cursor)
         {
             D rState = cursor.coveringState();
-            return rState != null ? rState.lesserIncluded() : false;
+            return rState != null ? rState.precedingIncluded(cursor.direction()) : false;
         }
 
         default Z combineCoveringState(RangeTrieImpl.Cursor<C> lCursor, RangeTrieImpl.Cursor<D> rCursor)
@@ -136,6 +136,12 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
     public int incomingTransition()
     {
         return currentTransition;
+    }
+
+    @Override
+    public Direction direction()
+    {
+        return direction;
     }
 
     @Override

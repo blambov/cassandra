@@ -186,6 +186,11 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         }
     }
 
+    public Direction direction()
+    {
+        return direction;
+    }
+
     static abstract class WithMappedContent<T, U, C extends TrieImpl.Cursor<T>, D extends TrieImpl.Cursor<U>, Z> extends FlexibleMergeCursor<C, D> implements TrieImpl.Cursor<Z>
     {
         final BiFunction<T, U, Z> resolver;

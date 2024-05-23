@@ -43,10 +43,10 @@ public class CollectionMergeTrieTest
     @Test
     public void testDirect()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
 
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
@@ -55,45 +55,45 @@ public class CollectionMergeTrieTest
         // construct directly, trie.merge() will defer to mergeWith on two sources
         Trie<ByteBuffer> union = Trie.merge(ImmutableList.of(trie1, trie2), x -> x.iterator().next());
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     @Test
     public void testWithDuplicates()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
 
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
-        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content1, trie1, true);
-        addToInMemoryDTrie(generateKeys(new Random(5), COUNT), content2, trie2, true);
+        addToInMemoryDTrie(TrieUtil.generateKeys(new Random(5), COUNT), content1, trie1, true);
+        addToInMemoryDTrie(TrieUtil.generateKeys(new Random(5), COUNT), content2, trie2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = Trie.merge(ImmutableList.of(trie1, trie2), x -> x.iterator().next());
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     @Test
     public void testDistinct()
     {
-        ByteComparable[] src1 = generateKeys(rand, COUNT);
-        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(FORWARD_COMPARATOR);
+        ByteComparable[] src1 = TrieUtil.generateKeys(rand, COUNT);
+        SortedMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
-        ByteComparable[] src2 = generateKeys(rand, COUNT);
+        ByteComparable[] src2 = TrieUtil.generateKeys(rand, COUNT);
         src2 = removeDuplicates(src2, content1);
-        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content2 = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
         InMemoryDTrie<ByteBuffer> trie2 = makeInMemoryDTrie(src2, content2, true);
 
         content1.putAll(content2);
         Trie<ByteBuffer> union = Trie.mergeDistinct(ImmutableList.of(trie1, trie2));
 
-        assertSameContent(union, content1);
+        TrieUtil.assertSameContent(union, content1);
     }
 
     @Test
@@ -144,26 +144,26 @@ public class CollectionMergeTrieTest
     public void testMultipleDistinct(int mergeCount, int count)
     {
         List<Trie<ByteBuffer>> tries = new ArrayList<>(mergeCount);
-        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>(FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
 
         for (int i = 0; i < mergeCount; ++i)
         {
-            ByteComparable[] src = removeDuplicates(generateKeys(rand, count), content);
+            ByteComparable[] src = removeDuplicates(TrieUtil.generateKeys(rand, count), content);
             Trie<ByteBuffer> trie = makeInMemoryDTrie(src, content, true);
             tries.add(trie);
         }
 
         Trie<ByteBuffer> union = Trie.mergeDistinct(tries);
-        assertSameContent(union, content);
+        TrieUtil.assertSameContent(union, content);
     }
 
     public void testMultipleWithDuplicates(int mergeCount, int count)
     {
         List<Trie<ByteBuffer>> tries = new ArrayList<>(mergeCount);
-        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>(FORWARD_COMPARATOR);
+        SortedMap<ByteComparable, ByteBuffer> content = new TreeMap<>(TrieUtil.FORWARD_COMPARATOR);
         ByteComparable[][] keys = new ByteComparable[count][];
         for (int i = 0; i < mergeCount; ++i)
-            keys[i] = generateKeys(rand, count);
+            keys[i] = TrieUtil.generateKeys(rand, count);
 
         for (int i = 0; i < mergeCount; ++i)
         {
@@ -180,12 +180,12 @@ public class CollectionMergeTrieTest
         }
 
         Trie<ByteBuffer> union = Trie.merge(tries, x -> x.iterator().next());
-        assertSameContent(union, content);
+        TrieUtil.assertSameContent(union, content);
 
         try
         {
             union = Trie.mergeDistinct(tries);
-            assertSameContent(union, content);
+            TrieUtil.assertSameContent(union, content);
             Assert.fail("Expected assertion error for duplicate keys.");
         }
         catch (AssertionError e)
