@@ -168,7 +168,8 @@ public abstract class InMemoryTrieTestBase
         expected.put(TrieUtil.comparable("6"), ByteBufferUtil.bytes(6));
 
         Trie<ByteBuffer> trie = TrieUtil.specifiedTrie(trieDef);
-        System.out.println(trie.dump());
+        System.out.println(trie.dump(ByteBufferUtil::bytesToHex));
+        System.out.println(TrieImpl.impl(trie).process(new TrieDumper<>(ByteBufferUtil::bytesToHex), Direction.REVERSE));
         TrieUtil.assertSameContent(trie, expected);
     }
 

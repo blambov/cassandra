@@ -105,13 +105,13 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
             @Override
             public boolean includeLesserLeft(Cursor<TrieSetImpl.RangeState> cursor)
             {
-                return cursor.coveringState() != null;
+                return cursor.coveringState().applicableBefore;
             }
 
             @Override
             public M combineContentLeftAhead(Cursor<TrieSetImpl.RangeState> lCursor, Cursor<M> rCursor)
             {
-                if (lCursor.coveringState() != null)
+                if (lCursor.coveringState().applicableBefore)
                     return rCursor.content();
                 else
                     return null;

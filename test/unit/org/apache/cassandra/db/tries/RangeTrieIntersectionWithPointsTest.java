@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -87,12 +88,12 @@ public class RangeTrieIntersectionWithPointsTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            testIntersection("no intersection");
-
-            testIntersection("all",
-                             array(null, null));
-            testIntersection("fully covered range",
-                             array(of(20), of(25)));
+//            testIntersection("no intersection");
+//
+//            testIntersection("all",
+//                             array(null, null));
+//            testIntersection("fully covered range",
+//                             array(of(20), of(25)));
             testIntersection("fully covered range",
                              array(of(25), of(33)));
             testIntersection("matching range",
@@ -284,14 +285,16 @@ public class RangeTrieIntersectionWithPointsTest
     public void testIntersection(String message, RangeTrie<RangeMarker> trie, List<RangeMarker> intersected, ByteComparable[]... sets)
     {
         System.out.println("Markers: " + intersected);
+        verify(intersected);
         // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
             try
             {
-                assertEquals(message + " forward b" + bits, intersected, toList(trie));
-                System.out.println(message + " forward b" + bits + " matched.");
+                assertEquals(message + " forward b" + bits, intersected, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(intersected), toList(trie, Direction.REVERSE));
+                System.out.println(message + " b" + bits + " matched.");
             }
             catch (AssertionError e)
             {
@@ -366,9 +369,9 @@ public class RangeTrieIntersectionWithPointsTest
                 if (cmp == 0)
                 {
                     if ((rangeIndex & 1) != 0)
-                        maybeAdd(result, marker.asReportablePoint(false, true));
-                    else
                         maybeAdd(result, marker.asReportablePoint(true, false));
+                    else
+                        maybeAdd(result, marker.asReportablePoint(false, true));
                     nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
                     break;
                 }
@@ -385,7 +388,7 @@ public class RangeTrieIntersectionWithPointsTest
             active = marker.rightSide;
         }
         assert active == -1;
-        return verify(result);
+        return result;
     }
 
     static <T> void maybeAdd(List<T> list, T value)

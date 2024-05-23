@@ -21,6 +21,7 @@ package org.apache.cassandra.db.tries;
 import java.util.Arrays;
 import java.util.List;
 
+import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -73,7 +74,7 @@ public class RangeTrieIntersectionTest
             RangeTrie<RangeMarker> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             System.out.println(trie.dump());
-            assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)), toList(trie));
+            assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)), toList(trie, Direction.FORWARD));
 
             testIntersection("all",
                              asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
@@ -287,7 +288,8 @@ public class RangeTrieIntersectionTest
         {
             try
             {
-                assertEquals(message + " forward b" + bits, expected, toList(trie));
+                assertEquals(message + " forward b" + bits, expected, toList(trie, Direction.FORWARD));
+                assertEquals(message + " reverse b" + bits, Lists.reverse(expected), toList(trie, Direction.REVERSE));
             }
             catch (AssertionError e)
             {

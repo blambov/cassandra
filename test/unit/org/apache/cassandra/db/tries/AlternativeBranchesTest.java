@@ -39,12 +39,10 @@ import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
 import static org.apache.cassandra.db.tries.TrieUtil.comparable;
-import static org.apache.cassandra.db.tries.TrieUtil.maybeReversed;
 import static org.apache.cassandra.db.tries.TrieUtil.specifiedNonDeterministicTrie;
-import static org.apache.cassandra.db.tries.SlicedTrieTest.boundedMap;
+import static org.apache.cassandra.db.tries.TrieUtil.toBound;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 public class AlternativeBranchesTest
 {
@@ -107,40 +105,30 @@ public class AlternativeBranchesTest
 
         TrieUtil.assertTrieEquals(specified,
                                   ImmutableMap.of(comparable("000"), of(0),
-                                        comparable("001"), of(1),
-                                        comparable("002"), of(2),
-                                        comparable("010"), of(11),
-                                        comparable("011"), of(12),
-                                        comparable("012"), of(13),
-                                        comparable("020"), of(2),
-                                        comparable("021"), of(13),
-                                        comparable("022"), of(18)));
+                                                  comparable("001"), of(1),
+                                                  comparable("002"), of(2),
+                                                  comparable("010"), of(11),
+                                                  comparable("011"), of(12),
+                                                  comparable("012"), of(13),
+                                                  comparable("020"), of(2),
+                                                  comparable("021"), of(13),
+                                                  comparable("022"), of(18)));
         TrieUtil.assertTrieEquals(specified.mainPathOnly(),
                                   ImmutableMap.of(comparable("000"), of(0),
-                                        comparable("001"), of(1),
-                                        comparable("002"), of(2),
-                                        comparable("020"), of(2),
-                                        comparable("022"), of(4)));
+                                                  comparable("001"), of(1),
+                                                  comparable("002"), of(2),
+                                                  comparable("020"), of(2),
+                                                  comparable("022"), of(4)));
         TrieUtil.assertTrieEquals(specified.deterministic(),
                                   ImmutableMap.of(comparable("000"), of(0),
-                                        comparable("001"), of(1),
-                                        comparable("002"), of(2),
-                                        comparable("010"), of(11),
-                                        comparable("011"), of(12),
-                                        comparable("012"), of(13),
-                                        comparable("020"), of(2),
-                                        comparable("021"), of(13),
-                                        comparable("022"), of(18)));
-    }
-
-    static <T extends NonDeterministicTrie.Mergeable<T>> TrieWithImpl<T> mainBranch(NonDeterministicTrie<T> ndtrie)
-    {
-        return NonDeterministicTrieImpl.impl(ndtrie)::cursor;
-    }
-
-    static <T extends NonDeterministicTrie.Mergeable<T>> TrieWithImpl<T> alternatesOnly(NonDeterministicTrie<T> ndtrie)
-    {
-        return new MergeAlternativeBranchesTrie<>(NonDeterministicTrieImpl.impl(ndtrie), true);
+                                                  comparable("001"), of(1),
+                                                  comparable("002"), of(2),
+                                                  comparable("010"), of(11),
+                                                  comparable("011"), of(12),
+                                                  comparable("012"), of(13),
+                                                  comparable("020"), of(2),
+                                                  comparable("021"), of(13),
+                                                  comparable("022"), of(18)));
     }
 
     @Test
@@ -168,7 +156,7 @@ public class AlternativeBranchesTest
         verifyAlternates(union, normals, alternates);
 
         union = NonDeterministicTrie.merge(tries.subList(0, COUNT/2))
-                    .mergeWith(NonDeterministicTrie.merge(tries.subList(COUNT/2, COUNT)));
+                                    .mergeWith(NonDeterministicTrie.merge(tries.subList(COUNT/2, COUNT)));
         verifyAlternates(union, normals, alternates);
     }
 
@@ -388,7 +376,7 @@ public class AlternativeBranchesTest
     private void checkAlternateCoverage(NavigableMap<ByteComparable, MergeableInteger> normals, ByteComparable sComparable, ByteComparable eComparable, NonDeterministicTrie<MergeableInteger> trie, int svalue, int evalue)
     {
         Map<ByteComparable, MergeableInteger> covered = Maps.newHashMap();
-        covered.putAll(boundedMap(normals, sComparable, eComparable));
+        covered.putAll(normals.subMap(sComparable, true, eComparable, true));
         // also test start and end but make sure they are not found in the non-alternate path
         covered.putIfAbsent(sComparable, null);
         covered.putIfAbsent(eComparable, null);
@@ -431,7 +419,7 @@ public class AlternativeBranchesTest
             if (!foundStart || !foundEnd)
             {
                 System.err.println("Failed to find " + (foundStart ? "" : "start ") + (foundEnd ? "" : "end ") + "for " + asString(entry.getKey()) + " in " + asString(sComparable) + ":" + asString(eComparable));
-                System.err.println("Trie section:\n" + trie.subtrie(sComparable, eComparable).deterministic().dump());
+                System.err.println("Trie section:\n" + trie.subtrie(toBound(sComparable, false), toBound(eComparable, true)).deterministic().dump());
                 assertTrue(foundStart);
                 assertTrue(foundEnd);
             }
@@ -458,46 +446,46 @@ public class AlternativeBranchesTest
     {
         NavigableMap<ByteComparable, MergeableInteger> both = new TreeMap<>(alternates);
         both.putAll(normals);
-        ByteComparable left = comparable("3" + makeSpecKey(rand));
-        ByteComparable right = comparable("7" + makeSpecKey(rand));
+        ByteComparable left =  comparable("3" + makeSpecBound(rand));
+        ByteComparable right = comparable("7" + makeSpecBound(rand));
 
 //        System.out.println("Normal:\n" + trie.dump());
 //        System.out.println("Merged:\n" + trie.deterministic()(RESOLVER_FIRST).dump());
 //        System.out.println("Alt   :\n" + trie.alternateView(RESOLVER_FIRST).dump());
 
-        TrieUtil.assertTrieEquals(mainBranch(trie), normals);
-        TrieUtil.assertTrieEquals(alternatesOnly(trie), alternates);
+        TrieUtil.assertTrieEquals(trie.mainPathOnly(), normals);
+        TrieUtil.assertTrieEquals(trie.alternatesOnly(), alternates);
         TrieUtil.assertTrieEquals(trie, both);
 
         NonDeterministicTrie<MergeableInteger> ix = trie.subtrie(left, right);
-        TrieUtil.assertTrieEquals(mainBranch(ix), boundedMap(normals, left, right));
-        TrieUtil.assertTrieEquals(alternatesOnly(ix), boundedMap(alternates, left, right));
-        TrieUtil.assertTrieEquals(ix, boundedMap(both, left, right));
+        TrieUtil.assertTrieEquals(ix.mainPathOnly(), normals.subMap(left, right));
+        TrieUtil.assertTrieEquals(ix.alternatesOnly(), alternates.subMap(left, right));
+        TrieUtil.assertTrieEquals(ix, both.subMap(left, right));
 
 //        System.out.println("Bounds " + asString(left) + " to " + asString(right));
 //        System.out.println("IX Normal:\n" + ix.dump());
 //        System.out.println("IX Merged:\n" + ix.deterministic()(RESOLVER_FIRST).dump());
 //        System.out.println("IX Alt   :\n" + alternatesOnly(ix).dump());
-
-        TrieUtil.assertMapEquals(alternatesOnly(trie)
-                            .subtrie(left, right)
-                            .entrySet(),
-                                 boundedMap(alternates, left, right)
-                                  .entrySet(),
-                                 FORWARD_COMPARATOR);
-        TrieUtil.assertMapEquals(trie.subtrie(left, right)
-                                     .entrySet(),
-                                 boundedMap(both, left, right)
-                            .entrySet(),
-                                 FORWARD_COMPARATOR);
     }
 
     String makeSpecKey(Random rand)
     {
+        return makeSpecKey(rand, '1');
+    }
+
+    String makeSpecBound(Random rand)
+    {
+        return makeSpecKey(rand, '0');
+    }
+
+    String makeSpecKey(Random rand, char trail)
+    {
         int len = rand.nextInt(10) + 10;
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < len; ++i)
-            b.append((char) (rand.nextInt(10) + '0'));
+            b.append((char) (rand.nextInt(8) + '2'));
+        // Add a trailing 1 to ensure prefix-freedom, and to leave room for '0' as the bound position.
+        b.append(trail);
         return b.toString();
     }
 

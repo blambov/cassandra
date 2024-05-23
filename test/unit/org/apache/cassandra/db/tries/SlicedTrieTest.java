@@ -41,6 +41,7 @@ import static org.apache.cassandra.db.tries.TrieUtil.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
 import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.TrieUtil.toBound;
 import static org.junit.Assert.assertEquals;
 
 public class SlicedTrieTest
@@ -85,7 +86,7 @@ public class SlicedTrieTest
     });
     public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR =
         (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, TrieImpl.BYTE_COMPARABLE_VERSION);
-    private static final int COUNT = 15;
+    private static final int COUNT = 15000;
     Random rand = new Random();
 
     @Test
@@ -101,28 +102,34 @@ public class SlicedTrieTest
 
         InMemoryDTrie<ByteBuffer> trie1 = makeInMemoryDTrie(src1, content1, true);
 
-        checkEqualRange(content1, trie1, null, null);
-        checkEqualRange(content1, trie1, TrieUtil.generateKey(rand), null);
-        checkEqualRange(content1, trie1, null, TrieUtil.generateKey(rand));
-        ByteComparable l = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
-        ByteComparable r = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
-        int cmp = ByteComparable.compare(l, r, TrieImpl.BYTE_COMPARABLE_VERSION);
-        if (cmp > 0)
+        checkEqualRange(content1, trie1, null, false, null, false);
+        checkEqualRange(content1, trie1, TrieUtil.generateKey(rand), true, null, false);
+        checkEqualRange(content1, trie1, null, false, TrieUtil.generateKey(rand), true);
+        for (int i = 0; i < 4; ++i)
         {
-            ByteComparable t = l;
-            l = r;
-            r = t; // swap
-        }
+            ByteComparable l = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
+            ByteComparable r = rand.nextBoolean() ? TrieUtil.generateKey(rand) : src1[rand.nextInt(src1.length)];
+            int cmp = ByteComparable.compare(l, r, TrieImpl.BYTE_COMPARABLE_VERSION);
+            if (cmp > 0)
+            {
+                ByteComparable t = l;
+                l = r;
+                r = t; // swap
+            }
 
-        checkEqualRange(content1, trie1, l, r);
-        checkEqualRange(content1, trie1, null, r);
-        checkEqualRange(content1, trie1, l, null);
+            boolean includeLeft = (i & 1) != 0 || cmp == 0;
+            boolean includeRight = (i & 2) != 0 || cmp == 0;
+            checkEqualRange(content1, trie1, l, includeLeft, r, includeRight);
+            checkEqualRange(content1, trie1, null, includeLeft, r, includeRight);
+            checkEqualRange(content1, trie1, l, includeLeft, null, includeRight);
+        }
     }
 
     private static ByteComparable[] toByteComparable(String[] keys)
     {
+        // Keys must be prefix-free
         return Arrays.stream(keys)
-                     .map(x -> ByteComparable.fixedLength(x.getBytes(StandardCharsets.UTF_8)))
+                     .map(x -> ByteComparable.of(x))
                      .toArray(ByteComparable[]::new);
     }
 
@@ -137,27 +144,35 @@ public class SlicedTrieTest
             {
                 ByteComparable r = ri == BOUNDARIES.length ? null : BOUNDARIES[ri];
 
-                for (ByteComparable key : KEYS)
+                for (int i = li == ri ? 3 : 0; i < 4; ++i)
                 {
-                    int cmp1 = l != null ? ByteComparable.compare(key, l, ByteComparable.Version.OSS50) : 1;
-                    int cmp2 = r != null ? ByteComparable.compare(r, key, ByteComparable.Version.OSS50) : 1;
-                    Trie<Boolean> ix = Trie.singleton(key, true).subtrie(l, r);
-                    boolean expected = true;
-                    if (cmp1 < 0)
-                        expected = false;
-                    if (cmp2 < 0)
-                        expected = false;
-                    boolean actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
-                    if (expected != actual)
+                    boolean includeLeft = (i & 1) != 0;
+                    boolean includeRight = (i & 2) != 0;
+
+                    for (ByteComparable key : KEYS)
                     {
-                        System.err.println("Intersection");
-                        System.err.println(ix.dump());
-                        Assert.fail(String.format("Failed on range [%s,%s] key %s expected %s got %s\n",
-                                                  l != null ? l.byteComparableAsString(ByteComparable.Version.OSS50) : null,
-                                                  r != null ? r.byteComparableAsString(ByteComparable.Version.OSS50) : null,
-                                                  key.byteComparableAsString(ByteComparable.Version.OSS50),
-                                                  expected,
-                                                  actual));
+                        int cmp1 = l != null ? ByteComparable.compare(key, l, ByteComparable.Version.OSS50) : 1;
+                        int cmp2 = r != null ? ByteComparable.compare(r, key, ByteComparable.Version.OSS50) : 1;
+                        Trie<Boolean> ix = Trie.singleton(key, true).subtrie(toBound(l, !includeLeft), toBound(r, includeRight));
+                        boolean expected = true;
+                        if (cmp1 < 0 || cmp1 == 0 && !includeLeft)
+                            expected = false;
+                        if (cmp2 < 0 || cmp2 == 0 && !includeRight)
+                            expected = false;
+                        boolean actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
+                        if (expected != actual)
+                        {
+                            System.err.println("Intersection");
+                            System.err.println(ix.dump());
+                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
+                                                      includeLeft ? "[" : "(",
+                                                      l != null ? l.byteComparableAsString(ByteComparable.Version.OSS50) : null,
+                                                      r != null ? r.byteComparableAsString(ByteComparable.Version.OSS50) : null,
+                                                      includeRight ? "]" : ")",
+                                                      key.byteComparableAsString(ByteComparable.Version.OSS50),
+                                                      expected,
+                                                      actual));
+                        }
                     }
                 }
             }
@@ -177,7 +192,14 @@ public class SlicedTrieTest
             for (int ri = Math.max(0, li); ri <= BOUNDARIES.length; ++ri)
             {
                 ByteComparable r = ri == BOUNDARIES.length ? null : BOUNDARIES[ri];
-                checkEqualRange(content1, trie1, l, r);
+                for (int i = 0; i < 4; ++i)
+                {
+                    boolean includeLeft = (i & 1) != 0;
+                    boolean includeRight = (i & 2) != 0;
+                    if ((!includeLeft || !includeRight) && li == ri)
+                        continue;
+                    checkEqualRange(content1, trie1, l, includeLeft, r, includeRight);
+                }
             }
         }
     }
@@ -221,48 +243,41 @@ public class SlicedTrieTest
             for (int ri = Math.max(0, li); ri <= BOUNDARIES.length; ++ri)
             {
                 ByteComparable r = ri == BOUNDARIES.length ? null : BOUNDARIES[ri];
-                checkEqualRange(content1, trie1, l, r);
+                for (int i = 0; i < 4; ++i)
+                {
+                    boolean includeLeft = (i & 1) != 0;
+                    boolean includeRight = (i & 2) != 0;
+                    if ((!includeLeft || !includeRight) && li == ri)
+                        continue;
+                    checkEqualRange(content1, trie1, l, includeLeft, r, includeRight);
+                }
             }
         }
     }
 
-    static <T> void addPrefixes(SortedMap<ByteComparable, T> sourceMap, ByteComparable key, SortedMap<ByteComparable, T> targetMap)
-    {
-        if (key == null)
-            return;
-        for (int l = ByteComparable.length(key, ByteComparable.Version.OSS50) - 1; l >= 0; --l)
-        {
-            ByteComparable prefix = ByteComparable.cut(key, l);
-            T value = sourceMap.get(prefix);
-            if (value != null)
-                targetMap.put(prefix, value);
-        }
-    }
 
-    static <T> NavigableMap<ByteComparable, T> boundedMap(NavigableMap<ByteComparable, T> sourceMap, ByteComparable l, ByteComparable r)
+    static <T> NavigableMap<ByteComparable, T> boundedMap(NavigableMap<ByteComparable, T> sourceMap, ByteComparable l, boolean includeLeft, ByteComparable r, boolean includeRight)
     {
         NavigableMap<ByteComparable, T> imap = l == null
                                                ? r == null
                                                  ? sourceMap
-                                                 : sourceMap.headMap(r, true)
+                                                 : sourceMap.headMap(r, includeRight)
                                                : r == null
-                                                 ? sourceMap.tailMap(l, true)
-                                                 : sourceMap.subMap(l, true, r, true);
-        imap = new TreeMap<>(imap);
-        addPrefixes(sourceMap, l, imap);
-        addPrefixes(sourceMap, r, imap);
+                                                 ? sourceMap.tailMap(l, includeLeft)
+                                                 : sourceMap.subMap(l, includeLeft, r, includeRight);
         return imap;
     }
 
     public void checkEqualRange(NavigableMap<ByteComparable, ByteBuffer> content1,
                                 Trie<ByteBuffer> t1,
                                 ByteComparable l,
-                                ByteComparable r)
+                                boolean includeLeft,
+                                ByteComparable r,
+                                boolean includeRight)
     {
-        System.out.println(String.format("Intersection with [%s:%s]", asString(l), asString(r)));
-        SortedMap<ByteComparable, ByteBuffer> imap = boundedMap(content1, l, r);
-
-        Trie<ByteBuffer> intersection = t1.subtrie(l, r);
+        System.out.println(String.format("Intersection with %s%s:%s%s", includeLeft ? "[" : "(", asString(l), asString(r), includeRight ? "]" : ")"));
+        SortedMap<ByteComparable, ByteBuffer> imap = boundedMap(content1, l, includeLeft, r, includeRight);
+        Trie<ByteBuffer> intersection = t1.subtrie(toBound(l, !includeLeft), toBound(r, includeRight));
         try
         {
             assertSameContent(intersection, imap);
@@ -279,10 +294,10 @@ public class SlicedTrieTest
             return;
 
         // Test intersecting intersection.
-        intersection = t1.subtrie(l, null).subtrie(null, r);
+        intersection = t1.subtrie(toBound(l, !includeLeft), null).subtrie(null, toBound(r, includeRight));
         assertSameContent(intersection, imap);
 
-        intersection = t1.subtrie(null, r).subtrie(l, null);
+        intersection = t1.subtrie(null, toBound(r, includeRight)).subtrie(toBound(l, !includeLeft), null);
         assertSameContent(intersection, imap);
     }
 
@@ -452,8 +467,8 @@ public class SlicedTrieTest
         Trie<Integer> intersection = trie.subtrie(ByteComparable.EMPTY, null);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
 
-        intersection = trie.subtrie(ByteComparable.EMPTY, of(5));
-        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5), intersection);
+        intersection = trie.subtrie(ByteComparable.EMPTY, ByteComparable.EMPTY);
+        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
     }
 
     @Test
@@ -463,10 +478,10 @@ public class SlicedTrieTest
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(null, ByteComparable.EMPTY);
-        assertTrieEquals(asList(-1), intersection);
+        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
 
         intersection = trie.subtrie(ByteComparable.EMPTY, ByteComparable.EMPTY);
-        assertTrieEquals(asList(-1), intersection);
+        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
     }
 
     @Test
