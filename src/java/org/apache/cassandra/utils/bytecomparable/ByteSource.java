@@ -38,6 +38,26 @@ public interface ByteSource
     /** Consume the next byte, unsigned. Must be between 0 and 255, or END_OF_STREAM if there are no more bytes. */
     int next();
 
+    /**
+     * Fill in the next bytes of the source in the given array.
+     *
+     * @return The number of bytes transferred. If equal to the size of the destination, the source may have further
+     *         bytes to consume. Otherwise the source has been fully consumed and it would be an error to call this
+     *         method (or next()) again.
+     */
+    default int nextBytes(byte[] dest)
+    {
+        int i;
+        for (i = 0; i < dest.length; ++i)
+        {
+            int next = next();
+            if (next == END_OF_STREAM)
+                return i;
+            dest[i] = (byte) next;
+        }
+        return i;
+    }
+
     /** Value returned if at the end of the stream. */
     int END_OF_STREAM = -1;
 

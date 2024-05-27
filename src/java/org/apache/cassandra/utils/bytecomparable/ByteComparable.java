@@ -19,6 +19,9 @@
 package org.apache.cassandra.utils.bytecomparable;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Interface indicating a value can be represented/identified by a comparable {@link ByteSource}.
@@ -54,6 +57,36 @@ public interface ByteComparable
         for (int b = stream.next(); b != ByteSource.END_OF_STREAM; b = stream.next())
             builder.append(Integer.toHexString((b >> 4) & 0xF)).append(Integer.toHexString(b & 0xF));
         return builder.toString();
+    }
+
+    default byte[] asArray(Version version)
+    {
+        ByteSource src = asComparableBytes(version);
+
+        final int step = 232;   // size chosen so that new byte[step] fits into 256 bytes
+        byte[] last = new byte[step];
+        int copied = src.nextBytes(last);
+        if (copied < step)
+            return Arrays.copyOf(last, copied);
+
+        List<byte[]> other = new ArrayList<>();
+        do
+        {
+            other.add(last);
+            last = new byte[step];
+            copied = src.nextBytes(last);
+        }
+        while (copied == step);
+
+        byte[] dest = new byte[other.size() * step + copied];
+        int pos = 0;
+        for (byte[] b : other)
+        {
+            System.arraycopy(b, 0, dest, pos, step);
+            pos += step;
+        }
+        System.arraycopy(last, 0, dest, pos, copied);
+        return dest;
     }
 
     // Simple factories used for testing
