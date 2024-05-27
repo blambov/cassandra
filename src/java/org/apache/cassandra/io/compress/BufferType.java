@@ -19,6 +19,8 @@ package org.apache.cassandra.io.compress;
 
 import java.nio.ByteBuffer;
 
+import org.agrona.concurrent.UnsafeBuffer;
+
 public enum BufferType
 {
     ON_HEAP
@@ -27,6 +29,14 @@ public enum BufferType
         {
             return ByteBuffer.allocate(size);
         }
+
+        public void expand(UnsafeBuffer buffer, int newSize)
+        {
+            // Use byte array directly, saving some unnecessary allocations
+            byte[] newBuffer = new byte[newSize];
+            buffer.getBytes(0, newBuffer, 0, buffer.capacity());
+            buffer.wrap(newBuffer);
+        }
     },
     OFF_HEAP
     {
@@ -34,9 +44,17 @@ public enum BufferType
         {
             return ByteBuffer.allocateDirect(size);
         }
+
+        public void expand(UnsafeBuffer buffer, int newSize)
+        {
+            ByteBuffer newBuffer = allocate(newSize);
+            buffer.getBytes(0, newBuffer, 0, buffer.capacity());
+            buffer.wrap(newBuffer);
+        }
     };
 
     public abstract ByteBuffer allocate(int size);
+    public abstract void expand(UnsafeBuffer buffer, int newSize);
 
     public static BufferType typeOf(ByteBuffer buffer)
     {
