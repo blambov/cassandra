@@ -83,18 +83,18 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
     /**
      * Iterator representing the content of the trie a sequence of (path, content) pairs.
      */
-    static class AsEntries<T> extends TrieTailsIterator<T, Map.Entry<ByteComparable, Trie<T>>>
+    static class AsEntries<T, U> extends TrieTailsIterator<T, Map.Entry<ByteComparable, U>>
     {
-        final Function<ByteComparable, Trie<T>> tailMaker;
+        final Function<ByteComparable, U> tailMaker;
 
-        public AsEntries(TrieImpl.Cursor<T> cursor, Predicate<T> predicate, Function<ByteComparable, Trie<T>> tailMaker)
+        public AsEntries(TrieImpl.Cursor<T> cursor, Predicate<T> predicate, Function<ByteComparable, U> tailMaker)
         {
             super(cursor, predicate);
             this.tailMaker = tailMaker;
         }
 
         @Override
-        protected Map.Entry<ByteComparable, Trie<T>> mapContent(T content, byte[] bytes, int byteLength)
+        protected Map.Entry<ByteComparable, U> mapContent(T content, byte[] bytes, int byteLength)
         {
             ByteComparable key = toByteComparable(bytes, byteLength);
             return new AbstractMap.SimpleImmutableEntry<>(key, tailMaker.apply(key));

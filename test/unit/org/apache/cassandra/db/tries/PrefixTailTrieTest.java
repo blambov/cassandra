@@ -102,7 +102,7 @@ public class PrefixTailTrieTest
             Tail t = data.get(ByteBuffer.wrap(prefixes[i].asArray(VERSION)));
             Trie<Object> tail = trie.tailTrie(prefixes[i]);
             assertEquals(t, getRootContent(tail));
-            assertMapEquals(tail.entryIterator(Direction.FORWARD, ByteBuffer.class),
+            assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             t.data.entrySet().iterator());
         }
 
@@ -115,7 +115,7 @@ public class PrefixTailTrieTest
             Tail t = data.get(ByteBuffer.wrap(en.getKey().asArray(VERSION)));
             assertNotNull(t);
             assertEquals(t, getRootContent(tail));
-            assertMapEquals(tail.entryIterator(Direction.FORWARD, ByteBuffer.class),
+            assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             t.data.entrySet().iterator());
             ++count;
         }
@@ -145,7 +145,7 @@ public class PrefixTailTrieTest
 
         Trie<Object> tail = trie.tailTrie(prefix);
         assertEquals(COUNT_HEAD, ((Integer) getRootContent(tail)).intValue());
-        assertMapEquals(tail.entryIterator(Direction.FORWARD, ByteBuffer.class),
+        assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                         content.entrySet().iterator());
 
 
@@ -157,7 +157,7 @@ public class PrefixTailTrieTest
             Trie<Object> tt = en.getValue();
             assertNotNull(tt);
             assertEquals(COUNT_HEAD, ((Integer) getRootContent(tail)).intValue());
-            assertMapEquals(tt.entryIterator(Direction.FORWARD, ByteBuffer.class),
+            assertMapEquals(tt.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             content.entrySet().iterator());
             ++count;
         }

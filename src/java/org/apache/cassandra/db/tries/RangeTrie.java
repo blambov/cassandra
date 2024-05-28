@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -69,6 +70,15 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     default Iterator<Map.Entry<ByteComparable, M>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends M> Iterator<Map.Entry<ByteComparable, U>> filteredEntryIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieEntriesIterator.AsEntriesFilteredByType<>(impl().cursor(direction), clazz);
     }
 
     /**
@@ -195,6 +205,32 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     static <M extends RangeMarker<M>> RangeTrie<M> empty()
     {
         return (RangeTrie<M>) RangeTrieImpl.EMPTY;
+    }
+
+    /**
+     * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
+     */
+    @Override
+    default RangeTrie<M> prefix(ByteComparable prefix)
+    {
+        return (RangeTrieWithImpl<M>) dir -> new PrefixedCursor.Range<>(dir, prefix, impl().cursor(dir));
+    }
+
+    default Iterable<Map.Entry<ByteComparable, RangeTrie<M>>> tailTries(Predicate<M> predicate, Direction direction)
+    {
+        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+    }
+
+    @Override
+    default RangeTrie<M> tailTrie(ByteComparable prefix)
+    {
+        return (RangeTrieWithImpl<M>) dir -> {
+            RangeTrieImpl.Cursor<M> c = impl().cursor(dir);
+            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+                return new TailCursor.Range<>(c);
+            else
+                return new RangeTrieImpl.EmptyCursor<M>();
+        };
     }
 
     private RangeTrieWithImpl<M> impl()

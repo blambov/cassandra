@@ -144,7 +144,8 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
      */
-    default <U extends T> Iterator<Map.Entry<ByteComparable, U>> entryIterator(Direction direction, Class<U> clazz)
+    @Override
+    default <U extends T> Iterator<Map.Entry<ByteComparable, U>> filteredEntryIterator(Direction direction, Class<U> clazz)
     {
         return new TrieEntriesIterator.AsEntriesFilteredByType<>(impl().cursor(direction), clazz);
     }
@@ -360,16 +361,18 @@ public interface Trie<T> extends BaseTrie<T>
     /**
      * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
      */
+    @Override
     default Trie<T> prefix(ByteComparable prefix)
     {
-        return (TrieWithImpl<T>) dir -> new PrefixedCursor.Deterministic(dir, prefix, impl().cursor(dir));
+        return (TrieWithImpl<T>) dir -> new PrefixedCursor.Deterministic<>(dir, prefix, impl().cursor(dir));
     }
 
     default Iterable<Map.Entry<ByteComparable, Trie<T>>> tailTries(Predicate<T> predicate, Direction direction)
     {
-        return () -> new TrieTailsIterator.AsEntries<T>(impl().cursor(direction), predicate, this::tailTrie);
+        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
     }
 
+    @Override
     default Trie<T> tailTrie(ByteComparable prefix)
     {
         // This could be done with a prewalked cursor, e.g. as
