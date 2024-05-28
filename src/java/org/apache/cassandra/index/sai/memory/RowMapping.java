@@ -65,7 +65,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryTrie<Integer> rowMapping = new InMemoryTrie<>(BufferType.OFF_HEAP);
+    private final InMemoryTrie<Integer> rowMapping = InMemoryTrie.shortLived();
 
     private volatile boolean complete = false;
 
