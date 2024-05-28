@@ -221,39 +221,27 @@ public class InMemoryReadTrie<T>
         assert BUF_START_SIZE % BLOCK_SIZE == 0 : "Initial buffer size must fit a full block.";
     }
 
-    final UnsafeBuffer[] buffers;
-    final AtomicReferenceArray<T>[] contentArrays;
+    final UnsafeBuffer buffer;
+    final ExpandableAtomicReferenceArray<T> contentArray;
 
-    InMemoryReadTrie(UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
+    InMemoryReadTrie(UnsafeBuffer buffer, ExpandableAtomicReferenceArray<T> contentArray, int root)
     {
-        this.buffers = buffers;
-        this.contentArrays = contentArrays;
+        this.buffer = buffer;
+        this.contentArray = contentArray;
         this.root = root;
     }
 
     /*
      Buffer, content list and block management
      */
-    static int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
-    {
-        return 31 - minChunkShift - Integer.numberOfLeadingZeros(pos + minChunkSize);
-    }
-
-    static int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
-    {
-        return pos + minChunkSize - (minChunkSize << chunkIndex);
-    }
-
     UnsafeBuffer getChunk(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return buffers[leadBit];
+        return buffer;
     }
 
     static int inChunkPointer(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return inChunkPointer(pos, leadBit, BUF_START_SIZE);
+        return pos;
     }
 
 
@@ -282,10 +270,7 @@ public class InMemoryReadTrie<T>
 
     T getContent(int index)
     {
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        return array.get(ofs);
+        return contentArray.getPlain(index);
     }
 
     /*

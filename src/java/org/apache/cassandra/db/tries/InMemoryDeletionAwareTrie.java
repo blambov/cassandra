@@ -21,6 +21,7 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
  *
@@ -31,9 +32,27 @@ import org.apache.cassandra.io.compress.BufferType;
 public class InMemoryDeletionAwareTrie<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
 extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
 {
-    public InMemoryDeletionAwareTrie(BufferType bufferType)
+    public InMemoryDeletionAwareTrie(MemtableAllocationStrategy strategy)
     {
-        super(bufferType);
+        super(strategy);
+    }
+
+    public static <U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    InMemoryDeletionAwareTrie<U, T, D> shortLived()
+    {
+        return new InMemoryDeletionAwareTrie<U, T, D>(shortLivedStrategy());
+    }
+
+    public static <U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    InMemoryDeletionAwareTrie<U, T, D> longLived(OpOrder opOrder)
+    {
+        return new InMemoryDeletionAwareTrie<U, T, D>(longLivedStrategy(opOrder));
+    }
+
+    public static <U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    InMemoryDeletionAwareTrie<U, T, D> longLived(BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryDeletionAwareTrie<U, T, D>(longLivedStrategy(bufferType, opOrder));
     }
 
     static class DeletionAwareCursor<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>

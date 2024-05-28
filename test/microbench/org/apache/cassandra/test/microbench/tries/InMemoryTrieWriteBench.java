@@ -47,14 +47,10 @@ public class InMemoryTrieWriteBench
 
     final static InMemoryDTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
 
-    // Set this to true to print the trie sizes after insertions for sanity checking.
-    // This might affect the timings, do not commit with this set to true.
-    final static boolean PRINT_SIZES = false;
-
     @Benchmark
     public void putSequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -63,15 +59,13 @@ public class InMemoryTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
-        if (PRINT_SIZES)
-            System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
     @Benchmark
     public void putRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 
@@ -80,15 +74,13 @@ public class InMemoryTrieWriteBench
             rand.nextBytes(buf);
             trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
-        if (PRINT_SIZES)
-            System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
     @Benchmark
     public void applySequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -97,15 +89,13 @@ public class InMemoryTrieWriteBench
             buf.putLong(keyLength - 8, l);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
-        if (PRINT_SIZES)
-            System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 
     @Benchmark
     public void applyRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 
@@ -114,8 +104,6 @@ public class InMemoryTrieWriteBench
             rand.nextBytes(buf);
             trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
         }
-        if (PRINT_SIZES)
-            System.out.println(trie.valuesCount());
         bh.consume(trie);
     }
 }

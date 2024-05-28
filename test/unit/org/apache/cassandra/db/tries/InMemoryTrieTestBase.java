@@ -29,18 +29,18 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
+@RunWith(Parameterized.class)
 public abstract class InMemoryTrieTestBase
 {
-
     Random rand = new Random();
 
     abstract boolean usePut();
@@ -49,12 +49,42 @@ public abstract class InMemoryTrieTestBase
     public void testSingle()
     {
         ByteComparable e = ByteComparable.of("test");
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(strategy.create());
         putSimpleResolve(trie, e, "test", (x, y) -> y);
         System.out.println("Trie " + trie.dump());
         assertEquals("test", trie.get(e));
         assertEquals(null, trie.get(ByteComparable.of("teste")));
     }
+
+    public enum ReuseStrategy
+    {
+        SHORT_LIVED
+        {
+            MemtableAllocationStrategy create()
+            {
+                return InMemoryTrie.shortLivedStrategy();
+            }
+        },
+        LONG_LIVED
+        {
+            MemtableAllocationStrategy create()
+            {
+                return InMemoryTrie.longLivedStrategy(null);
+            }
+        };
+
+        abstract MemtableAllocationStrategy create();
+    }
+
+    @Parameterized.Parameters()
+    public static Object[] generateData()
+    {
+        return ReuseStrategy.values();
+    }
+
+
+    @Parameterized.Parameter(0)
+    public static ReuseStrategy strategy = ReuseStrategy.LONG_LIVED;
 
     @Test
     public void testSplitMulti()
@@ -77,7 +107,7 @@ public abstract class InMemoryTrieTestBase
         "40bdd47ec043641f2b403131323400",
         "40bd00bf5ae8cf9d1d403133323800",
         };
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(strategy.create());
         for (String test : tests)
         {
             ByteComparable e = ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(test));
@@ -107,7 +137,7 @@ public abstract class InMemoryTrieTestBase
     {
         String[] tests = new String[] {"testing", "tests", "trials", "trial", "testing", "trial", "trial"};
         String[] values = new String[] {"testing", "tests", "trials", "trial", "t2", "x2", "y2"};
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(strategy.create());
         for (int i = 0; i < tests.length; ++i)
         {
             String test = tests[i];
@@ -183,7 +213,7 @@ public abstract class InMemoryTrieTestBase
                             .mapToInt(src1 -> ByteComparable.length(src1, TrieUtil.VERSION))
                             .sum();
         long ts = ObjectSizes.measureDeep(content);
-        long onh = ObjectSizes.measureDeep(trie.contentArrays);
+        long onh = ObjectSizes.measureDeep(trie.contentArray);
         System.out.format("Trie size on heap %,d off heap %,d measured %,d keys %,d treemap %,d\n",
                           trie.sizeOnHeap(), trie.sizeOffHeap(), onh, keysize, ts);
         System.out.format("per entry on heap %.2f off heap %.2f measured %.2f keys %.2f treemap %.2f\n",
@@ -275,7 +305,7 @@ public abstract class InMemoryTrieTestBase
     private void testEntries(String[] tests, Function<String, ByteComparable> mapping)
 
     {
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = new InMemoryDTrie<>(strategy.create());
         for (String test : tests)
         {
             ByteComparable e = mapping.apply(test);
@@ -293,7 +323,7 @@ public abstract class InMemoryTrieTestBase
                                                      boolean usePut)
 
     {
-        InMemoryDTrie<ByteBuffer> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<ByteBuffer> trie = new InMemoryDTrie<>(strategy.create());
         addToInMemoryDTrie(src, content, trie, usePut);
         return trie;
     }
