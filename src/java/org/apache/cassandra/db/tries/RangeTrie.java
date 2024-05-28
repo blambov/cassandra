@@ -229,7 +229,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
             if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
                 return new TailCursor.Range<>(c);
             else
-                return new RangeTrieImpl.EmptyCursor<M>();
+                return new RangeTrieImpl.EmptyCursor<>();
         };
     }
 

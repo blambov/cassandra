@@ -228,7 +228,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
             if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
                 return new TailCursor.NonDeterministic<>(c);
             else
-                return new NonDeterministicTrieImpl.EmptyCursor<T>();
+                return new NonDeterministicTrieImpl.EmptyCursor<>();
         };
     }
 

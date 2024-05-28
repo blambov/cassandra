@@ -31,6 +31,7 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         depth = 0;
     }
 
+    @SuppressWarnings("unchecked")
     TailCursor(TailCursor<C> copyFrom)
     {
         this.source = (C) copyFrom.source.duplicate();

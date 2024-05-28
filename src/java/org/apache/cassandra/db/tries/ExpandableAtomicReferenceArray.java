@@ -37,7 +37,7 @@ import java.util.Arrays;
 public class ExpandableAtomicReferenceArray<E>
 {
     private volatile Object[] array;
-    private static VarHandle arrayAccess = MethodHandles.arrayElementVarHandle(Object[].class);
+    private static final VarHandle arrayAccess = MethodHandles.arrayElementVarHandle(Object[].class);
 
     public ExpandableAtomicReferenceArray(int length)
     {

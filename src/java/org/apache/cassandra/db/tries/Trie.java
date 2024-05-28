@@ -127,7 +127,7 @@ public interface Trie<T> extends BaseTrie<T>
     @Override
     default void forEachEntry(BiConsumer<ByteComparable, T> consumer, Direction direction)
     {
-        impl().process(new TrieEntriesWalker.WithConsumer<T>(consumer), direction);
+        impl().process(new TrieEntriesWalker.WithConsumer<>(consumer), direction);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
@@ -388,7 +388,7 @@ public interface Trie<T> extends BaseTrie<T>
             if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
                 return new TailCursor.Deterministic<>(c);
             else
-                return new TrieImpl.EmptyCursor<T>();
+                return new TrieImpl.EmptyCursor<>();
         };
     }
 

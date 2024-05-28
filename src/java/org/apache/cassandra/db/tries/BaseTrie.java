@@ -42,9 +42,9 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * still useful for performing the basic operations on tries (iteration, slicing/intersection and merging). A cursor
  * will list the nodes of a trie in order, together with information about the path that was taken to reach them.
  * <p>
- * To begin traversal over a trie, one must retrieve a cursor by calling {@link TrieImpl#cursor()}. Because cursors are
+ * To begin traversal over a trie, one must retrieve a cursor by calling {@link TrieImpl#cursor}. Because cursors are
  * stateful, the traversal must always proceed from one thread. Should concurrent reads be required, separate calls to
- * {@link TrieImpl#cursor()} must be made. Any modification that has completed before the construction of a cursor must
+ * {@link TrieImpl#cursor} must be made. Any modification that has completed before the construction of a cursor must
  * be visible, but any later concurrent modifications may be presented fully, partially or not at all; this also means
  * that if multiple are made, the cursor may see any part of any subset of them.
  * <p>

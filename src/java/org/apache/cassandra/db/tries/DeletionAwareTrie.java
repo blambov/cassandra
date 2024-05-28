@@ -219,7 +219,7 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
             if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
                 return new TailCursor.DeletionAware<>(c);
             else
-                return new DeletionAwareTrieImpl.EmptyCursor<T, D>();
+                return new DeletionAwareTrieImpl.EmptyCursor<>();
         };
     }
 

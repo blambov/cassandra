@@ -98,6 +98,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
         }
 
         @Override
+        @SuppressWarnings("unchecked")  // checked by the predicate
         protected Map.Entry<ByteComparable, U> mapContent(T content, byte[] bytes, int byteLength)
         {
             return toEntry((U) content, bytes, byteLength);

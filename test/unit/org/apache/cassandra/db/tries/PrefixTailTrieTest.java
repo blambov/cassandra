@@ -56,7 +56,7 @@ public class PrefixTailTrieTest
                                                                    ? ByteBufferUtil.bytesToHex((ByteBuffer) x)
                                                                    : x.toString();
 
-    class Tail
+    static class Tail
     {
         byte[] prefix;
         Map<ByteComparable, ByteBuffer> data;

@@ -229,7 +229,7 @@ public class InMemoryTrieThreadedTest
         ByteComparable[] ckeys = generateKeys(rand, COUNT);
         ByteComparable[] pkeys = generateKeys(rand, Math.min(100, COUNT / 10));  // to guarantee repetition
 
-        /**
+        /*
          * Adds COUNT partitions each with perPartition separate clusterings, where the sum of the values
          * of all clusterings is 0.
          * If the sum for any walk covering whole partitions is non-zero, we have had non-atomic updates.
