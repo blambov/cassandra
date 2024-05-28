@@ -40,6 +40,7 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         depthOfPrefix = 0;
     }
 
+    @SuppressWarnings("unchecked")
     PrefixedCursor(PrefixedCursor<C> copyFrom)
     {
         this.direction = copyFrom.direction;

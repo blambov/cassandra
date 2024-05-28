@@ -688,7 +688,7 @@ public interface ByteSource
     }
 
     /**
-     * Combination of multiple byte sources. Adds {@link NEXT_COMPONENT} before sources, or {@link NEXT_COMPONENT_NULL} if next is null.
+     * Combination of multiple byte sources. Adds {@link #NEXT_COMPONENT} before sources, or {@link #NEXT_COMPONENT_NULL} if next is null.
      */
     static class Multi implements ByteSource
     {
