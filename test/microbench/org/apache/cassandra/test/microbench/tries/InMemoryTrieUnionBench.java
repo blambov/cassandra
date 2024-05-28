@@ -66,7 +66,7 @@ public class InMemoryTrieUnionBench
         {
             long sz = 65536 / sources;
             for (int i = 0; i < sources; ++i)
-                tries.add(new InMemoryDTrie<>(bufferType));
+                tries.add(InMemoryDTrie.longLived(bufferType, null));
 
             for (long current = 0; current < count; ++current)
             {
@@ -81,7 +81,7 @@ public class InMemoryTrieUnionBench
             long current = 0;
             for (int i = 0; i < sources; ++i)
             {
-                InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+                InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
                 int currMax = this.count * (i + 1) / sources;
 
                 for (; current < currMax; ++current)

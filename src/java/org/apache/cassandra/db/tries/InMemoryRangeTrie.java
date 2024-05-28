@@ -21,12 +21,28 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMemoryTrie<M> implements RangeTrieWithImpl<M>
 {
-    public InMemoryRangeTrie(BufferType bufferType)
+    public InMemoryRangeTrie(MemtableAllocationStrategy strategy)
     {
-        super(bufferType);
+        super(strategy);
+    }
+
+    public static <M extends RangeTrie.RangeMarker<M>> InMemoryRangeTrie<M> shortLived()
+    {
+        return new InMemoryRangeTrie<M>(shortLivedStrategy());
+    }
+
+    public static <M extends RangeTrie.RangeMarker<M>> InMemoryRangeTrie<M> longLived(OpOrder opOrder)
+    {
+        return new InMemoryRangeTrie<M>(longLivedStrategy(opOrder));
+    }
+
+    public static <M extends RangeTrie.RangeMarker<M>> InMemoryRangeTrie<M> longLived(BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryRangeTrie<M>(longLivedStrategy(bufferType, opOrder));
     }
 
     @Override
