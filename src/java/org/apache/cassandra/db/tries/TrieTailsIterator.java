@@ -20,9 +20,8 @@ package org.apache.cassandra.db.tries;
 import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Predicate;
-
-import com.google.common.base.Predicates;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -30,27 +29,38 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  * Convertor of trie entries to iterator where each entry is passed through {@link #mapContent} (to be implemented by
  * descendants).
  */
-public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor implements Iterator<V>
+public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor implements Iterator<V>
 {
     private final TrieImpl.Cursor<T> cursor;
     private final Predicate<T> predicate;
     T next;
     boolean gotNext;
 
-    TrieEntriesIterator(TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
+    TrieTailsIterator(TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
     {
         this.cursor = cursor;
         this.predicate = predicate;
         assert cursor.depth() == 0;
-        next = cursor.content();
-        gotNext = next != null && predicate.test(next);
     }
 
     public boolean hasNext()
     {
         while (!gotNext)
         {
-            next = cursor.advanceToContent(this);
+            int depth = cursor.depth();
+            if (depth > 0)
+            {
+                // if we are not at the root, skip the branch we just returned
+                depth = cursor.skipTo(depth, cursor.incomingTransition() + 1);
+                if (depth < 0)
+                    return false;
+                resetPathLength(depth - 1);
+                addPathByte(cursor.incomingTransition());
+            }
+            next = cursor.content();
+
+            if (next == null) // usually true
+                next = cursor.advanceToContent(this);
             if (next != null)
                 gotNext = predicate.test(next);
             else
@@ -73,39 +83,21 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
     /**
      * Iterator representing the content of the trie a sequence of (path, content) pairs.
      */
-    static class AsEntries<T> extends TrieEntriesIterator<T, Map.Entry<ByteComparable, T>>
+    static class AsEntries<T> extends TrieTailsIterator<T, Map.Entry<ByteComparable, Trie<T>>>
     {
-        public AsEntries(TrieImpl.Cursor<T> cursor)
+        final Function<ByteComparable, Trie<T>> tailMaker;
+
+        public AsEntries(TrieImpl.Cursor<T> cursor, Predicate<T> predicate, Function<ByteComparable, Trie<T>> tailMaker)
         {
-            super(cursor, Predicates.alwaysTrue());
+            super(cursor, predicate);
+            this.tailMaker = tailMaker;
         }
 
         @Override
-        protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes, int byteLength)
+        protected Map.Entry<ByteComparable, Trie<T>> mapContent(T content, byte[] bytes, int byteLength)
         {
-            return toEntry(content, bytes, byteLength);
+            ByteComparable key = toByteComparable(bytes, byteLength);
+            return new AbstractMap.SimpleImmutableEntry<>(key, tailMaker.apply(key));
         }
-    }
-
-    /**
-     * Iterator representing the content of the trie a sequence of (path, content) pairs.
-     */
-    static class AsEntriesFilteredByType<T, U extends T> extends TrieEntriesIterator<T, Map.Entry<ByteComparable, U>>
-    {
-        public AsEntriesFilteredByType(TrieImpl.Cursor<T> cursor, Class<U> clazz)
-        {
-            super(cursor, Predicates.instanceOf(clazz));
-        }
-
-        @Override
-        protected Map.Entry<ByteComparable, U> mapContent(T content, byte[] bytes, int byteLength)
-        {
-            return toEntry((U) content, bytes, byteLength);
-        }
-    }
-
-    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(T content, byte[] bytes, int byteLength)
-    {
-        return new AbstractMap.SimpleImmutableEntry<>(toByteComparable(bytes, byteLength), content);
     }
 }

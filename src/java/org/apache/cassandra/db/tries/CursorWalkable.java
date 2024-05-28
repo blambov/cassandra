@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 interface CursorWalkable<C extends CursorWalkable.Cursor>
 {
@@ -160,6 +161,9 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
          * position. The inputs must be something that could be returned by a single call to {@link #advance} (i.e.
          * {@code skipDepth} must be <= current depth + 1, and {@code skipTransition} must be higher than what the
          * current state saw at the requested depth. The skip position must be after the current position.
+         * <p>
+         * Note that it is permitted to request a skip transition outside the normal range, usually 256 (forward) or
+         * -1 (reverse) to request ascent from that depth.
          *
          * @return the new depth, always <= previous depth + 1; -1 if the trie is exhausted
          */
@@ -179,6 +183,26 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
                 return skipTo(skipDepth, skipTransition);
             else
                 return depth;
+        }
+
+
+        /**
+         * Descend into the cursor with the given path.
+         *
+         * @return True if the descent is positioned at the end of the given path, false if the trie did not have a path
+         * for it.
+         */
+        default boolean descendAlong(ByteSource bytes)
+        {
+            int next = bytes.next();
+            int depth = depth();
+            while (next != ByteSource.END_OF_STREAM)
+            {
+                if (skipTo(++depth, next) != depth || incomingTransition() != next)
+                    return false;
+                next = bytes.next();
+            }
+            return true;
         }
 
         /**

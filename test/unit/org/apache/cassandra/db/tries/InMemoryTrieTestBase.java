@@ -36,7 +36,6 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
 public abstract class InMemoryTrieTestBase
 {
@@ -299,8 +298,8 @@ public abstract class InMemoryTrieTestBase
     }
 
     static void addToInMemoryDTrie(ByteComparable[] src,
-                                  Map<ByteComparable, ByteBuffer> content,
-                                  InMemoryDTrie<ByteBuffer> trie,
+                                  Map<ByteComparable, ? super ByteBuffer> content,
+                                  InMemoryDTrie<? super ByteBuffer> trie,
                                   boolean usePut)
 
     {
@@ -315,7 +314,9 @@ public abstract class InMemoryTrieTestBase
                 System.out.println("Adding " + TrieUtil.asString(b) + ": " + ByteBufferUtil.bytesToHex(v));
             putSimpleResolve(trie, b, v, (x, y) -> y, usePut);
             if (TrieUtil.VERBOSE)
-                System.out.println(trie.dump(ByteBufferUtil::bytesToHex));
+                System.out.println(trie.dump(bb -> bb instanceof ByteBuffer
+                                                   ? ByteBufferUtil.bytesToHex((ByteBuffer) bb)
+                                                   : bb.toString()));
         }
     }
 
