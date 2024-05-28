@@ -21,12 +21,28 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends InMemoryTrie<T> implements NonDeterministicTrieWithImpl<T>
 {
-    public InMemoryNDTrie(BufferType bufferType)
+    public InMemoryNDTrie(MemtableAllocationStrategy strategy)
     {
-        super(bufferType);
+        super(strategy);
+    }
+
+    public static <T extends NonDeterministicTrie.Mergeable<T>> InMemoryNDTrie<T> shortLived()
+    {
+        return new InMemoryNDTrie<T>(shortLivedStrategy());
+    }
+
+    public static <T extends NonDeterministicTrie.Mergeable<T>> InMemoryNDTrie<T> longLived(OpOrder opOrder)
+    {
+        return new InMemoryNDTrie<T>(longLivedStrategy(opOrder));
+    }
+
+    public static <T extends NonDeterministicTrie.Mergeable<T>> InMemoryNDTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryNDTrie<T>(longLivedStrategy(bufferType, opOrder));
     }
 
     static class NonDeterministicCursor<T extends NonDeterministicTrie.Mergeable<T>>

@@ -703,11 +703,11 @@ public class TrieMemtable extends AbstractShardedMemtable
     }
 
     @VisibleForTesting
-    public long unusedReservedMemory()
+    public long unusedReservedOnHeapMemory()
     {
         long size = 0;
         for (MemtableShard shard : shards)
-            size += shard.data.unusedReservedMemory();
+            size += shard.data.unusedReservedOnHeapMemory();
         return size;
     }
 }

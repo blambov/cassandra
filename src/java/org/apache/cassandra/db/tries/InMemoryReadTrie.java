@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
 import org.agrona.concurrent.UnsafeBuffer;
@@ -30,7 +29,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  *
  * This class provides the read-only functionality, expanded in {@link InMemoryTrie} to writes.
  */
-public class InMemoryReadTrie<T>
+class InMemoryReadTrie<T>
 {
     /*
     TRIE FORMAT AND NODE TYPES
@@ -221,39 +220,27 @@ public class InMemoryReadTrie<T>
         assert BUF_START_SIZE % BLOCK_SIZE == 0 : "Initial buffer size must fit a full block.";
     }
 
-    final UnsafeBuffer[] buffers;
-    final AtomicReferenceArray<T>[] contentArrays;
+    final UnsafeBuffer buffer;
+    final ExpandableAtomicReferenceArray<T> contentArray;
 
-    InMemoryReadTrie(UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
+    InMemoryReadTrie(UnsafeBuffer buffer, ExpandableAtomicReferenceArray<T> contentArray, int root)
     {
-        this.buffers = buffers;
-        this.contentArrays = contentArrays;
+        this.buffer = buffer;
+        this.contentArray = contentArray;
         this.root = root;
     }
 
     /*
      Buffer, content list and block management
      */
-    static int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
-    {
-        return 31 - minChunkShift - Integer.numberOfLeadingZeros(pos + minChunkSize);
-    }
-
-    static int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
-    {
-        return pos + minChunkSize - (minChunkSize << chunkIndex);
-    }
-
     UnsafeBuffer getChunk(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return buffers[leadBit];
+        return buffer;
     }
 
     static int inChunkPointer(int pos)
     {
-        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return inChunkPointer(pos, leadBit, BUF_START_SIZE);
+        return pos;
     }
 
 
@@ -288,10 +275,7 @@ public class InMemoryReadTrie<T>
      */
     T getContent(int id)
     {
-        int leadBit = getChunkIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(~id, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        return array.get(ofs);
+        return contentArray.getPlain(~id);
     }
 
     /*

@@ -55,7 +55,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void putSequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -76,7 +76,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void putRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 
@@ -97,7 +97,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void applySequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -118,7 +118,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void applyRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Byte> trie = new InMemoryDTrie(bufferType);
+        InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 
