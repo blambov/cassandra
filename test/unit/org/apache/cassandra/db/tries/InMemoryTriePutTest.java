@@ -25,7 +25,6 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.junit.Assert.fail;
@@ -41,7 +40,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     @Test
     public void testLongKey_StackOverflow() throws InMemoryTrie.SpaceExhaustedException
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
+        InMemoryTrie<String> trie = new InMemoryTrie(strategy.create());
         Random rand = new Random(1);
         byte[] key = new byte[40960];
         rand.nextBytes(key);
@@ -67,8 +66,9 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     @Test
     public void testOver1GSize() throws InMemoryTrie.SpaceExhaustedException
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.ON_HEAP);
-        trie.advanceAllocatedPos(0x20000000);
+        InMemoryTrie<String> trie = new InMemoryTrie(strategy.create());
+        MemtableAllocationStrategy.NoReuseStrategy allocator = (MemtableAllocationStrategy.NoReuseStrategy) trie.allocator;
+        allocator.advanceAllocatedPos(0x20000000);
         String t1 = "test1";
         String t2 = "testing2";
         String t3 = "onemoretest3";
@@ -77,14 +77,14 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         Assert.assertNull(trie.get(ByteComparable.of(t2)));
         Assert.assertFalse(trie.reachedAllocatedSizeThreshold());
 
-        trie.advanceAllocatedPos(0x40001000);  // over 1G
+        allocator.advanceAllocatedPos(0x40001000);  // over 1G
         trie.putRecursive(ByteComparable.of(t2), t2, (x, y) -> y);
         Assert.assertEquals(t1, trie.get(ByteComparable.of(t1)));
         Assert.assertEquals(t2, trie.get(ByteComparable.of(t2)));
         Assert.assertNull(trie.get(ByteComparable.of(t3)));
         Assert.assertTrue(trie.reachedAllocatedSizeThreshold());
 
-        trie.advanceAllocatedPos(0x7FFFFEE0);  // close to 2G
+        allocator.advanceAllocatedPos(0x7FFFFEE0);  // close to 2G
         Assert.assertEquals(t1, trie.get(ByteComparable.of(t1)));
         Assert.assertEquals(t2, trie.get(ByteComparable.of(t2)));
         Assert.assertNull(trie.get(ByteComparable.of(t3)));
@@ -107,7 +107,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
 
         try
         {
-            trie.advanceAllocatedPos(Integer.MAX_VALUE);
+            allocator.advanceAllocatedPos(Integer.MAX_VALUE);
             fail("InMemoryTrie.SpaceExhaustedError was expected");
         }
         catch (InMemoryTrie.SpaceExhaustedException e)
