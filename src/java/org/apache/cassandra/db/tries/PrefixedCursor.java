@@ -179,9 +179,11 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         }
     }
 
-    static class NonDeterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
-        public NonDeterministic(Direction direction, ByteComparable prefix, TrieImpl.Cursor<T> source)
+        public NonDeterministic(Direction direction, ByteComparable prefix, NonDeterministicTrieImpl.Cursor<T> source)
         {
             super(direction, prefix, source);
         }
@@ -189,6 +191,12 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         public NonDeterministic(NonDeterministic<T> copyFrom)
         {
             super(copyFrom);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+        {
+            return prefixDone() ? source.alternateBranch() : null;
         }
 
         @Override

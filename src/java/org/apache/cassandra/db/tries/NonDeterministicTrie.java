@@ -22,6 +22,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -59,6 +60,15 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().alternativesMergingCursor(direction));
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends T> Iterator<Map.Entry<ByteComparable, U>> filteredEntryIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieEntriesIterator.AsEntriesFilteredByType<>(impl().alternativesMergingCursor(direction), clazz);
     }
 
     /**
@@ -194,6 +204,32 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
     default Trie<T> alternatesOnly()
     {
         return new MergeAlternativeBranchesTrie<>(impl(), true);
+    }
+
+    /**
+     * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
+     */
+    @Override
+    default NonDeterministicTrie<T> prefix(ByteComparable prefix)
+    {
+        return (NonDeterministicTrieWithImpl<T>) dir -> new PrefixedCursor.NonDeterministic<>(dir, prefix, impl().cursor(dir));
+    }
+
+    default Iterable<Map.Entry<ByteComparable, NonDeterministicTrie<T>>> tailTries(Predicate<T> predicate, Direction direction)
+    {
+        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+    }
+
+    @Override
+    default NonDeterministicTrie<T> tailTrie(ByteComparable prefix)
+    {
+        return (NonDeterministicTrieWithImpl<T>) dir -> {
+            NonDeterministicTrieImpl.Cursor<T> c = impl().cursor(dir);
+            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+                return new TailCursor.NonDeterministic<>(c);
+            else
+                return new NonDeterministicTrieImpl.EmptyCursor<T>();
+        };
     }
 
     private NonDeterministicTrieWithImpl<T> impl()

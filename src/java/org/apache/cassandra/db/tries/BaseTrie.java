@@ -160,6 +160,21 @@ public interface BaseTrie<T>
      */
     Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction);
 
+    default <U extends T> Iterable<Map.Entry<ByteComparable, U>> filteredEntrySet(Class<U> clazz)
+    {
+        return filteredEntrySet(Direction.FORWARD, clazz);
+    }
+
+    default <U extends T> Iterable<Map.Entry<ByteComparable, U>> filteredEntrySet(Direction direction, Class<U> clazz)
+    {
+        return () -> filteredEntryIterator(direction, clazz);
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    <U extends T> Iterator<Map.Entry<ByteComparable, U>> filteredEntryIterator(Direction direction, Class<U> clazz);
+
     /**
      * Returns the ordered set of values of this trie as an iterable.
      */
@@ -238,4 +253,19 @@ public interface BaseTrie<T>
      * The view is live, i.e. any write to the source will be reflected in the intersection.
      */
     BaseTrie<T> intersect(TrieSet set);
+
+
+    /**
+     * Returns a trie that is a view of this one, where the given prefix is prepended before the root.
+     */
+    BaseTrie<T> prefix(ByteComparable prefix);
+
+    /**
+     * Returns a trie that corresponds to the branch of this trie rooted at the given prefix.
+     * <p>
+     * The result will include the same values as {@code subtrie(prefix, prefix)}, but the keys in the resulting trie
+     * will not include the prefix. In other words,
+     *   {@code tailTrie(prefix).prefix(prefix) = subtrie(prefix, prefix)}
+     */
+    BaseTrie<T> tailTrie(ByteComparable prefix);
 }

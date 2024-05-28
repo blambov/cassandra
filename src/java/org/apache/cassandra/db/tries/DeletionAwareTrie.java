@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -69,6 +70,15 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends T> Iterator<Map.Entry<ByteComparable, U>> filteredEntryIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieEntriesIterator.AsEntriesFilteredByType<>(impl().cursor(direction), clazz);
     }
 
     /**
@@ -185,6 +195,32 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
     DeletionAwareTrie<T, D> empty()
     {
         return (DeletionAwareTrie<T, D>) DeletionAwareTrieImpl.EMPTY;
+    }
+
+    /**
+     * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
+     */
+    @Override
+    default DeletionAwareTrie<T, D> prefix(ByteComparable prefix)
+    {
+        return (DeletionAwareTrieWithImpl<T, D>) dir -> new PrefixedCursor.DeletionAware<>(dir, prefix, impl().cursor(dir));
+    }
+
+    default Iterable<Map.Entry<ByteComparable, DeletionAwareTrie<T, D>>> tailTries(Predicate<T> predicate, Direction direction)
+    {
+        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+    }
+
+    @Override
+    default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix)
+    {
+        return (DeletionAwareTrieWithImpl<T, D>) dir -> {
+            DeletionAwareTrieImpl.Cursor<T, D> c = impl().cursor(dir);
+            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+                return new TailCursor.DeletionAware<>(c);
+            else
+                return new DeletionAwareTrieImpl.EmptyCursor<T, D>();
+        };
     }
 
     private DeletionAwareTrieImpl<T, D> impl()

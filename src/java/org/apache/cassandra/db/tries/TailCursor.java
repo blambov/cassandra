@@ -127,16 +127,24 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         }
     }
 
-    static class NonDeterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
+    static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
+    extends WithContent<T, NonDeterministicTrieImpl.Cursor<T>>
+    implements NonDeterministicTrieImpl.Cursor<T>
     {
-        public NonDeterministic(TrieImpl.Cursor<T> source)
+        public NonDeterministic(NonDeterministicTrieImpl.Cursor<T> source)
         {
             super(source);
         }
 
         public NonDeterministic(NonDeterministic<T> copyFrom)
         {
-            super(copyFrom);
+            super((WithContent<T, NonDeterministicTrieImpl.Cursor<T>>) copyFrom);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
+        {
+            return depth < 0 ? null : source.alternateBranch();
         }
 
         @Override
