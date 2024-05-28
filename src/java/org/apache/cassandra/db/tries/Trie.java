@@ -22,6 +22,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -138,6 +139,14 @@ public interface Trie<T> extends BaseTrie<T>
     default Iterator<Map.Entry<ByteComparable, T>> entryIterator(Direction direction)
     {
         return new TrieEntriesIterator.AsEntries<>(impl().cursor(direction));
+    }
+
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    default <U extends T> Iterator<Map.Entry<ByteComparable, U>> entryIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieEntriesIterator.AsEntriesFilteredByType<>(impl().cursor(direction), clazz);
     }
 
     /**
@@ -346,6 +355,38 @@ public interface Trie<T> extends BaseTrie<T>
     static <T> Trie<T> empty()
     {
         return (Trie<T>) TrieImpl.EMPTY;
+    }
+
+    /**
+     * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
+     */
+    default Trie<T> prefix(ByteComparable prefix)
+    {
+        return (TrieWithImpl<T>) dir -> new PrefixedCursor.Deterministic(dir, prefix, impl().cursor(dir));
+    }
+
+    default Iterable<Map.Entry<ByteComparable, Trie<T>>> tailTries(Predicate<T> predicate, Direction direction)
+    {
+        return () -> new TrieTailsIterator.AsEntries<T>(impl().cursor(direction), predicate, this::tailTrie);
+    }
+
+    default Trie<T> tailTrie(ByteComparable prefix)
+    {
+        // This could be done with a prewalked cursor, e.g. as
+        //        TrieImpl.Cursor<T> c = impl().cursor(Direction.FORWARD);
+        //        if (CursorWalkable.walk(c, prefix))
+        //        {
+        //            var tailCursor = new TailCursor.Deterministic<>(c);
+        //            return (TrieWithImpl<T>) dir -> tailCursor.duplicate();
+        //        }
+        // but we can't currently handle direction switching. Instead, do the walk during cursor construction.
+        return (TrieWithImpl<T>) dir -> {
+            TrieImpl.Cursor<T> c = impl().cursor(dir);
+            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+                return new TailCursor.Deterministic<>(c);
+            else
+                return new TrieImpl.EmptyCursor<T>();
+        };
     }
 
     private TrieWithImpl<T> impl()
