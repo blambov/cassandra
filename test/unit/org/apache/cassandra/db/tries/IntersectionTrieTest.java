@@ -28,6 +28,7 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 
@@ -534,7 +535,7 @@ public class IntersectionTrieTest
         try
         {
             InMemoryDTrie<Integer> dupe = new InMemoryDTrie<>(BufferType.ON_HEAP);
-            dupe.apply(trie, (x, y) -> y);
+            dupe.apply(trie, (x, y) -> y, Predicates.alwaysFalse());
             return dupe;
         }
         catch (InMemoryTrie.SpaceExhaustedException e)

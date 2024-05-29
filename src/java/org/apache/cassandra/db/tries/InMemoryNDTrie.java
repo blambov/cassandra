@@ -94,7 +94,8 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         apply(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
+        // TODO
+        state.attachRoot(Integer.MAX_VALUE);
     }
 
     static <T extends Mergeable<T>, U extends Mergeable<U>>
@@ -109,7 +110,8 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
             applyContent(state, mutationCursor, transformer);
             applyAlternate(state, mutationCursor, transformer);
             int depth = mutationCursor.advance();
-            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+            // TODO
+            if (state.advanceTo(depth, mutationCursor.incomingTransition(), Integer.MAX_VALUE))
                 break;
             assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
         }
@@ -129,7 +131,8 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
             // The latter is not something we need to support.
             state.descendToAlternate();
             apply(state, alternate, transformer);
-            state.attachAlternate();
+            // TODO
+            state.attachAlternate(false);
         }
     }
 

@@ -53,7 +53,7 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
             if (depth > 0)
             {
                 // if we are not at the root, skip the branch we just returned
-                depth = cursor.skipTo(depth, cursor.incomingTransition() + 1);
+                depth = cursor.skipTo(depth, cursor.incomingTransition() + direction.increase);
                 if (depth < 0)
                     return false;
                 resetPathLength(depth - 1);
@@ -89,9 +89,9 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
     {
         final Function<ByteComparable, U> tailMaker;
 
-        public AsEntries(TrieImpl.Cursor<T> cursor, Predicate<T> predicate, Function<ByteComparable, U> tailMaker)
+        public AsEntries(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate, Function<ByteComparable, U> tailMaker)
         {
-            super(cursor, predicate);
+            super(direction, cursor, predicate);
             this.tailMaker = tailMaker;
         }
 

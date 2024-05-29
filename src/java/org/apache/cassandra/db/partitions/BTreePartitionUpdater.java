@@ -44,6 +44,7 @@ public class BTreePartitionUpdater implements UpdateFunction<Row, Row>, ColumnDa
     final UpdateTransaction indexer;
     public long dataSize;
     long heapSize;
+    public int partitionsAdded = 0;
     public long colUpdateTimeDelta = Long.MAX_VALUE;
 
     public BTreePartitionUpdater(MemtableAllocator allocator, Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
@@ -62,6 +63,7 @@ public class BTreePartitionUpdater implements UpdateFunction<Row, Row>, ColumnDa
         {
             current = BTreePartitionData.EMPTY;
             onAllocatedOnHeap(BTreePartitionData.UNSHARED_HEAP_SIZE);
+            ++partitionsAdded;
         }
 
         try
