@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -45,6 +46,23 @@ public class InMemoryTrieThreadedTest
     private static final int READERS = 8;
     private static final int WALKERS = 2;
     private static final Random rand = new Random();
+
+    /**
+     * Force copy every modified cell below the partition/enumeration level. Provides atomicity of mutations within the
+     * partition level as well as consistency.
+     */
+    public static final Predicate<InMemoryTrie.NodeFeatures<Content>> FORCE_COPY_PARTITION = features -> features.content() instanceof Metadata;
+    /**
+     * Force copy every modified cell below the earliest branching point. Provides atomicity of mutations at any level,
+     * but readers/walkers may see inconsistent views of the data, in the sense that older mutations may be missed
+     * while newer ones are returned.
+     */
+    public static final Predicate<InMemoryTrie.NodeFeatures<Content>> FORCE_ATOMIC = features -> features.isBranching();
+    /**
+     * Do not do any additional copying beyond what is required to build the tries safely for concurrent readers.
+     * Mutations may be partially seen by readers, and older mutations may be missed while newer ones are returned.
+     */
+    public static final Predicate<InMemoryTrie.NodeFeatures<Content>> NO_ATOMICITY = features -> false;
 
     static Value value(ByteComparable b, ByteComparable cprefix, ByteComparable c, int add, int seqId)
     {
@@ -166,8 +184,6 @@ public class InMemoryTrieThreadedTest
             Assert.fail("Got errors:\n" + errors);
     }
 
-    // Note to reviewers: this set of tests will be expanded and make better sense with the next commit
-
     static class Content
     {}
 
@@ -211,20 +227,62 @@ public class InMemoryTrieThreadedTest
     }
 
     @Test
+    public void testConsistentUpdates() throws Exception
+    {
+        // Check that multi-path updates with below-partition-level copying are safe for concurrent readers,
+        // and that content is atomically applied, i.e. that reader see either nothing from the update or all of it,
+        // and consistent, i.e. that it is not possible to receive some newer updates while missing
+        // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
+        // could see an enumeration which lists 3 and 5 but not 1.)
+        testAtomicUpdates(5, FORCE_COPY_PARTITION, true, true);
+    }
+
+    @Test
+    public void testAtomicUpdates() throws Exception
+    {
+        // Check that multi-path updates with below-branching-point copying are safe for concurrent readers,
+        // and that content is atomically applied, i.e. that reader see either nothing from the update or all of it.
+        testAtomicUpdates(5, FORCE_ATOMIC, true, false);
+    }
+
+    @Test
     public void testSafeUpdates() throws Exception
     {
-        // Check that multi path updates are safe for concurrent readers.
-        testAtomicUpdates(5);
+        // Check that multi path updates without additional copying are safe for concurrent readers.
+        testAtomicUpdates(5, NO_ATOMICITY, false, false);
+    }
+
+    @Test
+    public void testConsistentSinglePathUpdates() throws Exception
+    {
+        // Check that single path updates with below-partition-level copying are safe for concurrent readers,
+        // and that content is consistent, i.e. that it is not possible to receive some newer updates while missing
+        // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
+        // could see an enumeration which lists 3 and 5 but not 1.)
+        testAtomicUpdates(1, FORCE_COPY_PARTITION, true, true);
+    }
+
+
+    @Test
+    public void testAtomicSinglePathUpdates() throws Exception
+    {
+        // When doing single path updates atomicity comes for free. This only checks that the branching checker is
+        // not doing anything funny.
+        testAtomicUpdates(1, FORCE_ATOMIC, true, false);
     }
 
     @Test
     public void testSafeSinglePathUpdates() throws Exception
     {
-        // Check that single path updates are safe for concurrent readers.
-        testAtomicUpdates(1);
+        // Check that single path updates without additional copying are safe for concurrent readers.
+        testAtomicUpdates(1, NO_ATOMICITY, true, false);
     }
 
-    public void testAtomicUpdates(int PER_MUTATION) throws Exception
+    public void testAtomicUpdates(int PER_MUTATION,
+                                  Predicate<InMemoryTrie.NodeFeatures<Boolean>> forcedCopyChecker,
+                                  boolean checkAtomicity,
+                                  boolean checkSequence)
+    throws Exception
     {
         ByteComparable[] ckeys = generateKeys(rand, COUNT);
         ByteComparable[] pkeys = generateKeys(rand, Math.min(100, COUNT / 10));  // to guarantee repetition
@@ -253,7 +311,7 @@ public class InMemoryTrieThreadedTest
                         {
                             int min = writeProgress.get();
                             Iterable<Map.Entry<ByteComparable, Content>> entries = trie.entrySet();
-                            checkEntries("", min, true, entries);
+                            checkEntries("", min, true, checkAtomicity, false, PER_MUTATION, entries);
                         }
                     }
                     catch (Throwable t)
@@ -284,10 +342,10 @@ public class InMemoryTrieThreadedTest
                             Iterable<Map.Entry<ByteComparable, Content>> entries;
 
                             entries = trie.tailTrie(key).entrySet();
-                            checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, entries);
+                            checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
 
                             entries = trie.subtrie(key, key).entrySet();
-                            checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, entries);
+                            checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
                         }
                     }
                     catch (Throwable t)
@@ -349,7 +407,9 @@ public class InMemoryTrieThreadedTest
 
                         final Trie<Content> mutation = Trie.merge(sources, mergeResolver);
 
-                        trie.apply(mutation, (existing, update) -> existing == null ? update : mergeResolver.resolve(existing, update));
+                        trie.apply(mutation,
+                                   (existing, update) -> existing == null ? update : mergeResolver.resolve(existing, update),
+                                   forcedCopyChecker);
 
                         if (i >= pkeys.length * PER_MUTATION && i - lastUpdate >= PROGRESS_UPDATE)
                         {
@@ -388,6 +448,9 @@ public class InMemoryTrieThreadedTest
     public void checkEntries(String location,
                              int min,
                              boolean usePk,
+                             boolean checkAtomicity,
+                             boolean checkConsecutiveIds,
+                             int PER_MUTATION,
                              Iterable<Map.Entry<ByteComparable, Content>> entries) throws Exception
     {
         long sum = 0;
@@ -411,5 +474,21 @@ public class InMemoryTrieThreadedTest
         }
 
         Assert.assertTrue("Values" + location + " should be at least " + min + ", got " + count, min <= count);
+
+        if (checkAtomicity)
+        {
+            // If mutations apply atomically, the row count is always a multiple of the mutation size...
+            Assert.assertTrue("Values" + location + " should be a multiple of " + PER_MUTATION + ", got " + count.get(), count.get() % PER_MUTATION == 0);
+            // ... and the sum of the values is 0 (as the sum for each individual mutation is 0).
+            Assert.assertEquals("Value sum" + location, 0, sum);
+        }
+
+        if (checkConsecutiveIds)
+        {
+            // If mutations apply consistently for the partition, for any row we see we have to have seen all rows that
+            // were applied before that. In other words, the id sum should be the sum of the integers from 1 to the
+            // highest id seen in the partition.
+            Assert.assertEquals("Id sum" + location, idMax * (idMax + 1) / 2, idSum);
+        }
     }
 }

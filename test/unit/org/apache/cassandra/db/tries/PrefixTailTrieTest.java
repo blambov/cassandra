@@ -90,7 +90,7 @@ public class PrefixTailTrieTest
             t.prefix = prefixes[i].asArray(VERSION);
             tail.putRecursive(ByteComparable.EMPTY, t, THROWING_UPSERT);
 //            System.out.println(tail.dump(CONTENT_TO_STRING));
-            trie.apply(tail.prefix(prefixes[i]), THROWING_UPSERT);
+            trie.apply(tail.prefix(prefixes[i]), THROWING_UPSERT, Predicates.alwaysFalse());
             data.put(ByteBuffer.wrap(t.prefix), t);
         }
 
@@ -138,7 +138,9 @@ public class PrefixTailTrieTest
             addToInMemoryDTrie(src, content, tail, true);
 //                        System.out.println(tail.dump(CONTENT_TO_STRING));
             tail.putRecursive(ByteComparable.EMPTY, 1, THROWING_UPSERT);
-            trie.apply(tail.prefix(prefix), (x, y) -> x instanceof Integer ? (Integer) x + (Integer) y : y);
+            trie.apply(tail.prefix(prefix),
+                       (x, y) -> x instanceof Integer ? (Integer) x + (Integer) y : y,
+                       Predicates.alwaysFalse());
         }
 
 //                System.out.println(trie.dump(CONTENT_TO_STRING));
