@@ -158,7 +158,7 @@ public class RowMapping
         int segmentRowId = (int) sstableRowId;
 
         ByteComparable byteComparable = v -> key.asComparableBytes(v);
-        rowMapping.apply(Trie.singleton(byteComparable, segmentRowId), (existing, neww) -> neww);
+        rowMapping.putSingleton(byteComparable, segmentRowId, (existing, neww) -> neww);
 
         maxSegmentRowId = Math.max(maxSegmentRowId, segmentRowId);
 
