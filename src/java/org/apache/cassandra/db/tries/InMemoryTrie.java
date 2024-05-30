@@ -42,38 +42,33 @@ import static org.apache.cassandra.db.tries.CursorWalkable.BYTE_COMPARABLE_VERSI
 /**
  * In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
  * <p>
- * Writes to this should be atomic (i.e. reads should see either the content before the write, or the content after the
- * write; if any read sees the write, then any subsequent (i.e. started after it completed) read should also see it).
- * This implementation does not currently guarantee this, but we still get the desired result as `apply` is only used
- * with singleton tries.
  * The main method for performing writes is {@link #apply(Trie, UpsertTransformer, Predicate)} which takes a trie as
  * an argument and merges it into the current trie using the methods supplied by the given {@link UpsertTransformer},
  * force copying anything below the points where the third argument returns true.
  * </p><p>
  * The predicate can be used to implement several forms of atomicity and consistency guarantees:
  * <list>
- * <li> if the predicate is {@code nf -> false}, neither atomicity nor sequential consistency is guaranteed - readers can
- *   see any mixture of old and modified content
+ * <li> if the predicate is {@code nf -> false}, neither atomicity nor sequential consistency is guaranteed - readers
+ *      can see any mixture of old and modified content
  * <li> if the predicate is {@code nf -> true}, full sequential consistency will be provided, i.e. if a reader sees any
- *   part of a modification, it will see all of it, and all the results of all previous modifications
+ *      part of a modification, it will see all of it, and all the results of all previous modifications
  * <li> if the predicate is {@code nf -> nf.isBranching()} the write will be atomic, i.e. either none or all of the
- *   content of the merged trie will be visible by concurrent readers, but not sequentially consistent, i.e. there may
- *   be writes that are not visible to a reader even when they precede writes that are visible.
- * <li> if the predicate is {@code nf -> nf.metadata() != null} (or a more specific metadata-based test) the write will
- *   be consistent below the identified point (used e.g. by Memtable to ensure partition-level consistency)
+ *      content of the merged trie will be visible by concurrent readers, but not sequentially consistent, i.e. there
+ *      may be writes that are not visible to a reader even when they precede writes that are visible.
+ * <li> if the predicate is {@code nf -> <some_test>(nf.content())} the write will be consistent below the identified
+ *      point (used e.g. by Memtable to ensure partition-level consistency)
  * </list>
  * </p><p>
  * Additionally, the class provides several simpler write methods for efficiency and convenience:
  * <list>
- * <li> {@link #putRecursive(ByteComparable, Object, UpsertValuesOnly)} inserts a single value using a recursive walk.
- *   It cannot modify metadata or provide consistency (single-path writes are always atomic).
- *   This is more efficient as it stores the walk state in the stack rather than on the heap but can cause a
- *   {@code StackOverflowException}.
- * <li> {@link #putSingleton(ByteComparable, Object, UpsertValuesOnly)} is a non-recursive version of the above, using the
- *   {@code apply} machinery.
- * <li> {@link #putSingleton(ByteComparable, Object, UpsertValuesOnly, boolean)} uses the fourth argument to choose between
- *   the two methods above, where some external property can be used to decide if the keys are short enough to permit
- *   recursive execution.
+ * <li> {@link #putRecursive(ByteComparable, Object, UpsertTransformer)} inserts a single value using a recursive walk.
+ *      It cannot provide consistency (single-path writes are always atomic). This is more efficient as it stores the
+ *      walk state in the stack rather than on the heap but can cause a {@code StackOverflowException}.
+ * <li> {@link #putSingleton(ByteComparable, Object, UpsertTransformer)} is a non-recursive version of the above, using
+ *      the {@code apply} machinery.
+ * <li> {@link #putSingleton(ByteComparable, Object, UpsertTransformer, boolean)} uses the fourth argument to choose
+ *      between the two methods above, where some external property can be used to decide if the keys are short enough
+ *      to permit recursive execution.
  * </list>
  * </p><p>
  * Because it uses 32-bit pointers in byte buffers, this trie has a fixed size limit of 2GB.
@@ -303,7 +298,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             case PREFIX_OFFSET:
                 assert false : "attachChild cannot be used on content nodes.";
             case SPARSE_OFFSET:
-                return attachChildToSparse(node, trans, newChild);
+                return attachChildToSparse(node, trans, newChild, false);
             case SPLIT_OFFSET:
                 return attachChildToSplit(node, trans, newChild);
             case LAST_POINTER_OFFSET - 1:
@@ -359,7 +354,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * of modification.
      * This may be an update for an existing branch, or a new child for the node.
      */
-    private int attachChildToSplitCopying(int node, int originalNode, int trans, int newChild)
+    private int attachChildToSplitCopying(int node, int originalNode, int trans, int newChild) throws SpaceExhaustedException
     {
         if (offset(originalNode) != SPLIT_OFFSET)
             originalNode = NONE;
@@ -367,36 +362,36 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         if (node == originalNode)
             node = copyBlock(node);
 
-        int midPos = SPLIT_POINTER_OFFSET + splitNodeMidIndex(trans) * 4;
+        int midPos = splitBlockPointerAddress(0, splitNodeMidIndex(trans), SPLIT_START_LEVEL_LIMIT);
         int mid = getInt(midPos + node);
         int midOriginal = originalNode != NONE ? getInt(midPos + originalNode) : NONE;
         if (mid == NONE)
         {
             mid = allocateCleanNode();
-            buffer.putInt(node + midPos, mid);  // volatile writes not needed because this branch is not attached yet
+            putInt(node + midPos, mid);  // volatile writes not needed because this branch is not attached yet
         }
         else if (mid == midOriginal)
         {
             mid = copyBlock(mid);
-            buffer.putInt(node + midPos, mid);
+            putInt(node + midPos, mid);
         }
 
-        int tailPos = splitNodeTailIndex(trans) * 4;
+        int tailPos = splitBlockPointerAddress(0, splitNodeTailIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
         int tail = getInt(tailPos + mid);
         int tailOriginal = midOriginal != NONE ? getInt(tailPos + midOriginal) : NONE;
         if (tail == NONE)
         {
             tail = allocateCleanNode();
-            buffer.putInt(mid + tailPos, tail);
+            putInt(mid + tailPos, tail);
         }
         else if (tailOriginal == tail)
         {
             tail = copyBlock(tail);
-            buffer.putInt(mid + tailPos, tail);
+            putInt(mid + tailPos, tail);
         }
 
-        int childPos = tail + splitNodeChildIndex(trans) * 4;
-        buffer.putIntVolatile(childPos, newChild);
+        int childPos = splitBlockPointerAddress(tail, splitNodeChildIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
+        putIntVolatile(childPos, newChild);
         return node;
     }
 
@@ -467,10 +462,10 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
-    private int copyBlock(int block)
+    private int copyBlock(int block) throws SpaceExhaustedException
     {
         int copy = allocateBlock();
-        buffer.putBytes(copy, buffer, block & -BLOCK_SIZE, BLOCK_SIZE);
+        getChunk(copy).putBytes(inChunkPointer(copy), getChunk(block), inChunkPointer(block & -BLOCK_SIZE), BLOCK_SIZE);
         return copy | offset(block);
     }
 
@@ -852,12 +847,12 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Returns true if the depth signals mutation cursor is exhausted.
          */
-        boolean advanceTo(int depth, int transition) throws SpaceExhaustedException
+        boolean advanceTo(int depth, int transition, int forcedCopyDepth) throws SpaceExhaustedException
         {
             while (currentDepth > Math.max(ascendLimit, depth - 1))
             {
                 // There are no more children. Ascend to the parent state to continue walk.
-                attachAndMoveToParentState();
+                attachAndMoveToParentState(depth > forcedCopyDepth);
             }
             if (depth == -1)
                 return true;
@@ -867,7 +862,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return false;
         }
 
-        boolean advanceToNextExistingOr(int depth, int transition) throws SpaceExhaustedException
+        boolean advanceToNextExistingOr(int depth, int transition, int forcedCopyDepth) throws SpaceExhaustedException
         {
             setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
@@ -886,7 +881,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 }
                 if (currentDepth <= ascendLimit)
                     break;
-                attachAndMoveToParentState();
+
+                attachAndMoveToParentState(currentDepth > forcedCopyDepth);
             }
             assert depth == -1;
             return true;
@@ -1019,14 +1015,13 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                                                                         child));
         }
 
-// TODO: combine these two and change to apply forced copying per DSE master code
-
         /**
          * Apply the collected content to a node. Converts NONE to a leaf node, and adds or updates a prefix for all
          * others.
          */
-        private int applyContent(int updatedPostContentNode) throws SpaceExhaustedException
+        private int applyContent(int updatedPostContentNode, boolean forcedCopy) throws SpaceExhaustedException
         {
+            // TODO: make content addressing consistent with alternatives by storing ~contentIndex
             int contentIndex = contentIndex();
             if (contentIndex == -1)
                 return updatedPostContentNode;
@@ -1034,55 +1029,76 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (isNull(updatedPostContentNode))
                 return ~contentIndex;
 
-            int existingFullNode = existingPostAlternateNode();
-            int existingPostContentNode = existingPostContentNode();
-
-            // We can't update in-place if there was no preexisting prefix, or if the prefix was embedded and the target
-            // node must change.
-            if (existingFullNode == existingPostContentNode ||
-                isNull(existingPostContentNode) ||
-                isEmbeddedPrefixNode(existingFullNode) && updatedPostContentNode != existingPostContentNode)
-                return createContentPrefixNode(contentIndex, updatedPostContentNode, isNull(existingPostContentNode));
-
-            // Otherwise modify in place
-            assert (getUnsignedByte(existingFullNode + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) == 0;
-            if (updatedPostContentNode != existingPostContentNode) // to use volatile write but also ensure we don't corrupt embedded nodes
-                putIntVolatile(existingFullNode + PREFIX_POINTER_OFFSET, updatedPostContentNode);
-            assert contentIndex == getInt(existingFullNode + PREFIX_CONTENT_OFFSET) : "Unexpected change of content index.";
-            return existingFullNode;
+            return applyPrefixChange(updatedPostContentNode,
+                                     existingPostAlternateNode(),
+                                     existingPostContentNode(),
+                                     contentIndex,
+                                     0,
+                                     forcedCopy);
         }
 
         /**
          * Apply any updates to the alternate branch of the node.
          */
-        private int applyAlternateBranch(int updatedPostAlternateNode) throws SpaceExhaustedException
+        private int applyAlternateBranch(int updatedPostAlternateNode, boolean forcedCopy) throws SpaceExhaustedException
         {
             int alternateBranch = alternateBranch();
             if (alternateBranch == NONE)
                 return updatedPostAlternateNode;
 
-            int existingFullNode = existingFullNode();
-            int existingPostAlternateNode = existingPostAlternateNode();
-
-            // We can't update in-place if there was no preexisting prefix, or if the prefix was embedded and the target
-            // node must change.
-            if (existingFullNode == existingPostAlternateNode ||
-                isNull(existingPostAlternateNode) ||
-                isEmbeddedPrefixNode(existingFullNode) && updatedPostAlternateNode != existingPostAlternateNode)
-                return createPrefixNode(alternateBranch, updatedPostAlternateNode, isNull(existingPostAlternateNode), PREFIX_ALTERNATE_PATH_FLAG);
-
-            // Otherwise modify in place
-            assert (getUnsignedByte(existingFullNode + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) != 0;
-            if (updatedPostAlternateNode != existingPostAlternateNode) // to use volatile write but also ensure we don't corrupt embedded nodes
-                putIntVolatile(existingFullNode + PREFIX_POINTER_OFFSET, updatedPostAlternateNode);
-            if (alternateBranch != getInt(existingFullNode + PREFIX_CONTENT_OFFSET))
-                putIntVolatile(existingFullNode + PREFIX_CONTENT_OFFSET, alternateBranch);
-            return existingFullNode;
+            return applyPrefixChange(updatedPostAlternateNode,
+                                     existingFullNode(),
+                                     existingPostAlternateNode(),
+                                     alternateBranch,
+                                     PREFIX_ALTERNATE_PATH_FLAG,
+                                     forcedCopy);
         }
 
-        private int applyPrefixes() throws SpaceExhaustedException
+        private int applyPrefixChange(int updatedPostPrefixNode,
+                                      int existingPrePrefixNode,
+                                      int existingPostPrefixNode,
+                                      int prefixData,
+                                      int flagBits,
+                                      boolean forcedCopy)
+        throws SpaceExhaustedException
         {
-            return applyAlternateBranch(applyContent(updatedPostContentNode()));
+            // assumes prefixData is not empty
+            boolean childChanged = updatedPostPrefixNode != existingPostPrefixNode;
+            boolean prefixWasPresent = existingPrePrefixNode != existingPostPrefixNode;
+            boolean dataChanged = prefixWasPresent && prefixData != getInt(existingPrePrefixNode + PREFIX_CONTENT_OFFSET);
+            if (!childChanged && !dataChanged)
+                return existingPrePrefixNode;
+
+            // In addition to forced copying, we can't update in-place if there was no preexisting prefix, or if the
+            // prefix was embedded and the target node must change.
+            if (forcedCopy ||
+                !prefixWasPresent ||
+                isNull(existingPostPrefixNode) ||
+                isEmbeddedPrefixNode(existingPrePrefixNode) && childChanged)
+            {
+                if (forcedCopy && !childChanged && isEmbeddedPrefixNode(existingPrePrefixNode))
+                {
+                    // If we directly create in this case, we will find embedding is possible and will overwrite the
+                    // previous value.
+                    // We could create a separate metadata node referencing the child, but in that case we'll
+                    // use two nodes while one suffices. Instead, copy the child and embed the new metadata.
+                    updatedPostPrefixNode = copyBlock(existingPostPrefixNode);
+                }
+                return createPrefixNode(prefixData, updatedPostPrefixNode, isNull(existingPostPrefixNode), flagBits);
+            }
+
+            // Otherwise modify in place
+            assert (getUnsignedByte(existingPrePrefixNode + PREFIX_FLAGS_OFFSET) & PREFIX_ALTERNATE_PATH_FLAG) == flagBits;
+            if (childChanged) // to use volatile write but also ensure we don't corrupt embedded nodes
+                putIntVolatile(existingPrePrefixNode + PREFIX_POINTER_OFFSET, updatedPostPrefixNode);
+            if (dataChanged)
+                putIntVolatile(existingPrePrefixNode + PREFIX_CONTENT_OFFSET, prefixData);
+            return existingPrePrefixNode;
+        }
+
+        private int applyPrefixes(boolean forcedCopy) throws SpaceExhaustedException
+        {
+            return applyAlternateBranch(applyContent(updatedPostContentNode(), forcedCopy), forcedCopy);
         }
 
         /**
@@ -1090,24 +1106,24 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * content to the compiled updatedPostContentNode and creating a mapping in the parent to it (or updating if
          * one already exists).
          */
-        void attachAndMoveToParentState() throws SpaceExhaustedException
+        void attachAndMoveToParentState(boolean forcedCopy) throws SpaceExhaustedException
         {
-            int updatedFullNode = applyPrefixes();
+            int updatedFullNode = applyPrefixes(forcedCopy);
             int existingFullNode = existingFullNode();
             --currentDepth;
             --stackDepth;
             assert stackDepth >= 0;
 
             if (updatedFullNode != existingFullNode)
-                attachChild(transition(), updatedFullNode);
+                attachChild(transition(), updatedFullNode, forcedCopy);
         }
 
         /**
          * Ascend and update the root at the end of processing.
          */
-        void attachRoot() throws SpaceExhaustedException
+        void attachRoot(boolean forcedCopy) throws SpaceExhaustedException
         {
-            int updatedFullNode = applyPrefixes();
+            int updatedFullNode = applyPrefixes(forcedCopy);
             int existingFullNode = existingFullNode();
             assert root == existingFullNode : "Unexpected change to root. Concurrent trie modification?";
             if (updatedFullNode != existingFullNode)
@@ -1121,9 +1137,9 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Ascend and update the alternate link at the end of alternate branch processing.
          */
-        void attachAlternate() throws SpaceExhaustedException
+        void attachAlternate(boolean forcedCopy) throws SpaceExhaustedException
         {
-            int updatedFullNode = applyPrefixes();
+            int updatedFullNode = applyPrefixes(forcedCopy);
             int existingFullNode = existingFullNode();
             // currentDepth does not change
             --stackDepth;
@@ -1180,6 +1196,87 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         T content();
     }
 
+    static class Mutation<T, U> implements NodeFeatures<U>
+    {
+        final UpsertTransformer<T, U> transformer;
+        final Predicate<NodeFeatures<U>> needsForcedCopy;
+        final TrieImpl.Cursor<U> mutationCursor;
+        final InMemoryTrie<T>.ApplyState state;
+        int forcedCopyDepth;
+
+        Mutation(UpsertTransformer<T, U> transformer,
+                 Predicate<NodeFeatures<U>> needsForcedCopy,
+                 TrieImpl.Cursor<U> mutationCursor,
+                 InMemoryTrie<T>.ApplyState state)
+        {
+            assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
+            assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+            this.transformer = transformer;
+            this.needsForcedCopy = needsForcedCopy;
+            this.mutationCursor = mutationCursor;
+            this.state = state;
+        }
+
+        void apply() throws SpaceExhaustedException
+        {
+            int depth = state.currentDepth;
+            int prevAscendLimit = state.setAscendLimit(state.currentDepth);
+            while (true)
+            {
+                if (depth <= forcedCopyDepth && needsForcedCopy.test(this))
+                    forcedCopyDepth = depth;
+                else
+                    forcedCopyDepth = Integer.MAX_VALUE;
+
+                applyContent();
+
+                depth = mutationCursor.advance();
+                if (state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
+                    break;
+                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+            }
+            state.setAscendLimit(prevAscendLimit);
+        }
+
+        void applyContent()
+        {
+            U content = mutationCursor.content();
+            if (content != null)
+            {
+                T existingContent = state.getContent();
+                T combinedContent = transformer.apply(existingContent, content);
+                state.setContent(combinedContent, // can be null
+                                 state.currentDepth > forcedCopyDepth);
+            }
+        }
+
+
+        void complete() throws SpaceExhaustedException
+        {
+            assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
+            state.attachRoot(forcedCopyDepth <= 0);
+        }
+
+        @Override
+        public boolean isBranching()
+        {
+            // TODO: consider implementing this in the Trie interface so that e.g. InMemoryTrie can optimize it
+            TrieImpl.Cursor<U> dupe = mutationCursor.duplicate();
+            int depth = dupe.depth();
+            if (depth < 0)
+                return false;
+            int childDepth = dupe.advance();
+            return (childDepth > depth &&
+                    dupe.skipTo(childDepth, dupe.incomingTransition() + 1) == childDepth);
+        }
+
+        @Override
+        public U content()
+        {
+            return mutationCursor.content();
+        }
+    }
+
     /**
      * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
      * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
@@ -1195,32 +1292,16 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                           final Predicate<NodeFeatures<U>> needsForcedCopy)
     throws SpaceExhaustedException
     {
-        TrieImpl.Cursor<U> mutationCursor = TrieImpl.impl(mutation).cursor(Direction.FORWARD);
-        assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
-        ApplyState state = applyState.start();
-        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        apply(state, mutationCursor, transformer);
-        assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
+        Mutation<T, U> m = new Mutation<>(transformer,
+                                          needsForcedCopy,
+                                          TrieImpl.impl(mutation).cursor(Direction.FORWARD),
+                                          applyState.start());
+        m.apply();
+        m.complete();
     }
 
     // TODO: Create class that implements NodeFeatures and holds cursor, transformer, needsForcedCopy
     // TODO: Query and track forcedCopy depth, pass to advanceTo
-    static <T, U> void apply(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, final UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
-    {
-        int prevAscendLimit = state.setAscendLimit(state.currentDepth);
-        while (true)
-        {
-            applyContent(state, mutationCursor, transformer);
-
-            int depth = mutationCursor.advance();
-            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
-                break;
-            assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
-        }
-        state.setAscendLimit(prevAscendLimit);
-    }
-
     static <T, U> void applyContent(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer)
     {
         U content = mutationCursor.content();
@@ -1228,7 +1309,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         {
             T existingContent = state.getContent();
             T combinedContent = transformer.apply(existingContent, content);
-            state.setContent(combinedContent); // can be null
+            // TODO
+            state.setContent(combinedContent, false); // can be null
         }
     }
 
@@ -1239,7 +1321,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         if (existingContent != null)
         {
             T combinedContent = transformer.apply(existingContent, mutationContent);
-            state.setContent(combinedContent); // can be null
+            // TODO
+            state.setContent(combinedContent, false); // can be null
         }
     }
 
@@ -1251,7 +1334,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         delete(state, cursor);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
+        // TODO
+        state.attachRoot(false);
     }
 
     private static <T> T deleteEntry(T entry, TrieSetImpl.RangeState state)
@@ -1259,6 +1343,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return state.applicableBefore ? null : entry;
     }
 
+    // TODO: Use mutation class, implement consistency protections
     void delete(InMemoryTrie<T>.ApplyState state, TrieSetImpl.Cursor mutationCursor)
     throws SpaceExhaustedException
     {
@@ -1315,7 +1400,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
         int depth = mutationCursor.advance();
         // Descend but do not modify anything yet.
-        if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+        // TODO
+        if (state.advanceTo(depth, mutationCursor.incomingTransition(), Integer.MAX_VALUE))
             return true;
         assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
         return false;
@@ -1339,7 +1425,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 depth = mutationCursor.advance();
                 transition = mutationCursor.incomingTransition();
             }
-            atMutation = state.advanceToNextExistingOr(depth, transition);
+            // TODO
+            atMutation = state.advanceToNextExistingOr(depth, transition, Integer.MAX_VALUE);
             if (atMutation && depth == -1)
                 return true;
 
@@ -1577,7 +1664,6 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return preservePrefix(node, skippedContent, attachedChild, false);
     }
 
-    // TODO: forcedCopy?
     private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
         if (isNull(node))
@@ -1658,8 +1744,4 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
         return bufferOverhead + contentOverhead;
     }
-
-// Note: we can no longer trust the content or metadata arrays to hold only reachable values.
-// TODO: Reimplement valuesUnordered and valuesCount when we can identify deleted contentArray entries.
-// TODO: Maybe reimplement metadataCount when we can identify deleted metadataArray entries.
 }

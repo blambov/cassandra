@@ -154,10 +154,7 @@ public class InMemoryTrieThreadedTest
                     // Note: Because we don't ensure order when calling resolve, just use a hash of the key as payload
                     // (so that all sources have the same value).
                     String v = value(b);
-                    if (i % 2 == 0)
-                        trie.apply(Trie.singleton(b, v), (x, y) -> y);
-                    else
-                        trie.putRecursive(b, v, (x, y) -> y);
+                    trie.putSingleton(b, v, (x, y) -> y, i % 2 != 0);
 
                     if (i % PROGRESS_UPDATE == 0)
                         writeProgress.set(i);
@@ -279,7 +276,7 @@ public class InMemoryTrieThreadedTest
     }
 
     public void testAtomicUpdates(int PER_MUTATION,
-                                  Predicate<InMemoryTrie.NodeFeatures<Boolean>> forcedCopyChecker,
+                                  Predicate<InMemoryTrie.NodeFeatures<Content>> forcedCopyChecker,
                                   boolean checkAtomicity,
                                   boolean checkSequence)
     throws Exception
@@ -451,7 +448,7 @@ public class InMemoryTrieThreadedTest
                              boolean checkAtomicity,
                              boolean checkConsecutiveIds,
                              int PER_MUTATION,
-                             Iterable<Map.Entry<ByteComparable, Content>> entries) throws Exception
+                             Iterable<Map.Entry<ByteComparable, Content>> entries)
     {
         long sum = 0;
         int count = 0;
@@ -478,7 +475,7 @@ public class InMemoryTrieThreadedTest
         if (checkAtomicity)
         {
             // If mutations apply atomically, the row count is always a multiple of the mutation size...
-            Assert.assertTrue("Values" + location + " should be a multiple of " + PER_MUTATION + ", got " + count.get(), count.get() % PER_MUTATION == 0);
+            Assert.assertTrue("Values" + location + " should be a multiple of " + PER_MUTATION + ", got " + count, count % PER_MUTATION == 0);
             // ... and the sum of the values is 0 (as the sum for each individual mutation is 0).
             Assert.assertEquals("Value sum" + location, 0, sum);
         }

@@ -26,6 +26,7 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.function.IntPredicate;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.junit.Test;
@@ -286,7 +287,8 @@ public class AlternativeBranchesTest
             {
                 trie.apply(Trie.singleton(comparable(skey), of(svalue))
                                .mergeWith(Trie.singleton(comparable(ekey), of(evalue)), (x, y) -> y),
-                           (x, y) -> y);
+                           (x, y) -> y,
+                           Predicates.alwaysFalse()); // no concurrency here
                 normals.put(comparable(skey), of(svalue));
                 normals.put(comparable(ekey), of(evalue));
 //                System.out.println("Adding " + asString(comparable(key)) + ": " + value);

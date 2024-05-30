@@ -99,7 +99,8 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         apply(state, mutationCursor, dataTransformer, deletionTransformer, deleter);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
+        // TODO
+        state.attachRoot(false);
     }
 
     @SuppressWarnings("unchecked")
@@ -126,7 +127,8 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
                 // TODO: Maybe we should (one way to do it is to union input with our deletion trie).
                 state.descendToAlternate();
                 InMemoryRangeTrie.applyRanges(state, deletionBranch, deletionTransformer);
-                state.attachAlternate();
+                // TODO
+                state.attachAlternate(false);
                 // Apply the same deletion to live branch.
                 deletionBranch = mutationCursor.deletionBranch();
                 delete(state, deletionBranch, deleter);
@@ -135,7 +137,8 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
                 applyContent(state, mutationCursor, dataTransformer);
 
             int depth = mutationCursor.advance();
-            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+            // TODO
+            if (state.advanceTo(depth, mutationCursor.incomingTransition(), Integer.MAX_VALUE))
                 break;
             assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
         }

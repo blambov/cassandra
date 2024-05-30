@@ -180,7 +180,7 @@ interface DataPoint extends DeletionAwareTrie.Deletable
         }
         catch (InMemoryTrie.SpaceExhaustedException e)
         {
-            throw Throwables.propagate(e);
+            throw new AssertionError(e);
         }
         return trie;
     }

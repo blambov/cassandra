@@ -321,7 +321,7 @@ public class ComparisonReadBench
             }
             catch (InMemoryDTrie.SpaceExhaustedException e)
             {
-                throw Throwables.propagate(e);
+                throw new AssertionError(e);
             }
         }
 

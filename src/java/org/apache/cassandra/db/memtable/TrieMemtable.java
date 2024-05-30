@@ -210,10 +210,6 @@ public class TrieMemtable extends AbstractShardedMemtable
         }
     }
 
-    /**
-     * Technically we should scatter gather on all the core threads because the size in following calls are not
-     * using volatile variables, but for metrics purpose this should be good enough.
-     */
     @Override
     public long getLiveDataSize()
     {
@@ -419,6 +415,8 @@ public class TrieMemtable extends AbstractShardedMemtable
 
         private volatile long currentOperations = 0;
 
+        private volatile int partitionCount = 0;
+
         @Unmetered
         private final ReentrantLock writeLock = new ReentrantLock();
 
@@ -485,6 +483,7 @@ public class TrieMemtable extends AbstractShardedMemtable
                                       key.getKeyLength() < MAX_RECURSIVE_KEY_LENGTH);
                     allocator.offHeap().adjust(data.sizeOffHeap() - offHeap, opGroup);
                     allocator.onHeap().adjust(data.sizeOnHeap() - onHeap, opGroup);
+                    partitionCount += updater.partitionsAdded;
                 }
                 finally
                 {
@@ -511,7 +510,7 @@ public class TrieMemtable extends AbstractShardedMemtable
 
         public int size()
         {
-            return data.valuesCount();
+            return partitionCount;
         }
 
         long minTimestamp()

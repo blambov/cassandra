@@ -162,7 +162,8 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         applyRanges(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-        state.attachRoot();
+        // TODO
+        state.attachRoot(false);
     }
 
     static <M extends RangeMarker<M>, N extends RangeMarker<N>>
@@ -202,7 +203,8 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
 
             int depth = mutationCursor.advance();
             // Descend but do not modify anything yet.
-            if (state.advanceTo(depth, mutationCursor.incomingTransition()))
+            // TODO
+            if (state.advanceTo(depth, mutationCursor.incomingTransition(), Integer.MAX_VALUE))
                 break;
             assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
         }
@@ -222,7 +224,8 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         M combined = transformer.apply(existingState, mutationState);
         if (combined != null)
             combined = combined.toContent();
-        state.setContent(combined); // can be null
+        // TODO
+        state.setContent(combined, false); // can be null
     }
 
     static <M extends RangeMarker<M>>
@@ -257,7 +260,8 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                 depth = mutationCursor.advance();
                 transition = mutationCursor.incomingTransition();
             }
-            atMutation = state.advanceToNextExistingOr(depth, transition);
+            // TODO
+            atMutation = state.advanceToNextExistingOr(depth, transition, Integer.MAX_VALUE);
             if (atMutation && depth == -1)
                 return true;
 
