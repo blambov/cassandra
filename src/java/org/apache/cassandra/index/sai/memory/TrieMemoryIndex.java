@@ -112,14 +112,7 @@ public class TrieMemoryIndex
 
                 try
                 {
-                    if (term.limit() <= MAX_RECURSIVE_KEY_LENGTH)
-                    {
-                        data.putRecursive(comparableBytes, primaryKey, primaryKeysReducer);
-                    }
-                    else
-                    {
-                        data.apply(Trie.singleton(comparableBytes, primaryKey), primaryKeysReducer);
-                    }
+                    data.putSingleton(comparableBytes, primaryKey, primaryKeysReducer, term.limit() <= MAX_RECURSIVE_KEY_LENGTH);
                 }
                 catch (InMemoryDTrie.SpaceExhaustedException e)
                 {

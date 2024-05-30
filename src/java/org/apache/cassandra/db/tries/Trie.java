@@ -159,6 +159,7 @@ public interface Trie<T> extends BaseTrie<T>
         return new TrieValuesIterator<>(impl().cursor(direction));
     }
 
+    // TODO: remove this method
     /**
      * Returns the values in any order. For some tries this is much faster than the ordered iterable.
      */
