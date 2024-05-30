@@ -217,7 +217,7 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
 
     default Iterable<Map.Entry<ByteComparable, NonDeterministicTrie<T>>> tailTries(Predicate<T> predicate, Direction direction)
     {
-        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+        return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
     }
 
     @Override
