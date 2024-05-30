@@ -369,7 +369,7 @@ public interface Trie<T> extends BaseTrie<T>
 
     default Iterable<Map.Entry<ByteComparable, Trie<T>>> tailTries(Predicate<T> predicate, Direction direction)
     {
-        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+        return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
     }
 
     @Override
