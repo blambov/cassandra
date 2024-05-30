@@ -218,7 +218,7 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
 
     default Iterable<Map.Entry<ByteComparable, RangeTrie<M>>> tailTries(Predicate<M> predicate, Direction direction)
     {
-        return () -> new TrieTailsIterator.AsEntries<>(impl().cursor(direction), predicate, this::tailTrie);
+        return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
     }
 
     @Override

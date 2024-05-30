@@ -31,13 +31,15 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  */
 public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor implements Iterator<V>
 {
+    private final Direction direction;
     private final TrieImpl.Cursor<T> cursor;
     private final Predicate<T> predicate;
     T next;
     boolean gotNext;
 
-    TrieTailsIterator(TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
+    TrieTailsIterator(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
     {
+        this.direction = direction;
         this.cursor = cursor;
         this.predicate = predicate;
         assert cursor.depth() == 0;
