@@ -48,7 +48,7 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         nextByte = copyFrom.nextByte;
         currentByte = copyFrom.currentByte;
         depthOfPrefix = copyFrom.depthOfPrefix;
-        if (prefixDone())
+        if (!prefixDone())
         {
             ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.prefixBytes);
             copyFrom.prefixBytes = dupe;
@@ -118,11 +118,22 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
     @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
+        // regardless if we exhausted prefix, if caller asks for depth <= prefix depth, we're done.
+        if (skipDepth <= depthOfPrefix)
+            return exhausted();
         if (prefixDone())
-            return addPrefixDepthAndCheckDone(source.skipTo(skipDepth, skipTransition));
-        if (skipDepth <= depthOfPrefix || skipDepth == depthOfPrefix + 1 && direction.gt(skipTransition, nextByte))
-            return depthOfPrefix = -1;
+            return addPrefixDepthAndCheckDone(source.skipTo(skipDepth - depthOfPrefix, skipTransition));
+        if (skipDepth == depthOfPrefix + 1 && direction.gt(skipTransition, nextByte))
+            return exhausted();
         return advance();
+    }
+
+    private int exhausted()
+    {
+        currentByte = -1;
+        nextByte = ByteSource.END_OF_STREAM;
+        depthOfPrefix = -1;
+        return depthOfPrefix;
     }
 
     @Override

@@ -95,7 +95,7 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         apply(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         // TODO
-        state.attachRoot(false);
+        state.attachRoot(Integer.MAX_VALUE);
     }
 
     static <T extends Mergeable<T>, U extends Mergeable<U>>
