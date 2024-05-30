@@ -34,13 +34,14 @@ import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 
 public class InMemoryTrieThreadedTest
 {
-    private static final int COUNT = 3000;
+    private static final int COUNT = 30000;
     private static final int OTHERS = COUNT / 10;
     private static final int PROGRESS_UPDATE = COUNT / 15;
     private static final int READERS = 8;
@@ -51,7 +52,7 @@ public class InMemoryTrieThreadedTest
      * Force copy every modified cell below the partition/enumeration level. Provides atomicity of mutations within the
      * partition level as well as consistency.
      */
-    public static final Predicate<InMemoryTrie.NodeFeatures<Content>> FORCE_COPY_PARTITION = features -> features.content() instanceof Metadata;
+    public static final Predicate<InMemoryTrie.NodeFeatures<Content>> FORCE_COPY_PARTITION = features -> isPartition(features.content());
     /**
      * Force copy every modified cell below the earliest branching point. Provides atomicity of mutations at any level,
      * but readers/walkers may see inconsistent views of the data, in the sense that older mutations may be missed
@@ -181,19 +182,27 @@ public class InMemoryTrieThreadedTest
             Assert.fail("Got errors:\n" + errors);
     }
 
-    static class Content
-    {}
+    static abstract class Content
+    {
+        final String pk;
+
+        Content(String pk)
+        {
+            this.pk = pk;
+        }
+
+        abstract boolean isPartition();
+    }
 
     static class Value extends Content
     {
-        final String pk;
         final String ck;
         final int value;
         final int seq;
 
         Value(String pk, String ck, int value, int seq)
         {
-            this.pk = pk;
+            super(pk);
             this.ck = ck;
             this.value = value;
             this.seq = seq;
@@ -209,18 +218,50 @@ public class InMemoryTrieThreadedTest
                    ", seq=" + seq +
                    '}';
         }
+
+        @Override
+        boolean isPartition()
+        {
+            return false;
+        }
     }
 
     static class Metadata extends Content
     {
-        final boolean isPartition;
+        int updateCount;
 
-        Metadata(boolean isPartition)
+        Metadata(String pk)
         {
-            this.isPartition = isPartition;
+            super(pk);
+            updateCount = 1;
         }
 
-        static final Metadata TRUE = new Metadata(true);
+        @Override
+        boolean isPartition()
+        {
+            return true;
+        }
+
+        Metadata mergeWith(Metadata other)
+        {
+            Metadata m = new Metadata(pk);
+            m.updateCount = updateCount + other.updateCount;
+            return m;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "Metadata{" +
+                   "pk='" + pk + '\'' +
+                   ", updateCount=" + updateCount +
+                   '}';
+        }
+    }
+
+    static boolean isPartition(Content c)
+    {
+        return c != null && c.isPartition();
     }
 
     @Test
@@ -231,7 +272,8 @@ public class InMemoryTrieThreadedTest
         // and consistent, i.e. that it is not possible to receive some newer updates while missing
         // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
         // could see an enumeration which lists 3 and 5 but not 1.)
-        testAtomicUpdates(5, FORCE_COPY_PARTITION, true, true);
+        testAtomicUpdates(3, FORCE_COPY_PARTITION, true, true);
+        // Note: using 3 per mutation, so that the first and second update fit in a sparse in-memory trie block.
     }
 
     @Test
@@ -239,14 +281,14 @@ public class InMemoryTrieThreadedTest
     {
         // Check that multi-path updates with below-branching-point copying are safe for concurrent readers,
         // and that content is atomically applied, i.e. that reader see either nothing from the update or all of it.
-        testAtomicUpdates(5, FORCE_ATOMIC, true, false);
+        testAtomicUpdates(3, FORCE_ATOMIC, true, false);
     }
 
     @Test
     public void testSafeUpdates() throws Exception
     {
         // Check that multi path updates without additional copying are safe for concurrent readers.
-        testAtomicUpdates(5, NO_ATOMICITY, false, false);
+        testAtomicUpdates(3, NO_ATOMICITY, false, false);
     }
 
     @Test
@@ -275,14 +317,34 @@ public class InMemoryTrieThreadedTest
         testAtomicUpdates(1, NO_ATOMICITY, true, false);
     }
 
+    // The generated keys all start with NEXT_COMPONENT, which makes it impossible to test the precise behavior of the
+    // partition-level force copying. Strip that byte.
+    private static ByteComparable[] skipFirst(ByteComparable[] keys)
+    {
+        ByteComparable[] result = new ByteComparable[keys.length];
+        for (int i = 0; i < keys.length; ++i)
+            result[i] = skipFirst(keys[i]);
+        return result;
+    }
+
+    private static ByteComparable skipFirst(ByteComparable key)
+    {
+        return v -> {
+            var bs = key.asComparableBytes(v);
+            int n = bs.next();
+            assert n != ByteSource.END_OF_STREAM;
+            return bs;
+        };
+    }
+
     public void testAtomicUpdates(int PER_MUTATION,
                                   Predicate<InMemoryTrie.NodeFeatures<Content>> forcedCopyChecker,
                                   boolean checkAtomicity,
                                   boolean checkSequence)
     throws Exception
     {
-        ByteComparable[] ckeys = generateKeys(rand, COUNT);
-        ByteComparable[] pkeys = generateKeys(rand, Math.min(100, COUNT / 10));  // to guarantee repetition
+        ByteComparable[] ckeys = skipFirst(generateKeys(rand, COUNT));
+        ByteComparable[] pkeys = skipFirst(generateKeys(rand, Math.min(100, COUNT / 10)));  // to guarantee repetition
 
         /*
          * Adds COUNT partitions each with perPartition separate clusterings, where the sum of the values
@@ -364,8 +426,8 @@ public class InMemoryTrieThreadedTest
                     @Override
                     public Content resolve(Content c1, Content c2)
                     {
-                        if (c1 == c2 && c1 instanceof Metadata)
-                            return c1;
+                        if (c1.isPartition() && c2.isPartition())
+                            return ((Metadata) c1).mergeWith((Metadata) c2);
                         throw new AssertionError("Test error, keys should be distinct.");
                     }
 
@@ -381,6 +443,7 @@ public class InMemoryTrieThreadedTest
                     for (int i = 0; i < COUNT; i += PER_MUTATION)
                     {
                         ByteComparable b = pkeys[(i / PER_MUTATION) % pkeys.length];
+                        Metadata partitionMarker = new Metadata(b.byteComparableAsString(VERSION));
                         ByteComparable cprefix = null;
                         if (r.nextBoolean())
                             cprefix = ckeys[i]; // Also test branching point below the partition level
@@ -397,7 +460,7 @@ public class InMemoryTrieThreadedTest
                             if (cprefix != null)
                                 row = row.prefix(cprefix);
 
-                            row = withRootMetadata(row, Metadata.TRUE);
+                            row = withRootMetadata(row, partitionMarker);
                             row = row.prefix(b);
                             sources.add(row);
                         }
@@ -454,13 +517,19 @@ public class InMemoryTrieThreadedTest
         int count = 0;
         long idSum = 0;
         long idMax = 0;
+        int updateCount = 0;
         for (var en : entries)
         {
-            if (!(en.getValue() instanceof Value))
+            String path = en.getKey().byteComparableAsString(VERSION);
+            if (en.getValue().isPartition())
+            {
+                Metadata m = (Metadata) en.getValue();
+                Assert.assertEquals("Partition metadata" + location, (usePk ? m.pk : ""), path);
+                updateCount += m.updateCount;
                 continue;
+            }
             final Value value = (Value) en.getValue();
             String valueKey = (usePk ? value.pk : "") + value.ck;
-            String path = en.getKey().byteComparableAsString(VERSION);
             Assert.assertEquals(location, valueKey, path);
             ++count;
             sum += value.value;
@@ -482,6 +551,8 @@ public class InMemoryTrieThreadedTest
 
         if (checkConsecutiveIds)
         {
+            // The update count reflected in the partition metadata must match the row count.
+            Assert.assertEquals("Update count" + location, count, updateCount);
             // If mutations apply consistently for the partition, for any row we see we have to have seen all rows that
             // were applied before that. In other words, the id sum should be the sum of the integers from 1 to the
             // highest id seen in the partition.

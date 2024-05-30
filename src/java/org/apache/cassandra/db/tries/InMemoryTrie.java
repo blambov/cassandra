@@ -19,8 +19,6 @@ package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Predicate;
 
@@ -31,10 +29,9 @@ import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
-import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.ObjectSizes;
-
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.github.jamm.MemoryMeterStrategy;
 
 import static org.apache.cassandra.db.tries.CursorWalkable.BYTE_COMPARABLE_VERSION;
@@ -367,7 +364,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int midOriginal = originalNode != NONE ? getInt(midPos + originalNode) : NONE;
         if (mid == NONE)
         {
-            mid = allocateCleanNode();
+            mid = createEmptySplitNode();
             putInt(node + midPos, mid);  // volatile writes not needed because this branch is not attached yet
         }
         else if (mid == midOriginal)
@@ -381,7 +378,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int tailOriginal = midOriginal != NONE ? getInt(tailPos + midOriginal) : NONE;
         if (tail == NONE)
         {
-            tail = allocateCleanNode();
+            tail = createEmptySplitNode();
             putInt(mid + tailPos, tail);
         }
         else if (tailOriginal == tail)
@@ -611,7 +608,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     private int createEmptySplitNode() throws SpaceExhaustedException
     {
-        return allocateBlock() + SPLIT_OFFSET;
+        return allocateCleanNode() + SPLIT_OFFSET;
     }
 
     int createContentPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
@@ -852,7 +849,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             while (currentDepth > Math.max(ascendLimit, depth - 1))
             {
                 // There are no more children. Ascend to the parent state to continue walk.
-                attachAndMoveToParentState(depth > forcedCopyDepth);
+                attachAndMoveToParentState(forcedCopyDepth);
             }
             if (depth == -1)
                 return true;
@@ -882,7 +879,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 if (currentDepth <= ascendLimit)
                     break;
 
-                attachAndMoveToParentState(currentDepth > forcedCopyDepth);
+                attachAndMoveToParentState(forcedCopyDepth);
             }
             assert depth == -1;
             return true;
@@ -1065,7 +1062,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             // assumes prefixData is not empty
             boolean childChanged = updatedPostPrefixNode != existingPostPrefixNode;
             boolean prefixWasPresent = existingPrePrefixNode != existingPostPrefixNode;
-            boolean dataChanged = prefixWasPresent && prefixData != getInt(existingPrePrefixNode + PREFIX_CONTENT_OFFSET);
+            boolean dataChanged = !prefixWasPresent || prefixData != getInt(existingPrePrefixNode + PREFIX_CONTENT_OFFSET);
             if (!childChanged && !dataChanged)
                 return existingPrePrefixNode;
 
@@ -1106,24 +1103,24 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * content to the compiled updatedPostContentNode and creating a mapping in the parent to it (or updating if
          * one already exists).
          */
-        void attachAndMoveToParentState(boolean forcedCopy) throws SpaceExhaustedException
+        void attachAndMoveToParentState(int forcedCopyDepth) throws SpaceExhaustedException
         {
-            int updatedFullNode = applyPrefixes(forcedCopy);
+            int updatedFullNode = applyPrefixes(currentDepth >= forcedCopyDepth);
             int existingFullNode = existingFullNode();
             --currentDepth;
             --stackDepth;
             assert stackDepth >= 0;
 
             if (updatedFullNode != existingFullNode)
-                attachChild(transition(), updatedFullNode, forcedCopy);
+                attachChild(transition(), updatedFullNode, currentDepth >= forcedCopyDepth);
         }
 
         /**
          * Ascend and update the root at the end of processing.
          */
-        void attachRoot(boolean forcedCopy) throws SpaceExhaustedException
+        void attachRoot(int forcedCopyDepth) throws SpaceExhaustedException
         {
-            int updatedFullNode = applyPrefixes(forcedCopy);
+            int updatedFullNode = applyPrefixes(0 >= forcedCopyDepth);
             int existingFullNode = existingFullNode();
             assert root == existingFullNode : "Unexpected change to root. Concurrent trie modification?";
             if (updatedFullNode != existingFullNode)
@@ -1223,10 +1220,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             int prevAscendLimit = state.setAscendLimit(state.currentDepth);
             while (true)
             {
-                if (depth <= forcedCopyDepth && needsForcedCopy.test(this))
-                    forcedCopyDepth = depth;
-                else
-                    forcedCopyDepth = Integer.MAX_VALUE;
+                if (depth <= forcedCopyDepth)
+                    forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
                 applyContent();
 
@@ -1246,7 +1241,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 T existingContent = state.getContent();
                 T combinedContent = transformer.apply(existingContent, content);
                 state.setContent(combinedContent, // can be null
-                                 state.currentDepth > forcedCopyDepth);
+                                 state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
             }
         }
 
@@ -1254,7 +1249,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         void complete() throws SpaceExhaustedException
         {
             assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-            state.attachRoot(forcedCopyDepth <= 0);
+            state.attachRoot(forcedCopyDepth);
         }
 
         @Override
@@ -1266,8 +1261,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (depth < 0)
                 return false;
             int childDepth = dupe.advance();
-            return (childDepth > depth &&
-                    dupe.skipTo(childDepth, dupe.incomingTransition() + 1) == childDepth);
+            return childDepth > depth &&
+                   dupe.skipTo(childDepth, dupe.incomingTransition() + 1) == childDepth;
         }
 
         @Override
@@ -1335,7 +1330,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         delete(state, cursor);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         // TODO
-        state.attachRoot(false);
+        state.attachRoot(Integer.MAX_VALUE);
     }
 
     private static <T> T deleteEntry(T entry, TrieSetImpl.RangeState state)

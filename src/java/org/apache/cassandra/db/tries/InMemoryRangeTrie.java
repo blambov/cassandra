@@ -163,7 +163,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         applyRanges(state, mutationCursor, transformer);
         assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         // TODO
-        state.attachRoot(false);
+        state.attachRoot(Integer.MAX_VALUE);
     }
 
     static <M extends RangeMarker<M>, N extends RangeMarker<N>>

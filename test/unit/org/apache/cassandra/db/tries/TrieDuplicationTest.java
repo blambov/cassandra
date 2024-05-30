@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Random;
 
+import com.google.common.collect.Iterators;
 import org.junit.Test;
 
 import org.agrona.collections.IntArrayList;
@@ -32,8 +33,10 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.marshal.ShortType;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceTestBase;
 
 import static org.junit.Assert.assertEquals;
@@ -54,6 +57,45 @@ public class TrieDuplicationTest
         {
             ByteComparable comparable = typeToComparable(IntegerType.instance, v);
             testDuplication(Trie.singleton(comparable, v), "Type bigint value " + v);
+        }
+    }
+
+    @Test
+    public void testDuplicationPrefix()
+    {
+        // Use non-duplicatable byte sources to ensure duplicate logic is executed correctly.
+        for (Short l : ByteSourceTestBase.testShorts)
+        {
+            if (l == null)
+                continue;
+            ByteComparable suffix = typeToComparable(ShortType.instance, l);
+            for (BigInteger v : ByteSourceTestBase.testBigInts)
+            {
+                ByteComparable prefix = typeToComparable(IntegerType.instance, v);
+                testDuplication(Trie.singleton(suffix, v).prefix(prefix), "Prefix value " + v + ":" + l);
+            }
+        }
+    }
+
+    @Test
+    public void testDuplicationTail()
+    {
+        // Use non-duplicatable byte sources to ensure duplicate logic is executed correctly.
+        for (Short l : ByteSourceTestBase.testShorts)
+        {
+            if (l == null)
+                continue;
+            ByteComparable prefix = typeToComparable(ShortType.instance, l);
+            for (BigInteger v : ByteSourceTestBase.testBigInts)
+            {
+                ByteComparable suffix = typeToComparable(IntegerType.instance, v);
+                ByteComparable combined = c -> ByteSource.withTerminator(ByteSource.TERMINATOR, prefix.asComparableBytes(c), suffix.asComparableBytes(c));
+                ByteComparable prefixInCombo = c -> ByteSource.withTerminatorLegacy(ByteSource.NEXT_COMPONENT, prefix.asComparableBytes(c));
+                var trie = Trie.singleton(combined, v).tailTrie(prefixInCombo);
+                assertEquals(1, Iterators.size(trie.valueIterator()));
+
+                testDuplication(trie, "Tail for value " + v + ":" + l);
+            }
         }
     }
 
@@ -266,6 +308,7 @@ public class TrieDuplicationTest
 
     private <T> void testDuplication(BaseTrie<T> trie, String msg)
     {
+        System.out.println("Testing " + msg);
         testDuplicationVersions(trie, msg);
         ByteComparable left = typeToComparable(IntegerType.instance, randomBigInt());
         ByteComparable right = typeToComparable(IntegerType.instance, randomBigInt());
