@@ -1026,8 +1026,13 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (isNull(updatedPostContentNode))
                 return ~contentIndex;
 
+            // applyPrefixChange does not understand leaf nodes, handle upgrade from one explicitly.
+            final int existingPreContentNode = existingPostAlternateNode();
+            if (isLeaf(existingPreContentNode))
+                return createPrefixNode(contentIndex, updatedPostContentNode, true, 0);
+
             return applyPrefixChange(updatedPostContentNode,
-                                     existingPostAlternateNode(),
+                                     existingPreContentNode,
                                      existingPostContentNode(),
                                      contentIndex,
                                      0,
@@ -1070,7 +1075,6 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             // prefix was embedded and the target node must change.
             if (forcedCopy ||
                 !prefixWasPresent ||
-                isNull(existingPostPrefixNode) ||
                 isEmbeddedPrefixNode(existingPrePrefixNode) && childChanged)
             {
                 if (forcedCopy && !childChanged && isEmbeddedPrefixNode(existingPrePrefixNode))

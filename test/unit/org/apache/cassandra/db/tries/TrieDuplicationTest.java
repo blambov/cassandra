@@ -64,16 +64,23 @@ public class TrieDuplicationTest
     public void testDuplicationPrefix()
     {
         // Use non-duplicatable byte sources to ensure duplicate logic is executed correctly.
+        int first = 0;
+        int firstCount = ByteSourceTestBase.testShorts.length;
         for (Short l : ByteSourceTestBase.testShorts)
         {
-            if (l == null)
-                continue;
             ByteComparable suffix = typeToComparable(ShortType.instance, l);
+            int second = 0;
             for (BigInteger v : ByteSourceTestBase.testBigInts)
             {
+                // Do only the first'th of each firstCount values, so that in total we use all BigIntegers but
+                // only once each to reduce the test length.
+                if (second++ % firstCount != first)
+                    continue;
+
                 ByteComparable prefix = typeToComparable(IntegerType.instance, v);
                 testDuplication(Trie.singleton(suffix, v).prefix(prefix), "Prefix value " + v + ":" + l);
             }
+            ++first;
         }
     }
 
@@ -81,13 +88,19 @@ public class TrieDuplicationTest
     public void testDuplicationTail()
     {
         // Use non-duplicatable byte sources to ensure duplicate logic is executed correctly.
+        int first = 0;
+        int firstCount = ByteSourceTestBase.testShorts.length;
         for (Short l : ByteSourceTestBase.testShorts)
         {
-            if (l == null)
-                continue;
             ByteComparable prefix = typeToComparable(ShortType.instance, l);
+            int second = 0;
             for (BigInteger v : ByteSourceTestBase.testBigInts)
             {
+                // Do only the first'th of each firstCount values, so that in total we use all BigIntegers but
+                // only once each to reduce the test length.
+                if (second++ % firstCount != first)
+                    continue;
+
                 ByteComparable suffix = typeToComparable(IntegerType.instance, v);
                 ByteComparable combined = c -> ByteSource.withTerminator(ByteSource.TERMINATOR, prefix.asComparableBytes(c), suffix.asComparableBytes(c));
                 ByteComparable prefixInCombo = c -> ByteSource.withTerminatorLegacy(ByteSource.NEXT_COMPONENT, prefix.asComparableBytes(c));
@@ -96,6 +109,7 @@ public class TrieDuplicationTest
 
                 testDuplication(trie, "Tail for value " + v + ":" + l);
             }
+            ++first;
         }
     }
 
