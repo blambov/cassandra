@@ -248,6 +248,7 @@ public class TrieMemoryIndexTest extends SAIRandomizedTester
                                         table.comparator,
                                         target.left,
                                         target.right,
+                                        null,
                                         indexMetadata);
         return new TrieMemoryIndex(indexContext);
     }

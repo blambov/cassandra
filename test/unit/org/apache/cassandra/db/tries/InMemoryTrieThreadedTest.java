@@ -32,9 +32,9 @@ import java.util.function.Predicate;
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
@@ -79,8 +79,10 @@ public class InMemoryTrieThreadedTest
     @Test
     public void testThreaded() throws InterruptedException
     {
+        Random rand = new Random(1);
+        OpOrder readOrder = new OpOrder();
         ByteComparable[] src = generateKeys(rand, COUNT + OTHERS);
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<String> trie = InMemoryDTrie.longLived(readOrder);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<>();
         AtomicBoolean writeCompleted = new AtomicBoolean(false);
@@ -94,11 +96,14 @@ public class InMemoryTrieThreadedTest
                     {
                         int min = writeProgress.get();
                         int count = 0;
-                        for (Map.Entry<ByteComparable, String> en : trie.entrySet())
+                        try (OpOrder.Group group = readOrder.start())
                         {
-                            String v = value(en.getKey());
-                            Assert.assertEquals(en.getKey().byteComparableAsString(VERSION), v, en.getValue());
-                            ++count;
+                            for (Map.Entry<ByteComparable, String> en : trie.entrySet())
+                            {
+                                String v = value(en.getKey());
+                                Assert.assertEquals(en.getKey().byteComparableAsString(VERSION), v, en.getValue());
+                                ++count;
+                            }
                         }
                         Assert.assertTrue("Got only " + count + " while progress is at " + min, count >= min);
                     }
@@ -125,15 +130,18 @@ public class InMemoryTrieThreadedTest
                             int index = r.nextInt(COUNT + OTHERS);
                             ByteComparable b = src[index];
                             String v = value(b);
-                            String result = trie.get(b);
-                            if (result != null)
+                            try (OpOrder.Group group = readOrder.start())
                             {
-                                Assert.assertTrue("Got not added " + index + " when COUNT is " + COUNT,
-                                                  index < COUNT);
-                                Assert.assertEquals("Failed " + index, v, result);
+                                String result = trie.get(b);
+                                if (result != null)
+                                {
+                                    Assert.assertTrue("Got not added " + index + " when COUNT is " + COUNT,
+                                                      index < COUNT);
+                                    Assert.assertEquals("Failed " + index, v, result);
+                                }
+                                else if (index < min)
+                                    Assert.fail("Failed index " + index + " while progress is at " + min);
                             }
-                            else if (index < min)
-                                Assert.fail("Failed index " + index + " while progress is at " + min);
                         }
                     }
                 }
@@ -352,7 +360,9 @@ public class InMemoryTrieThreadedTest
          * If the sum for any walk covering whole partitions is non-zero, we have had non-atomic updates.
          */
 
-        InMemoryDTrie<Content> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        OpOrder readOrder = new OpOrder();
+//        MemtableTrie<Content> trie = new InMemoryDTrie<>(new MemtableAllocationStrategy.NoReuseStrategy(BufferType.OFF_HEAP));
+        InMemoryDTrie<Content> trie = InMemoryDTrie.longLived(readOrder);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<Thread>();
         AtomicBoolean writeCompleted = new AtomicBoolean(false);
@@ -369,8 +379,11 @@ public class InMemoryTrieThreadedTest
                         while (!writeCompleted.get())
                         {
                             int min = writeProgress.get();
-                            Iterable<Map.Entry<ByteComparable, Content>> entries = trie.entrySet();
-                            checkEntries("", min, true, checkAtomicity, false, PER_MUTATION, entries);
+                            try (OpOrder.Group group = readOrder.start())
+                            {
+                                Iterable<Map.Entry<ByteComparable, Content>> entries = trie.entrySet();
+                                checkEntries("", min, true, checkAtomicity, false, PER_MUTATION, entries);
+                            }
                         }
                     }
                     catch (Throwable t)
@@ -400,11 +413,17 @@ public class InMemoryTrieThreadedTest
                             int min = writeProgress.get() / (pkeys.length * PER_MUTATION) * PER_MUTATION;
                             Iterable<Map.Entry<ByteComparable, Content>> entries;
 
-                            entries = trie.tailTrie(key).entrySet();
-                            checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                            try (OpOrder.Group group = readOrder.start())
+                            {
+                                entries = trie.tailTrie(key).entrySet();
+                                checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                            }
 
-                            entries = trie.subtrie(key, key).entrySet();
-                            checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                            try (OpOrder.Group group = readOrder.start())
+                            {
+                                entries = trie.subtrie(key, key).entrySet();
+                                checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                            }
                         }
                     }
                     catch (Throwable t)
@@ -495,6 +514,16 @@ public class InMemoryTrieThreadedTest
 
         for (Thread t : threads)
             t.join();
+
+        System.out.format("Reuse %s %s atomicity %s on-heap %,d (+%,d) off-heap %,d (+%,d)\n",
+                          trie.allocator.getClass().getSimpleName(),
+                          ((MemtableAllocationStrategy.NoReuseStrategy) (trie.allocator)).bufferType,
+                          forcedCopyChecker == NO_ATOMICITY ? "none" :
+                          forcedCopyChecker == FORCE_ATOMIC ? "atomic" : "consistent partition",
+                          trie.sizeOnHeap(),
+                          trie.allocator.availableForAllocationOnHeap(),
+                          trie.sizeOffHeap(),
+                          trie.allocator.availableForAllocationOffHeap());
 
         if (!errors.isEmpty())
             Assert.fail("Got errors:\n" + errors);

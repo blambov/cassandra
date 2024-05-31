@@ -3526,6 +3526,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     }
 
     @Override
+    public OpOrder readOrdering()
+    {
+        return readOrdering;
+    }
+
+    @Override
     public OpOrder.Barrier newReadOrderingBarrier()
     {
         return readOrdering.newBarrier();

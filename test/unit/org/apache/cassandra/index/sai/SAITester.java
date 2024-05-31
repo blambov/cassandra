@@ -257,6 +257,7 @@ public abstract class SAITester extends CQLTester
                                 new ClusteringComparator(),
                                 ColumnMetadata.regularColumn("sai", "internal", name, validator),
                                 IndexTarget.Type.SIMPLE,
+                                null,
                                 IndexMetadata.fromSchemaMetadata(name, IndexMetadata.Kind.CUSTOM, null));
     }
 

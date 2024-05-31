@@ -27,7 +27,7 @@ public class TrieToDotTest
     @Test
     public void testToDotContent() throws Exception
     {
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = InMemoryDTrie.shortLived();
         String s = "Trie node types and manipulation mechanisms. The main purpose of this is to allow for handling tries directly as" +
                    " they are on disk without any serialization, and to enable the creation of such files.";
         s = s.toLowerCase();

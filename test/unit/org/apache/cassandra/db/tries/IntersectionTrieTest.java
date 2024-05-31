@@ -135,7 +135,7 @@ public class IntersectionTrieTest
 
     private Trie<Integer> fromList(int... list) throws InMemoryDTrie.SpaceExhaustedException
     {
-        InMemoryDTrie<Integer> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<Integer> trie = InMemoryDTrie.shortLived();
         for (int i : list)
         {
             trie.putRecursive(at(i), i, (ex, n) -> n);
@@ -534,7 +534,7 @@ public class IntersectionTrieTest
     {
         try
         {
-            InMemoryDTrie<Integer> dupe = new InMemoryDTrie<>(BufferType.ON_HEAP);
+            InMemoryDTrie<Integer> dupe = InMemoryDTrie.shortLived();
             dupe.apply(trie, (x, y) -> y, Predicates.alwaysFalse());
             return dupe;
         }

@@ -21,12 +21,28 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
 {
-    public InMemoryDTrie(BufferType bufferType)
+    public InMemoryDTrie(MemtableAllocationStrategy strategy)
     {
-        super(bufferType);
+        super(strategy);
+    }
+
+    public static <T> InMemoryDTrie<T> shortLived()
+    {
+        return new InMemoryDTrie<T>(shortLivedStrategy());
+    }
+
+    public static <T> InMemoryDTrie<T> longLived(OpOrder opOrder)
+    {
+        return new InMemoryDTrie<T>(longLivedStrategy(opOrder));
+    }
+
+    public static <T> InMemoryDTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryDTrie<T>(longLivedStrategy(bufferType, opOrder));
     }
 
     static class DeterministicCursor<T> extends MemtableCursor<T> implements TrieImpl.Cursor<T>

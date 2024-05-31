@@ -40,7 +40,7 @@ public class BlockBalancedTreeRamBuffer
 
     public BlockBalancedTreeRamBuffer(int bytesPerValue)
     {
-        trie = new InMemoryDTrie<>(TrieMemtable.BUFFER_TYPE);
+        trie = InMemoryDTrie.shortLived();
         postingsAccumulator = new PostingsAccumulator();
         this.bytesPerValue = bytesPerValue;
     }

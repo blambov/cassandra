@@ -73,9 +73,6 @@ public class ComparisonReadBench
                                           .withGuessing(Guess.INSTRUMENTATION_AND_SPECIFICATION, Guess.UNSAFE)
                                           .build();
 
-    @Param({"ON_HEAP"})
-    BufferType bufferType = BufferType.OFF_HEAP;
-
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
 
@@ -310,7 +307,7 @@ public class ComparisonReadBench
         TrieAccess(Type<T> type)
         {
             this.type = type;
-            trie = new InMemoryDTrie<>(bufferType);
+            trie = InMemoryDTrie.shortLived();
         }
 
         public void put(long v, byte b)

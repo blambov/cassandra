@@ -59,6 +59,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
  * Manages metadata for each column index.
@@ -92,6 +93,7 @@ public class IndexContext
     private final ColumnQueryMetrics columnQueryMetrics;
     private final AbstractAnalyzer.AnalyzerFactory analyzerFactory;
     private final PrimaryKey.Factory primaryKeyFactory;
+    private final OpOrder readOrdering;
 
     public IndexContext(String keyspace,
                         String table,
@@ -99,6 +101,7 @@ public class IndexContext
                         ClusteringComparator clusteringComparator,
                         ColumnMetadata columnMetadata,
                         IndexTarget.Type indexType,
+                        OpOrder readOrdering,
                         @Nullable IndexMetadata indexMetadata)
     {
         this.keyspace = Objects.requireNonNull(keyspace);
@@ -109,6 +112,7 @@ public class IndexContext
         this.indexType = Objects.requireNonNull(indexType);
         this.validator = TypeUtil.cellValueType(columnMetadata, indexType);
         this.primaryKeyFactory = new PrimaryKey.Factory(clusteringComparator);
+        this.readOrdering = readOrdering;
 
         this.indexMetadata = indexMetadata;
         this.memtableIndexManager = indexMetadata == null ? null : new MemtableIndexManager(this);
@@ -479,5 +483,10 @@ public class IndexContext
                         .stream()
                         .mapToLong(SSTableIndex::indexFileCacheSize)
                         .sum();
+    }
+
+    public OpOrder readOrdering()
+    {
+        return readOrdering;
     }
 }

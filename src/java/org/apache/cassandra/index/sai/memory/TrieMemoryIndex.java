@@ -48,6 +48,7 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
  * This is an in-memory index using the {@link InMemoryDTrie} to store a {@link ByteComparable}
@@ -74,7 +75,7 @@ public class TrieMemoryIndex
     public TrieMemoryIndex(IndexContext indexContext)
     {
         this.indexContext = indexContext;
-        this.data = new InMemoryDTrie<>(TrieMemtable.BUFFER_TYPE);
+        this.data = InMemoryDTrie.longLived(TrieMemtable.BUFFER_TYPE, indexContext.readOrdering());
         this.primaryKeysReducer = new PrimaryKeysReducer();
         // The use of the analyzer is within a synchronized block so can be considered thread-safe
         this.analyzerFactory = indexContext.getAnalyzerFactory();

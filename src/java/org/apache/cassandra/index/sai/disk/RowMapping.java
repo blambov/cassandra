@@ -66,7 +66,7 @@ public class RowMapping
         public void add(PrimaryKey key, long sstableRowId) {}
     };
 
-    private final InMemoryDTrie<Long> rowMapping = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+    private final InMemoryDTrie<Long> rowMapping = InMemoryDTrie.shortLived();
 
     private boolean complete = false;
 

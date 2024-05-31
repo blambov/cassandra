@@ -128,7 +128,7 @@ interface DataPoint extends DeletionAwareTrie.Deletable
 
     static DeletionAwareTrie<LivePoint, DeletionMarker> fromList(List<DataPoint> list)
     {
-        InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> trie = new InMemoryDeletionAwareTrie<>(BufferType.ON_HEAP);
+        InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> trie = InMemoryDeletionAwareTrie.shortLived();
         try
         {
             // If we put a deletion first, the deletion branch will start at the root which works but isn't interesting

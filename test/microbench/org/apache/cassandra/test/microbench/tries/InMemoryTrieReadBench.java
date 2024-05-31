@@ -55,7 +55,7 @@ public class InMemoryTrieReadBench
     @Setup(Level.Trial)
     public void setup() throws Throwable
     {
-        trie = new InMemoryDTrie<>(bufferType);
+        trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
 
         System.out.format("Putting %,d\n", count);

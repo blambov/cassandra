@@ -117,6 +117,7 @@ public class SegmentFlushTest
                                                      new ClusteringComparator(),
                                                      column,
                                                      IndexTarget.Type.SIMPLE,
+                                                     null,
                                                      config);
 
         SSTableIndexWriter writer = new SSTableIndexWriter(indexDescriptor, indexContext, V1OnDiskFormat.SEGMENT_BUILD_MEMORY_LIMITER, () -> true);

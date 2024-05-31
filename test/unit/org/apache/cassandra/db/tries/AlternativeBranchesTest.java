@@ -164,7 +164,7 @@ public class AlternativeBranchesTest
     @Test
     public void testPutAlternativeRecursive() throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         NavigableMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
@@ -187,13 +187,13 @@ public class AlternativeBranchesTest
         verifyAlternates(trie, normals, alternates);
 
         // Now try adding normals first, followed by alternates to have the alternates branch lower.
-        trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        trie = InMemoryNDTrie.shortLived();
         putNth(trie, normals, 1, 0);    // puts all
         putNth(trie, alternates, 1, 0);    // puts all
         verifyAlternates(trie, normals, alternates);
 
         // Now try a more complex mixture.
-        trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        trie = InMemoryNDTrie.shortLived();
         putNth(trie, normals, 3, 2);
         putNth(trie, alternates, 2, 1);
         putNth(trie, normals, 3, 1);
@@ -233,7 +233,7 @@ public class AlternativeBranchesTest
 
     public void testPutAlternativeRangeRecursive(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         NavigableMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
@@ -274,7 +274,7 @@ public class AlternativeBranchesTest
 
     public void testApplyAlternativeRange(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         NavigableMap<ByteComparable, MergeableInteger> alternates = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
@@ -345,7 +345,7 @@ public class AlternativeBranchesTest
 
     void testCoveredVisitsRange(CoveredRangeAdder adder) throws InMemoryNDTrie.SpaceExhaustedException
     {
-        InMemoryNDTrie<MergeableInteger> trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+        InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
         for (int i = 0; i < COUNT; ++i)
         {

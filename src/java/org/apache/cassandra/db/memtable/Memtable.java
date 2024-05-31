@@ -177,6 +177,11 @@ public interface Memtable extends Comparable<Memtable>, UnfilteredSource
          * {@link #localRangesUpdated()} call.
          */
         ShardBoundaries localRangeSplits(int shardCount);
+
+        /**
+         * Return the OpOrder used to protect the release of data which may be in use by concurrently operating reads.
+         */
+        OpOrder readOrdering();
     }
 
     // Main write and read operations

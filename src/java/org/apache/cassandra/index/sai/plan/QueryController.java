@@ -122,6 +122,7 @@ public class QueryController
                                                     cfs.metadata().comparator,
                                                     expression.column(),
                                                     IndexTarget.Type.VALUES,
+                                                    null,
                                                     null)
                                  : indexes.iterator().next().getIndexContext();
     }

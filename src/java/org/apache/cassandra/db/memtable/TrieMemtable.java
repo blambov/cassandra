@@ -146,18 +146,19 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);
         this.metrics = new TrieMemtableMetricsView(metadataRef.keyspace, metadataRef.name);
-        this.shards = generatePartitionShards(boundaries.shardCount(), allocator, metadataRef, metrics);
+        this.shards = generatePartitionShards(boundaries.shardCount(), allocator, metadataRef, metrics, owner.readOrdering());
         this.mergedTrie = makeMergedTrie(shards);
     }
 
     private static MemtableShard[] generatePartitionShards(int splits,
                                                            MemtableAllocator allocator,
                                                            TableMetadataRef metadata,
-                                                           TrieMemtableMetricsView metrics)
+                                                           TrieMemtableMetricsView metrics,
+                                                           OpOrder opOrder)
     {
         MemtableShard[] partitionMapContainer = new MemtableShard[splits];
         for (int i = 0; i < splits; i++)
-            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics);
+            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics, opOrder);
 
         return partitionMapContainer;
     }
@@ -463,9 +464,9 @@ public class TrieMemtable extends AbstractShardedMemtable
         private final TrieMemtableMetricsView metrics;
 
         @VisibleForTesting
-        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics)
+        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
-            this.data = new InMemoryDTrie<>(BUFFER_TYPE);
+            this.data = InMemoryDTrie.longLived(BUFFER_TYPE, opOrder);
             this.columnsCollector = new AbstractMemtable.ColumnsCollector(metadata.get().regularAndStaticColumns());
             this.statsCollector = new AbstractMemtable.StatsCollector();
             this.allocator = allocator;
@@ -720,11 +721,11 @@ public class TrieMemtable extends AbstractShardedMemtable
     }
 
     @VisibleForTesting
-    public long unusedReservedMemory()
+    public long unusedReservedOnHeapMemory()
     {
         long size = 0;
         for (MemtableShard shard : shards)
-            size += shard.data.unusedReservedMemory();
+            size += shard.data.unusedReservedOnHeapMemory();
         return size;
     }
 }

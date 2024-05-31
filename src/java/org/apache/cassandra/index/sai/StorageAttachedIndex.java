@@ -177,6 +177,7 @@ public class StorageAttachedIndex implements Index
                                              tableMetadata.comparator,
                                              target.left,
                                              target.right,
+                                             baseCfs.readOrdering(),
                                              config);
     }
 
