@@ -192,6 +192,12 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return pos;
     }
 
+    /**
+     * Add a new content value.
+     *
+     * @return A content pointer that can be used to reference the content, encoded as ~index where index is the
+     *         position of the value in the content array.
+     */
     int addContent(T value)
     {
         int index = contentCount++;
@@ -205,13 +211,19 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
         array.lazySet(ofs, value); // no need for a volatile set here; at this point the item is not referenced
                                    // by any node in the trie, and a volatile set will be made to reference it.
-        return index;
+        return ~index; // encode content index as a negative number, so that it is directly useable as a pointer
     }
 
-    void setContent(int index, T value)
+    /**
+     * Change the content associated with a given content pointer.
+     *
+     * @param id content pointer, encoded as ~index where index is the position in the content array
+     * @param value new content value to store
+     */
+    void setContent(int id, T value)
     {
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
+        int leadBit = getChunkIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(~id, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
         array.set(ofs, value);
     }
@@ -611,13 +623,13 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return allocateCleanNode() + SPLIT_OFFSET;
     }
 
-    int createContentPrefixNode(int contentIndex, int child, boolean isSafeChain) throws SpaceExhaustedException
+    int createContentPrefixNode(int contentId, int child, boolean isSafeChain) throws SpaceExhaustedException
     {
         assert !isNullOrLeaf(child) : "Content prefix node cannot reference a childless node.";
-        return createPrefixNode(contentIndex, child, isSafeChain, 0);
+        return createPrefixNode(contentId, child, isSafeChain, 0);
     }
 
-    int createPrefixNode(int contentIndex, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
+    int createPrefixNode(int contentId, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
     {
         int offset = offset(child);
         int node;
@@ -638,7 +650,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             putInt(node + PREFIX_POINTER_OFFSET, child);
         }
 
-        putInt(node + PREFIX_CONTENT_OFFSET, contentIndex);
+        putInt(node + PREFIX_CONTENT_OFFSET, contentId);
         return node;
     }
 
@@ -656,8 +668,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
         else
         {
-            int contentIndex = getInt(node + PREFIX_CONTENT_OFFSET);
-            return createContentPrefixNode(contentIndex, child, true);
+            int contentId = getInt(node + PREFIX_CONTENT_OFFSET);
+            return createContentPrefixNode(contentId, child, true);
         }
     }
 
@@ -700,7 +712,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         // else we have existing prefix node, and we need to reference a new child
         if (isLeaf(existingFullNode))
         {
-            return createContentPrefixNode(~existingFullNode, updatedPostContentNode, true);
+            return createContentPrefixNode(existingFullNode, updatedPostContentNode, true);
         }
 
         assert offset(existingFullNode) == PREFIX_OFFSET : "Unexpected content in non-prefix and non-leaf node.";
@@ -799,11 +811,11 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * The compiled content index. Needed because we can only access a cursor's content on the way down but we can't
          * attach it until we ascend from the node.
          */
-        int contentIndex()
+        int contentId()
         {
             return data[stackDepth * 5 + 3];
         }
-        void setContentIndex(int value)
+        void setContentId(int value)
         {
             data[stackDepth * 5 + 3] = value;
         }
@@ -923,39 +935,39 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (existingAlternateBranch != NONE)
                 node = getPrefixChild(node, getUnsignedByte(node + PREFIX_FLAGS_OFFSET));
 
-            int existingContentIndex = -1;
+            int existingContentId = NONE;
             int existingPostContentNode;
             if (isLeaf(node))
             {
-                existingContentIndex = ~node;
+                existingContentId = node;
                 existingPostContentNode = NONE;
             }
             else if (offset(node) == PREFIX_OFFSET)
             {
-                existingContentIndex = getInt(node + PREFIX_CONTENT_OFFSET);
+                existingContentId = getInt(node + PREFIX_CONTENT_OFFSET);
                 existingPostContentNode = followPrefixTransition(node);
             }
             else
                 existingPostContentNode = node;
             setUpdatedPostContentNode(existingPostContentNode);
-            setContentIndex(existingContentIndex);
+            setContentId(existingContentId);
         }
 
         T getContent()
         {
-            int contentIndex = contentIndex();
-            if (contentIndex == -1)
+            int contentId = contentId();
+            if (contentId == NONE)
                 return null;
-            return InMemoryTrie.this.getContent(contentIndex());
+            return InMemoryTrie.this.getContent(contentId);
         }
 
         void setContent(T content, boolean forcedCopy)
         {
-            int contentIndex = contentIndex();
-            if (contentIndex == -1 || forcedCopy)
+            int contentId = contentId();
+            if (contentId == NONE || forcedCopy)
             {
                 if (content != null)
-                    setContentIndex(InMemoryTrie.this.addContent(content));
+                    setContentId(InMemoryTrie.this.addContent(content));
 
                 // TODO: If forcedCopy is true, the old content is left referenced for concurrent readers, i.e. stale
                 // data will remain in the heap, not collectible by the GC. This should be addressed by cell reuse.
@@ -963,10 +975,10 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             }
             else
             {
-                InMemoryTrie.this.setContent(contentIndex, content);
+                InMemoryTrie.this.setContent(contentId, content);
                 // TODO: Delete on the way up
-                // TODO: setContentIndex(NONE);
-                //  and release contentIndex
+                // TODO: setContentId(NONE);
+                //  and release contentId
             }
         }
 
@@ -1018,23 +1030,22 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          */
         private int applyContent(int updatedPostContentNode, boolean forcedCopy) throws SpaceExhaustedException
         {
-            // TODO: make content addressing consistent with alternatives by storing ~contentIndex
-            int contentIndex = contentIndex();
-            if (contentIndex == -1)
+            int contentId = contentId();
+            if (contentId == NONE)
                 return updatedPostContentNode;
 
             if (isNull(updatedPostContentNode))
-                return ~contentIndex;
+                return contentId;
 
             // applyPrefixChange does not understand leaf nodes, handle upgrade from one explicitly.
             final int existingPreContentNode = existingPostAlternateNode();
             if (isLeaf(existingPreContentNode))
-                return createPrefixNode(contentIndex, updatedPostContentNode, true, 0);
+                return createPrefixNode(contentId, updatedPostContentNode, true, 0);
 
             return applyPrefixChange(updatedPostContentNode,
                                      existingPreContentNode,
                                      existingPostContentNode(),
-                                     contentIndex,
+                                     contentId,
                                      0,
                                      forcedCopy);
         }
@@ -1540,7 +1551,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         if (transition == ByteSource.END_OF_STREAM)
         {
             // Reached a match for the alternative in the normal path. Create an alternative here.
-            int alternate = ~addContent(transformer.apply(null, value));
+            int alternate = addContent(transformer.apply(null, value));
             return createPrefixNode(alternate, node, false, PREFIX_ALTERNATE_PATH_FLAG);
         }
 
@@ -1666,19 +1677,20 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
     {
         if (isNull(node))
-            return ~addContent(transformer.apply(null, value));
+            return addContent(transformer.apply(null, value));
 
         if (isLeaf(node))
         {
-            int contentIndex = ~node;
-            setContent(contentIndex, transformer.apply(getContent(contentIndex), value));
+            int contentId = node;
+            setContent(contentId, transformer.apply(getContent(contentId), value));
             return node;
         }
 
+        // TODO: alternative branch handling?
         if (offset(node) == PREFIX_OFFSET)
         {
-            int contentIndex = getInt(node + PREFIX_CONTENT_OFFSET);
-            setContent(contentIndex, transformer.apply(getContent(contentIndex), value));
+            int contentId = getInt(node + PREFIX_CONTENT_OFFSET);
+            setContent(contentId, transformer.apply(getContent(contentId), value));
             return node;
         }
         else

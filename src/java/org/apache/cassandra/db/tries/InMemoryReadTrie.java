@@ -280,10 +280,16 @@ public class InMemoryReadTrie<T>
         return getChunk(pos).getInt(inChunkPointer(pos));
     }
 
-    T getContent(int index)
+    /**
+     * Get the content for the given content pointer.
+     *
+     * @param id content pointer, encoded as ~index where index is the position in the content array.
+     * @return the current content value.
+     */
+    T getContent(int id)
     {
-        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
+        int leadBit = getChunkIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(~id, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
         return array.get(ofs);
     }
@@ -578,13 +584,13 @@ public class InMemoryReadTrie<T>
     T getNodeContent(int node)
     {
         if (isLeaf(node))
-            return getContent(~node);
+            return getContent(node);
 
         if (offset(node) != PREFIX_OFFSET)
             return null;
 
         int index = getInt(node + PREFIX_CONTENT_OFFSET);
-        return (index >= 0)
+        return (isLeaf(index))
                ? getContent(index)
                : null;
     }
@@ -1214,7 +1220,7 @@ public class InMemoryReadTrie<T>
                 int index = trie.getInt(child + PREFIX_CONTENT_OFFSET);
                 if ((b & PREFIX_ALTERNATE_PATH_FLAG) == 0)
                 {
-                    content = (index >= 0) ? trie.getContent(index) : null;
+                    content = isLeaf(index) ? trie.getContent(index) : null;
                     alternateBranch = NONE;
                 }
                 else
@@ -1425,7 +1431,8 @@ public class InMemoryReadTrie<T>
                 {
                     builder.append("Prefix: ");
                     int flags = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
-                    builder.append(getInt(node + PREFIX_CONTENT_OFFSET));
+                    final int content = getInt(node + PREFIX_CONTENT_OFFSET);
+                    builder.append(content < 0 ? "~" + (~content) : "" + content);
                     if ((flags & PREFIX_ALTERNATE_PATH_FLAG) != 0)
                         builder.append(" alternate");
                     if ((flags & PREFIX_EMBEDDED_FLAG) != 0)
