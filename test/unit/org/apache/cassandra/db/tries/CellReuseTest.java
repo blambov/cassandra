@@ -23,8 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Random;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 import com.google.common.collect.Streams;
@@ -156,13 +154,13 @@ public class CellReuseTest
             System.out.println(String.format("Cell at %d: %08x %08x %08x %08x %08x %08x %08x %08x",
                                              (i << 5),
                                              trie.getInt((i << 5) + 0),
-                                             trie.getInt((i << 5) + 1),
-                                             trie.getInt((i << 5) + 2),
-                                             trie.getInt((i << 5) + 3),
                                              trie.getInt((i << 5) + 4),
-                                             trie.getInt((i << 5) + 5),
-                                             trie.getInt((i << 5) + 6),
-                                             trie.getInt((i << 5) + 7)
+                                             trie.getInt((i << 5) + 8),
+                                             trie.getInt((i << 5) + 12),
+                                             trie.getInt((i << 5) + 16),
+                                             trie.getInt((i << 5) + 20),
+                                             trie.getInt((i << 5) + 24),
+                                             trie.getInt((i << 5) + 28)
             ));
 
         }
@@ -171,6 +169,7 @@ public class CellReuseTest
 
     private Pair<BitSet, BitSet> reachableCells(InMemoryDTrie<?> trie)
     {
+//        System.out.println(trie.dump());
         BitSet set = new BitSet();
         BitSet objs = new BitSet();
         mark(trie, trie.root, set, objs);
@@ -180,6 +179,7 @@ public class CellReuseTest
     private void mark(InMemoryDTrie<?,?> trie, int node, BitSet set, BitSet objs)
     {
         set.set(node >> 5);
+//        System.out.println(trie.dumpNode(node));
         switch (trie.offset(node))
         {
             case InMemoryDTrie.SPLIT_OFFSET:
@@ -188,12 +188,14 @@ public class CellReuseTest
                     int mid = trie.getInt(node + InMemoryDTrie.SPLIT_POINTER_OFFSET + i * 4);
                     if (mid != InMemoryDTrie.NONE)
                     {
+//                        System.out.println(trie.dumpNode(mid));
                         set.set(mid >> 5);
                         for (int j = 0; j < 8; ++j)
                         {
                             int tail = trie.getInt(mid + j * 4);
                             if (tail != InMemoryDTrie.NONE)
                             {
+//                                System.out.println(trie.dumpNode(tail));
                                 set.set(tail >> 5);
                                 for (int k = 0; k < 8; ++k)
                                     markChild(trie, trie.getInt(tail + k * 4), set, objs);
@@ -206,8 +208,14 @@ public class CellReuseTest
                 for (int i = 0; i < InMemoryDTrie.SPARSE_CHILD_COUNT; ++i)
                     markChild(trie, trie.getInt(node + InMemoryDTrie.SPARSE_CHILDREN_OFFSET + i * 4), set, objs);
                 break;
-            case InMemoryDTrie.METADATA_OFFSET:
-                markChild(trie, trie.followMetadataTransition(node), set, objs);
+            case InMemoryTrie.PREFIX_OFFSET:
+                int content = trie.getInt(node + InMemoryTrie.PREFIX_CONTENT_OFFSET);
+                if (content < 0)
+                    objs.set(~content);
+                else
+                    markChild(trie, content, set, objs);
+
+                markChild(trie, trie.getPrefixChild(node, trie.getUnsignedByte(node + InMemoryReadTrie.PREFIX_FLAGS_OFFSET)), set, objs);
                 break;
             default:
                 assert trie.offset(node) <= InMemoryDTrie.MULTI_MAX_OFFSET && trie.offset(node) >= InMemoryDTrie.MULTI_MIN_OFFSET;
@@ -233,7 +241,7 @@ public class CellReuseTest
     {
         OpOrder order = new OpOrder();
         InMemoryDTrie<ByteBuffer> trie = creator.apply(order);
-        int step = Math.min(100, COUNT / 100);
+        int step = Math.max(Math.min(100, COUNT / 100), 1);
         for (int i = 0; i < src.length; i += step)
             try (OpOrder.Group g = order.start())
             {
