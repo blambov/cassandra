@@ -1204,7 +1204,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                     // use two nodes while one suffices. Instead, copy the child and embed the new metadata.
                     updatedPostPrefixNode = allocator.copyCell(existingPostPrefixNode);
                 }
-                else if (!prefixWasEmbedded)
+                else if (prefixWasPresent && !prefixWasEmbedded)
                 {
                     allocator.recycleCell(existingPrePrefixNode);
                     // otherwise cell is already recycled by the recycling of the child
@@ -1433,6 +1433,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         catch (Throwable t)
         {
             abortMutation();
+            throw t;
         }
     }
 
@@ -1638,6 +1639,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         catch (Throwable t)
         {
             abortMutation();
+            throw t;
         }
     }
 

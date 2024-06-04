@@ -23,8 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Random;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -167,13 +165,13 @@ public class CellReuseTest
             System.out.println(String.format("Cell at %d: %08x %08x %08x %08x %08x %08x %08x %08x",
                                              (i << 5),
                                              trie.getInt((i << 5) + 0),
-                                             trie.getInt((i << 5) + 1),
-                                             trie.getInt((i << 5) + 2),
-                                             trie.getInt((i << 5) + 3),
                                              trie.getInt((i << 5) + 4),
-                                             trie.getInt((i << 5) + 5),
-                                             trie.getInt((i << 5) + 6),
-                                             trie.getInt((i << 5) + 7)
+                                             trie.getInt((i << 5) + 8),
+                                             trie.getInt((i << 5) + 12),
+                                             trie.getInt((i << 5) + 16),
+                                             trie.getInt((i << 5) + 20),
+                                             trie.getInt((i << 5) + 24),
+                                             trie.getInt((i << 5) + 28)
             ));
 
         }
@@ -182,6 +180,7 @@ public class CellReuseTest
 
     private Pair<BitSet, BitSet> reachableCells(InMemoryDTrie<?> trie)
     {
+//        System.out.println(trie.dump());
         BitSet set = new BitSet();
         BitSet objs = new BitSet();
         mark(trie, trie.root, set, objs);
@@ -191,6 +190,7 @@ public class CellReuseTest
     private void mark(InMemoryTrie<?> trie, int node, BitSet set, BitSet objs)
     {
         set.set(node >> 5);
+//        System.out.println(trie.dumpNode(node));
         switch (trie.offset(node))
         {
             case InMemoryTrie.SPLIT_OFFSET:
@@ -199,12 +199,14 @@ public class CellReuseTest
                     int mid = trie.getSplitBlockPointer(node, i, InMemoryTrie.SPLIT_START_LEVEL_LIMIT);
                     if (mid != InMemoryTrie.NONE)
                     {
+//                        System.out.println(trie.dumpNode(mid));
                         set.set(mid >> 5);
                         for (int j = 0; j < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++j)
                         {
                             int tail = trie.getSplitBlockPointer(mid, j, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT);
                             if (tail != InMemoryTrie.NONE)
                             {
+//                                System.out.println(trie.dumpNode(tail));
                                 set.set(tail >> 5);
                                 for (int k = 0; k < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++k)
                                     markChild(trie, trie.getSplitBlockPointer(tail, k, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT), set, objs);
@@ -218,8 +220,13 @@ public class CellReuseTest
                     markChild(trie, trie.getInt(node + InMemoryTrie.SPARSE_CHILDREN_OFFSET + i * 4), set, objs);
                 break;
             case InMemoryTrie.PREFIX_OFFSET:
-                objs.set(~trie.getInt(node + InMemoryTrie.PREFIX_CONTENT_OFFSET));
-                markChild(trie, trie.followPrefixTransition(node), set, objs);
+                int content = trie.getInt(node + InMemoryTrie.PREFIX_CONTENT_OFFSET);
+                if (content < 0)
+                    objs.set(~content);
+                else
+                    markChild(trie, content, set, objs);
+
+                markChild(trie, trie.getPrefixChild(node, trie.getUnsignedByte(node + InMemoryReadTrie.PREFIX_FLAGS_OFFSET)), set, objs);
                 break;
             default:
                 assert trie.offset(node) <= InMemoryTrie.CHAIN_MAX_OFFSET && trie.offset(node) >= InMemoryTrie.CHAIN_MIN_OFFSET;
@@ -245,7 +252,7 @@ public class CellReuseTest
     {
         OpOrder order = new OpOrder();
         InMemoryDTrie<Object> trie = creator.apply(order);
-        int step = Math.min(100, COUNT / 100);
+        int step = Math.max(Math.min(100, COUNT / 100), 1);
         for (int i = 0; i < src.length; i += step)
             try (OpOrder.Group g = order.start())
             {
@@ -290,7 +297,7 @@ public class CellReuseTest
         // Create an update with two metadata entries, so that the lower is already a copied node.
         // Abort processing on the lower metadata, where the new branch is not attached yet (so as not to affect the
         // contents).
-        update = InMemoryTrieThreadedTest.withRootMetadata(update, Boolean.TRUE);
+        update = InMemoryTrieThreadedTest.withRootMetadata(update, Boolean.FALSE);
         update = update.prefix(source("fix"));
         update = InMemoryTrieThreadedTest.withRootMetadata(update, Boolean.TRUE);
         update = update.prefix(source("pre"));

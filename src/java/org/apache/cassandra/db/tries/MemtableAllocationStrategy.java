@@ -347,7 +347,7 @@ public interface MemtableAllocationStrategy
             allocatedPos += block;
             int[] indexes = indexList.indexes;
             for (int i = 0; i < REUSE_BLOCK_SIZE; ++i)
-                indexes[i] = pos + i * BLOCK_SIZE;
+                indexes[REUSE_BLOCK_SIZE - 1 - i] = pos + i * BLOCK_SIZE;  // fill from the back, so that lowest indexes are used first
             indexList.count = REUSE_BLOCK_SIZE;
         }
 
