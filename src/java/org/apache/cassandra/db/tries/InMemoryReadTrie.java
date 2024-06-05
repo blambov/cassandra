@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
 import org.agrona.concurrent.UnsafeBuffer;

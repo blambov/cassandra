@@ -38,6 +38,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
+import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
 import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
@@ -60,21 +61,28 @@ public class CellReuseTest
     @Test
     public void testCellReusePartitionCopying() throws Exception
     {
-        testCellReuse(FORCE_COPY_PARTITION);
+        testCellReuse(FORCE_COPY_PARTITION, 0);
     }
 
     @Test
     public void testCellReuseNoCopying() throws Exception
     {
-        testCellReuse(NO_ATOMICITY);
+        testCellReuse(NO_ATOMICITY, 0);
     }
 
-    public void testCellReuse(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate) throws Exception
+    @Test
+    public void testCellReuseWithDeletions() throws Exception
+    {
+        testCellReuse(NO_ATOMICITY, 0.1);
+    }
+
+    public void testCellReuse(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate, double deletionProbability) throws Exception
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
         InMemoryDTrie<Object> trieLong = makeInMemoryDTrie(src,
                                                            opOrder -> InMemoryDTrie.longLived(BufferType.ON_HEAP, opOrder),
-                                                           forceCopyPredicate);
+                                                           forceCopyPredicate,
+                                                           deletionProbability);
 
         // dump some information first
         System.out.println(String.format(" LongLived ON_HEAP sizes %10s %10s count %d",
@@ -245,9 +253,10 @@ public class CellReuseTest
             objs.set(~child);
     }
 
-    static InMemoryDTrie<Object> makeInMemoryDTrie(ByteComparable[] src,
-                                                       Function<OpOrder, InMemoryDTrie<Object>> creator,
-                                                       Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate)
+    InMemoryDTrie<Object> makeInMemoryDTrie(ByteComparable[] src,
+                                            Function<OpOrder, InMemoryDTrie<Object>> creator,
+                                            Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate,
+                                            double deletionProbability)
     throws InMemoryTrie.SpaceExhaustedException
     {
         OpOrder order = new OpOrder();
@@ -256,10 +265,33 @@ public class CellReuseTest
         for (int i = 0; i < src.length; i += step)
             try (OpOrder.Group g = order.start())
             {
-                addToInMemoryDTrie(Arrays.copyOfRange(src, i, i + step), trie, forceCopyPredicate);
+                if (i > 0 && rand.nextDouble() < deletionProbability)
+                    trie.delete(randomRange(src, i));
+                else
+                    addToInMemoryDTrie(Arrays.copyOfRange(src, i, i + step), trie, forceCopyPredicate);
             }
 
         return trie;
+    }
+
+    private TrieSet randomRange(ByteComparable[] src, int i)
+    {
+        ByteComparable c1 = src[rand.nextInt(i)];
+        ByteComparable c2 = src[rand.nextInt(i)];
+        if (ByteComparable.compare(c1, c2, VERSION) > 0)
+        {
+            ByteComparable t = c1; c1 = c2; c2 = t;
+        }
+        return TrieSet.range(prefixed(c1), prefixed(c2));
+    }
+
+    static ByteComparable prefixed(ByteComparable c)
+    {
+        byte[] v = c.asArray(VERSION);
+        byte[] prefix = source("prefix").asArray(VERSION);
+        byte[] combined = Arrays.copyOf(prefix, prefix.length + v.length);
+        System.arraycopy(v, 0, combined, prefix.length, v.length);
+        return ByteComparable.fixedLength(combined);
     }
 
     static void addToInMemoryDTrie(ByteComparable[] src,
