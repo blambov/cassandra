@@ -295,11 +295,12 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     private int attachChildCopying(int node, int originalNode, int trans, int newChild) throws SpaceExhaustedException
     {
-        if (node < 0)
-            throw new AssertionError("Content in intermediate nodes is not supported.");
+        assert !isLeaf(node) : "attachChild cannot be used on content nodes.";
 
         switch (offset(node))
         {
+            case PREFIX_OFFSET:
+                assert false : "attachChild cannot be used on content nodes.";
             case SPARSE_OFFSET:
                 // If the node is already copied (e.g. this is not the first child being modified), there's no need to copy
                 // it again.
@@ -349,6 +350,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int mid = getInt(midPos);
         if (isNull(mid))
         {
+            if (isNull(newChild))
+                return node;
             mid = createEmptySplitNode();
             int tailPos = splitBlockPointerAddress(mid, splitNodeTailIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
             int tail = createEmptySplitNode();
@@ -363,6 +366,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         int tail = getInt(tailPos);
         if (isNull(tail))
         {
+            if (isNull(newChild))
+                return node;
             tail = createEmptySplitNode();
             int childPos = splitBlockPointerAddress(tail, splitNodeChildIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
             putInt(childPos, newChild);
@@ -371,8 +376,51 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
 
         int childPos = splitBlockPointerAddress(tail, splitNodeChildIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
-        putIntVolatile(childPos, newChild);
-        return node;
+        if (isNull(newChild))
+            return removePathVolatile(node, midPos, mid, tailPos, tail, childPos);
+        else
+        {
+            putIntVolatile(childPos, newChild);
+            return node;    // normal path, adding data
+        }
+    }
+
+    private int removePathVolatile(int node, int midPos, int mid, int tailPos, int tail, int childPos)
+    {
+        if (isNull(getInt(childPos)))
+            return node;
+
+        // Removing a transition
+        if (!isSplitBlockEmptyExcept(tail, SPLIT_OTHER_LEVEL_LIMIT, childPos))
+        {
+            putIntVolatile(childPos, NONE);
+            return node;
+        }
+        allocator.recycleCell(tail);
+        if (!isSplitBlockEmptyExcept(mid, SPLIT_OTHER_LEVEL_LIMIT, tailPos))
+        {
+            putIntVolatile(tailPos, NONE);
+            return node;
+        }
+        allocator.recycleCell(mid);
+        if (!isSplitBlockEmptyExcept(node, SPLIT_START_LEVEL_LIMIT, midPos))
+        {
+            putIntVolatile(midPos, NONE);
+            return node;
+        }
+        allocator.recycleCell(node);
+        return NONE;
+    }
+
+    boolean isSplitBlockEmptyExcept(int node, int limit, int deletedPos)
+    {
+        for (int i = 0; i < limit; ++i)
+        {
+            int pos = splitBlockPointerAddress(node, i, limit);
+            if (pos != deletedPos && !isNull(getInt(pos)))
+                return false;
+        }
+        return true;
     }
 
     /**
@@ -390,7 +438,10 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         assert offset(tail) == SPLIT_OFFSET : "Invalid split node in trie";
         int childPos = splitBlockPointerAddress(tail, splitNodeChildIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
         putInt(childPos, newChild);
-        return node;
+        if (isNull(newChild))
+            return removePath(node, midPos, mid, tailPos, tail);
+        else
+            return node;    // normal path, adding data
     }
 
     /**
@@ -418,7 +469,35 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
         int childPos = splitBlockPointerAddress(tail, splitNodeChildIndex(trans), SPLIT_OTHER_LEVEL_LIMIT);
         putInt(childPos, newChild);
-        return node;
+        if (isNull(newChild))
+            return removePath(node, midPos, mid, tailPos, tail);
+        else
+            return node;    // normal path, adding data
+    }
+
+    private int removePath(int node, int midPos, int mid, int tailPos, int tail)
+    {
+        // Removing a transition
+        if (!isSplitBlockEmpty(tail, SPLIT_OTHER_LEVEL_LIMIT))
+            return node;
+        allocator.recycleCell(tail);
+        putInt(tailPos, NONE);
+        if (!isSplitBlockEmpty(mid, SPLIT_OTHER_LEVEL_LIMIT))
+            return node;
+        allocator.recycleCell(mid);
+        putInt(midPos, NONE);
+        if (!isSplitBlockEmpty(node, SPLIT_START_LEVEL_LIMIT))
+            return node;
+        allocator.recycleCell(node);
+        return NONE;
+    }
+
+    boolean isSplitBlockEmpty(int node, int limit)
+    {
+        for (int i = 0; i < limit; ++i)
+            if (!isNull(getSplitBlockPointer(node, i, limit)))
+                return false;
+        return true;
     }
 
     /**
@@ -436,6 +515,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             final int existing = getUnsignedByte(node + SPARSE_BYTES_OFFSET + index);
             if (existing == trans)
             {
+                if (isNull(newChild))
+                    return removeSparseChild(node, index);
                 putIntVolatile(node + SPARSE_CHILDREN_OFFSET + index * 4, newChild);
                 return node;
             }
@@ -443,6 +524,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 ++smallerCount;
         }
         int childCount = index;
+        if (isNull(newChild))
+            return node;
 
         if (childCount == SPARSE_CHILD_COUNT)
         {
@@ -474,6 +557,39 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
+    private int removeSparseChild(int node, int index) throws SpaceExhaustedException
+    {
+        allocator.recycleCell(node);
+        int order = getUnsignedShort(node + SPARSE_ORDER_OFFSET);
+        if (index <= 1 && order == 6)
+        {
+            int survivingIndex = index ^ 1;
+            return expandOrCreateChainNode(getUnsignedByte(node + SPARSE_BYTES_OFFSET + survivingIndex),
+                                           getInt(node + SPARSE_CHILDREN_OFFSET + survivingIndex * 4));
+        }
+
+        // Because we need the smallest child to not be the last (which can happen if we just remove entries), we will
+        // put the remaining data in order.
+        int newNode = allocateBlock() | SPARSE_OFFSET;
+        int i = 0;
+        int newOrder = 0;
+        int mul = 1;
+        while (order > 0)
+        {
+            int next = order % SPARSE_CHILD_COUNT;
+            order /= SPARSE_CHILD_COUNT;
+            if (next == index)
+                continue;
+            putInt(newNode + SPARSE_CHILDREN_OFFSET + i * 4, getInt(node + SPARSE_CHILDREN_OFFSET + next * 4));
+            putInt(newNode + SPARSE_BYTES_OFFSET + i, getInt(node + SPARSE_BYTES_OFFSET + next));
+            newOrder += i * mul;
+            mul *= SPARSE_CHILD_COUNT;
+            ++i;
+        }
+        putShort(newNode + SPARSE_ORDER_OFFSET, (short) newOrder);
+        return newNode;
+    }
+
     /**
      * Attach a child to the given sparse node. This may be an update for an existing branch, or a new child for the node.
      * Resulting node is not reachable, no volatile set needed.
@@ -490,6 +606,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             final int existing = getUnsignedByte(node + SPARSE_BYTES_OFFSET + index);
             if (existing == trans)
             {
+                if (isNull(newChild))
+                    return removeSparseChild(node, index);
                 node = copyIfOriginal(node, originalNode);
                 buffer.putInt(node + SPARSE_CHILDREN_OFFSET + index * 4, newChild);
                 return node;
@@ -498,6 +616,9 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 ++smallerCount;
         }
         int childCount = index;
+
+        if (isNull(newChild))
+            return node;
 
         if (childCount == SPARSE_CHILD_COUNT)
         {
@@ -573,11 +694,20 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             // This is still a single path. Update child if possible (only if this is the last character in the chain).
             if (offset(node) == LAST_POINTER_OFFSET - 1)
             {
+                if (isNull(newChild))
+                {
+                    allocator.recycleCell(node);
+                    return NONE;
+                }
+
                 buffer.putIntVolatile(node + 1, newChild);
                 return node;
             }
             else
             {
+                if (isNull(newChild))
+                    return NONE;
+
                 // This will only be called if new child is different from old, and the update is not on the final child
                 // where we can change it in place (see attachChild). We must always create something new.
                 // Note that since this is not the last character, we either still need this cell or we have already
@@ -587,6 +717,8 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 return expandOrCreateChainNode(transitionByte, newChild);
             }
         }
+        if (isNull(newChild))
+            return node;
 
         // The new transition is different, so we no longer have only one transition. Change type.
         return convertChainToSparse(node, existingByte, newChild, transitionByte);
@@ -611,11 +743,16 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
                 allocator.recycleCell(node);
             }
+            if (isNull(newChild))
+                return NONE;
 
             return expandOrCreateChainNode(transitionByte, newChild);
         }
         else
         {
+            if (isNull(newChild))
+                return node;
+
             // The new transition is different, so we no longer have only one transition. Change type.
             return convertChainToSparse(node, existingByte, newChild, transitionByte);
         }
