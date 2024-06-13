@@ -81,6 +81,15 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
     }
 
     /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends T> Iterator<U> filteredValuesIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieValuesIterator.FilteredByType<>(impl().cursor(direction), clazz);
+    }
+
+    /**
      * Returns the values in any order. For some tries this is much faster than the ordered iterable.
      */
     default Iterable<T> valuesUnordered()

@@ -29,12 +29,12 @@ import java.util.function.Function;
 import com.google.common.base.Predicates;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.addToInMemoryDTrie;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.assertIterablesEqual;
 import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKey;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
@@ -104,6 +104,8 @@ public class PrefixTailTrieTest
             assertEquals(t, getRootContent(tail));
             assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             t.data.entrySet().iterator());
+            assertIterablesEqual(tail.filteredValues(Direction.FORWARD, ByteBuffer.class),
+                                 t.data.values());
         }
 
         // Test tail iteration for metadata
@@ -117,6 +119,8 @@ public class PrefixTailTrieTest
             assertEquals(t, getRootContent(tail));
             assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             t.data.entrySet().iterator());
+            assertIterablesEqual(tail.filteredValues(Direction.FORWARD, ByteBuffer.class),
+                                 t.data.values());
             ++count;
         }
         assertEquals(COUNT_HEAD, count);
@@ -149,6 +153,8 @@ public class PrefixTailTrieTest
         assertEquals(COUNT_HEAD, ((Integer) getRootContent(tail)).intValue());
         assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                         content.entrySet().iterator());
+        assertIterablesEqual(tail.filteredValues(Direction.FORWARD, ByteBuffer.class),
+                             content.values());
 
 
         // Test tail iteration for metadata
@@ -161,6 +167,8 @@ public class PrefixTailTrieTest
             assertEquals(COUNT_HEAD, ((Integer) getRootContent(tail)).intValue());
             assertMapEquals(tt.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
                             content.entrySet().iterator());
+            assertIterablesEqual(tt.filteredValues(Direction.FORWARD, ByteBuffer.class),
+                                 content.values());
             ++count;
         }
         assertEquals(1, count);
