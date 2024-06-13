@@ -31,12 +31,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
 import static org.apache.cassandra.db.tries.TrieUtil.comparable;
@@ -162,7 +160,7 @@ public class AlternativeBranchesTest
     }
 
     @Test
-    public void testPutAlternativeRecursive() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testPutAlternativeRecursive() throws TrieSpaceExhaustedException
     {
         InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
@@ -202,7 +200,7 @@ public class AlternativeBranchesTest
         verifyAlternates(trie, normals, alternates);
     }
 
-    static void putNth(InMemoryNDTrie<MergeableInteger> trie, Map<ByteComparable, MergeableInteger> data, int divisor, int remainder) throws InMemoryNDTrie.SpaceExhaustedException
+    static void putNth(InMemoryNDTrie<MergeableInteger> trie, Map<ByteComparable, MergeableInteger> data, int divisor, int remainder) throws TrieSpaceExhaustedException
     {
 //        System.out.println();
         int i = 0;
@@ -221,7 +219,7 @@ public class AlternativeBranchesTest
     }
 
     @Test
-    public void testPutAlternativeRangeRecursive() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testPutAlternativeRangeRecursive() throws TrieSpaceExhaustedException
     {
         testPutAlternativeRangeRecursive(i -> rand.nextDouble() < 0.7);
         testPutAlternativeRangeRecursive(i -> rand.nextDouble() < 0.5);
@@ -231,7 +229,7 @@ public class AlternativeBranchesTest
         testPutAlternativeRangeRecursive(i -> i >= COUNT / 5 && rand.nextDouble() < 0.4);
     }
 
-    public void testPutAlternativeRangeRecursive(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
+    public void testPutAlternativeRangeRecursive(IntPredicate alternateChooser) throws TrieSpaceExhaustedException
     {
         InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
@@ -262,7 +260,7 @@ public class AlternativeBranchesTest
 
 
     @Test
-    public void testApplyAlternativeRange() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testApplyAlternativeRange() throws TrieSpaceExhaustedException
     {
         testApplyAlternativeRange(i -> rand.nextDouble() < 0.7);
         testApplyAlternativeRange(i -> rand.nextDouble() < 0.5);
@@ -272,7 +270,7 @@ public class AlternativeBranchesTest
         testApplyAlternativeRange(i -> i >= COUNT / 5 && rand.nextDouble() < 0.4);
     }
 
-    public void testApplyAlternativeRange(IntPredicate alternateChooser) throws InMemoryNDTrie.SpaceExhaustedException
+    public void testApplyAlternativeRange(IntPredicate alternateChooser) throws TrieSpaceExhaustedException
     {
         InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));
@@ -314,7 +312,7 @@ public class AlternativeBranchesTest
     }
 
     @Test
-    public void testCoveredVisitsRangePut() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testCoveredVisitsRangePut() throws TrieSpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
             trie.putAlternativeRangeRecursive(sComparable, svalue, eComparable, evalue, (x, y) -> of(y));
@@ -323,14 +321,14 @@ public class AlternativeBranchesTest
     }
 
     @Test
-    public void testCoveredVisitsRangeTrie() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testCoveredVisitsRangeTrie() throws TrieSpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) ->
                                alternateRange(sComparable, of(svalue), eComparable, of(evalue)));
     }
 
     @Test
-    public void testCoveredVisitsRangeApply() throws InMemoryNDTrie.SpaceExhaustedException
+    public void testCoveredVisitsRangeApply() throws TrieSpaceExhaustedException
     {
         testCoveredVisitsRange((trie, sComparable, svalue, eComparable, evalue) -> {
             trie.apply(alternateRange(sComparable, of(svalue), eComparable, of(evalue)), (x, y) -> y);
@@ -340,10 +338,10 @@ public class AlternativeBranchesTest
 
     interface CoveredRangeAdder
     {
-        NonDeterministicTrie<MergeableInteger> addAndReturnTrie(InMemoryNDTrie<MergeableInteger> trie, ByteComparable sComparable, int svalue, ByteComparable eComparable, int evalue) throws InMemoryNDTrie.SpaceExhaustedException;
+        NonDeterministicTrie<MergeableInteger> addAndReturnTrie(InMemoryNDTrie<MergeableInteger> trie, ByteComparable sComparable, int svalue, ByteComparable eComparable, int evalue) throws TrieSpaceExhaustedException;
     }
 
-    void testCoveredVisitsRange(CoveredRangeAdder adder) throws InMemoryNDTrie.SpaceExhaustedException
+    void testCoveredVisitsRange(CoveredRangeAdder adder) throws TrieSpaceExhaustedException
     {
         InMemoryNDTrie<MergeableInteger> trie = InMemoryNDTrie.shortLived();
         NavigableMap<ByteComparable, MergeableInteger> normals = new TreeMap<>((x, y) -> ByteComparable.compare(x, y, VERSION));

@@ -170,7 +170,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
      * @param transformer a function applied to the potentially pre-existing value for the given key, and the new
      * value. Applied even if there's no pre-existing value in the memtable trie.
      */
-    public <U extends RangeMarker<U>> void apply(RangeTrie<U> mutation, final UpsertTransformer<M, U> transformer) throws SpaceExhaustedException
+    public <U extends RangeMarker<U>> void apply(RangeTrie<U> mutation, final UpsertTransformer<M, U> transformer) throws TrieSpaceExhaustedException
     {
         RangeTrieImpl.Cursor<U> mutationCursor = RangeTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
@@ -186,7 +186,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     void applyRanges(InMemoryTrie<M>.ApplyState state,
                      RangeTrieImpl.Cursor<N> mutationCursor,
                      final UpsertTransformer<M, N> transformer)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         // While activeDeletion is not set, follow the mutation trie.
         // When a deletion is found, get existing covering state, combine and apply/store.
@@ -235,7 +235,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
     }
 
     private static <M extends RangeMarker<M>, N extends RangeMarker<N>>
-    void applyContent(InMemoryTrie<M>.ApplyState state, UpsertTransformer<M, N> transformer, M existingState, N mutationState) throws SpaceExhaustedException
+    void applyContent(InMemoryTrie<M>.ApplyState state, UpsertTransformer<M, N> transformer, M existingState, N mutationState) throws TrieSpaceExhaustedException
     {
         M combined = transformer.apply(existingState, mutationState);
         if (combined != null)
@@ -263,7 +263,7 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
                                UpsertTransformer<M,N> transformer,
                                M existingCoveringState,
                                N mutationCoveringState)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         boolean atMutation = true;
         int depth = mutationCursor.depth();

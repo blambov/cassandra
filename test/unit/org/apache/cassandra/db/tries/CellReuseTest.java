@@ -257,7 +257,7 @@ public class CellReuseTest
                                             Function<OpOrder, InMemoryDTrie<Object>> creator,
                                             Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate,
                                             double deletionProbability)
-    throws InMemoryTrie.SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         OpOrder order = new OpOrder();
         InMemoryDTrie<Object> trie = creator.apply(order);
@@ -297,7 +297,7 @@ public class CellReuseTest
     static void addToInMemoryDTrie(ByteComparable[] src,
                                    InMemoryDTrie<Object> trie,
                                    Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate)
-    throws InMemoryTrie.SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         for (ByteComparable b : src)
         {
@@ -320,7 +320,7 @@ public class CellReuseTest
     static void addThrowingEntry(ByteComparable b,
                                  InMemoryDTrie<Object> trie,
                                  Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate)
-    throws InMemoryTrie.SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         int payload = asString(b).hashCode();
         ByteBuffer v = ByteBufferUtil.bytes(payload);
@@ -351,7 +351,7 @@ public class CellReuseTest
 
     public static <T> void applyUpdating(InMemoryDTrie<T> trie, Trie<T> mutation,
                                                             final Predicate<InMemoryDTrie.NodeFeatures<T>> needsForcedCopy)
-    throws InMemoryTrie.SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         trie.apply(mutation, (x, y) -> y, needsForcedCopy);
     }

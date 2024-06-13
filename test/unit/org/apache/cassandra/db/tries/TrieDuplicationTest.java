@@ -34,7 +34,6 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.ShortType;
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceTestBase;
@@ -148,7 +147,7 @@ public class TrieDuplicationTest
                 trie.putRecursive(left, leftValue, (x, y) -> y);
                 trie.putRecursive(right, rightValue, (x, y) -> y);
             }
-            catch (InMemoryDTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }
@@ -165,7 +164,7 @@ public class TrieDuplicationTest
             {
                 trie.putAlternativeRangeRecursive(left, leftValue, right, rightValue, (x, y) -> y);
             }
-            catch (InMemoryNDTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }
@@ -253,7 +252,7 @@ public class TrieDuplicationTest
     }
 
     @Test
-    public void testDuplicationInMemTrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testDuplicationInMemTrie() throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<BigInteger> t = InMemoryDTrie.shortLived();
         for (BigInteger v : ByteSourceTestBase.testBigInts)
@@ -277,7 +276,7 @@ public class TrieDuplicationTest
     }
 
     @Test
-    public void testDuplicationRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testDuplicationRanges() throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<BigInteger> t = InMemoryDTrie.shortLived();
         for (BigInteger v : ByteSourceTestBase.testBigInts)

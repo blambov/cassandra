@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -133,7 +132,7 @@ public class IntersectionTrieTest
         return Iterables.toList(trie.values(direction));
     }
 
-    private Trie<Integer> fromList(int... list) throws InMemoryDTrie.SpaceExhaustedException
+    private Trie<Integer> fromList(int... list) throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<Integer> trie = InMemoryDTrie.shortLived();
         for (int i : list)
@@ -171,7 +170,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testSimpleSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testSimpleSubtrie() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -192,7 +191,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangeOnSubtrie() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangeOnSubtrie() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -214,7 +213,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testSimpleRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testSimpleRanges() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -255,7 +254,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnRangesOne() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnRangesOne() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -279,14 +278,14 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnRanges() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnRanges() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
     }
 
     @Test
-    public void testRangesOnMerge() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnMerge() throws TrieSpaceExhaustedException
     {
 
         for (bits = bitsNeeded; bits > 0; --bits)
@@ -296,7 +295,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnCollectionMerge2() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge2() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
@@ -307,7 +306,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnCollectionMerge3() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge3() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(Trie.merge(
@@ -318,7 +317,7 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testRangesOnCollectionMerge10() throws InMemoryDTrie.SpaceExhaustedException
+    public void testRangesOnCollectionMerge10() throws TrieSpaceExhaustedException
     {
         for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections(Trie.merge(
@@ -538,7 +537,7 @@ public class IntersectionTrieTest
             dupe.apply(trie, (x, y) -> y, Predicates.alwaysFalse());
             return dupe;
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw new AssertionError(e);
         }
@@ -569,7 +568,7 @@ public class IntersectionTrieTest
                     );
                 }
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }

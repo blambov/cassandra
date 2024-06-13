@@ -22,10 +22,8 @@ import java.util.List;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Throwables;
 import com.google.common.collect.Streams;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.junit.Assert.assertEquals;
@@ -178,7 +176,7 @@ interface DataPoint extends DeletionAwareTrie.Deletable
                     trie.putAlternativeRecursive(marker.position, marker, (ex, n) -> n);
             }
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw new AssertionError(e);
         }
