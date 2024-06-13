@@ -167,7 +167,6 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
                 {
                     addCursor(deletionsBranch);
                     c1.skipTo(c1.depth(), c1.incomingTransition() + direction.increase); // skip past the deletion branch
-                    // TODO: Do we need to handle incomingTransition 256 here? Document in skipTo if not.
                     state = State.AT_C2;
                 }
             }
