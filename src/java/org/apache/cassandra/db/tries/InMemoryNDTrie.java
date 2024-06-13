@@ -102,7 +102,7 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
     public <U extends NonDeterministicTrie.Mergeable<U>>
     void apply(NonDeterministicTrie<U> mutation,
                final UpsertTransformer<T, U> transformer)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         NonDeterministicTrieImpl.Cursor<U> mutationCursor = NonDeterministicTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
@@ -118,7 +118,7 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
     void apply(InMemoryTrie<T>.ApplyState state,
                NonDeterministicTrieImpl.Cursor<U> mutationCursor,
                final UpsertTransformer<T, U> transformer)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         int prevAscendLimit = state.setAscendLimit(state.currentDepth);
         while (true)
@@ -138,7 +138,7 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
     void applyAlternate(InMemoryTrie<T>.ApplyState state,
                         Cursor<U> mutationCursor,
                         UpsertTransformer<T, U> transformer)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         Cursor<U> alternate = mutationCursor.alternateBranch();
         if (alternate != null)

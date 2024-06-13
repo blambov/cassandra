@@ -110,7 +110,7 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
                final UpsertTransformer<T, V> dataTransformer,
                final UpsertTransformer<D, E> deletionTransformer,
                final UpsertTransformer<T, E> deleter)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         DeletionAwareTrieImpl.Cursor<V, E> mutationCursor = DeletionAwareTrieImpl.impl(mutation).cursor(Direction.FORWARD);
         assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
@@ -129,7 +129,7 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
                final UpsertTransformer<T, V> dataTransformer,
                final UpsertTransformer<D, E> deletionTransformer,
                final UpsertTransformer<T, E> deleter)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         @SuppressWarnings("rawtypes")   // We use a raw ApplyState to be able to treat this trie as deterministic on T as well as range on D
         InMemoryTrie.ApplyState state = stateTyped;

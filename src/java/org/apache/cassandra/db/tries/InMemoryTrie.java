@@ -116,11 +116,11 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
 
-    static int sizeForGrowth(int currentSize, int minimumNewSize) throws SpaceExhaustedException
+    static int sizeForGrowth(int currentSize, int minimumNewSize) throws TrieSpaceExhaustedException
     {
         int limit = 0x7FFFFF00;   // 2G - 256 bytes
         if (currentSize == limit || minimumNewSize > limit)    // already at limit
-            throw new SpaceExhaustedException();
+            throw new TrieSpaceExhaustedException();
 
         int newSize;
         if (currentSize >= ALLOCATED_SIZE_THRESHOLD)
@@ -149,22 +149,6 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     // Buffer, content list and block management
 
-    /**
-     * Because we use buffers and 32-bit pointers, the trie cannot grow over 2GB of size. This exception is thrown if
-     * a trie operation needs it to grow over that limit.
-     * <p>
-     * To avoid this problem, users should query {@link #reachedAllocatedSizeThreshold} from time to time. If the call
-     * returns true, they should switch to a new trie (e.g. by flushing a memtable) as soon as possible. The threshold
-     * is configurable, and is set by default to 10% under the 2GB limit to give ample time for the switch to happen.
-     */
-    public static class SpaceExhaustedException extends Exception
-    {
-        public SpaceExhaustedException()
-        {
-            super("The hard 2GB limit on trie size has been exceeded");
-        }
-    }
-
     final void putInt(int pos, int value)
     {
         getChunk(pos).putInt(inChunkPointer(pos), value);
@@ -190,7 +174,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         getChunk(pos).putByte(inChunkPointer(pos), value);
     }
 
-    int allocateBlock() throws SpaceExhaustedException
+    int allocateBlock() throws TrieSpaceExhaustedException
     {
         return allocator.allocateCell();
     }
@@ -201,7 +185,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * @return A content pointer that can be used to reference the content, encoded as ~index where index is the
      *         position of the value in the content array.
      */
-    int addContent(T value) throws SpaceExhaustedException
+    int addContent(T value) throws TrieSpaceExhaustedException
     {
         int index = allocator.allocateObject();
         contentArray.setOrdered(index, value);
@@ -229,14 +213,14 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         allocator.discardBuffers();
     }
 
-    private int copyIfOriginal(int node, int originalNode) throws SpaceExhaustedException
+    private int copyIfOriginal(int node, int originalNode) throws TrieSpaceExhaustedException
     {
         return (node == originalNode)
                ? allocator.copyCell(originalNode)
                : node;
     }
 
-    private int getOrAllocate(int pointerAddress, int offsetWhenAllocating) throws SpaceExhaustedException
+    private int getOrAllocate(int pointerAddress, int offsetWhenAllocating) throws TrieSpaceExhaustedException
     {
         int child = getInt(pointerAddress);
         if (child != NONE)
@@ -248,7 +232,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return child;
     }
 
-    private int getCopyOrAllocate(int pointerAddress, int originalChild, int offsetWhenAllocating) throws SpaceExhaustedException
+    private int getCopyOrAllocate(int pointerAddress, int originalChild, int offsetWhenAllocating) throws TrieSpaceExhaustedException
     {
         int child = getInt(pointerAddress);
         if (child == originalChild)
@@ -293,7 +277,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * @param newChild new child pointer
      * @return pointer to the updated node
      */
-    private int attachChildCopying(int node, int originalNode, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChildCopying(int node, int originalNode, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         assert !isLeaf(node) : "attachChild cannot be used on content nodes.";
 
@@ -324,7 +308,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * @param newChild new child pointer
      * @return pointer to the updated node; same as node if update was in-place
      */
-    private int attachChild(int node, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChild(int node, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         assert !isLeaf(node) : "attachChild cannot be used on content nodes.";
 
@@ -344,7 +328,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Attach a child to the given split node. This may be an update for an existing branch, or a new child for the node.
      */
-    private int attachChildToSplit(int node, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChildToSplit(int node, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         int midPos = splitBlockPointerAddress(node, splitNodeMidIndex(trans), SPLIT_START_LEVEL_LIMIT);
         int mid = getInt(midPos);
@@ -427,7 +411,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * Non-volatile version of attachChildToSplit. Used when the split node is not reachable yet (during the conversion
      * from sparse).
      */
-    int attachChildToSplitNonVolatile(int node, int trans, int newChild) throws SpaceExhaustedException
+    int attachChildToSplitNonVolatile(int node, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         assert offset(node) == SPLIT_OFFSET : "Invalid split node in trie";
         int midPos = splitBlockPointerAddress(node, splitNodeMidIndex(trans), SPLIT_START_LEVEL_LIMIT);
@@ -449,7 +433,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * of modification.
      * This may be an update for an existing branch, or a new child for the node.
      */
-    private int attachChildToSplitCopying(int node, int originalNode, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChildToSplitCopying(int node, int originalNode, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         if (offset(originalNode) != SPLIT_OFFSET)  // includes originalNode == NONE
             return attachChildToSplitNonVolatile(node, trans, newChild);
@@ -503,7 +487,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Attach a child to the given sparse node. This may be an update for an existing branch, or a new child for the node.
      */
-    private int attachChildToSparse(int node, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChildToSparse(int node, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         int index;
         int smallerCount = 0;
@@ -557,7 +541,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
-    private int removeSparseChild(int node, int index) throws SpaceExhaustedException
+    private int removeSparseChild(int node, int index) throws TrieSpaceExhaustedException
     {
         allocator.recycleCell(node);
         int order = getUnsignedShort(node + SPARSE_ORDER_OFFSET);
@@ -594,7 +578,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * Attach a child to the given sparse node. This may be an update for an existing branch, or a new child for the node.
      * Resulting node is not reachable, no volatile set needed.
      */
-    private int attachChildToSparseCopying(int node, int originalNode, int trans, int newChild) throws SpaceExhaustedException
+    private int attachChildToSparseCopying(int node, int originalNode, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         int index;
         int smallerCount = 0;
@@ -643,7 +627,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
-    private int upgradeSparseToSplit(int node, int trans, int newChild) throws SpaceExhaustedException
+    private int upgradeSparseToSplit(int node, int trans, int newChild) throws TrieSpaceExhaustedException
     {
         int split = createEmptySplitNode();
         for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
@@ -686,7 +670,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * the single-transition chain type to sparse, or because we have to remap the child from the implicit node + 1 to
      * something else.
      */
-    private int attachChildToChain(int node, int transitionByte, int newChild) throws SpaceExhaustedException
+    private int attachChildToChain(int node, int transitionByte, int newChild) throws TrieSpaceExhaustedException
     {
         int existingByte = getUnsignedByte(node);
         if (transitionByte == existingByte)
@@ -728,7 +712,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * Attach a child to the given chain node, when we are force-copying.
      */
     private int attachChildToChainCopying(int node, int originalNode, int transitionByte, int newChild)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         int existingByte = getUnsignedByte(node);
         if (transitionByte == existingByte)
@@ -759,7 +743,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     private int convertChainToSparse(int node, int existingByte, int newChild, int transitionByte)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         int existingChild = node + 1;
         if (offset(existingChild) == LAST_POINTER_OFFSET)
@@ -785,7 +769,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     /**
      * Create a sparse node with two children.
      */
-    private int createSparseNode(int byte1, int child1, int byte2, int child2) throws SpaceExhaustedException
+    private int createSparseNode(int byte1, int child1, int byte2, int child2) throws TrieSpaceExhaustedException
     {
         assert byte1 != byte2 : "Attempted to create a sparse node with two of the same transition";
         if (byte1 > byte2)
@@ -812,7 +796,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * Note that to avoid creating inefficient tries with under-utilized chain nodes, this should only be called from
      * {@link #expandOrCreateChainNode} and other call-sites should call {@link #expandOrCreateChainNode}.
      */
-    private int createNewChainNode(int transitionByte, int newChild) throws SpaceExhaustedException
+    private int createNewChainNode(int transitionByte, int newChild) throws TrieSpaceExhaustedException
     {
         int newNode = allocateBlock() + LAST_POINTER_OFFSET - 1;
         putByte(newNode, (byte) transitionByte);
@@ -824,7 +808,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     /** Like {@link #createNewChainNode}, but if the new child is already a chain node and has room, expand
      * it instead of creating a brand new node. */
-    private int expandOrCreateChainNode(int transitionByte, int newChild) throws SpaceExhaustedException
+    private int expandOrCreateChainNode(int transitionByte, int newChild) throws TrieSpaceExhaustedException
     {
         if (isExpandableChain(newChild))
         {
@@ -837,18 +821,18 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return createNewChainNode(transitionByte, newChild);
     }
 
-    private int createEmptySplitNode() throws SpaceExhaustedException
+    private int createEmptySplitNode() throws TrieSpaceExhaustedException
     {
         return allocateBlock() + SPLIT_OFFSET;
     }
 
-    int createContentPrefixNode(int contentId, int child, boolean isSafeChain) throws SpaceExhaustedException
+    int createContentPrefixNode(int contentId, int child, boolean isSafeChain) throws TrieSpaceExhaustedException
     {
         assert !isNullOrLeaf(child) : "Content prefix node cannot reference a childless node.";
         return createPrefixNode(contentId, child, isSafeChain, 0);
     }
 
-    int createPrefixNode(int contentId, int child, boolean isSafeChain, int additionalFlags) throws SpaceExhaustedException
+    int createPrefixNode(int contentId, int child, boolean isSafeChain, int additionalFlags) throws TrieSpaceExhaustedException
     {
         int offset = offset(child);
         int node;
@@ -873,7 +857,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return node;
     }
 
-    int updatePrefixNodeChild(int node, int child, boolean forcedCopy) throws SpaceExhaustedException
+    int updatePrefixNodeChild(int node, int child, boolean forcedCopy) throws TrieSpaceExhaustedException
     {
         assert offset(node) == PREFIX_OFFSET : "updatePrefix called on non-prefix node";
         assert !isNullOrLeaf(child) : "Prefix node cannot reference a childless node.";
@@ -927,7 +911,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                                int existingPostContentNode,
                                int updatedPostContentNode,
                                boolean forcedCopy)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         if (existingFullNode == existingPostContentNode)
             return updatedPostContentNode;     // no content to preserve
@@ -1085,7 +1069,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Returns true if the depth signals mutation cursor is exhausted.
          */
-        boolean advanceTo(int depth, int transition, int forcedCopyDepth) throws SpaceExhaustedException
+        boolean advanceTo(int depth, int transition, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             while (currentDepth > Math.max(ascendLimit, depth - 1))
             {
@@ -1100,7 +1084,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return false;
         }
 
-        boolean advanceToNextExistingOr(int depth, int transition, int forcedCopyDepth) throws SpaceExhaustedException
+        boolean advanceToNextExistingOr(int depth, int transition, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
@@ -1190,7 +1174,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return InMemoryTrie.this.getContent(contentId);
         }
 
-        void setContent(T content, boolean forcedCopy) throws SpaceExhaustedException
+        void setContent(T content, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             int contentId = contentId();
             if (contentId == NONE)
@@ -1245,7 +1229,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Attach a child to the current node.
          */
-        private void attachChild(int transition, int child, boolean forcedCopy) throws SpaceExhaustedException
+        private void attachChild(int transition, int child, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             int updatedPostContentNode = updatedPostContentNode();
             if (isNull(updatedPostContentNode))
@@ -1265,7 +1249,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * Apply the collected content to a node. Converts NONE to a leaf node, and adds or updates a prefix for all
          * others.
          */
-        private int applyContent(int updatedPostContentNode, boolean forcedCopy) throws SpaceExhaustedException
+        private int applyContent(int updatedPostContentNode, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             // Note: the old content id itself is already released by setContent. Here we must release any standalone
             // prefix nodes that may reference it.
@@ -1299,7 +1283,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Apply any updates to the alternate branch of the node.
          */
-        private int applyAlternateBranch(int updatedPostAlternateNode, boolean forcedCopy) throws SpaceExhaustedException
+        private int applyAlternateBranch(int updatedPostAlternateNode, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             return applyPrefixChange(updatedPostAlternateNode,
                                      existingFullNode(),
@@ -1315,7 +1299,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                                       int prefixData,
                                       int flagBits,
                                       boolean forcedCopy)
-        throws SpaceExhaustedException
+        throws TrieSpaceExhaustedException
         {
             boolean prefixWasPresent = existingPrePrefixNode != existingPostPrefixNode;
             boolean prefixWasEmbedded = prefixWasPresent && isEmbeddedPrefixNode(existingPrePrefixNode);
@@ -1363,7 +1347,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             return existingPrePrefixNode;
         }
 
-        private int applyPrefixes(boolean forcedCopy) throws SpaceExhaustedException
+        private int applyPrefixes(boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             return applyAlternateBranch(applyContent(updatedPostContentNode(), forcedCopy), forcedCopy);
         }
@@ -1373,7 +1357,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * content to the compiled updatedPostContentNode and creating a mapping in the parent to it (or updating if
          * one already exists).
          */
-        void attachAndMoveToParentState(int forcedCopyDepth) throws SpaceExhaustedException
+        void attachAndMoveToParentState(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes(currentDepth >= forcedCopyDepth);
             int existingFullNode = existingFullNode();
@@ -1388,7 +1372,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Ascend and update the root at the end of processing.
          */
-        void attachRoot(int forcedCopyDepth) throws SpaceExhaustedException
+        void attachRoot(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes(0 >= forcedCopyDepth);
             int existingFullNode = existingFullNode();
@@ -1404,7 +1388,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         /**
          * Ascend and update the alternate link at the end of alternate branch processing.
          */
-        void attachAlternate(boolean forcedCopy) throws SpaceExhaustedException
+        void attachAlternate(boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             int updatedFullNode = applyPrefixes(forcedCopy);
             int existingFullNode = existingFullNode();
@@ -1484,7 +1468,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             this.state = state;
         }
 
-        void apply() throws SpaceExhaustedException
+        void apply() throws TrieSpaceExhaustedException
         {
             int depth = state.currentDepth;
             int prevAscendLimit = state.setAscendLimit(state.currentDepth);
@@ -1503,7 +1487,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             state.setAscendLimit(prevAscendLimit);
         }
 
-        void applyContent() throws SpaceExhaustedException
+        void applyContent() throws TrieSpaceExhaustedException
         {
             U content = mutationCursor.content();
             if (content != null)
@@ -1516,7 +1500,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
 
 
-        void complete() throws SpaceExhaustedException
+        void complete() throws TrieSpaceExhaustedException
         {
             assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
             state.attachRoot(forcedCopyDepth);
@@ -1555,7 +1539,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     public <U> void apply(Trie<U> mutation,
                           final UpsertTransformer<T, U> transformer,
                           final Predicate<NodeFeatures<U>> needsForcedCopy)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         try
         {
@@ -1576,7 +1560,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     // TODO: Create class that implements NodeFeatures and holds cursor, transformer, needsForcedCopy
     // TODO: Query and track forcedCopy depth, pass to advanceTo
-    static <T, U> void applyContent(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer) throws SpaceExhaustedException
+    static <T, U> void applyContent(InMemoryTrie<T>.ApplyState state, TrieImpl.Cursor<U> mutationCursor, UpsertTransformer<T, U> transformer) throws TrieSpaceExhaustedException
     {
         U content = mutationCursor.content();
         if (content != null)
@@ -1589,7 +1573,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     private static <T, U>
-    void deleteContent(InMemoryTrie<T>.ApplyState state, UpsertTransformer<T, U> transformer, U mutationContent) throws SpaceExhaustedException
+    void deleteContent(InMemoryTrie<T>.ApplyState state, UpsertTransformer<T, U> transformer, U mutationContent) throws TrieSpaceExhaustedException
     {
         T existingContent = state.getContent();
         if (existingContent != null)
@@ -1601,7 +1585,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     // TODO: pass and use forcedCopy control in all apply/delete variations
-    public void delete(TrieSet set) throws SpaceExhaustedException
+    public void delete(TrieSet set) throws TrieSpaceExhaustedException
     {
         TrieSetImpl.Cursor cursor = TrieSetImpl.impl(set).cursor(Direction.FORWARD);
         ApplyState state = applyState.start();
@@ -1619,7 +1603,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     // TODO: Use mutation class, implement consistency protections
     void delete(InMemoryTrie<T>.ApplyState state, TrieSetImpl.Cursor mutationCursor)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         int prevAscendDepth = state.setAscendLimit(state.currentDepth);
         UpsertTransformer<T, TrieSetImpl.RangeState> transformer = InMemoryTrie::deleteEntry;
@@ -1637,7 +1621,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     static <T, M extends RangeTrie.RangeMarker<M>>
     void delete(InMemoryTrie<T>.ApplyState state, RangeTrieImpl.Cursor<M> mutationCursor, UpsertTransformer<T, M> transformer)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         // While activeDeletion is not set, follow the mutation trie.
         // When a deletion is found, get existing covering state, combine and apply/store.
@@ -1651,7 +1635,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     private static <T, M extends RangeTrie.RangeMarker<M>>
     boolean deleteStep(InMemoryTrie<T>.ApplyState state, RangeTrieImpl.Cursor<M> mutationCursor, UpsertTransformer<T, M> transformer, M content)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         if (content != null)
         {
@@ -1686,7 +1670,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
                         RangeTrieImpl.Cursor<M> mutationCursor,
                         UpsertTransformer<T, M> transformer,
                         M mutationCoveringState)
-    throws SpaceExhaustedException
+    throws TrieSpaceExhaustedException
     {
         boolean atMutation = true;
         int depth = mutationCursor.depth();
@@ -1733,7 +1717,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     public <R> void putSingleton(ByteComparable key,
                                  R value,
-                                 UpsertTransformer<T, ? super R> transformer) throws SpaceExhaustedException
+                                 UpsertTransformer<T, ? super R> transformer) throws TrieSpaceExhaustedException
     {
         apply(Trie.singleton(key, value), transformer, Predicates.alwaysFalse());
     }
@@ -1744,7 +1728,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     public <R> void putSingleton(ByteComparable key,
                                  R value,
                                  UpsertTransformer<T, ? super R> transformer,
-                                 boolean useRecursive) throws SpaceExhaustedException
+                                 boolean useRecursive) throws TrieSpaceExhaustedException
     {
         if (useRecursive)
             putRecursive(key, value, transformer);
@@ -1764,7 +1748,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * value (of a potentially different type), returning the final value that will stay in the memtable trie. Applied
      * even if there's no pre-existing value in the memtable trie.
      */
-    public <R> void putRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    public <R> void putRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         try
         {
@@ -1780,7 +1764,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-    <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int transition = key.next();
         if (transition == ByteSource.END_OF_STREAM)
@@ -1791,7 +1775,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return completeUpdate(node, transition, child, newChild);
     }
 
-    public <R> void putAlternativeRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    public <R> void putAlternativeRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         final ByteSource keyComparableBytes = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
         if (isNull(root)) // special case for empty trie
@@ -1807,7 +1791,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-    private <R> int putAlternativeRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int putAlternativeRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int alternateBranch = getAlternateBranch(node);
         if (alternateBranch != NONE)
@@ -1842,7 +1826,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
 
     // TODO: remove or change to be atomic
-    public <R> void putAlternativeRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    public <R> void putAlternativeRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         final ByteSource startComparableBytes = start.asComparableBytes(BYTE_COMPARABLE_VERSION);
         final ByteSource endComparableBytes = end.asComparableBytes(BYTE_COMPARABLE_VERSION);
@@ -1860,7 +1844,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     // Testing only
-    <R> void putRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    <R> void putRangeRecursive(ByteComparable start, R startValue, ByteComparable end, R endValue, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         final ByteSource startComparableBytes = start.asComparableBytes(BYTE_COMPARABLE_VERSION);
         final ByteSource endComparableBytes = end.asComparableBytes(BYTE_COMPARABLE_VERSION);
@@ -1869,7 +1853,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
             root = newRoot;
     }
 
-    private <R> int putRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int putRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int stransition = start.next();
         int etransition = end.next();
@@ -1887,7 +1871,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-    private <R> int putAlternativeRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int putAlternativeRangeRecursive(int node, ByteSource start, R startValue, ByteSource end, R endValue, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int alternateBranch = getAlternateBranch(node);
         if (alternateBranch != NONE)
@@ -1923,7 +1907,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return completeUpdate(node, stransition, oldChild, newChild);
     }
 
-    private <R> int putRecursive(int node, int keyHead, ByteSource keyTail, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int putRecursive(int node, int keyHead, ByteSource keyTail, R value, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         if (keyHead == ByteSource.END_OF_STREAM)
             return applyContent(node, value, transformer);
@@ -1934,7 +1918,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
     }
 
     // TODO: do we need forcedCopy here?
-    int completeUpdate(int node, int transition, int oldChild, int newChild) throws SpaceExhaustedException
+    int completeUpdate(int node, int transition, int oldChild, int newChild) throws TrieSpaceExhaustedException
     {
         if (newChild == oldChild)
             return node;
@@ -1947,7 +1931,7 @@ class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return preservePrefix(node, skippedContent, attachedChild, false);
     }
 
-    private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws SpaceExhaustedException
+    private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         if (isNull(node))
             return addContent(transformer.apply(null, value));

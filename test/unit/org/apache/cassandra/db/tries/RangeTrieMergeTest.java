@@ -26,7 +26,6 @@ import java.util.List;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -358,7 +357,7 @@ public class RangeTrieMergeTest
             dupe.apply(trie, this::upsertMarkers);
             return dupe;
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw new AssertionError(e);
         }
@@ -404,7 +403,7 @@ public class RangeTrieMergeTest
                     );
                 }
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }

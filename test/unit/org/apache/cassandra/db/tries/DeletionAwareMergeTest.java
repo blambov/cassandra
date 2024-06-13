@@ -28,7 +28,6 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -453,7 +452,7 @@ public class DeletionAwareMergeTest
                     );
                 }
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }
@@ -521,7 +520,7 @@ public class DeletionAwareMergeTest
             copy.apply(trie, DeletionAwareMergeTest::combineLive, DeletionAwareMergeTest::combineDeletion, DeletionAwareMergeTest::deleteLive);
             return copy;
         }
-        catch (InMemoryTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw new AssertionError(e);
         }

@@ -253,7 +253,7 @@ public class CellReuseTest
                                             Function<OpOrder, InMemoryDTrie<ByteBuffer>> creator,
                                             Predicate<InMemoryDTrie.NodeFeatures<Boolean>> forceCopyPredicate,
                                             double deletionProbability)
-    throws InterruptedException, ExecutionException
+    throws TrieSpaceExhaustedException
     {
         OpOrder order = new OpOrder();
         InMemoryDTrie<ByteBuffer> trie = creator.apply(order);
@@ -291,9 +291,9 @@ public class CellReuseTest
     }
 
     static void addToInMemoryDTrie(ByteComparable[] src,
-                                  InMemoryDTrie<ByteBuffer> trie,
-                                  Predicate<InMemoryDTrie.NodeFeatures<Boolean>> forceCopyPredicate)
-    throws InterruptedException, ExecutionException
+                                   InMemoryDTrie<Object> trie,
+                                   Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate)
+    throws TrieSpaceExhaustedException
     {
         for (ByteComparable b : src)
         {
@@ -314,9 +314,9 @@ public class CellReuseTest
     }
 
     static void addThrowingEntry(ByteComparable b,
-                                 InMemoryDTrie<ByteBuffer> trie,
-                                 Predicate<InMemoryDTrie.NodeFeatures<Boolean>> forceCopyPredicate)
-    throws InterruptedException, ExecutionException
+                                 InMemoryDTrie<Object> trie,
+                                 Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate)
+    throws TrieSpaceExhaustedException
     {
         int payload = asString(b).hashCode();
         ByteBuffer v = ByteBufferUtil.bytes(payload);
@@ -349,8 +349,9 @@ public class CellReuseTest
             .get();
     }
 
-    public static <T, M> CompletableFuture<Void> applyUpdating(InMemoryDTrie<T, M> trie, Trie<T, M> mutation,
-                                                                    final Predicate<InMemoryDTrie.NodeFeatures<M>> needsForcedCopy)
+    public static <T> void applyUpdating(InMemoryDTrie<T> trie, Trie<T> mutation,
+                                                            final Predicate<InMemoryDTrie.NodeFeatures<T>> needsForcedCopy)
+    throws TrieSpaceExhaustedException
     {
         return trie.apply(mutation,
                           new InMemoryDTrie.UpsertTransformer<T, M, T, M>()
