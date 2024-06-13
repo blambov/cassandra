@@ -222,7 +222,6 @@ public abstract class InMemoryTrieTestBase
             System.out.println("Trie " + trie.dump(ByteBufferUtil::bytesToHex));
 
         TrieUtil.assertSameContent(trie, content);
-        checkGet(trie, content);
 
         trie.discardBuffers();
     }
@@ -348,14 +347,6 @@ public abstract class InMemoryTrieTestBase
                 System.out.println(trie.dump(bb -> bb instanceof ByteBuffer
                                                    ? ByteBufferUtil.bytesToHex((ByteBuffer) bb)
                                                    : bb.toString()));
-        }
-    }
-
-    static void checkGet(InMemoryDTrie<ByteBuffer> trie, Map<ByteComparable, ByteBuffer> items)
-    {
-        for (Map.Entry<ByteComparable, ByteBuffer> en : items.entrySet())
-        {
-            assertEquals(en.getValue(), trie.get(en.getKey()));
         }
     }
 

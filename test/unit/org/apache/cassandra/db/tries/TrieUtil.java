@@ -185,6 +185,15 @@ public class TrieUtil
             assertForEachValueEquals(trie, map, dir);
         }
         assertUnorderedValuesEqual(trie, map);
+        checkGet(trie, map);
+    }
+
+    static void checkGet(Trie<ByteBuffer> trie, Map<ByteComparable, ByteBuffer> items)
+    {
+        for (Map.Entry<ByteComparable, ByteBuffer> en : items.entrySet())
+        {
+            assertEquals(en.getValue(), trie.get(en.getKey()));
+        }
     }
 
     private static void assertValuesEqual(Trie<ByteBuffer> trie, SortedMap<ByteComparable, ByteBuffer> map, Direction direction)
