@@ -380,7 +380,7 @@ public abstract class InMemoryTrieTestBase
                               (existing, update) -> existing != null ? resolver.resolve(existing, update) : update,
                               usePut);
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             // Should not happen, test stays well below size limit.
             throw new AssertionError(e);

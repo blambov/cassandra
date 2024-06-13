@@ -38,7 +38,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     }
 
     @Test
-    public void testLongKey_StackOverflow() throws InMemoryDTrie.SpaceExhaustedException
+    public void testLongKey_StackOverflow() throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<String> trie = new InMemoryDTrie(strategy.create());
         Random rand = new Random(1);
@@ -64,7 +64,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     // InMemoryDTrie.allocateBlock is modified.
     @Ignore
     @Test
-    public void testOver1GSize() throws InMemoryDTrie.SpaceExhaustedException
+    public void testOver1GSize() throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<String> trie = new InMemoryDTrie(strategy.create());
         MemtableAllocationStrategy.NoReuseStrategy allocator = (MemtableAllocationStrategy.NoReuseStrategy) trie.allocator;
@@ -95,7 +95,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
             trie.putRecursive(ByteComparable.of(t3), t3, (x, y) -> y);  // should put it over the edge
             fail("InMemoryDTrie.SpaceExhaustedError was expected");
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             // expected
         }
@@ -110,7 +110,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
             allocator.advanceAllocatedPos(Integer.MAX_VALUE);
             fail("InMemoryDTrie.SpaceExhaustedError was expected");
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             // expected
         }

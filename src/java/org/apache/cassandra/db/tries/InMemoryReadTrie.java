@@ -243,7 +243,6 @@ class InMemoryReadTrie<T>
         return pos;
     }
 
-
     /**
      * Pointer offset for a node pointer.
      */

@@ -18,11 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.function.Consumer;
-
 import com.google.common.annotations.VisibleForTesting;
-
-import org.slf4j.LoggerFactory;
 
 import org.agrona.collections.IntArrayList;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -30,7 +26,6 @@ import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.github.jamm.MemoryLayoutSpecification;
 import org.github.jamm.MemoryMeterStrategy;
 
 /**
@@ -48,18 +43,18 @@ public interface MemtableAllocationStrategy
     ExpandableAtomicReferenceArray array();
 
     /** Allocates a new cell in the buffer of size BLOCK_SIZE, aligned to BLOCK_SIZE bytes. The new cell is zeroed out. */
-    int allocateCell() throws InMemoryTrie.SpaceExhaustedException;
+    int allocateCell() throws TrieSpaceExhaustedException;
     /**
      * Allocates a new cell in the buffer, and copies the content of the given cell. The argument does not need to be
      * BLOCK_SIZE aligned -- the method will copy the cell that contains the given pointer, and return a pointer with
      * the same offset in the copied cell.
      * The original cell is understood to no longer be necessary and is marked for recycling.
      */
-    int copyCell(int cell) throws InMemoryTrie.SpaceExhaustedException;
+    int copyCell(int cell) throws TrieSpaceExhaustedException;
     /**
      * Allocate a new place in the objects array (for content or metadata).
      */
-    int allocateObject() throws InMemoryTrie.SpaceExhaustedException;
+    int allocateObject() throws TrieSpaceExhaustedException;
 
     /**
      * Marks the given cell for recycling. The argument does not need to be aligned (i.e. we remove the offset and thus
@@ -192,7 +187,7 @@ public interface MemtableAllocationStrategy
             return array;
         }
 
-        int allocateUninitializedCell() throws InMemoryTrie.SpaceExhaustedException
+        int allocateUninitializedCell() throws TrieSpaceExhaustedException
         {
             int v = allocatedPos;
             if (buffer.capacity() == v)
@@ -209,13 +204,13 @@ public interface MemtableAllocationStrategy
             return v;
         }
 
-        public int allocateCell() throws InMemoryTrie.SpaceExhaustedException
+        public int allocateCell() throws TrieSpaceExhaustedException
         {
             // Not reusing, so cell should already be zeroed.
             return allocateUninitializedCell();
         }
 
-        public int copyCell(int cell) throws InMemoryTrie.SpaceExhaustedException
+        public int copyCell(int cell) throws TrieSpaceExhaustedException
         {
             int copy = allocateUninitializedCell();
             buffer.putBytes(copy, buffer, cell & -BLOCK_SIZE, BLOCK_SIZE);
@@ -223,7 +218,7 @@ public interface MemtableAllocationStrategy
             return copy | (cell & (BLOCK_SIZE - 1));
         }
 
-        public int allocateObject() throws InMemoryTrie.SpaceExhaustedException
+        public int allocateObject() throws TrieSpaceExhaustedException
         {
             int index = contentCount++;
 
@@ -295,7 +290,7 @@ public interface MemtableAllocationStrategy
          * full.
          */
         @VisibleForTesting
-        int advanceAllocatedPos(int wantedPos) throws InMemoryTrie.SpaceExhaustedException
+        int advanceAllocatedPos(int wantedPos) throws TrieSpaceExhaustedException
         {
             while (allocatedPos < wantedPos)
                 allocateCell();
@@ -330,7 +325,7 @@ public interface MemtableAllocationStrategy
             this.pojos = new OpOrderReusedIndexes(this::fillObjects);
         }
 
-        private void fillCells(IndexList indexList) throws InMemoryTrie.SpaceExhaustedException
+        private void fillCells(IndexList indexList) throws TrieSpaceExhaustedException
         {
             int block = BLOCK_SIZE * REUSE_BLOCK_SIZE;
             int pos = allocatedPos;
@@ -365,13 +360,13 @@ public interface MemtableAllocationStrategy
         }
 
         @Override
-        int allocateUninitializedCell() throws InMemoryTrie.SpaceExhaustedException
+        int allocateUninitializedCell() throws TrieSpaceExhaustedException
         {
             return cells.allocate();
         }
 
         @Override
-        public int allocateCell() throws InMemoryTrie.SpaceExhaustedException
+        public int allocateCell() throws TrieSpaceExhaustedException
         {
             int cell = allocateUninitializedCell();
             buffer.setMemory(cell, BLOCK_SIZE, (byte) 0);
@@ -386,7 +381,7 @@ public interface MemtableAllocationStrategy
         }
 
         @Override
-        public int allocateObject() throws InMemoryTrie.SpaceExhaustedException
+        public int allocateObject() throws TrieSpaceExhaustedException
         {
             return pojos.allocate();
         }
@@ -436,7 +431,7 @@ public interface MemtableAllocationStrategy
 
     interface Allocator<T>
     {
-        void allocateNewItems(T list) throws InMemoryTrie.SpaceExhaustedException;
+        void allocateNewItems(T list) throws TrieSpaceExhaustedException;
     }
 
     /**
@@ -510,13 +505,13 @@ public interface MemtableAllocationStrategy
             {
                 allocator.allocateNewItems(free);
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);    // unexpected, initial size can't trigger this
             }
         }
 
-        int allocate() throws InMemoryTrie.SpaceExhaustedException
+        int allocate() throws TrieSpaceExhaustedException
         {
             if (free.count == 0)
             {

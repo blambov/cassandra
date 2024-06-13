@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Streams;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.junit.Assert.assertEquals;
@@ -203,7 +202,7 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
             {
                 trie.putRecursive(i.position, i, (ex, n) -> n);
             }
-            catch (InMemoryTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw Throwables.propagate(e);
             }
