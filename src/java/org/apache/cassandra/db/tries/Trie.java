@@ -232,6 +232,18 @@ public interface Trie<T> extends BaseTrie<T>
     }
 
     /**
+     * Map-like get by key.
+     */
+    default T get(ByteComparable key)
+    {
+        TrieImpl.Cursor<T> cursor = impl().cursor(Direction.FORWARD);
+        if (cursor.descendAlong(key.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+            return cursor.content();
+        else
+            return null;
+    }
+
+    /**
      * Resolver of content of merged nodes, used for two-source merges (i.e. mergeWith).
      */
     interface MergeResolver<T>
