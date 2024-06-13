@@ -821,7 +821,7 @@ public interface ByteSource
      * underlying type has a fixed length.
      * In tests, this method is also used to generate non-escaped test cases.
      */
-    public static ByteSource fixedLength(ByteBuffer b)
+    public static Duplicatable fixedLength(ByteBuffer b)
     {
         return new UnencodedByteBuffer(b, b.position(), b.limit());
     }

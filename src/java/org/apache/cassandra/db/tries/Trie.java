@@ -76,18 +76,18 @@ public interface Trie<T> extends BaseTrie<T>
     // done: deletion-aware merge (pluggable)
     // done: deletion-aware InMemoryTrie methods (pluggable)
 
-    // TODO: reverse iteration
-    // TODO: define slices as always including prefixes and exact matches
+    // done: reverse iteration
+    // done: define slices as always including prefixes and exact matches
 
     // TODO: Singleton/range deletion cursor to use for apply operations in PartitionUpdate
 
     // Necessary post-POC improvements:
-    // TODO: node reuse
+    // done: node reuse
     // TODO: apply existing deletions on updates in InMemoryDATree.apply
-    // TODO: delete on the way back in apply
-    // TODO: consistency/copy-on-write levels
+    // done: delete on the way back in apply
+    // done: consistency/copy-on-write levels
     // Optimizations:
-    // TODO: simplification of deletion branch for flush (pluggable?)
+    // TODO: (if not fixed-level deletion branch) simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
 

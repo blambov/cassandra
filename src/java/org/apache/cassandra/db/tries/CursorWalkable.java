@@ -157,9 +157,9 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
         }
 
         /**
-         * Advance to the specified depth and incoming transition or the first valid position that is after the specified
-         * position. The inputs must be something that could be returned by a single call to {@link #advance} (i.e.
-         * {@code skipDepth} must be <= current depth + 1, and {@code skipTransition} must be higher than what the
+         * Advance to the specified depth and incoming transition or the first valid position that is at or after the
+         * specified position. The inputs must be something that could be returned by a single call to {@link #advance}
+         * (i.e. {@code skipDepth} must be <= current depth + 1, and {@code skipTransition} must be higher than what the
          * current state saw at the requested depth. The skip position must be after the current position.
          * <p>
          * Note that it is permitted to request a skip transition outside the normal range, usually 256 (forward) or
@@ -174,7 +174,6 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
          * advances if it is. This can only be used if the skipTo instruction was issued for a position that was behind
          * this cursor's (i.e. if the skipTo request is to descend, it is assumed to descend from a position _before_
          * this cursor's and will not be acted on).
-         * TODO: recheck the above
          */
         default int maybeSkipTo(int skipDepth, int skipTransition)
         {

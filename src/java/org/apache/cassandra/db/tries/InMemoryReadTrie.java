@@ -29,7 +29,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  *
  * This class provides the read-only functionality, expanded in {@link InMemoryTrie} to writes.
  */
-public class InMemoryReadTrie<T>
+class InMemoryReadTrie<T>
 {
     /*
     TRIE FORMAT AND NODE TYPES
