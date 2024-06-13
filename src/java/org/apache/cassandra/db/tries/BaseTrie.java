@@ -191,6 +191,18 @@ public interface BaseTrie<T>
         return direction.isForward() ? this::valueIterator : this::reverseValueIterator;
     }
 
+    default <U extends T> Iterable<U> filteredValues(Class<U> clazz)
+    {
+        return filteredValues(Direction.FORWARD, clazz);
+    }
+
+    default <U extends T> Iterable<U> filteredValues(Direction direction, Class<U> clazz)
+    {
+        return () -> filteredValuesIterator(direction, clazz);
+    }
+
+    <U extends T> Iterator<U> filteredValuesIterator(Direction direction, Class<U> clazz);
+
     /**
      * Returns the ordered set of values of this trie in an iterator.
      */

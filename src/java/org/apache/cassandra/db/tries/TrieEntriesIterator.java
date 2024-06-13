@@ -62,6 +62,9 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
 
     public V next()
     {
+        if (!hasNext())
+            throw new IllegalStateException("next without hasNext");
+
         gotNext = false;
         T v = next;
         next = null;
