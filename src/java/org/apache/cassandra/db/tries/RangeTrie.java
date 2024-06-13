@@ -91,6 +91,16 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     }
 
     /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends M> Iterator<U> filteredValuesIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieValuesIterator.FilteredByType<>(impl().cursor(direction), clazz);
+    }
+
+
+    /**
      * Constuct a textual representation of the trie using the given content-to-string mapper.
      */
     @Override

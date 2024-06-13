@@ -159,6 +159,15 @@ public interface Trie<T> extends BaseTrie<T>
         return new TrieValuesIterator<>(impl().cursor(direction));
     }
 
+    /**
+     * Returns the ordered entry set of this trie's content in an iterator, filtered by the given type.
+     */
+    @Override
+    default <U extends T> Iterator<U> filteredValuesIterator(Direction direction, Class<U> clazz)
+    {
+        return new TrieValuesIterator.FilteredByType<>(impl().cursor(direction), clazz);
+    }
+
     // TODO: remove this method
     /**
      * Returns the values in any order. For some tries this is much faster than the ordered iterable.
