@@ -242,6 +242,16 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         return fromIterator(UnfilteredRowIterators.withOnlyQueriedData(iterator, filter));
     }
 
+    public static TriePartitionUpdate asTrieUpdate(PartitionUpdate update)
+    {
+        return fromIterator(update.unfilteredIterator());
+    }
+
+    public static Trie<Object> asMergableTrie(PartitionUpdate update)
+    {
+        return asTrieUpdate(update).trie.prefix(update.partitionKey());
+    }
+
     public TriePartitionUpdate withOnlyPresentColumns()
     {
         Set<ColumnMetadata> columnSet = new HashSet<>();
