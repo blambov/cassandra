@@ -87,11 +87,14 @@ public interface Trie<T> extends BaseTrie<T>
 
     // Necessary post-POC improvements:
     // TODO: Extract mutable trie interfaces (read-side(Trie) + putSingleton & apply)
+    // TODO: Test both BTree and Trie Partition + PartitionUpdate
+    // TODO: Test KeyProducer in InMemoryTrie.apply, including with alternates
     // done: node reuse
     // TODO: apply existing deletions on updates in InMemoryDATree.apply
     // done: delete on the way back in apply
     // done: consistency/copy-on-write levels
     // Optimizations:
+    // TODO: figure out non-private use of Entry/Value/Tail iterator subclasses
     // TODO: (if not fixed-level deletion branch) simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)

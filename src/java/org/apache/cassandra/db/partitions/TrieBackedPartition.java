@@ -45,6 +45,7 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
+import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.ColumnData;
@@ -65,6 +66,7 @@ import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.memory.EnsureOnHeap;
 import org.apache.cassandra.utils.memory.HeapCloner;
 
 /**
@@ -199,6 +201,22 @@ public class TrieBackedPartition implements Partition
         {
             throw new AssertionError(e);
         }
+    }
+
+    /**
+     * Create a row with the given properties and content, making sure to copy all off-heap data to keep it alive when
+     * the given access mode requires it.
+     */
+    public static TrieBackedPartition create(DecoratedKey partitionKey,
+                                             RegularAndStaticColumns columnMetadata,
+                                             EncodingStats encodingStats,
+                                             Trie<Object> trie,
+                                             TableMetadata metadata,
+                                             EnsureOnHeap ensureOnHeap)
+    {
+        return ensureOnHeap == EnsureOnHeap.NOOP
+               ? new TrieBackedPartition(partitionKey, columnMetadata, encodingStats, trie, metadata, true)
+               : new WithEnsureOnHeap(partitionKey, columnMetadata, encodingStats, trie, metadata, true, ensureOnHeap);
     }
 
     Iterator<Row> rowIterator(Trie<Object> trie, Direction direction)
@@ -536,6 +554,41 @@ public class TrieBackedPartition implements Partition
 
                 currentSlice = null;
             }
+        }
+    }
+
+
+    /**
+     * An snapshot of the current TrieBackedPartition data, copied on heap when retrieved.
+     */
+    private static final class WithEnsureOnHeap extends TrieBackedPartition
+    {
+        final DeletionInfo onHeapDeletion;
+        EnsureOnHeap ensureOnHeap;
+
+        public WithEnsureOnHeap(DecoratedKey partitionKey,
+                                RegularAndStaticColumns columns,
+                                EncodingStats stats,
+                                Trie<Object> trie,
+                                TableMetadata metadata,
+                                boolean canHaveShadowedData,
+                                EnsureOnHeap ensureOnHeap)
+        {
+            super(partitionKey, columns, stats, trie, metadata, canHaveShadowedData);
+            this.ensureOnHeap = ensureOnHeap;
+            onHeapDeletion = ensureOnHeap.applyToDeletionInfo(super.deletionInfo());
+        }
+
+        @Override
+        public Row toRow(RowData data, Clustering clustering)
+        {
+            return ensureOnHeap.applyToRow(super.toRow(data, clustering));
+        }
+
+        @Override
+        public DeletionInfo deletionInfo()
+        {
+            return onHeapDeletion;
         }
     }
 
