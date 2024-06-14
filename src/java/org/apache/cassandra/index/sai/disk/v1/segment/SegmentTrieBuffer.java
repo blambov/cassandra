@@ -24,6 +24,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.sai.postings.PostingList;
 import org.apache.cassandra.index.sai.utils.IndexEntry;
 import org.apache.cassandra.utils.Throwables;
@@ -68,7 +69,7 @@ public class SegmentTrieBuffer
         {
             trie.putSingleton(term, segmentRowId, postingsAccumulator, termLength <= MAX_RECURSIVE_TERM_LENGTH);
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw Throwables.unchecked(e);
         }

@@ -47,20 +47,20 @@ import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.partitions.AbstractUnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.BTreePartitionData;
+import org.apache.cassandra.db.partitions.BTreePartitionUpdate;
 import org.apache.cassandra.db.partitions.BTreePartitionUpdater;
 import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.dht.AbstractBounds;
-import org.apache.cassandra.dht.Bounds;
-import org.apache.cassandra.dht.IncludingExcludingBounds;
-import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.sstable.SSTableReadsListener;
@@ -202,7 +202,7 @@ public class TrieMemtable extends AbstractShardedMemtable
 
             return colUpdateTimeDelta;
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             // This should never happen as {@link InMemoryDTrie#reachedAllocatedSizeThreshold} should become
             // true and trigger a memtable switch long before this limit is reached.
@@ -455,7 +455,8 @@ public class TrieMemtable extends AbstractShardedMemtable
             this.metrics = metrics;
         }
 
-        public long put(DecoratedKey key, PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup) throws InMemoryDTrie.SpaceExhaustedException
+        public long put(DecoratedKey key, PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
+        throws TrieSpaceExhaustedException
         {
             BTreePartitionUpdater updater = new BTreePartitionUpdater(allocator, allocator.cloner(opGroup), opGroup, indexer);
             boolean locked = writeLock.tryLock();
@@ -478,7 +479,7 @@ public class TrieMemtable extends AbstractShardedMemtable
                     long offHeap = data.sizeOffHeap();
                     // Use the fast recursive put if we know the key is small enough to not cause a stack overflow.
                     data.putSingleton(key,
-                                      update,
+                                      BTreePartitionUpdate.asBTreeUpdate(update),
                                       updater::mergePartitions,
                                       key.getKeyLength() < MAX_RECURSIVE_KEY_LENGTH);
                     allocator.offHeap().adjust(data.sizeOffHeap() - offHeap, opGroup);
@@ -650,9 +651,9 @@ public class TrieMemtable extends AbstractShardedMemtable
         }
 
         @Override
-        public Iterator<Row> iterator()
+        public Iterator<Row> rowIterator()
         {
-            return ensureOnHeap.applyToPartition(super.iterator());
+            return ensureOnHeap.applyToPartition(super.rowIterator());
         }
     }
 
@@ -678,6 +679,12 @@ public class TrieMemtable extends AbstractShardedMemtable
         {
             return new TrieMemtable(commitLogLowerBound, metadaRef, owner, shardCount);
         }
+
+//        @Override
+//        public PartitionUpdate.Factory partitionUpdateFactory()
+//        {
+//            return TriePartitionUpdate.FACTORY;
+//        }
 
         @Override
         public TableMetrics.ReleasableMetric createMemtableMetrics(TableMetadataRef metadataRef)

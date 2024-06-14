@@ -57,7 +57,7 @@ public class BTreePartitionUpdater implements UpdateFunction<Row, Row>, ColumnDa
         this.dataSize = 0;
     }
 
-    public BTreePartitionData mergePartitions(BTreePartitionData current, final PartitionUpdate update)
+    public BTreePartitionData mergePartitions(BTreePartitionData current, final BTreePartitionUpdate update)
     {
         if (current == null)
         {
@@ -79,7 +79,7 @@ public class BTreePartitionUpdater implements UpdateFunction<Row, Row>, ColumnDa
         }
     }
 
-    protected BTreePartitionData makeMergedPartition(BTreePartitionData current, PartitionUpdate update)
+    protected BTreePartitionData makeMergedPartition(BTreePartitionData current, BTreePartitionUpdate update)
     {
         DeletionInfo newDeletionInfo = merge(current.deletionInfo, update.deletionInfo());
 

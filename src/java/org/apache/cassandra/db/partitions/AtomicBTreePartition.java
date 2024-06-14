@@ -117,7 +117,7 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
      * @return an array containing first the difference in size seen after merging the updates, and second the minimum
      * time delta between updates.
      */
-    public BTreePartitionUpdater addAll(final PartitionUpdate update, Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
+    public BTreePartitionUpdater addAll(final BTreePartitionUpdate update, Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
     {
         return new Updater(allocator, cloner, writeOp, indexer).addAll(update);
     }
@@ -143,7 +143,7 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
             super(allocator, cloner, writeOp, indexer);
         }
 
-        Updater addAll(final PartitionUpdate update)
+        Updater addAll(final BTreePartitionUpdate update)
         {
             try
             {
@@ -176,7 +176,7 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
             }
         }
 
-        private boolean tryUpdateData(PartitionUpdate update)
+        private boolean tryUpdateData(BTreePartitionUpdate update)
         {
             current = ref;
             this.dataSize = 0;
@@ -223,9 +223,9 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
     }
 
     @Override
-    public Iterator<Row> iterator()
+    public Iterator<Row> rowIterator()
     {
-        return allocator.ensureOnHeap().applyToPartition(super.iterator());
+        return allocator.ensureOnHeap().applyToPartition(super.rowIterator());
     }
 
     private boolean shouldLock(OpOrder.Group writeOp)

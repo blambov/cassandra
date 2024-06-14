@@ -87,7 +87,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.partitions.FilteredPartition;
-import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
+import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
@@ -399,7 +399,7 @@ public class Util
         }
     }
 
-    public static List<ImmutableBTreePartition> getAllUnfiltered(ReadCommand command)
+    public static List<Partition> getAllUnfiltered(ReadCommand command)
     {
         try (ReadExecutionController controller = command.executionController())
         {
@@ -407,16 +407,16 @@ public class Util
         }
     }
     
-    public static List<ImmutableBTreePartition> getAllUnfiltered(ReadCommand command, ReadExecutionController controller)
+    public static List<Partition> getAllUnfiltered(ReadCommand command, ReadExecutionController controller)
     {
-        List<ImmutableBTreePartition> results = new ArrayList<>();
+        List<Partition> results = new ArrayList<>();
         try (UnfilteredPartitionIterator iterator = command.executeLocally(controller))
         {
             while (iterator.hasNext())
             {
                 try (UnfilteredRowIterator partition = iterator.next())
                 {
-                    results.add(ImmutableBTreePartition.create(partition));
+                    results.add(TrieBackedPartition.create(partition));
                 }
             }
         }
@@ -482,7 +482,7 @@ public class Util
         }
     }
 
-    public static ImmutableBTreePartition getOnlyPartitionUnfiltered(ReadCommand cmd)
+    public static TrieBackedPartition getOnlyPartitionUnfiltered(ReadCommand cmd)
     {
         try (ReadExecutionController controller = cmd.executionController())
         {
@@ -490,7 +490,7 @@ public class Util
         }
     }
     
-    public static ImmutableBTreePartition getOnlyPartitionUnfiltered(ReadCommand cmd, ReadExecutionController controller)
+    public static TrieBackedPartition getOnlyPartitionUnfiltered(ReadCommand cmd, ReadExecutionController controller)
     {
         try (UnfilteredPartitionIterator iterator = cmd.executeLocally(controller))
         {
@@ -498,7 +498,7 @@ public class Util
             try (UnfilteredRowIterator partition = iterator.next())
             {
                 assert !iterator.hasNext() : "Expecting a single partition but got more";
-                return ImmutableBTreePartition.create(partition);
+                return TrieBackedPartition.create(partition);
             }
         }
     }

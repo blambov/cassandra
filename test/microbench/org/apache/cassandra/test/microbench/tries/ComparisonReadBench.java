@@ -31,13 +31,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.db.marshal.DecimalType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
-import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -319,7 +318,7 @@ public class ComparisonReadBench
             {
                 trie.putRecursive(type.longToByteComparable(v), b, resolver);
             }
-            catch (InMemoryDTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new AssertionError(e);
             }

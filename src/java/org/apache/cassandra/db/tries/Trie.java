@@ -79,9 +79,14 @@ public interface Trie<T> extends BaseTrie<T>
     // done: reverse iteration
     // done: define slices as always including prefixes and exact matches
 
+    // First POC, using DeletionInfo
+    // TODO: merge memtable changes
+
+    // second POC, with tombstones
     // TODO: Singleton/range deletion cursor to use for apply operations in PartitionUpdate
 
     // Necessary post-POC improvements:
+    // TODO: Extract mutable trie interfaces (read-side(Trie) + putSingleton & apply)
     // done: node reuse
     // TODO: apply existing deletions on updates in InMemoryDATree.apply
     // done: delete on the way back in apply

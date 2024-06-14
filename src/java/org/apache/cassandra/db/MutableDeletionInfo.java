@@ -19,6 +19,7 @@ package org.apache.cassandra.db;
 
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.SortedSet;
 
 import com.google.common.base.Objects;
 
@@ -86,11 +87,16 @@ public class MutableDeletionInfo implements DeletionInfo
     @Override
     public MutableDeletionInfo clone(ByteBufferCloner cloner)
     {
+        return new MutableDeletionInfo(partitionDeletion, copyRanges(cloner));
+    }
+
+    @Override
+    public RangeTombstoneList copyRanges(ByteBufferCloner cloner)
+    {
         RangeTombstoneList rangesCopy = null;
         if (ranges != null)
-             rangesCopy = ranges.clone(cloner);
-
-        return new MutableDeletionInfo(partitionDeletion, rangesCopy);
+            rangesCopy = ranges.clone(cloner);
+        return rangesCopy;
     }
 
     /**
@@ -158,6 +164,11 @@ public class MutableDeletionInfo implements DeletionInfo
     public Iterator<RangeTombstone> rangeIterator(Slice slice, boolean reversed)
     {
         return ranges == null ? Collections.emptyIterator() : ranges.iterator(slice, reversed);
+    }
+
+    public Iterator<RangeTombstone> rangeIterator(SortedSet<Clustering<?>> names, boolean reversed)
+    {
+        return ranges == null ? Collections.emptyIterator() : ranges.iterator(names, reversed);
     }
 
     public RangeTombstone rangeCovering(Clustering<?> name)

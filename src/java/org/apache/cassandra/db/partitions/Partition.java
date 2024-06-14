@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.partitions;
 
+import java.util.Iterator;
 import java.util.NavigableSet;
 
 import javax.annotation.Nullable;
@@ -50,9 +51,18 @@ public interface Partition
     public boolean isEmpty();
 
     /**
-     * Whether the partition object has rows. This may be false but partition still be non-empty if it has a deletion.
+     * Whether the partition object has any rows, including non-empty static row.
+     * This may be false but partition still be non-empty if it has a deletion.
      */
     boolean hasRows();
+
+    int rowCount();
+    Iterator<Row> rowIterator();
+    default Iterable<Row> rows()
+    {
+        return this::rowIterator;
+    }
+
 
     /**
      * Returns the row corresponding to the provided clustering, or null if there is not such row.
