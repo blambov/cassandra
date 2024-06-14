@@ -336,7 +336,7 @@ public class Commit
 
     public String toString(String kind)
     {
-        return String.format("%s(%d:%s, %d:%s)", kind, ballot.uuidTimestamp(), ballot, update.stats().minTimestamp, update.toString(false));
+        return String.format("%s(%d:%s, %d:%s)", kind, ballot.uuidTimestamp(), ballot, update.stats().minTimestamp, update.toString());
     }
 
     /**
@@ -466,7 +466,7 @@ public class Commit
 
     private static PartitionUpdate withTimestamp(PartitionUpdate update, long timestamp)
     {
-        return new PartitionUpdate.Builder(update, 0).updateAllTimestamp(timestamp).build();
+        return update.withUpdatedTimestamps(timestamp);
     }
 
     public static class CommitSerializer<T extends Commit> implements IVersionedSerializer<T>

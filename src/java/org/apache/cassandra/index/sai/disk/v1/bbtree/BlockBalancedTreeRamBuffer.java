@@ -20,8 +20,8 @@ package org.apache.cassandra.index.sai.disk.v1.bbtree;
 import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.concurrent.NotThreadSafe;
 
-import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.lucene.util.packed.PackedInts;
@@ -64,7 +64,7 @@ public class BlockBalancedTreeRamBuffer
         {
             trie.putRecursive(v -> ByteSource.fixedLength(value), segmentRowId, postingsAccumulator);
         }
-        catch (InMemoryDTrie.SpaceExhaustedException e)
+        catch (TrieSpaceExhaustedException e)
         {
             throw Throwables.unchecked(e);
         }

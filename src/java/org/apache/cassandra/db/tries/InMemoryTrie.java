@@ -68,7 +68,7 @@ import static org.apache.cassandra.db.tries.CursorWalkable.BYTE_COMPARABLE_VERSI
  * </p><p>
  * Because it uses 32-bit pointers in byte buffers, this trie has a fixed size limit of 2GB.
  */
-class InMemoryTrie<T> extends InMemoryReadTrie<T>
+public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
 

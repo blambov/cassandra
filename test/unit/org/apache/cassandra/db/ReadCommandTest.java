@@ -1016,7 +1016,7 @@ public class ReadCommandTest
 
         try (ReadExecutionController controller = command.executionController(true))
         {
-            List<ImmutableBTreePartition> partitions = Util.getAllUnfiltered(command, controller);
+            List<Partition> partitions = Util.getAllUnfiltered(command, controller);
             assertEquals(1, partitions.size());
             ByteBuffer digestWithTombstones = controller.getRepairedDataDigest();
             assertTrue(ByteBufferUtil.compareUnsigned(EMPTY_BYTE_BUFFER, digestWithTombstones) != 0);
@@ -1033,7 +1033,7 @@ public class ReadCommandTest
 
         try (ReadExecutionController controller = command.executionController(true))
         {
-            List<ImmutableBTreePartition> partitions = Util.getAllUnfiltered(command, controller);
+            List<Partition> partitions = Util.getAllUnfiltered(command, controller);
             assertTrue(partitions.isEmpty());
             ByteBuffer digestWithoutTombstones = controller.getRepairedDataDigest();
             assertEquals(0, ByteBufferUtil.compareUnsigned(EMPTY_BYTE_BUFFER, digestWithoutTombstones));
@@ -1072,7 +1072,7 @@ public class ReadCommandTest
         
         try (ReadExecutionController controller = command.executionController(true))
         {
-            List<ImmutableBTreePartition> partitions = Util.getAllUnfiltered(command, controller);
+            List<Partition> partitions = Util.getAllUnfiltered(command, controller);
             assertEquals(1, partitions.size());
             digestWithoutPurgedPartition = controller.getRepairedDataDigest();
             assertTrue(ByteBufferUtil.compareUnsigned(EMPTY_BYTE_BUFFER, digestWithoutPurgedPartition) != 0);
@@ -1086,7 +1086,7 @@ public class ReadCommandTest
 
         try (ReadExecutionController controller = command.executionController(true))
         {
-            List<ImmutableBTreePartition> partitions = Util.getAllUnfiltered(command, controller);
+            List<Partition> partitions = Util.getAllUnfiltered(command, controller);
             assertEquals(1, partitions.size());
             ByteBuffer digestWithPurgedPartition = controller.getRepairedDataDigest();
             assertEquals(0, ByteBufferUtil.compareUnsigned(digestWithPurgedPartition, digestWithoutPurgedPartition));

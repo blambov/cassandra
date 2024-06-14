@@ -27,6 +27,7 @@ import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.sai.memory.MemtableIndex;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeys;
@@ -153,7 +154,7 @@ public class RowMapping
     /**
      * Include PrimaryKey to RowId mapping
      */
-    public void add(PrimaryKey key, long sstableRowId) throws InMemoryDTrie.SpaceExhaustedException
+    public void add(PrimaryKey key, long sstableRowId) throws TrieSpaceExhaustedException
     {
         assert !complete : "Cannot modify built RowMapping.";
 

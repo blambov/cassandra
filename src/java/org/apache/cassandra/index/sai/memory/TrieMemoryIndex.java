@@ -36,6 +36,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.sai.IndexContext;
 import org.apache.cassandra.index.sai.analyzer.AbstractAnalyzer;
@@ -115,7 +116,7 @@ public class TrieMemoryIndex
                 {
                     data.putSingleton(comparableBytes, primaryKey, primaryKeysReducer, term.limit() <= MAX_RECURSIVE_KEY_LENGTH);
                 }
-                catch (InMemoryDTrie.SpaceExhaustedException e)
+                catch (TrieSpaceExhaustedException e)
                 {
                     throw new RuntimeException(e);
                 }

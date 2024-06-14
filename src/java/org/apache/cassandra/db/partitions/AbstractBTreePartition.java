@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.btree.BTree;
 
 import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
 
-public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
+public abstract class AbstractBTreePartition implements Partition
 {
     protected final DecoratedKey partitionKey;
 
@@ -386,16 +386,16 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
     @Override
     public boolean equals(Object obj)
     {
-        if (!(obj instanceof PartitionUpdate))
+        if (!(obj instanceof BTreePartitionUpdate))
             return false;
 
-        PartitionUpdate that = (PartitionUpdate) obj;
+        BTreePartitionUpdate that = (BTreePartitionUpdate) obj;
         BTreePartitionData a = this.holder(), b = that.holder();
         return partitionKey.equals(that.partitionKey)
                && metadata().id.equals(that.metadata().id)
                && a.deletionInfo.equals(b.deletionInfo)
                && a.staticRow.equals(b.staticRow)
-               && Iterators.elementsEqual(iterator(), that.iterator());
+               && Iterators.elementsEqual(rowIterator(), that.rowIterator());
     }
 
     public int rowCount()
@@ -403,7 +403,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         return BTree.size(holder().tree);
     }
 
-    public Iterator<Row> iterator()
+    public Iterator<Row> rowIterator()
     {
         return BTree.<Row>iterator(holder().tree);
     }
