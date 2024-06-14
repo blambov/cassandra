@@ -22,10 +22,21 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.cassandra.db.tries.InMemoryDTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Measurement;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.Threads;
+import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 @BenchmarkMode(Mode.AverageTime)
@@ -53,7 +64,7 @@ public class InMemoryTrieWriteBench
     final static boolean PRINT_SIZES = false;
 
     @Benchmark
-    public void putSequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
+    public void putSequential(Blackhole bh) throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
@@ -74,7 +85,7 @@ public class InMemoryTrieWriteBench
     }
 
     @Benchmark
-    public void putRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
+    public void putRandom(Blackhole bh) throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);
@@ -95,7 +106,7 @@ public class InMemoryTrieWriteBench
     }
 
     @Benchmark
-    public void applySequential(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
+    public void applySequential(Blackhole bh) throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
@@ -116,7 +127,7 @@ public class InMemoryTrieWriteBench
     }
 
     @Benchmark
-    public void applyRandom(Blackhole bh) throws InMemoryDTrie.SpaceExhaustedException
+    public void applyRandom(Blackhole bh) throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<Byte> trie = InMemoryDTrie.longLived(bufferType, null);
         Random rand = new Random(1);

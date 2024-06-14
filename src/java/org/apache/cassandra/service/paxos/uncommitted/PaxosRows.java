@@ -56,7 +56,6 @@ import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
-import static org.apache.cassandra.db.partitions.PartitionUpdate.PartitionUpdateSerializer.*;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.service.paxos.Commit.latest;
 
@@ -182,7 +181,7 @@ public class PaxosRows
             if (!proposalValue.hasRemaining())
                 return true;
 
-            return isEmpty(proposalValue, DeserializationHelper.Flag.LOCAL, key);
+            return PartitionUpdate.serializer.isEmpty(proposalValue, DeserializationHelper.Flag.LOCAL, key);
         }
         catch (IOException e)
         {

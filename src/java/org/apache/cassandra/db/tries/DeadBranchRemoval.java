@@ -149,9 +149,7 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
 
         public boolean hasContent()
         {
-            return source.content() != null
-                // TODO: || source.alternateBranch() != null
-            ;
+            return source.content() != null;
         }
 
         @Override
