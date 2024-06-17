@@ -942,7 +942,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      * and we reuse the same object. The latter is safe because memtable tries cannot be mutated in parallel by multiple
      * writers.
      */
-    class ApplyState implements KeyProducer
+    class ApplyState implements KeyProducer<T>
     {
         int[] data = new int[16 * 5];
         int stackDepth = -1;
@@ -1031,6 +1031,10 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         void setContentId(int value)
         {
             data[stackDepth * 5 + 3] = value;
+        }
+        int contentIdAtDepth(int stackDepth)
+        {
+            return data[stackDepth * 5 + 3];
         }
 
         /**
@@ -1401,24 +1405,37 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
 
         @Override
-        public byte[] getBytes()
+        public byte[] getBytes(Predicate<T> shouldStop)
         {
-            byte[] data = new byte[currentDepth];
-            int pos = currentDepth;
-            for (int i = stackDepth; i > 0; --i)
+            int arrSize = 0;
+            int i;
+            for (i = stackDepth; i > 0; --i)
+            {
+                int content = contentIdAtDepth(i);
+                if (!isNull(content) && shouldStop.test(InMemoryTrie.this.getContent(content)))
+                    break;
+                int trans = transitionAtDepth(i);
+                if (trans >= 0 && trans < 256)
+                    ++arrSize;
+            }
+            ++arrSize;
+            assert i > 0 || arrSize == currentDepth; // if the loop covers the whole stack, the array must cover the full depth
+
+            byte[] data = new byte[arrSize];
+            int pos = 0;
+            for (; i <= stackDepth; ++i)
             {
                 int trans = transitionAtDepth(i);
                 if (trans >= 0 && trans < 256)
-                    data[--pos] = (byte) trans;
+                    data[pos++] = (byte) trans;
             }
-            assert pos == 0;
             return data;
         }
     }
 
-    public interface KeyProducer
+    public interface KeyProducer<T>
     {
-        byte[] getBytes();
+        byte[] getBytes(Predicate<T> shouldStop);
     }
 
     /**
