@@ -72,29 +72,29 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
 
-    final MemtableAllocationStrategy allocator;    // on or off heap
+    final MemoryAllocationStrategy allocator;    // on or off heap
 
-    static final long EMPTY_SIZE = ObjectSizes.measure(new InMemoryTrie<>(new MemtableAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP))); // for space calculations
+    static final long EMPTY_SIZE = ObjectSizes.measure(new InMemoryTrie<>(new MemoryAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP))); // for space calculations
 
-    InMemoryTrie(MemtableAllocationStrategy allocator)
+    InMemoryTrie(MemoryAllocationStrategy allocator)
     {
         super(allocator.buffer(), allocator.array(), NONE);
         this.allocator = allocator;
     }
 
-    static MemtableAllocationStrategy shortLivedStrategy()
+    static MemoryAllocationStrategy shortLivedStrategy()
     {
-        return new MemtableAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP);
+        return new MemoryAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP);
     }
 
-    static MemtableAllocationStrategy longLivedStrategy(OpOrder opOrder)
+    static MemoryAllocationStrategy longLivedStrategy(OpOrder opOrder)
     {
-        return new MemtableAllocationStrategy.OpOrderReuseStrategy(BufferType.OFF_HEAP, opOrder);
+        return new MemoryAllocationStrategy.OpOrderReuseStrategy(BufferType.OFF_HEAP, opOrder);
     }
 
-    static MemtableAllocationStrategy longLivedStrategy(BufferType bufferType, OpOrder opOrder)
+    static MemoryAllocationStrategy longLivedStrategy(BufferType bufferType, OpOrder opOrder)
     {
-        return new MemtableAllocationStrategy.OpOrderReuseStrategy(bufferType, opOrder);
+        return new MemoryAllocationStrategy.OpOrderReuseStrategy(bufferType, opOrder);
     }
 
     /**

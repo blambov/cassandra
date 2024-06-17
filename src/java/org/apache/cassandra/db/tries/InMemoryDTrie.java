@@ -26,12 +26,12 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
 {
-    public InMemoryDTrie(MemtableAllocationStrategy strategy)
+    public InMemoryDTrie(MemoryAllocationStrategy strategy)
     {
         super(strategy);
     }
 
-    private InMemoryDTrie(MemtableAllocationStrategy strategy, int root)
+    private InMemoryDTrie(MemoryAllocationStrategy strategy, int root)
     {
         super(strategy);
         this.root = root;
