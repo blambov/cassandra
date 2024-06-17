@@ -32,7 +32,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 public class InMemoryDeletionAwareTrie<U extends DeletionAwareTrie.Deletable, T extends U, D extends DeletionAwareTrie.DeletionMarker<T, D>>
 extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
 {
-    public InMemoryDeletionAwareTrie(MemtableAllocationStrategy strategy)
+    public InMemoryDeletionAwareTrie(MemoryAllocationStrategy strategy)
     {
         super(strategy);
     }
