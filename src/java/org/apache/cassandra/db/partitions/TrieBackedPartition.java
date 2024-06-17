@@ -170,7 +170,9 @@ public class TrieBackedPartition implements Partition
         this.columns = columns;
         this.stats = stats;
         this.canHaveShadowedData = canHaveShadowedData;
-        assert deletionInfo() != null; // There must be always be deletion info metadata
+        // There must always be deletion info metadata.
+        // Note: we can't use deletionInfo() because WithEnsureOnHeap's override is not yet set up.
+        assert trie.get(ByteComparable.EMPTY) != null;
         assert stats != null;
     }
 
@@ -576,7 +578,7 @@ public class TrieBackedPartition implements Partition
         {
             super(partitionKey, columns, stats, trie, metadata, canHaveShadowedData);
             this.ensureOnHeap = ensureOnHeap;
-            onHeapDeletion = ensureOnHeap.applyToDeletionInfo(super.deletionInfo());
+            this.onHeapDeletion = ensureOnHeap.applyToDeletionInfo(super.deletionInfo());
         }
 
         @Override

@@ -89,7 +89,7 @@ public interface Trie<T> extends BaseTrie<T>
     // Necessary post-POC improvements:
     // TODO: Extract mutable trie interfaces (read-side(Trie) + putSingleton & apply)
     // TODO: Test both BTree and Trie Partition + PartitionUpdate
-    // TODO: Test KeyProducer in InMemoryTrie.apply, including with alternates
+    // TODO: Test KeyProducer in InMemoryTrie.apply, especially with alternates including at root
     // done: node reuse
     // TODO: apply existing deletions on updates in InMemoryDATree.apply
     // done: delete on the way back in apply

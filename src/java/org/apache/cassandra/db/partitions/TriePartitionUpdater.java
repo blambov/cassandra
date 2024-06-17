@@ -141,7 +141,7 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
     private Clustering<ByteBuffer> clusteringFor(InMemoryTrie.KeyProducer keyState)
     {
         return metadata.comparator.clusteringFromByteComparable(ByteBufferAccessor.instance, // TODO bytes?
-                                                                ByteComparable.fixedLength(keyState.getBytes()));
+                                                                ByteComparable.fixedLength(keyState.getBytes(TrieMemtable.IS_PARTITION_BOUNDARY)));
     }
 
     /**
