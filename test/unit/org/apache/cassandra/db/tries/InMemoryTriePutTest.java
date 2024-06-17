@@ -67,7 +67,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     public void testOver1GSize() throws TrieSpaceExhaustedException
     {
         InMemoryDTrie<String> trie = new InMemoryDTrie(strategy.create());
-        MemtableAllocationStrategy.NoReuseStrategy allocator = (MemtableAllocationStrategy.NoReuseStrategy) trie.allocator;
+        MemoryAllocationStrategy.NoReuseStrategy allocator = (MemoryAllocationStrategy.NoReuseStrategy) trie.allocator;
         allocator.advanceAllocatedPos(0x20000000);
         String t1 = "test1";
         String t2 = "testing2";

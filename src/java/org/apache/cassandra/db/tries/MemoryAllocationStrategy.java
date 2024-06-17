@@ -31,7 +31,7 @@ import org.github.jamm.MemoryMeterStrategy;
 /**
  * Allocation strategy for buffers and arrays for InMemoryTrie's. Controls how space is allocated and reused.
  */
-public interface MemtableAllocationStrategy
+public interface MemoryAllocationStrategy
 {
     // Initial capacity for the node data buffer.
     static final int INITIAL_BUFFER_CAPACITY = 256;
@@ -155,7 +155,7 @@ public interface MemtableAllocationStrategy
     /**
      * Strategy for small short-lived tries, usually on-heap. This strategy does not reuse any cells.
      */
-    class NoReuseStrategy implements MemtableAllocationStrategy
+    class NoReuseStrategy implements MemoryAllocationStrategy
     {
         private static final long EMPTY_SIZE_ON_HEAP; // for space calculations
         private static final long EMPTY_SIZE_OFF_HEAP; // for space calculations

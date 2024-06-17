@@ -25,7 +25,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends InMemoryTrie<T> implements NonDeterministicTrieWithImpl<T>
 {
-    public InMemoryNDTrie(MemtableAllocationStrategy strategy)
+    public InMemoryNDTrie(MemoryAllocationStrategy strategy)
     {
         super(strategy);
     }

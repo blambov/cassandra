@@ -361,7 +361,7 @@ public class InMemoryTrieThreadedTest
          */
 
         OpOrder readOrder = new OpOrder();
-//        MemtableTrie<Content> trie = new InMemoryDTrie<>(new MemtableAllocationStrategy.NoReuseStrategy(BufferType.OFF_HEAP));
+//        MemtableTrie<Content> trie = new InMemoryDTrie<>(new MemoryAllocationStrategy.NoReuseStrategy(BufferType.OFF_HEAP));
         InMemoryDTrie<Content> trie = InMemoryDTrie.longLived(readOrder);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<Thread>();
@@ -517,7 +517,7 @@ public class InMemoryTrieThreadedTest
 
         System.out.format("Reuse %s %s atomicity %s on-heap %,d (allocated %,d) off-heap %,d (allocated %,d)\n",
                           trie.allocator.getClass().getSimpleName(),
-                          ((MemtableAllocationStrategy.NoReuseStrategy) (trie.allocator)).bufferType,
+                          ((MemoryAllocationStrategy.NoReuseStrategy) (trie.allocator)).bufferType,
                           forcedCopyChecker == NO_ATOMICITY ? "none" :
                           forcedCopyChecker == FORCE_ATOMIC ? "atomic" : "consistent partition",
                           trie.sizeOnHeap(),

@@ -60,20 +60,20 @@ public abstract class InMemoryTrieTestBase
     {
         SHORT_LIVED
         {
-            MemtableAllocationStrategy create()
+            MemoryAllocationStrategy create()
             {
                 return InMemoryTrie.shortLivedStrategy();
             }
         },
         LONG_LIVED
         {
-            MemtableAllocationStrategy create()
+            MemoryAllocationStrategy create()
             {
                 return InMemoryTrie.longLivedStrategy(null);
             }
         };
 
-        abstract MemtableAllocationStrategy create();
+        abstract MemoryAllocationStrategy create();
     }
 
     @Parameterized.Parameters()

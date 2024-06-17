@@ -25,7 +25,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMemoryTrie<M> implements RangeTrieWithImpl<M>
 {
-    public InMemoryRangeTrie(MemtableAllocationStrategy strategy)
+    public InMemoryRangeTrie(MemoryAllocationStrategy strategy)
     {
         super(strategy);
     }
