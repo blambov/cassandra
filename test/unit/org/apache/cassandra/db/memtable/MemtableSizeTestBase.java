@@ -168,20 +168,24 @@ public abstract class MemtableSizeTestBase extends CQLTester
                                       FBUtilities.prettyPrintMemory(memtable.getLiveDataSize()),
                                       usage));
 
+            if (memtable instanceof TrieMemtable)
+                ((TrieMemtable) memtable).releaseReferencesUnsafe();
+
+//            System.out.println("Take jmap -histo:live <pid>");
+//            Thread.sleep(10000);
+
             long deepSizeAfter = meter.measureDeep(memtable);
             logger.info("Memtable deep size {}", FBUtilities.prettyPrintMemory(deepSizeAfter));
 
             long expectedHeap = deepSizeAfter - deepSizeBefore;
             long max_difference = MAX_DIFFERENCE_PERCENT * expectedHeap / 100;
-            long trie_overhead = memtable instanceof TrieMemtable ? ((TrieMemtable) memtable).unusedReservedOnHeapMemory() : 0;
+            if (memtable instanceof TrieMemtable)
+                actualHeap += ((TrieMemtable) memtable).unusedReservedOnHeapMemory();
+
             switch (DatabaseDescriptor.getMemtableAllocationType())
             {
                 case heap_buffers:
                     max_difference += SLAB_OVERHEAD;
-                    actualHeap += trie_overhead;    // adjust trie memory with unused buffer space if on-heap
-                    break;
-                case unslabbed_heap_buffers:
-                    actualHeap += trie_overhead;    // adjust trie memory with unused buffer space if on-heap
                     break;
             }
             String message = String.format("Expected heap usage close to %s, got %s, %s difference.\n",

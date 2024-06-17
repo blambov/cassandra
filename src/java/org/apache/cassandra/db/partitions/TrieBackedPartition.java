@@ -66,8 +66,8 @@ import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.memory.Cloner;
 import org.apache.cassandra.utils.memory.EnsureOnHeap;
-import org.apache.cassandra.utils.memory.HeapCloner;
 
 /**
  * In-memory partition backed by a trie. The rows of the partition are values in the leaves of the trie, where the key
@@ -119,12 +119,6 @@ public class TrieBackedPartition implements Partition
                                    columnsBTree);
         }
 
-        Row copyToOnHeapRow(Clustering clustering)
-        {
-            // TODO: maybe avoid the first row object
-            return toRow(clustering).clone(HeapCloner.instance);
-        }
-
         public int dataSize()
         {
             int dataSize = livenessInfo.dataSize() + deletion.dataSize();
@@ -139,12 +133,18 @@ public class TrieBackedPartition implements Partition
                             + livenessInfo.unsharedHeapSize()
                             + deletion.unsharedHeapSize();
 
-            return BTree.accumulate(columnsBTree, (ColumnData cd, long v) -> v + cd.unsharedHeapSize(), heapSize);
+            return BTree.accumulate(columnsBTree, (ColumnData cd, long v) -> v + cd.unsharedHeapSizeExcludingData(), heapSize);
         }
 
         public String toString()
         {
             return "row " + livenessInfo + " size " + dataSize();
+        }
+
+        public RowData clone(Cloner cloner)
+        {
+            Object[] tree = BTree.<ColumnData, ColumnData>transform(columnsBTree, c -> c.clone(cloner));
+            return new RowData(tree, livenessInfo, deletion);
         }
     }
 
