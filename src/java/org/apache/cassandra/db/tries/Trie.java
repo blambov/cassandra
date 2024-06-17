@@ -81,6 +81,7 @@ public interface Trie<T> extends BaseTrie<T>
 
     // First POC, using DeletionInfo
     // TODO: merge memtable changes
+    // done: InMemoryTrie tailTrie with pre-evaluated node pointer (to ensure snapshot)
 
     // second POC, with tombstones
     // TODO: Singleton/range deletion cursor to use for apply operations in PartitionUpdate

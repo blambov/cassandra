@@ -21,6 +21,8 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
@@ -28,6 +30,12 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
     public InMemoryDTrie(MemtableAllocationStrategy strategy)
     {
         super(strategy);
+    }
+
+    private InMemoryDTrie(MemtableAllocationStrategy strategy, int root)
+    {
+        super(strategy);
+        this.root = root;
     }
 
     public static <T> InMemoryDTrie<T> shortLived()
@@ -80,8 +88,25 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
      * Override of dump to provide more detailed printout that includes the type of each node in the trie.
      * We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
      */
+    @Override
     public String dump(Function<T, String> contentToString)
     {
         return dump(contentToString, root);
+    }
+
+    /**
+     * Override tailTrie with a version that seeks to the tail position and returns a trie with that as a root.
+     * This is important to ensure that further modifications to the trie are not reflected in the extracted trie
+     * (as long as force-copying applies on that level of the trie).
+     *
+     * @param key
+     * @return Tail trie rooted at the position reached after following the given path. May be null or empty if the path
+     * is not found.
+     */
+    @Override
+    public Trie<T> tailTrie(ByteComparable key)
+    {
+        int node = nodeAt(key);
+        return isNull(node) ? null : new InMemoryDTrie<>(allocator, node);
     }
 }
