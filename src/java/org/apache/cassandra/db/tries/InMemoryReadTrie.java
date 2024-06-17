@@ -1243,6 +1243,26 @@ class InMemoryReadTrie<T>
      */
 
     /**
+     * Get the node reached after following the given key.
+     * Fast implementation using integer node addresses.
+     */
+    int nodeAt(ByteComparable path)
+    {
+        int n = root;
+        ByteSource source = path.asComparableBytes(TrieImpl.BYTE_COMPARABLE_VERSION);
+        while (!isNull(n))
+        {
+            int c = source.next();
+            if (c == ByteSource.END_OF_STREAM)
+                break;
+
+            n = advance(n, c, source);
+        }
+
+        return n;
+    }
+
+    /**
      * Get the content mapped by the specified key.
      * Fast implementation using integer node addresses.
      */
