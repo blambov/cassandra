@@ -2092,8 +2092,22 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return EMPTY_SIZE + allocator.sizeOnHeap();
     }
 
+    @VisibleForTesting
     public long unusedReservedOnHeapMemory()
     {
-        return allocator.availableForAllocationOnHeap();
+        return allocator.totalAllocatedOnHeap() - allocator.sizeOnHeap();
+    }
+
+    /**
+     * Release all recycled content references, including the ones waiting in still incomplete recycling lists.
+     * This is a test method and can cause null pointer exceptions if used on a live trie.
+     *
+     * If similar functionality is required for non-test purposes, a version of this should be developed that only
+     * releases references on barrier-complete lists.
+     */
+    @VisibleForTesting
+    public void releaseReferencesUnsafe()
+    {
+        allocator.releaseReferencesUnsafe();
     }
 }

@@ -515,15 +515,15 @@ public class InMemoryTrieThreadedTest
         for (Thread t : threads)
             t.join();
 
-        System.out.format("Reuse %s %s atomicity %s on-heap %,d (+%,d) off-heap %,d (+%,d)\n",
+        System.out.format("Reuse %s %s atomicity %s on-heap %,d (allocated %,d) off-heap %,d (allocated %,d)\n",
                           trie.allocator.getClass().getSimpleName(),
                           ((MemtableAllocationStrategy.NoReuseStrategy) (trie.allocator)).bufferType,
                           forcedCopyChecker == NO_ATOMICITY ? "none" :
                           forcedCopyChecker == FORCE_ATOMIC ? "atomic" : "consistent partition",
                           trie.sizeOnHeap(),
-                          trie.allocator.availableForAllocationOnHeap(),
+                          trie.allocator.totalAllocatedOnHeap(),
                           trie.sizeOffHeap(),
-                          trie.allocator.availableForAllocationOffHeap());
+                          trie.allocator.totalAllocatedOffHeap());
 
         if (!errors.isEmpty())
             Assert.fail("Got errors:\n" + errors);

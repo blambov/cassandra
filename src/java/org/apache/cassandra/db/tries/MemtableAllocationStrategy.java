@@ -130,14 +130,26 @@ public interface MemtableAllocationStrategy
     void discardBuffers();
 
     /**
-     * Returns the amount of on-heap memory that is allocated but not currently in use.
+     * Returns the total amount of on-heap memory that is allocated. The difference between this and sizeOnHeap
+     * is memory that has been preallocated or recycled.
      */
-    long availableForAllocationOnHeap();
+    long totalAllocatedOnHeap();
 
     /**
-     * Returns the amount of on-heap memory that is allocated but not currently in use.
+     * Returns the total amount of off-heap memory that is allocated. The difference between this and sizeOffHeap
+     * is memory that has been preallocated or recycled.
      */
-    long availableForAllocationOffHeap();
+    long totalAllocatedOffHeap();
+
+    /**
+     * Release all recycled content references, including the ones waiting in still incomplete recycling lists.
+     * This is a test method and can cause null pointer exceptions if used on a live trie.
+     *
+     * If similar functionality is required for non-test purposes, a version of this should be developed that only
+     * releases references on barrier-complete lists.
+     */
+    @VisibleForTesting
+    void releaseReferencesUnsafe();
 
 
     /**
@@ -258,26 +270,50 @@ public interface MemtableAllocationStrategy
             // No reuse, nothing to do
         }
 
+        long usedBufferSize()
+        {
+            return allocatedPos;
+        }
+
+        long totalBufferSize()
+        {
+            return buffer.capacity();
+        }
+
+        long usedArraySize()
+        {
+            return contentCount * MemoryMeterStrategy.MEMORY_LAYOUT.getReferenceSize();
+        }
+
+        long totalArraySize()
+        {
+            return array.length() * MemoryMeterStrategy.MEMORY_LAYOUT.getReferenceSize();
+        }
+
+        @Override
         public long sizeOffHeap()
         {
-            return (bufferType == BufferType.ON_HEAP ? 0 : allocatedPos) - availableForAllocationOffHeap();
+            return (bufferType == BufferType.ON_HEAP ? 0 : usedBufferSize());
         }
 
+        @Override
         public long sizeOnHeap()
         {
-            return (contentCount * MemoryMeterStrategy.MEMORY_LAYOUT.getReferenceSize() +
-                    (bufferType == BufferType.ON_HEAP ? allocatedPos + EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP))
-                    - availableForAllocationOnHeap();
+            return usedArraySize() +
+                   (bufferType == BufferType.ON_HEAP ? usedBufferSize() + EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP);
         }
 
-        public long availableForAllocationOnHeap()
+        @Override
+        public long totalAllocatedOffHeap()
         {
-            return 0;
+            return (bufferType == BufferType.ON_HEAP ? 0 : totalBufferSize());
         }
 
-        public long availableForAllocationOffHeap()
+        @Override
+        public long totalAllocatedOnHeap()
         {
-            return 0;
+            return totalArraySize() +
+                   (bufferType == BufferType.ON_HEAP ? totalBufferSize() : 0);
         }
 
         public boolean reachedAllocatedSizeThreshold()
@@ -300,6 +336,13 @@ public interface MemtableAllocationStrategy
         public void discardBuffers()
         {
             FileUtils.clean(buffer.byteBuffer());
+        }
+
+        @Override
+        public void releaseReferencesUnsafe()
+        {
+            // No reuse, there is no (easy) way to identify unused references.
+            throw new AssertionError("Test method used incorrectly");
         }
     }
 
@@ -410,22 +453,28 @@ public interface MemtableAllocationStrategy
         }
 
         @Override
-        public long availableForAllocationOnHeap()
+        long usedBufferSize()
         {
-            return pojos.availableForAllocation() * MemoryMeterStrategy.MEMORY_LAYOUT.getReferenceSize()
-                   + (bufferType == BufferType.ON_HEAP ? cells.availableForAllocation() * BLOCK_SIZE : 0);
+            return super.usedBufferSize() - cells.availableForAllocation() * BLOCK_SIZE;
         }
 
         @Override
-        public long availableForAllocationOffHeap()
+        long usedArraySize()
         {
-            return bufferType == BufferType.ON_HEAP ? 0 : cells.availableForAllocation() * BLOCK_SIZE;
+            return super.usedArraySize() - pojos.availableForAllocation() * MemoryMeterStrategy.MEMORY_LAYOUT.getReferenceSize();
         }
 
         @Override
         public boolean reachedAllocatedSizeThreshold()
         {
             return allocatedPos >= InMemoryTrie.ALLOCATED_SIZE_THRESHOLD;
+        }
+
+        @Override
+        public void releaseReferencesUnsafe()
+        {
+            for (int index : pojos.allAvailable())
+                array.setOrdered(index, null);
         }
     }
 

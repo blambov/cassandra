@@ -21,24 +21,18 @@ package org.apache.cassandra.db.partitions;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.db.Clustering;
-import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.DeletionInfo;
-import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
+import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
-import org.apache.cassandra.db.memtable.TrieMemtable;
-import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.memory.Cloner;
-import org.apache.cassandra.utils.memory.MemtableAllocator;
 
 import static org.apache.cassandra.db.partitions.TrieBackedPartition.RowData;
 
@@ -47,25 +41,21 @@ import static org.apache.cassandra.db.partitions.TrieBackedPartition.RowData;
  */
 public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransformerWithKeyProducer<Object, Object>, ColumnData.PostReconciliationFunction
 {
-    private final MemtableAllocator allocator;
     private final Cloner cloner;
     private final UpdateTransaction indexer;
     private final TableMetadata metadata;
     private final TrieMemtable.MemtableShard owner;
-    private Row.Builder rowBuilder;
     public long dataSize;
     public long heapSize;
     public int partitionsAdded = 0;
     public int rowsAdded = 0;
     public long colUpdateTimeDelta = Long.MAX_VALUE;
 
-    public TriePartitionUpdater(MemtableAllocator allocator,
-                                Cloner cloner,
+    public TriePartitionUpdater(Cloner cloner,
                                 UpdateTransaction indexer,
                                 TableMetadata metadata,
                                 TrieMemtable.MemtableShard owner)
     {
-        this.allocator = allocator;
         this.indexer = indexer;
         this.metadata = metadata;
         this.owner = owner;
@@ -99,25 +89,12 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
      */
     public RowData applyRow(RowData existing, RowData insert, InMemoryTrie.KeyProducer keyState)
     {
-        // TODO: Supply real deletion to indexer
-
-        Clustering clustering;
-        // We need the real clustering only if we have indexing.
-        if (indexer != UpdateTransaction.NO_OP)
-        {
-            clustering = clusteringFor(keyState);
-        }
-        else
-            clustering = Clustering.EMPTY;
-
-        // TODO: Avoid going through Row in both paths.
         if (existing == null)
         {
-            Row dataRow = insert.toRow(clustering).clone(cloner);
-            RowData data = TrieBackedPartition.rowToData(dataRow);
+            RowData data = insert.clone(cloner);
 
             if (indexer != UpdateTransaction.NO_OP)
-                indexer.onInserted(dataRow);
+                indexer.onInserted(data.toRow(clusteringFor(keyState)));
 
             this.dataSize += data.dataSize();
             this.heapSize += data.unsharedHeapSizeExcludingData();
@@ -126,9 +103,18 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
         }
         else
         {
+            // TODO: Avoid going through Row.
+            Clustering clustering;
+            // We need the real clustering only if we have indexing.
+            if (indexer != UpdateTransaction.NO_OP)
+                clustering = clusteringFor(keyState);
+            else
+                clustering = Clustering.EMPTY;
+
             Row existingRow = existing.toRow(clustering);
             Row insertRow = insert.toRow(clustering);
-            final Row reconciledRow = Rows.merge(existingRow, insertRow, this);
+            Row reconciledRow = Rows.merge(existingRow, insertRow, this);
+            // data and heap size are updated during merge through the PostReconciliationFunction interface
             RowData reconciled = TrieBackedPartition.rowToData(reconciledRow);
 
             if (indexer != UpdateTransaction.NO_OP)
@@ -167,7 +153,8 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
 
         if (existing == null)
         {
-            TrieMemtable.PartitionData newRef = new TrieMemtable.PartitionData(update, owner, dataSize);
+            // Note: Always on-heap, regardless of cloner
+            TrieMemtable.PartitionData newRef = new TrieMemtable.PartitionData(update, owner);
             this.heapSize += newRef.unsharedHeapSize();
             ++this.partitionsAdded;
             return newRef;
@@ -175,12 +162,10 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
 
         assert owner == existing.owner;
         if (update.isLive() || !update.mayModify(existing))
-        {
-            existing.dataSize += dataSize;
             return existing;
-        }
 
-        TrieMemtable.PartitionData merged = new TrieMemtable.PartitionData(existing, update, dataSize);
+        // Note: Always on-heap, regardless of cloner
+        TrieMemtable.PartitionData merged = new TrieMemtable.PartitionData(existing, update);
         this.heapSize += merged.unsharedHeapSize() - existing.unsharedHeapSize();
         return merged;
     }
