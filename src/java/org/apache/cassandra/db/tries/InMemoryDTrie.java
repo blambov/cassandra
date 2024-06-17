@@ -22,7 +22,6 @@ import java.util.function.Function;
 
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>

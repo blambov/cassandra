@@ -372,32 +372,20 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         public final MemtableShard owner;
 
-        /**
-         * Covered data size. This may be updated without creating a new PartitionData object, because it is not
-         * something that readers care about.
-         * Does not need to be volatile or atomic as it is updated by the single subrange writer thread, and is only
-         * otherwise used by FlushDataCollector, which is run after a write barrier has signalled that all writes that
-         * can end up in this memtable have completed.
-         */
-        public long dataSize;
-
-        public static final long HEAP_SIZE = ObjectSizes.measure(new PartitionData(DeletionInfo.LIVE, null, 0));
+        public static final long HEAP_SIZE = ObjectSizes.measure(new PartitionData(DeletionInfo.LIVE, null));
 
         public PartitionData(DeletionInfo deletion,
-                             MemtableShard owner,
-                             long dataSize)
+                             MemtableShard owner)
         {
             super(deletion.getPartitionDeletion(), deletion.copyRanges(HeapCloner.instance));
             this.owner = owner;
-            this.dataSize = dataSize;
         }
 
         public PartitionData(PartitionData existing,
-                             DeletionInfo update,
-                             long dataSizeDelta)
+                             DeletionInfo update)
         {
             // Start with the update content, to properly copy it
-            this(update, existing.owner, existing.dataSize + dataSizeDelta);
+            this(update, existing.owner);
             add(existing);
         }
 
@@ -540,7 +528,7 @@ public class TrieMemtable extends AbstractShardedMemtable
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         throws TrieSpaceExhaustedException
         {
-            TriePartitionUpdater updater = new TriePartitionUpdater(allocator, allocator.cloner(opGroup), indexer, metadata.get(), this);
+            TriePartitionUpdater updater = new TriePartitionUpdater(allocator.cloner(opGroup), indexer, metadata.get(), this);
             boolean locked = writeLock.tryLock();
             if (locked)
             {
@@ -564,7 +552,7 @@ public class TrieMemtable extends AbstractShardedMemtable
                                updater,
                                FORCE_COPY_PARTITION_BOUNDARY);
                     allocator.offHeap().adjust(data.sizeOffHeap() - offHeap, opGroup);
-                    allocator.onHeap().adjust(data.sizeOnHeap() - onHeap, opGroup);
+                    allocator.onHeap().adjust((data.sizeOnHeap() - onHeap) + updater.heapSize, opGroup);
                     partitionCount += updater.partitionsAdded;
                 }
                 finally
@@ -720,23 +708,14 @@ public class TrieMemtable extends AbstractShardedMemtable
     }
 
     /**
-     * How data should be accessed. Select UNSAFE if you are
-     * sure the memtable backing memory will still be available as
-     * this will avoid a copy, otherwise select ON_HEAP knowing that
-     * for off-heap allocators this will copy the data.
+     * Release all recycled content references, including the ones waiting in still incomplete recycling lists.
+     * This is a test method and can cause null pointer exceptions if used on a live trie.
      */
-    public enum DataAccess
+    @VisibleForTesting
+    void releaseReferencesUnsafe()
     {
-        /**
-         * The data can be backed by the memtable off-heap memory, this can only be used
-         * when we are sure that the memtable won't be discarded for the entire life duration
-         * of the data being accessed.
-         */
-        UNSAFE,
-        /**
-         * The data will be copied on heap if required. This means the data can outlive the
-         * memtable. It is the safest option but it may incur a copy on the heap.
-         */
-        ON_HEAP
+        for (MemtableShard shard : shards)
+            shard.data.releaseReferencesUnsafe();
     }
+
 }
