@@ -75,6 +75,14 @@ public class InMemoryDTrie<T> extends InMemoryTrie<T> implements TrieWithImpl<T>
         {
             return new DeterministicCursor<>(this);
         }
+
+        @Override
+        public DeterministicCursor<T> tailCursor(Direction direction)
+        {
+            assert depth() >= 0 : "Cannot create a tail cursor from an exhausted cursor.";
+            return new DeterministicCursor<>(trie, direction, currentNodeWithPrefixes, -1, -1);
+        }
+
     }
 
     @Override

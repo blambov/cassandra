@@ -159,6 +159,14 @@ public class InMemoryRangeTrie<M extends RangeTrie.RangeMarker<M>> extends InMem
         {
             return new RangeCursor<>(this);
         }
+
+        @Override
+        public RangeCursor<M, Q> tailCursor(Direction direction)
+        {
+            RangeCursor<M, Q> cursor = new RangeCursor<>(trie, direction, currentNodeWithPrefixes, -1, -1);
+            cursor.activeIsSet = false; // TODO: check this suffices
+            return cursor;
+        }
     }
 
 

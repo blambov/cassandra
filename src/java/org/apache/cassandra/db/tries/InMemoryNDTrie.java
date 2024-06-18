@@ -81,6 +81,12 @@ public class InMemoryNDTrie<T extends NonDeterministicTrie.Mergeable<T>> extends
         {
             return new NonDeterministicCursor<>(this);
         }
+
+        @Override
+        public NonDeterministicCursor<T> tailCursor(Direction direction)
+        {
+            return new NonDeterministicCursor<>(trie, direction, currentNodeWithPrefixes, -1, -1);
+        }
     }
 
     @Override

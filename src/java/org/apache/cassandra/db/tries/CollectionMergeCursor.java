@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -78,7 +79,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
      * Every element i is smaller than or equal to its two children, i.e.
      * heap[i] <= heap[i*2 + 1] && heap[i] <= heap[i*2 + 2]
      */
-    private final C[] heap;
+    final C[] heap;
     final Direction direction;
 
     @SuppressWarnings("unchecked")
@@ -535,6 +536,19 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             return new Deterministic<>(this);
         }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (!branchHasMultipleSources())
+                return head.tailCursor(direction);
+
+            List<TrieImpl.Cursor<T>> inputs = new ArrayList<>(heap.length);
+            inputs.add(head.tailCursor(direction));
+            applyToEqualOnHeap((cursor, index, avoid) -> inputs.add(cursor.tailCursor(direction)), null);
+
+            return new Deterministic<>(direction, resolver, inputs, x -> x);
+        }
     }
 
 
@@ -615,6 +629,19 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             return new NonDeterministic<>(this);
         }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (!branchHasMultipleSources())
+                return head.tailCursor(direction);
+
+            List<NonDeterministicTrieImpl.Cursor<T>> inputs = new ArrayList<>(heap.length);
+            inputs.add(head.tailCursor(direction));
+            applyToEqualOnHeap((cursor, index, avoid) -> inputs.add(cursor.tailCursor(direction)), null);
+
+            return new NonDeterministic<>(direction, inputs, x -> x);
+        }
     }
     
     
@@ -683,6 +710,25 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             final M state = maybeCollectContent();
             return state != null ? state.toContent() : null;
+        }
+
+        @Override
+        public RangeTrieImpl.Cursor<M> tailCursor(Direction direction)
+        {
+            if (!branchHasMultipleSources())
+                return head.tailCursor(direction);
+
+            List<RangeTrieImpl.Cursor<M>> inputs = new ArrayList<>(heap.length);
+            inputs.add(head.tailCursor(direction));
+            applyToAllOnHeap((cursor, index, avoid) ->
+                             {
+                                 if (equalCursor(head, cursor))
+                                     inputs.add(cursor.tailCursor(direction));
+                                 else if (cursor.coveringState() != null)
+                                     inputs.add(cursor.coveringStateCursor(direction));
+                             }, null);
+
+            return new Range<>(direction, resolver, inputs, x -> x);
         }
     }
 
@@ -898,5 +944,7 @@ abstract class CollectionMergeCursor<C extends CursorWalkable.Cursor> implements
         {
             return new DeletionAware<>(this);
         }
+
+        // TODO: tailCursor
     }
 }

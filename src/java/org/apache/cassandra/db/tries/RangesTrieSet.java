@@ -243,5 +243,7 @@ public class RangesTrieSet implements TrieSetWithImpl
         {
             return new RangesCursor(this);
         }
+
+        // TODO: Implement tailCursor
     }
 }

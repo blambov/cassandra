@@ -238,6 +238,22 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         return new TrieSetIntersectionCursor(this);
     }
 
+    @Override
+    public TrieSetImpl.Cursor tailCursor(Direction direction)
+    {
+        switch (state)
+        {
+            case MATCHING:
+                return new TrieSetIntersectionCursor(direction, c1.tailCursor(direction), c2.tailCursor(direction));
+            case C1_AHEAD:
+                return c2.tailCursor(direction);
+            case C2_AHEAD:
+                return c1.tailCursor(direction);
+            default:
+                throw new AssertionError();
+        }
+    }
+
     static class UnionCursor extends TrieSetIntersectionCursor
     {
         public UnionCursor(Direction direction, TrieSetImpl.Cursor c1, TrieSetImpl.Cursor c2)
@@ -266,6 +282,22 @@ public class TrieSetIntersectionCursor implements TrieSetImpl.Cursor
         public TrieSetImpl.Cursor duplicate()
         {
             return new UnionCursor(this);
+        }
+
+        @Override
+        public TrieSetImpl.Cursor tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new UnionCursor(direction, c1.tailCursor(direction), c2.tailCursor(direction));
+                case C1_AHEAD:
+                    return c2.tailCursor(direction);
+                case C2_AHEAD:
+                    return c1.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
         }
     }
 }

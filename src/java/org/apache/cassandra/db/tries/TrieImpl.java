@@ -146,7 +146,14 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
         /**
          * Make a copy of this cursor which can be separately advanced/queried from the current state.
          */
+        @Override
         Cursor<T> duplicate();
+
+        @Override
+        default Cursor<T> tailCursor(Direction direction)
+        {
+            throw new AssertionError("unimplemented");
+        }
     }
 
     /**
@@ -244,6 +251,11 @@ interface TrieImpl<T> extends CursorWalkable<TrieImpl.Cursor<T>>
         public Cursor<T> duplicate()
         {
             return depth == 0 ? new EmptyCursor<>() : this;
+        }
+
+        public Cursor<T> tailCursor(Direction direction)
+        {
+            return new EmptyCursor<>();
         }
     }
 

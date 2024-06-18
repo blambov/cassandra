@@ -49,7 +49,14 @@ interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> 
         /**
          * Make a copy of this cursor which can be separately advanced/queried from the current state.
          */
+        @Override
         Cursor<T> duplicate();
+
+        @Override
+        default Cursor<T> tailCursor(Direction direction)
+        {
+            throw new AssertionError("unimplemented");
+        }
     }
 
     /**
@@ -77,6 +84,12 @@ interface NonDeterministicTrieImpl<T extends NonDeterministicTrie.Mergeable<T>> 
         public Cursor<T> duplicate()
         {
             return depth == 0 ? new EmptyCursor<>() : this;
+        }
+        
+        @Override
+        public Cursor<T> tailCursor(Direction direction)
+        {
+            return new EmptyCursor<>();
         }
     }
 

@@ -224,21 +224,14 @@ public interface NonDeterministicTrie<T extends NonDeterministicTrie.Mergeable<T
         return (NonDeterministicTrieWithImpl<T>) dir -> new PrefixedCursor.NonDeterministic<>(dir, prefix, impl().cursor(dir));
     }
 
-    default Iterable<Map.Entry<ByteComparable, NonDeterministicTrie<T>>> tailTries(Predicate<T> predicate, Direction direction)
-    {
-        return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
-    }
-
     @Override
     default NonDeterministicTrie<T> tailTrie(ByteComparable prefix)
     {
-        return (NonDeterministicTrieWithImpl<T>) dir -> {
-            NonDeterministicTrieImpl.Cursor<T> c = impl().cursor(dir);
-            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
-                return new TailCursor.NonDeterministic<>(c);
-            else
-                return new NonDeterministicTrieImpl.EmptyCursor<>();
-        };
+        NonDeterministicTrieImpl.Cursor<T> c = impl().cursor(Direction.FORWARD);
+        if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+            return (NonDeterministicTrieWithImpl<T>) c::tailCursor;
+        else
+            return empty();
     }
 
     private NonDeterministicTrieWithImpl<T> impl()

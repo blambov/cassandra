@@ -481,6 +481,12 @@ public class DeletionAwareMergeTest
             }
 
             @Override
+            public DeletionAwareTrieImpl.Cursor<LivePoint, DeletionMarker> tailCursor(Direction direction)
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
             public LivePoint content()
             {
                 return liveCursor.content();

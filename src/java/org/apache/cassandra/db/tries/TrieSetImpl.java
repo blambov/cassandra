@@ -103,6 +103,12 @@ public interface TrieSetImpl extends CursorWalkable<TrieSetImpl.Cursor>
 
         @Override
         Cursor duplicate();
+
+        @Override
+        default Cursor tailCursor(Direction direction)
+        {
+            throw new AssertionError("unimplemented");
+        }
     }
 
     /**

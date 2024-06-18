@@ -88,6 +88,12 @@ extends InMemoryTrie<U> implements DeletionAwareTrieWithImpl<T, D>
         {
             return new DeletionAwareCursor<>(this);
         }
+
+        @Override
+        public DeletionAwareCursor<U, T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAwareCursor<>(trie, direction, currentNodeWithPrefixes, -1, -1);
+        }
     }
 
     @Override
