@@ -454,7 +454,7 @@ public class TrieMemtable extends AbstractShardedMemtable
             {
                 // TODO: avoid the transform by using a TailTrieIterator subclass
                 // TODO: find a way to construct the tail tries as inmemorytrie with branch root
-                return Iterators.transform(toFlush.directedTailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator(),
+                return Iterators.transform(toFlush.tailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator(),
                                            // During flushing we are certain the memtable will remain at least until
                                            // the flush completes. No copying to heap is necessary.
                                            entry -> getPartitionFromTrieEntry(metadata(), EnsureOnHeap.NOOP, entry));
@@ -621,7 +621,7 @@ public class TrieMemtable extends AbstractShardedMemtable
             this.metadata = metadata;
             this.ensureOnHeap = ensureOnHeap;
             // TODO: avoid the transform by using a TailTrieIterator subclass
-            this.iter = source.directedTailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator();
+            this.iter = source.tailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator();
             this.columnFilter = columnFilter;
             this.dataRange = dataRange;
         }

@@ -198,6 +198,12 @@ public class DeadBranchRemoval<T> implements TrieWithImpl<T>
         }
 
         @Override
+        public Cursor<T> tailCursor(Direction direction)
+        {
+            return apply(direction, source.tailCursor(direction));
+        }
+
+        @Override
         public void addPathByte(int nextByte)
         {
             ensureRoom(buffer, buffered + 1);

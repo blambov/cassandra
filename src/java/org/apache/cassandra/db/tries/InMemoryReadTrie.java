@@ -668,7 +668,8 @@ class InMemoryReadTrie<T>
     static class MemtableCursor<T> extends CursorBacktrackingState implements CursorWalkable.Cursor
     {
         final InMemoryReadTrie<T> trie;
-        private int currentNode;
+        int currentNode;
+        int currentNodeWithPrefixes;
         private int incomingTransition;
         private int depth;
         protected T content;
@@ -689,6 +690,7 @@ class InMemoryReadTrie<T>
             this.trie = copyFrom.trie;
             this.direction = copyFrom.direction;
             this.currentNode = copyFrom.currentNode;
+            this.currentNodeWithPrefixes = copyFrom.currentNodeWithPrefixes;
             this.incomingTransition = copyFrom.incomingTransition;
             this.content = copyFrom.content;
             this.alternateBranch = copyFrom.alternateBranch;
@@ -766,6 +768,13 @@ class InMemoryReadTrie<T>
         public MemtableCursor<T> duplicate()
         {
             return new MemtableCursor<>(this);
+        }
+
+        @Override
+        public MemtableCursor<T> tailCursor(Direction direction)
+        {
+            assert depth >= 0 : "Cannot create a tail cursor from an exhausted cursor.";
+            return new MemtableCursor<>(trie, direction, currentNode, 0, -1);
         }
 
         @Override
@@ -1191,6 +1200,7 @@ class InMemoryReadTrie<T>
         {
             ++depth;
             incomingTransition = transition;
+            currentNodeWithPrefixes = child;
             if (isNullOrLeaf(child))
             {
                 content = trie.getNodeContent(child);
@@ -1227,7 +1237,7 @@ class InMemoryReadTrie<T>
             ++depth;
             incomingTransition = transition;
             content = null;
-            currentNode = child;
+            currentNodeWithPrefixes = currentNode = child;
             alternateBranch = NONE;
             return depth;
         }
@@ -1330,6 +1340,12 @@ class InMemoryReadTrie<T>
             public TrieImpl.Cursor<String> duplicate()
             {
                 return new TypedNodesCursor(source.duplicate());
+            }
+
+            @Override
+            public TrieImpl.Cursor<String> tailCursor(Direction direction)
+            {
+                return new TypedNodesCursor(source.tailCursor(direction));
             }
 
             @Override

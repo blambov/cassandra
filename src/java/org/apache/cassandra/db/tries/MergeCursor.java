@@ -179,6 +179,19 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         {
             return new Deterministic<>(this);
         }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (atC1 && atC2)
+                return new Deterministic<>(direction, resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+            else if (atC1)
+                return c1.tailCursor(direction);
+            else if (atC2)
+                return c2.tailCursor(direction);
+            else
+                throw new AssertionError();
+        }
     }
 
     static class NonDeterministic<T extends NonDeterministicTrie.Mergeable<T>>
@@ -218,6 +231,19 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         public NonDeterministicTrieImpl.Cursor<T> duplicate()
         {
             return new NonDeterministic<>(this);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (atC1 && atC2)
+                return new NonDeterministic<>(direction, c1.tailCursor(direction), c2.tailCursor(direction));
+            else if (atC1)
+                return c1.tailCursor(direction);
+            else if (atC2)
+                return c2.tailCursor(direction);
+            else
+                throw new AssertionError();
         }
     }
 
@@ -315,6 +341,19 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
             return new Range<>(this);
         }
 
+        @Override
+        public RangeTrieImpl.Cursor<M> tailCursor(Direction direction)
+        {
+            if (atC1 && atC2)
+                return new Range<>(direction, resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+            else if (atC1)
+                return new Range<>(direction, resolver, c1.tailCursor(direction), c2.coveringStateCursor(direction));
+            else if (atC2)
+                return new Range<>(direction, resolver, c1.coveringStateCursor(direction), c2.tailCursor(direction));
+            else
+                throw new AssertionError();
+        }
+
         private M toContent(M content)
         {
             return content != null ? content.toContent() : null;
@@ -397,6 +436,16 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         {
             return new RangeOnTrie<>(this);
         }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            assert atC2;
+            if (atC1)
+                return new RangeOnTrie(direction, resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+            else
+                return c2.tailCursor(direction);
+        }
     }
 
     static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
@@ -412,13 +461,24 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
                       DeletionAwareTrieImpl.Cursor<T, D> c1,
                       DeletionAwareTrieImpl.Cursor<T, D> c2)
         {
-            super(direction,
-                  mergeResolver,
-                  new FlexibleMergeCursor.DeletionAwareSource<>(direction, c1, deleter),
-                  new FlexibleMergeCursor.DeletionAwareSource<>(direction, c2, deleter));
+            this(direction,
+                 mergeResolver,
+                 deletionResolver,
+                 new FlexibleMergeCursor.DeletionAwareSource<>(direction, c1, deleter),
+                 new FlexibleMergeCursor.DeletionAwareSource<>(direction, c2, deleter));
+            // We will add deletion sources to the above as we find them.
+            maybeAddDeletionsBranch(this.c1.depth());
+        }
+
+        DeletionAware(Direction direction,
+                      Trie.MergeResolver<T> mergeResolver,
+                      Trie.MergeResolver<D> deletionResolver,
+                      FlexibleMergeCursor.DeletionAwareSource<T, D> c1,
+                      FlexibleMergeCursor.DeletionAwareSource<T, D> c2)
+        {
+            super(direction, mergeResolver, c1, c2);
             // We will add deletion sources to the above as we find them.
             this.deletionResolver = deletionResolver;
-            maybeAddDeletionsBranch(this.c1.depth());
         }
 
         public DeletionAware(DeletionAware<T, D> copyFrom)
@@ -503,9 +563,22 @@ abstract class MergeCursor<C extends CursorWalkable.Cursor, D extends CursorWalk
         }
 
         @Override
-        public DeletionAwareTrieImpl.Cursor<T, D> duplicate()
+        public DeletionAware<T, D> duplicate()
         {
             return new DeletionAware<>(this);
+        }
+
+        @Override
+        public DeletionAwareTrieImpl.Cursor<T, D> tailCursor(Direction direction)
+        {
+            if (atC1 && atC2)
+                return new DeletionAware<>(direction, resolver, deletionResolver, c1.tailCursor(direction), c2.tailCursor(direction));
+            else if (atC1)
+                return c1.tailCursor(direction);
+            else if (atC2)
+                return c2.tailCursor(direction);
+            else
+                throw new AssertionError();
         }
     }
 

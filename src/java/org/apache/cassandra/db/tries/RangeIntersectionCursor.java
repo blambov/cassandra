@@ -362,17 +362,33 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
     }
 
     @Override
-    public RangeTrieImpl.Cursor duplicate()
+    public RangeTrieImpl.Cursor<Z> duplicate()
     {
-        return new RangeIntersectionCursor(this);
+        return new RangeIntersectionCursor<>(this);
+    }
+
+    @Override
+    public RangeTrieImpl.Cursor<Z> tailCursor(Direction direction)
+    {
+        switch (state)
+        {
+            case MATCHING:
+                return new RangeIntersectionCursor<>(direction, controller, c1.tailCursor(direction), c2.tailCursor(direction));
+            case C1_AHEAD:
+                return new RangeIntersectionCursor<>(direction, controller, c1.coveringStateCursor(direction), c2.tailCursor(direction));
+            case C2_AHEAD:
+                return new RangeIntersectionCursor<>(direction, controller, c1.tailCursor(direction), c2.coveringStateCursor(direction));
+            default:
+                throw new AssertionError();
+        }
     }
 
     static class TrieSet extends RangeIntersectionCursor<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> implements TrieSetImpl.Cursor
     {
         public TrieSet(Direction direction,
                        IntersectionController<TrieSetImpl.RangeState, TrieSetImpl.RangeState, TrieSetImpl.RangeState> controller,
-                       RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c1,
-                       RangeTrieImpl.Cursor<TrieSetImpl.RangeState> c2)
+                       TrieSetImpl.Cursor c1,
+                       TrieSetImpl.Cursor c2)
         {
             super(direction, controller, c1, c2);
         }
@@ -395,6 +411,22 @@ class RangeIntersectionCursor<C extends RangeTrie.RangeMarker<C>, D extends Rang
         public TrieSet duplicate()
         {
             return new TrieSet(this);
+        }
+
+        @Override
+        public TrieSetImpl.Cursor tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new TrieSet(direction, controller, (TrieSetImpl.Cursor) c1.tailCursor(direction), (TrieSetImpl.Cursor) c2.tailCursor(direction));
+                case C1_AHEAD:
+                    return (TrieSetImpl.Cursor) c2.tailCursor(direction);
+                case C2_AHEAD:
+                    return (TrieSetImpl.Cursor) c1.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
         }
     }
 }

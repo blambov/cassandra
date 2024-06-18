@@ -108,9 +108,9 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
         }
     }
 
-    static class FixedDirectionTails<T> extends TrieTailsIterator<T, Map.Entry<ByteComparable, Trie<T>>>
+    static class DeterministicEntries<T> extends TrieTailsIterator<T, Map.Entry<ByteComparable, Trie<T>>>
     {
-        public FixedDirectionTails(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
+        public DeterministicEntries(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
         {
             super(direction, cursor, predicate);
         }
@@ -118,18 +118,10 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
         @Override
         protected Map.Entry<ByteComparable, Trie<T>> mapContent(T content, byte[] bytes, int byteLength)
         {
+            // Take a tailCursor now to save the state of the iteration
+            final TrieImpl.Cursor<T> tailCursor = cursor.tailCursor(direction);
             return new AbstractMap.SimpleImmutableEntry<>(toByteComparable(bytes, byteLength),
-                                                          makeTail(cursor.duplicate(), direction));
+                                                          (TrieWithImpl<T>) tailCursor::tailCursor);
         }
-    }
-
-    static <T> TrieWithImpl<T> makeTail(TrieImpl.Cursor<T> cursor, Direction direction)
-    {
-        return dir ->
-        {
-            if (dir != direction)
-                throw new IllegalStateException("Directed tail cursors cannot be used in the other direction.");
-            return new TailCursor.Deterministic<>(cursor.duplicate());
-        };
     }
 }

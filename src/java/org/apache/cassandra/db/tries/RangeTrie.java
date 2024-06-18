@@ -234,13 +234,11 @@ public interface RangeTrie<M extends RangeTrie.RangeMarker<M>> extends BaseTrie<
     @Override
     default RangeTrie<M> tailTrie(ByteComparable prefix)
     {
-        return (RangeTrieWithImpl<M>) dir -> {
-            RangeTrieImpl.Cursor<M> c = impl().cursor(dir);
-            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
-                return new TailCursor.Range<>(c);
-            else
-                return new RangeTrieImpl.EmptyCursor<>();
-        };
+        RangeTrieImpl.Cursor<M> c = impl().cursor(Direction.FORWARD);
+        if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+            return (RangeTrieWithImpl) c::tailCursor;
+        else
+            return (RangeTrieWithImpl) c::coveringStateCursor;
     }
 
     private RangeTrieWithImpl<M> impl()

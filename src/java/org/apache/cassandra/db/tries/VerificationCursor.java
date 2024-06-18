@@ -177,6 +177,13 @@ public interface VerificationCursor
         }
 
         @Override
+        public Walkable<C> tailCursor(Direction direction)
+        {
+            return new Walkable<>(direction, (C) source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
+        }
+
+
+        @Override
         public void addPathByte(int nextByte)
         {
             addByte(nextByte, ++returnedDepth);
@@ -248,6 +255,8 @@ public interface VerificationCursor
 
         @Override
         public abstract WithContent<T, C> duplicate();
+        @Override
+        public abstract WithContent<T, C> tailCursor(Direction direction);
     }
 
     class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>> implements TrieImpl.Cursor<T>
@@ -271,6 +280,12 @@ public interface VerificationCursor
         public Deterministic<T> duplicate()
         {
             return new Deterministic<>(this);
+        }
+
+        @Override
+        public Deterministic<T> tailCursor(Direction direction)
+        {
+            return new Deterministic<>(direction, source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 
@@ -306,6 +321,12 @@ public interface VerificationCursor
         public NonDeterministic<T> duplicate()
         {
             return new NonDeterministic<>(this);
+        }
+
+        @Override
+        public NonDeterministic<T> tailCursor(Direction direction)
+        {
+            return new NonDeterministic<>(direction, source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 
@@ -409,6 +430,7 @@ public interface VerificationCursor
         }
 
         public abstract WithRanges<M, C> duplicate();
+        public abstract WithRanges<M, C> tailCursor(Direction direction);
     }
 
     class Range<M extends RangeTrie.RangeMarker<M>> extends WithRanges<M, RangeTrieImpl.Cursor<M>> implements RangeTrieImpl.Cursor<M>
@@ -432,6 +454,12 @@ public interface VerificationCursor
         public Range<M> duplicate()
         {
             return new Range<>(this);
+        }
+
+        @Override
+        public Range<M> tailCursor(Direction direction)
+        {
+            return new Range<>(direction, source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 
@@ -471,6 +499,12 @@ public interface VerificationCursor
         public TrieSet duplicate()
         {
             return new TrieSet(this);
+        }
+
+        @Override
+        public TrieSet tailCursor(Direction direction)
+        {
+            return new TrieSet(direction, source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 
@@ -565,6 +599,12 @@ public interface VerificationCursor
         public DeletionAware<T, D> duplicate()
         {
             return new DeletionAware<>(this);
+        }
+
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAware<>(direction, source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 }

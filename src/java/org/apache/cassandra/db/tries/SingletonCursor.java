@@ -42,14 +42,29 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
 
     SingletonCursor(SingletonCursor<T> copyFrom)
     {
-        ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.src);
-        copyFrom.src = dupe;
-        src = dupe.duplicate();
+        src = copyFrom.duplicateSource();
         direction = copyFrom.direction;
         currentDepth = copyFrom.currentDepth;
         currentTransition = copyFrom.currentTransition;
         nextTransition = copyFrom.nextTransition;
         value = copyFrom.value;
+    }
+
+    SingletonCursor(SingletonCursor<T> copyFrom, Direction direction)
+    {
+        src = copyFrom.duplicateSource();
+        this.direction = direction;
+        currentDepth = 0;
+        currentTransition = -1;
+        nextTransition = copyFrom.nextTransition;
+        value = copyFrom.value;
+    }
+
+    ByteSource duplicateSource()
+    {
+        ByteSource.Duplicatable dupe = ByteSource.duplicatable(src);
+        src = dupe;
+        return dupe.duplicate();
     }
 
     private int exhausted()
@@ -116,6 +131,12 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
     }
 
     @Override
+    public SingletonCursor<T> tailCursor(Direction direction)
+    {
+        return new SingletonCursor<>(this, direction);
+    }
+
+    @Override
     public int depth()
     {
         return currentDepth;
@@ -153,6 +174,11 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
             super(copyFrom);
         }
 
+        NonDeterministic(SingletonCursor<T> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
         {
@@ -163,6 +189,12 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         public NonDeterministic<T> duplicate()
         {
             return new NonDeterministic<>(this);
+        }
+
+        @Override
+        public NonDeterministic<T> tailCursor(Direction direction)
+        {
+            return new NonDeterministic<>(this, direction);
         }
     }
 
@@ -178,6 +210,11 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
             super(copyFrom);
         }
 
+        Range(SingletonCursor<T> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public T coveringState()
         {
@@ -189,6 +226,12 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
         public Range<T> duplicate()
         {
             return new Range<>(this);
+        }
+
+        @Override
+        public Range<T> tailCursor(Direction direction)
+        {
+            return new Range<>(this, direction);
         }
     }
 
@@ -205,6 +248,11 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
             super(copyFrom);
         }
 
+        DeletionAware(SingletonCursor<T> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public RangeTrieImpl.Cursor<D> deletionBranch()
         {
@@ -217,5 +265,10 @@ class SingletonCursor<T> implements TrieImpl.Cursor<T>
             return new DeletionAware<>(this);
         }
 
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAware<>(this, direction);
+        }
     }
 }

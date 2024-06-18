@@ -21,7 +21,7 @@ package org.apache.cassandra.db.tries;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
+public abstract class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWalkable.Cursor
 {
     final Direction direction;
     final C source;
@@ -49,13 +49,28 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         currentByte = copyFrom.currentByte;
         depthOfPrefix = copyFrom.depthOfPrefix;
         if (!prefixDone())
-        {
-            ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.prefixBytes);
-            copyFrom.prefixBytes = dupe;
-            prefixBytes = dupe.duplicate();
-        }
+            prefixBytes = copyFrom.duplicatePrefix();
         else
             prefixBytes = null;
+    }
+
+    @SuppressWarnings("unchecked")
+    PrefixedCursor(PrefixedCursor<C> copyFrom, Direction direction)
+    {
+        assert !prefixDone();
+        this.direction = copyFrom.direction;
+        this.source = (C) copyFrom.source.duplicate();
+        nextByte = copyFrom.nextByte;
+        currentByte = -1;
+        depthOfPrefix = 0;
+        prefixBytes = copyFrom.duplicatePrefix();
+    }
+
+    ByteSource duplicatePrefix()
+    {
+        ByteSource.Duplicatable dupe = ByteSource.duplicatable(prefixBytes);
+        prefixBytes = dupe;
+        return dupe.duplicate();
     }
 
     int addPrefixDepthAndCheckDone(int depthInBranch)
@@ -136,18 +151,12 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         return depthOfPrefix;
     }
 
-    @Override
-    public CursorWalkable.Cursor duplicate()
-    {
-        return new PrefixedCursor<>(this);
-    }
-
     public Direction direction()
     {
         return direction;
     }
 
-    static class WithContent<T, C extends TrieImpl.Cursor<T>> extends PrefixedCursor<C> implements TrieImpl.Cursor<T>
+    static abstract class WithContent<T, C extends TrieImpl.Cursor<T>> extends PrefixedCursor<C> implements TrieImpl.Cursor<T>
     {
         WithContent(Direction direction, ByteComparable prefix, C source)
         {
@@ -159,16 +168,15 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
             super(copyFrom);
         }
 
+        WithContent(WithContent<T, C> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public T content()
         {
             return prefixDone() ? source.content() : null;
-        }
-
-        @Override
-        public WithContent<T, C> duplicate()
-        {
-            return new WithContent<>(this);
         }
     }
 
@@ -184,10 +192,24 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
             super(copyFrom);
         }
 
+        public Deterministic(Deterministic<T> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public Deterministic<T> duplicate()
         {
             return new Deterministic<>(this);
+        }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return source.tailCursor(direction);
+            else
+                return new Deterministic<>(this, direction);
         }
     }
 
@@ -205,6 +227,11 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
             super(copyFrom);
         }
 
+        public NonDeterministic(NonDeterministic<T> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public NonDeterministicTrieImpl.Cursor<T> alternateBranch()
         {
@@ -215,6 +242,15 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         public NonDeterministic<T> duplicate()
         {
             return new NonDeterministic<>(this);
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return source.tailCursor(direction);
+            else
+                return new NonDeterministic<>(this, direction);
         }
     }
 
@@ -231,6 +267,11 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
             super(copyFrom);
         }
 
+        public Range(Range<M> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public M coveringState()
         {
@@ -244,6 +285,15 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         {
             return new Range<>(this);
         }
+
+        @Override
+        public RangeTrieImpl.Cursor<M> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return source.tailCursor(direction);
+            else
+                return new Range<>(this, direction);
+        }
     }
 
     static class TrieSet extends WithContent<TrieSetImpl.RangeState, TrieSetImpl.Cursor> implements TrieSetImpl.Cursor
@@ -256,6 +306,11 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         public TrieSet(TrieSet copyFrom)
         {
             super(copyFrom);
+        }
+
+        public TrieSet(TrieSet copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
         }
 
         @Override
@@ -279,6 +334,15 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         {
             return new TrieSet(this);
         }
+
+        @Override
+        public TrieSetImpl.Cursor tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return source.tailCursor(direction);
+            else
+                return new TrieSet(this, direction);
+        }
     }
 
     static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
@@ -295,6 +359,11 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
             super(copyFrom);
         }
 
+        DeletionAware(DeletionAware<T, D> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+        }
+
         @Override
         public RangeTrieImpl.Cursor<D> deletionBranch()
         {
@@ -305,6 +374,15 @@ public class PrefixedCursor<C extends CursorWalkable.Cursor> implements CursorWa
         public DeletionAware<T, D> duplicate()
         {
             return new DeletionAware<>(this);
+        }
+
+        @Override
+        public DeletionAwareTrieImpl.Cursor<T, D> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return source.tailCursor(direction);
+            else
+                return new DeletionAware<>(this, direction);
         }
     }
 }

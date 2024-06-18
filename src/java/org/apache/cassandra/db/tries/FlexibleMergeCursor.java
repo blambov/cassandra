@@ -392,15 +392,26 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         {
             return new RangeOnTrie<>(this);
         }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            return c2 != null ? new RangeOnTrie<>(direction, resolver, (C) c1.tailCursor(direction), c2.tailCursor(direction))
+                              : c1.tailCursor(direction);
+        }
     }
 
     static class DeletionAwareSource<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     extends RangeOnTrie<T, D, DeletionAwareTrieImpl.Cursor<T, D>> implements DeletionAwareTrieImpl.Cursor<T, D>
     {
-
         DeletionAwareSource(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> c1, BiFunction<D, T, T> resolver)
         {
             super(direction, resolver, c1, null);
+        }
+
+        DeletionAwareSource(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> c1, RangeTrieImpl.Cursor<D> c2, BiFunction<D, T, T> resolver)
+        {
+            super(direction, resolver, c1, c2);
         }
 
         public DeletionAwareSource(DeletionAwareSource<T, D> copyFrom)
@@ -419,6 +430,12 @@ abstract class FlexibleMergeCursor<C extends CursorWalkable.Cursor, D extends Cu
         public DeletionAwareSource<T, D> duplicate()
         {
             return new DeletionAwareSource<>(this);
+        }
+
+        @Override
+        public FlexibleMergeCursor.DeletionAwareSource<T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAwareSource<>(direction, c1.tailCursor(direction), c2 != null ? c2.tailCursor(direction) : null, resolver);
         }
     }
 }

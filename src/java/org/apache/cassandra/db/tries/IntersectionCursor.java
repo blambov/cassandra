@@ -224,6 +224,20 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         {
             return new Deterministic<>(this);
         }
+
+        @Override
+        public TrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new Deterministic<>(direction, source.tailCursor(direction), set.tailCursor(direction));
+                case SET_AHEAD:
+                    return source.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
+        }
     }
 
 
@@ -245,6 +259,20 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         public NonDeterministic<T> duplicate()
         {
             return new NonDeterministic<>(this, source.duplicate());
+        }
+
+        @Override
+        public NonDeterministicTrieImpl.Cursor<T> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new NonDeterministic<>(direction, source.tailCursor(direction), set.tailCursor(direction));
+                case SET_AHEAD:
+                    return source.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
         }
 
         @Override
@@ -279,6 +307,20 @@ abstract class IntersectionCursor<C extends CursorWalkable.Cursor> implements Cu
         public DeletionAware<T, D> duplicate()
         {
             return new DeletionAware<>(this, source.duplicate());
+        }
+
+        @Override
+        public DeletionAwareTrieImpl.Cursor<T, D> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new DeletionAware<>(direction, source.tailCursor(direction), set.tailCursor(direction));
+                case SET_AHEAD:
+                    return source.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
         }
 
         @Override
