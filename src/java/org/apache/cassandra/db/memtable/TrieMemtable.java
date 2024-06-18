@@ -414,11 +414,10 @@ public class TrieMemtable extends AbstractShardedMemtable
     public FlushablePartitionSet<TrieBackedPartition> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
         Trie<Object> toFlush = mergedTrie.subtrie(from, to);
-        var toFlushIterable = toFlush.tailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD);
         long keySize = 0;
         int keyCount = 0;
 
-        for (Map.Entry<ByteComparable, Trie<Object>> en : toFlushIterable)
+        for (Map.Entry<ByteComparable, PartitionData> en : toFlush.filteredEntrySet(PartitionData.class))
         {
             byte[] keyBytes = DecoratedKey.keyFromByteSource(ByteSource.peekable(en.getKey().asComparableBytes(BYTE_COMPARABLE_VERSION)),
                                                              BYTE_COMPARABLE_VERSION,
@@ -454,7 +453,8 @@ public class TrieMemtable extends AbstractShardedMemtable
             public Iterator<TrieBackedPartition> iterator()
             {
                 // TODO: avoid the transform by using a TailTrieIterator subclass
-                return Iterators.transform(toFlushIterable.iterator(),
+                // TODO: find a way to construct the tail tries as inmemorytrie with branch root
+                return Iterators.transform(toFlush.directedTailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator(),
                                            // During flushing we are certain the memtable will remain at least until
                                            // the flush completes. No copying to heap is necessary.
                                            entry -> getPartitionFromTrieEntry(metadata(), EnsureOnHeap.NOOP, entry));
@@ -621,7 +621,7 @@ public class TrieMemtable extends AbstractShardedMemtable
             this.metadata = metadata;
             this.ensureOnHeap = ensureOnHeap;
             // TODO: avoid the transform by using a TailTrieIterator subclass
-            this.iter = source.tailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator();
+            this.iter = source.directedTailTries(IS_PARTITION_BOUNDARY, Direction.FORWARD).iterator();
             this.columnFilter = columnFilter;
             this.dataRange = dataRange;
         }
