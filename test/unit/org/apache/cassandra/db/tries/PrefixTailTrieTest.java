@@ -124,6 +124,24 @@ public class PrefixTailTrieTest
             ++count;
         }
         assertEquals(COUNT_HEAD, count);
+
+
+        // Test directed tail iteration for metadata
+        count = 0;
+        for (var en : trie.directedTailTries(Predicates.instanceOf(Tail.class), Direction.FORWARD))
+        {
+            System.out.println(en.getKey().byteComparableAsString(VERSION));
+            Trie<Object> tail = en.getValue();
+            Tail t = data.get(ByteBuffer.wrap(en.getKey().asArray(VERSION)));
+            assertNotNull(t);
+            assertEquals(t, getRootContent(tail));
+            assertMapEquals(tail.filteredEntryIterator(Direction.FORWARD, ByteBuffer.class),
+                            t.data.entrySet().iterator());
+            assertIterablesEqual(tail.filteredValues(Direction.FORWARD, ByteBuffer.class),
+                                 t.data.values());
+            ++count;
+        }
+        assertEquals(COUNT_HEAD, count);
     }
 
     // also do same prefix updates

@@ -71,7 +71,9 @@ public abstract class ReadTest extends SimpleTableWriter
         switch (flush)
         {
         case YES:
+            long flushStart = System.currentTimeMillis();
             cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.USER_FORCED);
+            System.err.format("Flushed in %.3f s.\n", (System.currentTimeMillis() - flushStart) / 1000.0);
             break;
         case INMEM:
             if (!cfs.getLiveSSTables().isEmpty())

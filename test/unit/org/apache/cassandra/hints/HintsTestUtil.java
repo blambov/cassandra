@@ -22,7 +22,6 @@ import java.util.UUID;
 import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.partitions.AbstractBTreePartition;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.gms.IFailureDetectionEventListener;

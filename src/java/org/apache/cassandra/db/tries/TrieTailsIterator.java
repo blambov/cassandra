@@ -31,11 +31,11 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
  */
 public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor implements Iterator<V>
 {
-    private final Direction direction;
-    private final TrieImpl.Cursor<T> cursor;
+    final Direction direction;
+    final TrieImpl.Cursor<T> cursor;
     private final Predicate<T> predicate;
-    T next;
-    boolean gotNext;
+    private T next;
+    private boolean gotNext;
 
     TrieTailsIterator(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
     {
@@ -47,7 +47,7 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
 
     public boolean hasNext()
     {
-        while (!gotNext)
+        if (!gotNext)
         {
             int depth = cursor.depth();
             if (depth > 0)
@@ -59,14 +59,19 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
                 resetPathLength(depth - 1);
                 addPathByte(cursor.incomingTransition());
             }
-            next = cursor.content();
 
-            if (next == null) // usually true
-                next = cursor.advanceToContent(this);
+            next = cursor.content();
             if (next != null)
                 gotNext = predicate.test(next);
-            else
-                gotNext = true;
+
+            while (!gotNext)
+            {
+                next = cursor.advanceToContent(this);
+                if (next != null)
+                    gotNext = predicate.test(next);
+                else
+                    gotNext = true;
+            }
         }
 
         return next != null;
@@ -101,5 +106,30 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
             ByteComparable key = toByteComparable(bytes, byteLength);
             return new AbstractMap.SimpleImmutableEntry<>(key, tailMaker.apply(key));
         }
+    }
+
+    static class FixedDirectionTails<T> extends TrieTailsIterator<T, Map.Entry<ByteComparable, Trie<T>>>
+    {
+        public FixedDirectionTails(Direction direction, TrieImpl.Cursor<T> cursor, Predicate<T> predicate)
+        {
+            super(direction, cursor, predicate);
+        }
+
+        @Override
+        protected Map.Entry<ByteComparable, Trie<T>> mapContent(T content, byte[] bytes, int byteLength)
+        {
+            return new AbstractMap.SimpleImmutableEntry<>(toByteComparable(bytes, byteLength),
+                                                          makeTail(cursor.duplicate(), direction));
+        }
+    }
+
+    static <T> TrieWithImpl<T> makeTail(TrieImpl.Cursor<T> cursor, Direction direction)
+    {
+        return dir ->
+        {
+            if (dir != direction)
+                throw new IllegalStateException("Directed tail cursors cannot be used in the other direction.");
+            return new TailCursor.Deterministic<>(cursor.duplicate());
+        };
     }
 }

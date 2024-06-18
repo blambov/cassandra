@@ -403,12 +403,18 @@ public interface Trie<T> extends BaseTrie<T>
         return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
     }
 
+    default Iterable<Map.Entry<ByteComparable, Trie<T>>> directedTailTries(Predicate<T> predicate, Direction direction)
+    {
+        return () -> new TrieTailsIterator.FixedDirectionTails<>(direction, impl().cursor(direction), predicate);
+    }
+
+
     @Override
     default Trie<T> tailTrie(ByteComparable prefix)
     {
         // This could be done with a prewalked cursor, e.g. as
         //        TrieImpl.Cursor<T> c = impl().cursor(Direction.FORWARD);
-        //        if (CursorWalkable.walk(c, prefix))
+        //        if (CursorWalkable.descendAlong(c, prefix))
         //        {
         //            var tailCursor = new TailCursor.Deterministic<>(c);
         //            return (TrieWithImpl<T>) dir -> tailCursor.duplicate();
