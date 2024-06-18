@@ -206,9 +206,15 @@ interface CursorWalkable<C extends CursorWalkable.Cursor>
 
         /**
          * Make a copy of this cursor which can be separately advanced/queried from the current state.
-         * Note that some code relies on the fact that the duplicate will be of the same type as the original.
+         * Subclasses must override this to return a cursor of their own type.
          */
         Cursor duplicate();
+
+        /**
+         * Make a cursor that iterates over the tail trie rooted at the current position, in the given direction.
+         * Subclasses must override this to return a cursor of their own type.
+         */
+        Cursor tailCursor(Direction direction);
     }
 
     /**

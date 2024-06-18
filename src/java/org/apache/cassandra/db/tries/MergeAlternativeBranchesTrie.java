@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeable<T>> implements TrieWithImpl<T>
 {
@@ -150,6 +151,19 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
                 toOmit = this.head;
             this.cursorToOmit = toOmit;
             this.direction = copyFrom.direction;
+        }
+
+        public MergeAlternativesCursor(Direction direction,
+                                       NonDeterministicTrieImpl.Cursor<T> head,
+                                       List<NonDeterministicTrieImpl.Cursor<T>> heap,
+                                       NonDeterministicTrieImpl.Cursor<T> cursorToOmit,
+                                       T content)
+        {
+            this.direction = direction;
+            this.head = head;
+            this.heap = heap;
+            this.cursorToOmit = cursorToOmit;
+            this.content = content;
         }
 
         /**
@@ -428,6 +442,25 @@ public class MergeAlternativeBranchesTrie<T extends NonDeterministicTrie.Mergeab
         public Cursor<T> duplicate()
         {
             return new MergeAlternativesCursor<>(this);
+        }
+
+        @Override
+        public MergeAlternativesCursor<T> tailCursor(Direction direction)
+        {
+            AtomicReference<NonDeterministicTrieImpl.Cursor<T>> toOmit = new AtomicReference<>();
+            List<NonDeterministicTrieImpl.Cursor<T>> inputs = new ArrayList<>(heap.size());
+            applyToEqualOnHeap((self, cursor, index) ->
+            {
+                var tail = cursor.tailCursor(direction);
+                if (cursor == cursorToOmit)
+                    toOmit.set(tail);
+                inputs.add(tail);
+            });
+
+            var headTail = head.tailCursor(direction);
+            if (head == cursorToOmit)
+                toOmit.set(headTail);
+            return new MergeAlternativesCursor<>(direction, headTail, inputs, toOmit.get(), content);
         }
     }
 }

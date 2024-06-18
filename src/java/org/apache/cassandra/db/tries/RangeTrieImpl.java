@@ -43,6 +43,21 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
         @Override
         Cursor<M> duplicate();
 
+        @Override
+        default Cursor<M> tailCursor(Direction direction)
+        {
+            throw new AssertionError("unimplemented");
+        }
+
+        /**
+         * Corresponding method to tailCursor above applicable when this cursor is ahead.
+         * Returns a full-range cursor returning coveringState().
+         */
+        default Cursor<M> coveringStateCursor(Direction direction)
+        {
+            return new EmptyCursor<>(coveringState(), direction);
+        }
+
         /**
          * Return the cursor's iteration direction.
          */
@@ -60,10 +75,19 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
 
     class EmptyCursor<M extends RangeTrie.RangeMarker<M>> extends TrieImpl.EmptyCursor<M> implements Cursor<M>
     {
+        final M coveringState;
+        final Direction direction;
+
+        public EmptyCursor(M coveringState, Direction direction)
+        {
+            this.coveringState = coveringState;
+            this.direction = direction;
+        }
+
         @Override
         public M coveringState()
         {
-            return null;
+            return coveringState;
         }
 
         @Override
@@ -75,18 +99,24 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
         @Override
         public Direction direction()
         {
-            throw new AssertionError();
+            return direction;
         }
 
         @Override
         public Cursor<M> duplicate()
         {
-            return depth == 0 ? new EmptyCursor<>() : this;
+            return depth == 0 ? new EmptyCursor<>(coveringState, direction) : this;
+        }
+
+        @Override
+        public Cursor<M> tailCursor(Direction direction)
+        {
+            return new EmptyCursor<>(coveringState, direction);
         }
     }
 
     @SuppressWarnings("rawtypes")
-    static final RangeTrieWithImpl EMPTY = dir -> new EmptyCursor();
+    static final RangeTrieWithImpl EMPTY = dir -> new EmptyCursor(null, dir);
 
 
     static <M extends RangeTrie.RangeMarker<M>> RangeIntersectionCursor.IntersectionController<TrieSetImpl.RangeState, M, M> rangeAndSetIntersectionController()
@@ -162,6 +192,12 @@ public interface RangeTrieImpl<M extends RangeTrie.RangeMarker<M>> extends Curso
 
         @Override
         public Cursor<M> duplicate()
+        {
+            return this;
+        }
+
+        @Override
+        public Cursor<M> tailCursor(Direction direction)
         {
             return this;
         }

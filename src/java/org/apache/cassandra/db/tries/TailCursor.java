@@ -84,6 +84,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         return new TailCursor<>(this);
     }
 
+    @Override
+    public CursorWalkable.Cursor tailCursor(Direction direction)
+    {
+        return new TailCursor(source.tailCursor(direction));
+    }
+
     static class WithContent<T, C extends TrieImpl.Cursor<T>> extends TailCursor<C> implements TrieImpl.Cursor<T>
     {
         WithContent(C source)
@@ -107,6 +113,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         {
             return new WithContent<>(this);
         }
+
+        @Override
+        public WithContent<T, C> tailCursor(Direction direction)
+        {
+            return new WithContent<>((C) source.tailCursor(direction));
+        }
     }
 
     static class Deterministic<T> extends WithContent<T, TrieImpl.Cursor<T>>
@@ -125,6 +137,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         public Deterministic<T> duplicate()
         {
             return new Deterministic<>(this);
+        }
+
+        @Override
+        public Deterministic<T> tailCursor(Direction direction)
+        {
+            return new Deterministic<>(source.tailCursor(direction));
         }
     }
 
@@ -153,6 +171,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         {
             return new NonDeterministic<>(this);
         }
+
+        @Override
+        public NonDeterministic<T> tailCursor(Direction direction)
+        {
+            return new NonDeterministic<>(source.tailCursor(direction));
+        }
     }
 
     static class Range<M extends RangeTrie.RangeMarker<M>>
@@ -178,6 +202,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         public Range<M> duplicate()
         {
             return new Range<>(this);
+        }
+
+        @Override
+        public Range<M> tailCursor(Direction direction)
+        {
+            return new Range<>(source.tailCursor(direction));
         }
 
         @Override
@@ -218,6 +248,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         }
 
         @Override
+        public TrieSet tailCursor(Direction direction)
+        {
+            return new TrieSet(source.tailCursor(direction));
+        }
+
+        @Override
         public Direction direction()
         {
             return source.direction();
@@ -248,6 +284,12 @@ public class TailCursor<C extends CursorWalkable.Cursor> implements CursorWalkab
         public DeletionAware<T, D> duplicate()
         {
             return new DeletionAware<>(this);
+        }
+
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAware<>(source.tailCursor(direction));
         }
     }
 }

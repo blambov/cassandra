@@ -79,4 +79,10 @@ public class TrieSetNegatedCursor implements TrieSetImpl.Cursor
     {
         return new TrieSetNegatedCursor(source.duplicate());
     }
+
+    @Override
+    public TrieSetImpl.Cursor tailCursor(Direction direction)
+    {
+        return new TrieSetNegatedCursor(source.tailCursor(direction));
+    }
 }

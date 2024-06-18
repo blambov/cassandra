@@ -215,21 +215,14 @@ public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D exte
         return (DeletionAwareTrieWithImpl<T, D>) dir -> new PrefixedCursor.DeletionAware<>(dir, prefix, impl().cursor(dir));
     }
 
-    default Iterable<Map.Entry<ByteComparable, DeletionAwareTrie<T, D>>> tailTries(Predicate<T> predicate, Direction direction)
-    {
-        return () -> new TrieTailsIterator.AsEntries<>(direction, impl().cursor(direction), predicate, this::tailTrie);
-    }
-
     @Override
     default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix)
     {
-        return (DeletionAwareTrieWithImpl<T, D>) dir -> {
-            DeletionAwareTrieImpl.Cursor<T, D> c = impl().cursor(dir);
-            if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
-                return new TailCursor.DeletionAware<>(c);
-            else
-                return new DeletionAwareTrieImpl.EmptyCursor<>();
-        };
+        DeletionAwareTrieImpl.Cursor<T, D> c = impl().cursor(Direction.FORWARD);
+        if (c.descendAlong(prefix.asComparableBytes(CursorWalkable.BYTE_COMPARABLE_VERSION)))
+            return (DeletionAwareTrieWithImpl) c::tailCursor;
+        else
+            return empty();
     }
 
     private DeletionAwareTrieImpl<T, D> impl()

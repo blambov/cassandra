@@ -50,6 +50,12 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
 
         @Override
         Cursor<T, D> duplicate();
+
+        @Override
+        default DeletionAwareTrieImpl.Cursor<T, D> tailCursor(Direction direction)
+        {
+            throw new AssertionError("unimplemented");
+        }
     }
 
     default <R> R process(TrieImpl.Walker<T, R> walker, Direction direction)
@@ -71,6 +77,11 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         {
             super(direction, resolver, c1, null);
             maybeAddDeletionsBranch(c1.depth());
+        }
+
+        LiveAndDeletionsMergeCursor(Direction direction, BiFunction<T, D, Z> resolver, DeletionAwareTrieImpl.Cursor<T, D> c1, RangeTrieImpl.Cursor<D> c2)
+        {
+            super(direction, resolver, c1, c2);
         }
 
         public LiveAndDeletionsMergeCursor(LiveAndDeletionsMergeCursor<T, D, Z> copyFrom)
@@ -112,6 +123,24 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         {
             return new LiveAndDeletionsMergeCursor<>(this);
         }
+
+        @Override
+        public LiveAndDeletionsMergeCursor<T, D, Z> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case C1_ONLY:
+                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), null);
+                case AT_C2:
+                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, new EmptyCursor<>(), c2.tailCursor(direction));
+                case AT_C1:
+                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), c2.coveringStateCursor(direction));
+                case AT_BOTH:
+                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+                default:
+                    throw new AssertionError();
+            }
+        }
     }
 
     class DeletionsTrieCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
@@ -121,6 +150,11 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         {
             super(direction, c1, null);
             maybeAddDeletionsBranch(c1.depth());
+        }
+
+        DeletionsTrieCursor(Direction direction, DeletionAwareTrieImpl.Cursor<T, D> c1, RangeTrieImpl.Cursor<D> c2)
+        {
+            super(direction, c1, c2);
         }
 
         public DeletionsTrieCursor(DeletionsTrieCursor<T, D> copyFrom)
@@ -178,6 +212,15 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         {
             return new DeletionsTrieCursor<>(this);
         }
+
+        @Override
+        public RangeTrieImpl.Cursor<D> tailCursor(Direction direction)
+        {
+            if (state == State.AT_C2)
+                return c2.tailCursor(direction);
+            else
+                return new DeletionsTrieCursor<>(direction, c1.tailCursor(direction), c2 != null ? c2.tailCursor(direction) : null);
+        }
     }
 
     static class EmptyCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
@@ -193,6 +236,12 @@ public interface DeletionAwareTrieImpl<T extends DeletionAwareTrie.Deletable, D 
         public Cursor<T, D> duplicate()
         {
             return depth == 0 ? new EmptyCursor<>() : this;
+        }
+        
+        @Override
+        public Cursor<T, D> tailCursor(Direction direction)
+        {
+            return new EmptyCursor<>();
         }
     }
 
