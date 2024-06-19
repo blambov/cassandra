@@ -193,7 +193,6 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
-    @SuppressWarnings("resource")
     public static TriePartitionUpdate fromIterator(UnfilteredRowIterator iterator)
     {
         InMemoryDTrie<Object> trie = build(iterator);
@@ -217,7 +216,6 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
-    @SuppressWarnings("resource")
     public static TriePartitionUpdate fromIterator(UnfilteredRowIterator iterator, ColumnFilter filter)
     {
         return fromIterator(UnfilteredRowIterators.withOnlyQueriedData(iterator, filter));

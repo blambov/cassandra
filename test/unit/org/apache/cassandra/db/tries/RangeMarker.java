@@ -195,7 +195,7 @@ class RangeMarker implements RangeTrie.RangeMarker<RangeMarker>
 
     static InMemoryRangeTrie<RangeMarker> fromList(List<RangeMarker> list)
     {
-        InMemoryRangeTrie<RangeMarker> trie = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
+        InMemoryRangeTrie<RangeMarker> trie = InMemoryRangeTrie.shortLived();
         for (RangeMarker i : list)
         {
             try

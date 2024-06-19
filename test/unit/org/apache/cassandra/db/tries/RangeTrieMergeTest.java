@@ -353,7 +353,7 @@ public class RangeTrieMergeTest
     {
         try
         {
-            InMemoryRangeTrie<RangeMarker> dupe = new InMemoryRangeTrie<>(BufferType.ON_HEAP);
+            InMemoryRangeTrie<RangeMarker> dupe = InMemoryRangeTrie.shortLived();
             dupe.apply(trie, this::upsertMarkers);
             return dupe;
         }

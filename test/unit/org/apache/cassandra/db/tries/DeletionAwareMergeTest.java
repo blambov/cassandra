@@ -522,7 +522,7 @@ public class DeletionAwareMergeTest
     {
         try
         {
-            InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> copy = new InMemoryDeletionAwareTrie<>(BufferType.ON_HEAP);
+            InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> copy = InMemoryDeletionAwareTrie.shortLived();
             copy.apply(trie, DeletionAwareMergeTest::combineLive, DeletionAwareMergeTest::combineDeletion, DeletionAwareMergeTest::deleteLive);
             return copy;
         }

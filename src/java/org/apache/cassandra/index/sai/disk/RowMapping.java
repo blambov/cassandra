@@ -71,7 +71,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryDTrie<Long> rowMapping = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+    private final InMemoryDTrie<Long> rowMapping = InMemoryDTrie.shortLived();
 
     private boolean complete = false;
 

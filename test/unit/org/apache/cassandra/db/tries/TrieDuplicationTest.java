@@ -141,7 +141,7 @@ public class TrieDuplicationTest
     public void testDuplicationInMemTrieRange()
     {
         testDuplicationRange((left, leftValue, right, rightValue) -> {
-            InMemoryDTrie<Object> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+            InMemoryDTrie<Object> trie = InMemoryDTrie.shortLived();
             try
             {
                 trie.putRecursive(left, leftValue, (x, y) -> y);
@@ -159,7 +159,7 @@ public class TrieDuplicationTest
     public void testDuplicationInMemTrieAlternateRange()
     {
         testDuplicationRange((left, leftValue, right, rightValue) -> {
-            InMemoryNDTrie trie = new InMemoryNDTrie<>(BufferType.ON_HEAP);
+            InMemoryNDTrie trie = InMemoryNDTrie.shortLived();
             try
             {
                 trie.putAlternativeRangeRecursive(left, leftValue, right, rightValue, (x, y) -> y);
@@ -254,7 +254,7 @@ public class TrieDuplicationTest
     @Test
     public void testDuplicationInMemTrie() throws TrieSpaceExhaustedException
     {
-        InMemoryDTrie<BigInteger> t = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<BigInteger> t = InMemoryDTrie.shortLived();
         for (BigInteger v : ByteSourceTestBase.testBigInts)
         {
             ByteComparable comparable = typeToComparable(IntegerType.instance, v);
@@ -278,7 +278,7 @@ public class TrieDuplicationTest
     @Test
     public void testDuplicationRanges() throws TrieSpaceExhaustedException
     {
-        InMemoryDTrie<BigInteger> t = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<BigInteger> t = InMemoryDTrie.shortLived();
         for (BigInteger v : ByteSourceTestBase.testBigInts)
         {
             ByteComparable comparable = typeToComparable(IntegerType.instance, v);

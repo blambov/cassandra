@@ -187,7 +187,6 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
-    @SuppressWarnings("resource")
     public static BTreePartitionUpdate fromIterator(UnfilteredRowIterator iterator)
     {
         BTreePartitionData holder = build(iterator, 16);
@@ -206,7 +205,6 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
-    @SuppressWarnings("resource")
     public static BTreePartitionUpdate fromIterator(UnfilteredRowIterator iterator, ColumnFilter filter)
     {
         return fromIterator(UnfilteredRowIterators.withOnlyQueriedData(iterator, filter));
@@ -223,7 +221,6 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
-    @SuppressWarnings("resource")
     public static BTreePartitionUpdate fromIterator(RowIterator iterator, ColumnFilter filter)
     {
         iterator = RowIterators.withOnlyQueriedData(iterator, filter);
@@ -513,11 +510,6 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
             if (cell.isCounterCell())
                 marks.add(new CounterMark(row, cell.column(), cell.path()));
         }
-    }
-
-    public void validateIndexedColumns()
-    {
-        IndexRegistry.obtain(metadata()).validate(this);
     }
 
     @VisibleForTesting

@@ -35,6 +35,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
@@ -68,7 +69,7 @@ public class TrieMemoryIndex extends MemoryIndex
     public TrieMemoryIndex(StorageAttachedIndex index)
     {
         super(index);
-        this.data = new InMemoryDTrie<>(TrieMemtable.BUFFER_TYPE);
+        this.data = InMemoryDTrie.longLived(TrieMemtable.BUFFER_TYPE, index.readOrdering());
         this.primaryKeysReducer = new PrimaryKeysReducer();
     }
 
@@ -213,7 +214,7 @@ public class TrieMemoryIndex extends MemoryIndex
             {
                 data.putSingleton(comparableBytes, primaryKey, primaryKeysReducer, term.limit() <= MAX_RECURSIVE_KEY_LENGTH);
             }
-            catch (InMemoryDTrie.SpaceExhaustedException e)
+            catch (TrieSpaceExhaustedException e)
             {
                 throw new RuntimeException(e);
             }

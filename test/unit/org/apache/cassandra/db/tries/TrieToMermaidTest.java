@@ -25,7 +25,7 @@ public class TrieToMermaidTest
     @Test
     public void testToMermaidContent() throws Exception
     {
-        InMemoryDTrie<String> trie = new InMemoryDTrie<>(BufferType.OFF_HEAP);
+        InMemoryDTrie<String> trie = InMemoryDTrie.shortLived();
         // This was used as a basis the graphs in BTIFormat.md
         String s = "a allow an and any are as node of on the this to trie types with without";
         s = s.toLowerCase();
