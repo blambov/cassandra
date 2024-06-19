@@ -30,9 +30,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
-import static org.apache.cassandra.db.tries.TrieUtil.REVERSE_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
-import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.assertTrieEquals;
 import static org.junit.Assert.assertEquals;
 

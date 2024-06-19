@@ -20,8 +20,6 @@ package org.apache.cassandra.db.tries;
 
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
-
 public class TrieToDotTest
 {
     @Test
