@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.db.partitions;
 
-import java.io.EOFException;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,46 +33,29 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.Columns;
-import org.apache.cassandra.db.CounterMutation;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.MutableDeletionInfo;
-import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.RegularAndStaticColumns;
-import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
-import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
-import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
-import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
-import org.apache.cassandra.index.IndexRegistry;
-import org.apache.cassandra.io.util.DataInputBuffer;
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.vint.VIntCoding;
-
-import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EMPTY;
 
 /**
  * Stores updates made on a partition. Immutable.

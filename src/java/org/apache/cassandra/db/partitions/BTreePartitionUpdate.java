@@ -37,7 +37,6 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.MutableDeletionInfo;
 import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.RegularAndStaticColumns;
-import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.ColumnData;

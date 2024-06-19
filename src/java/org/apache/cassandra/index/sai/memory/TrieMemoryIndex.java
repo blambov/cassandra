@@ -35,8 +35,6 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
-import org.apache.cassandra.db.tries.Trie;
-import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.StorageAttachedIndex;
