@@ -37,7 +37,6 @@ import org.apache.cassandra.db.marshal.DecimalType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
