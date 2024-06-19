@@ -27,7 +27,6 @@ import com.google.common.base.Predicates;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;

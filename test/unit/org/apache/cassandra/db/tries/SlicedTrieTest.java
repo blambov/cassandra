@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -36,11 +35,11 @@ import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
+import static java.util.Arrays.asList;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
 import static org.apache.cassandra.db.tries.TrieUtil.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryDTrie;
-import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.TrieUtil.toBound;
 import static org.junit.Assert.assertEquals;
 
