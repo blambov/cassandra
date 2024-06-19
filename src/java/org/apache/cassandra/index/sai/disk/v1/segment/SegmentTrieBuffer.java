@@ -46,7 +46,7 @@ public class SegmentTrieBuffer
 
     public SegmentTrieBuffer()
     {
-        trie = new InMemoryDTrie<>(DatabaseDescriptor.getMemtableAllocationType().toBufferType());
+        trie = InMemoryDTrie.shortLived();
         postingsAccumulator = new PostingsAccumulator();
     }
 

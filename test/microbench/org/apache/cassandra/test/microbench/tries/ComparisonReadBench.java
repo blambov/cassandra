@@ -37,6 +37,7 @@ import org.apache.cassandra.db.marshal.DecimalType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.tries.InMemoryDTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -71,9 +72,6 @@ public class ComparisonReadBench
     static MemoryMeter meter = MemoryMeter.builder()
                                           .withGuessing(Guess.INSTRUMENTATION_AND_SPECIFICATION, Guess.UNSAFE)
                                           .build();
-
-    @Param({"ON_HEAP"})
-    BufferType bufferType = BufferType.OFF_HEAP;
 
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
@@ -309,7 +307,7 @@ public class ComparisonReadBench
         TrieAccess(Type<T> type)
         {
             this.type = type;
-            trie = new InMemoryDTrie<>(bufferType);
+            trie = InMemoryDTrie.shortLived();
         }
 
         public void put(long v, byte b)

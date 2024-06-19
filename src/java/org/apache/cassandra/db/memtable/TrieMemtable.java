@@ -92,7 +92,6 @@ public class TrieMemtable extends AbstractShardedMemtable
 
     /** Buffer type to use for memtable tries (on- vs off-heap) */
     public static final BufferType BUFFER_TYPE = DatabaseDescriptor.getMemtableAllocationType().toBufferType();
-    public static final BufferType BUFFER_TYPE;
 
     /**
      * Force copy checker (see MemtableTrie.ApplyState) ensuring all modifications apply atomically and consistently to
@@ -133,18 +132,19 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);
         this.metrics = new TrieMemtableMetricsView(metadataRef.keyspace, metadataRef.name);
-        this.shards = generatePartitionShards(boundaries.shardCount(), allocator, metadataRef, metrics);
+        this.shards = generatePartitionShards(boundaries.shardCount(), allocator, metadataRef, metrics, owner.readOrdering());
         this.mergedTrie = makeMergedTrie(shards);
     }
 
     private static MemtableShard[] generatePartitionShards(int splits,
                                                            MemtableAllocator allocator,
                                                            TableMetadataRef metadata,
-                                                           TrieMemtableMetricsView metrics)
+                                                           TrieMemtableMetricsView metrics,
+                                                           OpOrder opOrder)
     {
         MemtableShard[] partitionMapContainer = new MemtableShard[splits];
         for (int i = 0; i < splits; i++)
-            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics);
+            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics, opOrder);
 
         return partitionMapContainer;
     }
@@ -513,10 +513,10 @@ public class TrieMemtable extends AbstractShardedMemtable
         private final TableMetadataRef metadata;
 
         @VisibleForTesting
-        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics)
+        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
             this.metadata = metadata;
-            this.data = new InMemoryDTrie<>(BUFFER_TYPE);
+            this.data = InMemoryDTrie.longLived(BUFFER_TYPE, opOrder);
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.allocator = allocator;

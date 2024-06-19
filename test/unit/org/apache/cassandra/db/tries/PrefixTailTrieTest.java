@@ -78,13 +78,13 @@ public class PrefixTailTrieTest
         ByteComparable[] prefixes = generateKeys(rand, COUNT_HEAD);
 
         Map<ByteBuffer, Tail> data = new LinkedHashMap<>();
-        InMemoryDTrie<Object> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<Object> trie = InMemoryDTrie.shortLived();
         for (int i = 0; i < COUNT_HEAD; ++i)
         {
             Tail t = new Tail();
             ByteComparable[] src = generateKeys(rand, COUNT_TAIL);
             NavigableMap<ByteComparable, ByteBuffer> content = new TreeMap<>((a, b) -> ByteComparable.compare(a, b, VERSION));
-            InMemoryDTrie<Object> tail = new InMemoryDTrie<>(BufferType.ON_HEAP);
+            InMemoryDTrie<Object> tail = InMemoryDTrie.shortLived();
             addToInMemoryDTrie(src, content, tail, true);
             t.data = content;
             t.prefix = prefixes[i].asArray(VERSION);
@@ -132,13 +132,13 @@ public class PrefixTailTrieTest
     public void testTailMerge() throws Exception
     {
         ByteComparable prefix = generateKey(rand);
-        InMemoryDTrie<Object> trie = new InMemoryDTrie<>(BufferType.ON_HEAP);
+        InMemoryDTrie<Object> trie = InMemoryDTrie.shortLived();
         NavigableMap<ByteComparable, ByteBuffer> content = new TreeMap<>((a, b) -> ByteComparable.compare(a, b, VERSION));
 
         for (int i = 0; i < COUNT_HEAD; ++i)
         {
             ByteComparable[] src = generateKeys(rand, COUNT_TAIL);
-            InMemoryDTrie<Object> tail = new InMemoryDTrie<>(BufferType.ON_HEAP);
+            InMemoryDTrie<Object> tail = InMemoryDTrie.shortLived();
             addToInMemoryDTrie(src, content, tail, true);
 //                        System.out.println(tail.dump(CONTENT_TO_STRING));
             tail.putRecursive(ByteComparable.EMPTY, 1, THROWING_UPSERT);

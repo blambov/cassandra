@@ -41,6 +41,7 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer;
 import org.apache.cassandra.index.IndexRegistry;
+import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -48,6 +49,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EMPTY;
@@ -148,9 +150,9 @@ public interface PartitionUpdate extends Partition
      */
     int affectedColumnCount();
 
-    default void validateIndexedColumns()
+    default void validateIndexedColumns(ClientState state)
     {
-        IndexRegistry.obtain(metadata()).validate(this);
+        IndexRegistry.obtain(metadata()).validate(this, state);
     }
 
     PartitionUpdate withOnlyPresentColumns();

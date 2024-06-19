@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Random;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.google.common.collect.Streams;
 import org.junit.Assert;
@@ -44,21 +45,24 @@ import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 
 public class CellReuseTest
 {
+    static Predicate<InMemoryTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION = features -> {
+        var c = features.content();
+        if (c != null && c instanceof Boolean)
+            return (Boolean) c;
+        else
+            return false;
+    };
+
+    static Predicate<InMemoryTrie.NodeFeatures<Object>> NO_ATOMICITY = features -> false;
+
     private static final int COUNT = 10000;
     Random rand = new Random(2);
 
-    // TODO: enable when force copy is implemented
-//    @Test
-//    public void testCellReusePartitionCopying() throws Exception
-//    {
-//        testCellReuse(FORCE_COPY_PARTITION, 0);
-//    }
-//
-//    @Test
-//    public void testCellReuseNoCopying() throws Exception
-//    {
-//        testCellReuse(InMemoryDTrieThreadedTest.NO_ATOMICITY);
-//    }
+    @Test
+    public void testCellReusePartitionCopying() throws Exception
+    {
+        testCellReuse(FORCE_COPY_PARTITION, 0);
+    }
 
     @Test
     public void testCellReuseNoCopying() throws Exception
@@ -125,8 +129,8 @@ public class CellReuseTest
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
         OpOrder order = new OpOrder();
-        InMemoryDTrie<ByteBuffer> trie = InMemoryDTrie.longLived(order);
-        InMemoryDTrie<ByteBuffer> check = InMemoryDTrie.shortLived();
+        InMemoryDTrie<Object> trie = InMemoryDTrie.longLived(order);
+        InMemoryDTrie<Object> check = InMemoryDTrie.shortLived();
         int step = Math.min(100, COUNT / 100);
         int throwStep = (COUNT + 10) / 5;   // do 4 throwing inserts
         int nextThrow = throwStep;
@@ -148,15 +152,15 @@ public class CellReuseTest
                         ++i;
                         Assert.fail("Expected failed mutation");
                     }
-                    catch (ExecutionException e)
+                    catch (TestException e)
                     {
-                        Assert.assertTrue("Expected TestException, got " + e.getCause().getMessage(),
-                                          e.getCause() instanceof TestException);
+                        // expected
                     }
                 }
             }
 
-        assertMapEquals(trie.entrySet().iterator(), check.entrySet().iterator());
+        assertMapEquals(trie.filteredEntrySet(ByteBuffer.class).iterator(),
+                        check.filteredEntrySet(ByteBuffer.class).iterator());
     }
 
     private void assertCellSetEmpty(BitSet set, InMemoryDTrie<?> trie, String message)
@@ -191,37 +195,37 @@ public class CellReuseTest
         return Pair.create(set, objs);
     }
 
-    private void mark(InMemoryDTrie<?,?> trie, int node, BitSet set, BitSet objs)
+    private void mark(InMemoryTrie<?> trie, int node, BitSet set, BitSet objs)
     {
         set.set(node >> 5);
 //        System.out.println(trie.dumpNode(node));
         switch (trie.offset(node))
         {
-            case InMemoryDTrie.SPLIT_OFFSET:
-                for (int i = 0; i < 4; ++i)
+            case InMemoryTrie.SPLIT_OFFSET:
+                for (int i = 0; i < InMemoryTrie.SPLIT_START_LEVEL_LIMIT; ++i)
                 {
-                    int mid = trie.getInt(node + InMemoryDTrie.SPLIT_POINTER_OFFSET + i * 4);
-                    if (mid != InMemoryDTrie.NONE)
+                    int mid = trie.getSplitBlockPointer(node, i, InMemoryTrie.SPLIT_START_LEVEL_LIMIT);
+                    if (mid != InMemoryTrie.NONE)
                     {
 //                        System.out.println(trie.dumpNode(mid));
                         set.set(mid >> 5);
-                        for (int j = 0; j < 8; ++j)
+                        for (int j = 0; j < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++j)
                         {
-                            int tail = trie.getInt(mid + j * 4);
-                            if (tail != InMemoryDTrie.NONE)
+                            int tail = trie.getSplitBlockPointer(mid, j, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT);
+                            if (tail != InMemoryTrie.NONE)
                             {
 //                                System.out.println(trie.dumpNode(tail));
                                 set.set(tail >> 5);
-                                for (int k = 0; k < 8; ++k)
-                                    markChild(trie, trie.getInt(tail + k * 4), set, objs);
+                                for (int k = 0; k < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++k)
+                                    markChild(trie, trie.getSplitBlockPointer(tail, k, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT), set, objs);
                             }
                         }
                     }
                 }
                 break;
-            case InMemoryDTrie.SPARSE_OFFSET:
-                for (int i = 0; i < InMemoryDTrie.SPARSE_CHILD_COUNT; ++i)
-                    markChild(trie, trie.getInt(node + InMemoryDTrie.SPARSE_CHILDREN_OFFSET + i * 4), set, objs);
+            case InMemoryTrie.SPARSE_OFFSET:
+                for (int i = 0; i < InMemoryTrie.SPARSE_CHILD_COUNT; ++i)
+                    markChild(trie, trie.getInt(node + InMemoryTrie.SPARSE_CHILDREN_OFFSET + i * 4), set, objs);
                 break;
             case InMemoryTrie.PREFIX_OFFSET:
                 int content = trie.getInt(node + InMemoryTrie.PREFIX_CONTENT_OFFSET);
@@ -233,15 +237,15 @@ public class CellReuseTest
                 markChild(trie, trie.getPrefixChild(node, trie.getUnsignedByte(node + InMemoryReadTrie.PREFIX_FLAGS_OFFSET)), set, objs);
                 break;
             default:
-                assert trie.offset(node) <= InMemoryDTrie.MULTI_MAX_OFFSET && trie.offset(node) >= InMemoryDTrie.MULTI_MIN_OFFSET;
-                markChild(trie, trie.getInt((node & -32) + InMemoryDTrie.LAST_POINTER_OFFSET), set, objs);
+                assert trie.offset(node) <= InMemoryTrie.CHAIN_MAX_OFFSET && trie.offset(node) >= InMemoryTrie.CHAIN_MIN_OFFSET;
+                markChild(trie, trie.getInt((node & -32) + InMemoryTrie.LAST_POINTER_OFFSET), set, objs);
                 break;
         }
     }
 
-    private void markChild(InMemoryDTrie<?,?> trie, int child, BitSet set, BitSet objs)
+    private void markChild(InMemoryTrie<?> trie, int child, BitSet set, BitSet objs)
     {
-        if (child == InMemoryDTrie.NONE)
+        if (child == InMemoryTrie.NONE)
             return;
         if (child > 0)
             mark(trie, child, set, objs);
@@ -249,14 +253,14 @@ public class CellReuseTest
             objs.set(~child);
     }
 
-    InMemoryDTrie<ByteBuffer> makeInMemoryDTrie(ByteComparable[] src,
-                                            Function<OpOrder, InMemoryDTrie<ByteBuffer>> creator,
-                                            Predicate<InMemoryDTrie.NodeFeatures<Boolean>> forceCopyPredicate,
+    InMemoryDTrie<Object> makeInMemoryDTrie(ByteComparable[] src,
+                                            Function<OpOrder, InMemoryDTrie<Object>> creator,
+                                            Predicate<InMemoryDTrie.NodeFeatures<Object>> forceCopyPredicate,
                                             double deletionProbability)
     throws TrieSpaceExhaustedException
     {
         OpOrder order = new OpOrder();
-        InMemoryDTrie<ByteBuffer> trie = creator.apply(order);
+        InMemoryDTrie<Object> trie = creator.apply(order);
         int step = Math.max(Math.min(100, COUNT / 100), 1);
         for (int i = 0; i < src.length; i += step)
             try (OpOrder.Group g = order.start())
@@ -301,10 +305,10 @@ public class CellReuseTest
             // (so that all sources have the same value).
             int payload = asString(b).hashCode();
             ByteBuffer v = ByteBufferUtil.bytes(payload);
-            Trie<ByteBuffer> update = Trie.singleton(b, v);
+            Trie<Object> update = Trie.singleton(b, v);
             update = InMemoryTrieThreadedTest.withRootMetadata(update, Boolean.TRUE);
             update = update.prefix(source("prefix"));
-            applyUpdating(trie, update, forceCopyPredicate).get();
+            applyUpdating(trie, update, forceCopyPredicate);
         }
     }
 
@@ -320,7 +324,7 @@ public class CellReuseTest
     {
         int payload = asString(b).hashCode();
         ByteBuffer v = ByteBufferUtil.bytes(payload);
-        Trie<ByteBuffer> update = Trie.singleton(b, v);
+        Trie<Object> update = Trie.singleton(b, v);
 
         // Create an update with two metadata entries, so that the lower is already a copied node.
         // Abort processing on the lower metadata, where the new branch is not attached yet (so as not to affect the
@@ -331,41 +335,24 @@ public class CellReuseTest
         update = update.prefix(source("pre"));
 
         trie.apply(update,
-                   new InMemoryDTrie.UpsertTransformer<ByteBuffer, Boolean, ByteBuffer, Boolean>()
+                   (existing, upd) ->
                    {
-                       public ByteBuffer applyContent(ByteBuffer existing, ByteBuffer update, InMemoryDTrie.KeyState<Boolean> keyState)
+                       if (upd instanceof Boolean)
                        {
-                           return update;
-                       }
-
-                       public Boolean applyMetadata(Boolean existing, Boolean update, InMemoryDTrie.KeyState<Boolean> keyState)
-                       {
-                           if (update != null && !update)
+                           if (upd != null && !((Boolean) upd))
                                throw new TestException();
                            return null;
                        }
+                       else
+                           return upd;
                    },
-                   forceCopyPredicate)
-            .get();
+                   forceCopyPredicate);
     }
 
     public static <T> void applyUpdating(InMemoryDTrie<T> trie, Trie<T> mutation,
                                                             final Predicate<InMemoryDTrie.NodeFeatures<T>> needsForcedCopy)
     throws TrieSpaceExhaustedException
     {
-        return trie.apply(mutation,
-                          new InMemoryDTrie.UpsertTransformer<T, M, T, M>()
-                          {
-                              public T applyContent(T existing, T update, InMemoryDTrie.KeyState<M> keyState)
-                              {
-                                  return update;
-                              }
-
-                              public M applyMetadata(M existing, M update, InMemoryDTrie.KeyState<M> keyState)
-                              {
-                                  return update;
-                              }
-                          },
-                          needsForcedCopy);
+        trie.apply(mutation, (x, y) -> y, needsForcedCopy);
     }
 }
