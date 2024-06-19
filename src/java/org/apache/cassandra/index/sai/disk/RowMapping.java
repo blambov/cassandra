@@ -19,7 +19,6 @@ package org.apache.cassandra.index.sai.disk;
 
 import java.util.Collections;
 import java.util.Iterator;
-
 import javax.annotation.concurrent.NotThreadSafe;
 
 import com.carrotsearch.hppc.LongArrayList;
@@ -31,7 +30,6 @@ import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.sai.memory.MemtableIndex;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeys;
-import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.AbstractGuavaIterator;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
