@@ -94,14 +94,17 @@ public interface Trie<T> extends BaseTrie<T>
     // TODO: apply existing deletions on updates in InMemoryDATree.apply
     // done: delete on the way back in apply
     // done: consistency/copy-on-write levels
+    // TODO: test correctness on ARM (no volatile read ATM, but they are dependent reads... okay?)
     // Optimizations:
     // TODO: figure out non-private use of Entry/Value/Tail iterator subclasses
-    // TODO: (if not fixed-level deletion branch) simplification of deletion branch for flush (pluggable?)
     // TODO: figure out if duplicate should only cover branch or full backtrack
     // TODO: deletion summarization (with timestamps? pluggable)
+    // TODO: (if not fixed-level deletion branch) simplification of deletion branch for flush (pluggable?)
 
     // TODO: RangeTrie using state() that combines content and coveringState appears to be better after all.
     // TODO: Make sure range trie state() and coveringState() (i.e. state().leftSideAsCovering()) are never recomputed
+
+    // TODO: Concurrent safety model reassess and test: putRelease or storestore fence on writes, getAcquire or loadload fence on reads
 
     // TODO: introduce and return flags instead of depth
     // (e.g. DESCENDED, EXHAUSTED, SKIP_TO_MATCHED, HAS_CONTENT, HAS_ALTERNATIVE/DELETION, HAS_DELETION_STATE)
