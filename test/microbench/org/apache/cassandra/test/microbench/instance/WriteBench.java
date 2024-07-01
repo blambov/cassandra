@@ -57,13 +57,16 @@ public class WriteBench extends SimpleTableWriter
         if (i < count)
             performWrite(i, Math.toIntExact(count - i));
 
+        long flushStart = System.currentTimeMillis();
         switch (flush)
         {
         case FLUSH:
             cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.USER_FORCED);
+            System.err.format("Flushed in %.3f s.\n", (System.currentTimeMillis() - flushStart) / 1000.0);
             // if we flush we also must truncate to avoid accummulating sstables
         case TRUNCATE:
             execute("TRUNCATE TABLE " + table);
+            System.err.format("Flushed and truncated in %.3f s.\n", (System.currentTimeMillis() - flushStart) / 1000.0);
             // note: we turn snapshotting and durable writes (which would have caused a flush) off for this benchmark
             break;
         case INMEM:
