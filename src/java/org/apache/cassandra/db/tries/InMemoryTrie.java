@@ -17,16 +17,18 @@
  */
 package org.apache.cassandra.db.tries;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicates;
-import org.slf4j.LoggerFactory;
 
+import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -71,52 +73,6 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
 
-    final MemtableAllocationStrategy allocator;    // on or off heap
-
-    static final long EMPTY_SIZE = ObjectSizes.measure(new InMemoryTrie<>(new MemtableAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP))); // for space calculations
-
-    InMemoryTrie(MemtableAllocationStrategy allocator)
-    {
-        this(allocator, NONE);
-    }
-
-    private InMemoryTrie(MemtableAllocationStrategy allocator, int root)
-    {
-        super(allocator.buffer(), allocator.array(), root);
-        this.allocator = allocator;
-        this.root = root;
-    }
-
-    public static <T> InMemoryTrie<T> shortLived()
-    {
-        return new InMemoryTrie<T>(shortLivedStrategy());
-    }
-
-    public static <T> InMemoryTrie<T> longLived(OpOrder opOrder)
-    {
-        return new InMemoryTrie<T>(longLivedStrategy(opOrder));
-    }
-
-    public static <T> InMemoryTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
-    {
-        return new InMemoryTrie<T>(longLivedStrategy(bufferType, opOrder));
-    }
-
-    static MemtableAllocationStrategy shortLivedStrategy()
-    {
-        return new MemtableAllocationStrategy.NoReuseStrategy(BufferType.ON_HEAP);
-    }
-
-    static MemtableAllocationStrategy longLivedStrategy(OpOrder opOrder)
-    {
-        return new MemtableAllocationStrategy.OpOrderReuseStrategy(BufferType.OFF_HEAP, opOrder);
-    }
-
-    static MemtableAllocationStrategy longLivedStrategy(BufferType bufferType, OpOrder opOrder)
-    {
-        return new MemtableAllocationStrategy.OpOrderReuseStrategy(bufferType, opOrder);
-    }
-
     /**
      * Trie size limit. This is not enforced, but users must check from time to time that it is not exceeded (using
      * {@link #reachedAllocatedSizeThreshold()}) and start switching to a new trie if it is.
@@ -126,46 +82,78 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     static final int ALLOCATED_SIZE_THRESHOLD;
     static
     {
-        // Default threshold + 10% == 1 GB. This should give the owner enough time to react to the
+        // Default threshold + 10% == 2 GB. This should give the owner enough time to react to the
         // {@link #reachedAllocatedSizeThreshold()} signal and switch this trie out before it fills up.
-        int limitInMB = CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.getInt(1024 * 10 / 11);
+        int limitInMB = CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.getInt(2048 * 10 / 11);
         if (limitInMB < 1 || limitInMB > 2047)
             throw new AssertionError(CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.getKey() +
                                      " must be within 1 and 2047");
         ALLOCATED_SIZE_THRESHOLD = 1024 * 1024 * limitInMB;
     }
 
+    private int allocatedPos = 0;
+    private int contentCount = 0;
 
-    static int sizeForGrowth(int currentSize, int minimumNewSize) throws SpaceExhaustedException
+    final BufferType bufferType;    // on or off heap
+    final MemoryAllocationStrategy blockAllocator;
+    final MemoryAllocationStrategy objectAllocator;
+
+
+    // constants for space calculations
+    private static final long EMPTY_SIZE_ON_HEAP;
+    private static final long EMPTY_SIZE_OFF_HEAP;
+    private static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
+
+    static
     {
-        int limit = 0x7FFFFF00;   // 2G - 256 bytes
-        if (currentSize == limit || minimumNewSize > limit)    // already at limit
-            throw new SpaceExhaustedException();
-
-        int newSize;
-        if (currentSize >= ALLOCATED_SIZE_THRESHOLD)
-        {
-            // we don't expect to write much after the threshold has been reached
-            // to avoid allocating too much space which will be left unused,
-            // grow by 10% of the limit, rounding up to BLOCK_SIZE
-            newSize = (currentSize + ALLOCATED_SIZE_THRESHOLD / 10 + BLOCK_SIZE - 1) & -BLOCK_SIZE;
-            // If we do this repeatedly and the calculated size grows over 2G, it will overflow and result in a
-            // negative integer. In that case, cap it to a size that can be allocated.
-            if (newSize < 0)
-            {
-                newSize = limit;
-                LoggerFactory.getLogger(InMemoryTrie.class).debug("Growing in-memory trie to maximum size {}",
-                                                                  FBUtilities.prettyPrintMemory(newSize));
-            }
-            else
-                LoggerFactory.getLogger(InMemoryTrie.class).debug("Growing in-memory trie by 10% over the {} limit to {}",
-                                                                  FBUtilities.prettyPrintMemory(ALLOCATED_SIZE_THRESHOLD),
-                                                                  FBUtilities.prettyPrintMemory(newSize));
-        } else
-            newSize = currentSize * 2;
-
-        return Math.max(newSize, minimumNewSize);
+        InMemoryTrie<Object> empty = new InMemoryTrie<>(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+        EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
+        empty = new InMemoryTrie<>(BufferType.OFF_HEAP, ExpectedLifetime.SHORT, null);
+        EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
     }
+
+    enum ExpectedLifetime
+    {
+        SHORT, LONG
+    }
+
+    InMemoryTrie(BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    {
+        super(new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
+              new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+              NONE);
+        this.bufferType = bufferType;
+
+        switch (lifetime)
+        {
+            case SHORT:
+                blockAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewCell);
+                objectAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewObject);
+                break;
+            case LONG:
+                blockAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewCell, opOrder);
+                objectAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewObject, opOrder);
+                break;
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    public static <T> InMemoryTrie<T> shortLived()
+    {
+        return new InMemoryTrie<T>(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+    }
+
+    public static <T> InMemoryTrie<T> longLived(OpOrder opOrder)
+    {
+        return new InMemoryTrie<T>(BufferType.OFF_HEAP, ExpectedLifetime.LONG, opOrder);
+    }
+
+    public static <T> InMemoryTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryTrie<T>(bufferType, ExpectedLifetime.LONG, opOrder);
+    }
+
 
     // Buffer, content list and block management
 
@@ -210,10 +198,61 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         getChunk(pos).putByte(inChunkPointer(pos), value);
     }
 
+    private int allocateNewCell() throws SpaceExhaustedException
+    {
+        // Note: If this method is modified, please run InMemoryTrieTest.testOver1GSize to verify it acts correctly
+        // close to the 2G limit.
+        int v = allocatedPos;
+        if (inChunkPointer(v) == 0)
+        {
+            int leadBit = getChunkIdx(v, BUF_START_SHIFT, BUF_START_SIZE);
+            if (leadBit + BUF_START_SHIFT == 31)
+                throw new SpaceExhaustedException();
+
+            ByteBuffer newBuffer = bufferType.allocate(BUF_START_SIZE << leadBit);
+            buffers[leadBit] = new UnsafeBuffer(newBuffer);
+            // Note: Since we are not moving existing data to a new buffer, we are okay with no happens-before enforcing
+            // writes. Any reader that sees a pointer in the new buffer may only do so after reading the volatile write
+            // that attached the new path.
+        }
+
+        allocatedPos += BLOCK_SIZE;
+        return v;
+    }
+
     int allocateBlock() throws SpaceExhaustedException
     {
-        return allocator.allocateCell();
+        int cell = blockAllocator.allocate();
+        getChunk(cell).setMemory(inChunkPointer(cell), BLOCK_SIZE, (byte) 0);
+        return cell;
     }
+
+    void recycleBlock(int block)
+    {
+        blockAllocator.recycle(block & -BLOCK_SIZE);
+    }
+
+    public int copyBlock(int block) throws InMemoryTrie.SpaceExhaustedException
+    {
+        int copy = blockAllocator.allocate();
+        getChunk(copy).putBytes(inChunkPointer(copy), getChunk(block), inChunkPointer(block & -BLOCK_SIZE), BLOCK_SIZE);
+        recycleBlock(block);
+        return copy | (block & (BLOCK_SIZE - 1));
+    }
+
+    private int allocateNewObject()
+    {
+        int index = contentCount++;
+        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        if (array == null)
+        {
+            assert inChunkPointer(index, leadBit, CONTENTS_START_SIZE) == 0 : "Error in content arrays configuration.";
+            contentArrays[leadBit] = new AtomicReferenceArray<>(CONTENTS_START_SIZE << leadBit);
+        }
+        return index;
+    }
+
 
     /**
      * Add a new content value.
@@ -223,8 +262,13 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     private int addContent(T value) throws SpaceExhaustedException
     {
-        int index = allocator.allocateObject();
-        contentArray.setOrdered(index, value);
+        int index = objectAllocator.allocate();
+        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
+        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        // no need for a volatile set here; at this point the item is not referenced
+        // by any node in the trie, and a volatile set will be made to reference it.
+        array.setPlain(ofs, value);
         return ~index;
     }
 
@@ -236,23 +280,33 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     private void setContent(int id, T value)
     {
-        contentArray.setVolatile(~id, value);
+        int leadBit = getChunkIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(~id, leadBit, CONTENTS_START_SIZE);
+        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        array.set(ofs, value);
     }
 
     void releaseContent(int id)
     {
-        allocator.recycleObject(~id);
+        objectAllocator.recycle(~id);
     }
 
     public void discardBuffers()
     {
-        allocator.discardBuffers();
+        if (bufferType == BufferType.ON_HEAP)
+            return; // no cleaning needed
+
+        for (UnsafeBuffer b : buffers)
+        {
+            if (b != null)
+                FileUtils.clean(b.byteBuffer());
+        }
     }
 
     private int copyIfOriginal(int node, int originalNode) throws SpaceExhaustedException
     {
         return (node == originalNode)
-               ? allocator.copyCell(originalNode)
+               ? copyBlock(originalNode)
                : node;
     }
 
@@ -264,7 +318,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
         child = allocateBlock() | offsetWhenAllocating;
         // volatile writes not needed because this branch is not attached yet
-        buffer.putInt(pointerAddress, child);
+        putInt(pointerAddress, child);
         return child;
     }
 
@@ -276,10 +330,10 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (originalChild == NONE)
                 child = allocateBlock() | offsetWhenAllocating;
             else
-                child = allocator.copyCell(originalChild);
+                child = copyBlock(originalChild);
 
             // volatile writes not needed because this branch is not attached yet
-            buffer.putInt(pointerAddress, child);
+            putInt(pointerAddress, child);
         }
 
         return child;
@@ -512,7 +566,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (existing == trans)
             {
                 node = copyIfOriginal(node, originalNode);
-                buffer.putInt(node + SPARSE_CHILDREN_OFFSET + index * 4, newChild);
+                putInt(node + SPARSE_CHILDREN_OFFSET + index * 4, newChild);
                 return node;
             }
             else if (existing < trans)
@@ -531,14 +585,14 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         node = copyIfOriginal(node, originalNode);
 
         // Add a new transition. They are not kept in order, so append it at the first free position.
-        buffer.putByte(node + SPARSE_BYTES_OFFSET + childCount,  (byte) trans);
+        putByte(node + SPARSE_BYTES_OFFSET + childCount,  (byte) trans);
 
-        buffer.putInt(node + SPARSE_CHILDREN_OFFSET + childCount * 4, newChild);
+        putInt(node + SPARSE_CHILDREN_OFFSET + childCount * 4, newChild);
 
         // Update order word.
-        int order = buffer.getShort(node + SPARSE_ORDER_OFFSET) & 0xFFFF;
+        int order = getUnsignedShortVolatile(node + SPARSE_ORDER_OFFSET);
         int newOrder = insertInOrderWord(order, childCount, smallerCount);
-        buffer.putShort(node + SPARSE_ORDER_OFFSET,  (short) newOrder);
+        putShort(node + SPARSE_ORDER_OFFSET,  (short) newOrder);
 
         return node;
     }
@@ -553,7 +607,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             attachChildToSplitNonVolatile(split, t, p);
         }
         attachChildToSplitNonVolatile(split, trans, newChild);
-        allocator.recycleCell(node);
+        recycleBlock(node);
         return split;
     }
 
@@ -594,7 +648,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             // This is still a single path. Update child if possible (only if this is the last character in the chain).
             if (offset(node) == LAST_POINTER_OFFSET - 1)
             {
-                buffer.putIntVolatile(node + 1, newChild);
+                putIntVolatile(node + 1, newChild);
                 return node;
             }
             else
@@ -630,7 +684,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 assert node == originalNode;    // if we have already created a node, the character can't match what
                                                 // it was created with
 
-                allocator.recycleCell(node);
+                recycleBlock(node);
             }
 
             return expandOrCreateChainNode(transitionByte, newChild);
@@ -654,7 +708,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             // unreferenced.
             // However, these leading nodes may still be in the parent path and will be needed until the
             // mutation completes.
-            allocator.recycleCell(node);
+            recycleBlock(node);
         }
         // Otherwise the sparse node we will now create references this cell, so it can't be recycled.
         return createSparseNode(existingByte, existingChild, transitionByte, newChild);
@@ -764,13 +818,13 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (!forcedCopy)
             {
                 // This attaches the child branch and makes it reachable -- the write must be volatile.
-                buffer.putIntVolatile(node + PREFIX_POINTER_OFFSET, child);
+                putIntVolatile(node + PREFIX_POINTER_OFFSET, child);
                 return node;
             }
             else
             {
-                node = allocator.copyCell(node);
-                buffer.putInt(node + PREFIX_POINTER_OFFSET, child);
+                node = copyBlock(node);
+                putInt(node + PREFIX_POINTER_OFFSET, child);
                 return node;
             }
         }
@@ -1050,7 +1104,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
                 if (existingPreContentNode != existingPostContentNode
                     && !isNullOrLeaf(existingPreContentNode)
                     && !isEmbeddedPrefixNode(existingPreContentNode))
-                    allocator.recycleCell(existingPreContentNode);
+                    recycleBlock(existingPreContentNode);
                 return contentId;   // also fine for contentId == NONE
             }
 
@@ -1078,7 +1132,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             if (prefixData == NONE)
             {
                 if (prefixWasPresent && !prefixWasEmbedded)
-                    allocator.recycleCell(existingPrePrefixNode);
+                    recycleBlock(existingPrePrefixNode);
                 return updatedPostPrefixNode;
             }
 
@@ -1095,11 +1149,11 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
                     // previous value.
                     // We could create a separate metadata node referencing the child, but in that case we'll
                     // use two nodes while one suffices. Instead, copy the child and embed the new metadata.
-                    updatedPostPrefixNode = allocator.copyCell(existingPostPrefixNode);
+                    updatedPostPrefixNode = copyBlock(existingPostPrefixNode);
                 }
                 else if (prefixWasPresent && !prefixWasEmbedded)
                 {
-                    allocator.recycleCell(existingPrePrefixNode);
+                    recycleBlock(existingPrePrefixNode);
                     // otherwise cell is already recycled by the recycling of the child
                 }
                 return createPrefixNode(prefixData, updatedPostPrefixNode, isNull(existingPostPrefixNode));
@@ -1410,24 +1464,14 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     private void completeMutation()
     {
-        processGrownBuffer();
-        allocator.completeMutation();
+        blockAllocator.completeMutation();
+        objectAllocator.completeMutation();
     }
 
     private void abortMutation()
     {
-        processGrownBuffer();
-        allocator.abortMutation();
-    }
-
-    private void processGrownBuffer()
-    {
-        if (allocator.bufferGrew())
-        {
-            // The buffer was changed. Touch root (which is volatile) to make sure any new reader (which must start
-            // traversal through it) is guaranteed to use the new buffer.
-            this.root = this.root;
-        }
+        blockAllocator.abortMutation();
+        objectAllocator.abortMutation();
     }
 
     /**
@@ -1439,23 +1483,65 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
      */
     public boolean reachedAllocatedSizeThreshold()
     {
-        return allocator.reachedAllocatedSizeThreshold();
+        return allocatedPos >= ALLOCATED_SIZE_THRESHOLD;
+    }
+
+    /**
+     * For tests only! Advance the allocation pointer (and allocate space) by this much to test behaviour close to
+     * full.
+     */
+    @VisibleForTesting
+    int advanceAllocatedPos(int wantedPos) throws SpaceExhaustedException
+    {
+        while (allocatedPos < wantedPos)
+            allocateBlock();
+        return allocatedPos;
+    }
+
+    /**
+     * For tests only! Returns the current allocation position.
+     */
+    @VisibleForTesting
+    int getAllocatedPos()
+    {
+        return allocatedPos;
     }
 
     /** Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content. */
     public long sizeOffHeap()
     {
-        return allocator.sizeOffHeap();
+        return bufferType == BufferType.ON_HEAP ? 0 : allocatedPos;
     }
 
     /** Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content. */
     public long sizeOnHeap()
     {
-        return EMPTY_SIZE + allocator.sizeOnHeap();
+        return contentCount * MemoryLayoutSpecification.SPEC.getReferenceSize() +
+               REFERENCE_ARRAY_ON_HEAP_SIZE * getChunkIdx(contentCount, CONTENTS_START_SHIFT, CONTENTS_START_SIZE) +
+               (bufferType == BufferType.ON_HEAP ? allocatedPos + EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP) +
+               REFERENCE_ARRAY_ON_HEAP_SIZE * getChunkIdx(allocatedPos, BUF_START_SHIFT, BUF_START_SIZE);
     }
 
     public long unusedReservedOnHeapMemory()
     {
-        return allocator.availableForAllocationOnHeap();
+        int bufferOverhead = 0;
+        if (bufferType == BufferType.ON_HEAP)
+        {
+            int pos = this.allocatedPos;
+            UnsafeBuffer buffer = getChunk(pos);
+            if (buffer != null)
+                bufferOverhead = buffer.capacity() - inChunkPointer(pos);
+            bufferOverhead += blockAllocator.indexCountInPipeline() * BLOCK_SIZE;
+        }
+
+        int index = contentCount;
+        int leadBit = getChunkIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(index, leadBit, CONTENTS_START_SIZE);
+        AtomicReferenceArray<T> contentArray = contentArrays[leadBit];
+        int contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
+        contentOverhead += objectAllocator.indexCountInPipeline();
+        contentOverhead *= MemoryLayoutSpecification.SPEC.getReferenceSize();
+
+        return bufferOverhead + contentOverhead;
     }
 }

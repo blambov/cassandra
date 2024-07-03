@@ -215,27 +215,39 @@ public class InMemoryReadTrie<T> extends Trie<T>
         assert BUF_START_SIZE % BLOCK_SIZE == 0 : "Initial buffer size must fit a full block.";
     }
 
-    final UnsafeBuffer buffer;
-    final ExpandableAtomicReferenceArray<T> contentArray;
+    final UnsafeBuffer[] buffers;
+    final AtomicReferenceArray<T>[] contentArrays;
 
-    InMemoryReadTrie(UnsafeBuffer buffer, ExpandableAtomicReferenceArray<T> contentArray, int root)
+    InMemoryReadTrie(UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
     {
-        this.buffer = buffer;
-        this.contentArray = contentArray;
+        this.buffers = buffers;
+        this.contentArrays = contentArrays;
         this.root = root;
     }
 
     /*
      Buffer, content list and block management
      */
+    int getChunkIdx(int pos, int minChunkShift, int minChunkSize)
+    {
+        return 31 - minChunkShift - Integer.numberOfLeadingZeros(pos + minChunkSize);
+    }
+
+    int inChunkPointer(int pos, int chunkIndex, int minChunkSize)
+    {
+        return pos + minChunkSize - (minChunkSize << chunkIndex);
+    }
+
     UnsafeBuffer getChunk(int pos)
     {
-        return buffer;
+        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
+        return buffers[leadBit];
     }
 
     int inChunkPointer(int pos)
     {
-        return pos;
+        int leadBit = getChunkIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
+        return inChunkPointer(pos, leadBit, BUF_START_SIZE);
     }
 
 
@@ -275,7 +287,10 @@ public class InMemoryReadTrie<T> extends Trie<T>
      */
     T getContent(int id)
     {
-        return contentArray.getPlain(~id);
+        int leadBit = getChunkIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inChunkPointer(~id, leadBit, CONTENTS_START_SIZE);
+        AtomicReferenceArray<T> array = contentArrays[leadBit];
+        return array.get(ofs);
     }
 
     /*
@@ -642,7 +657,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
         @Override
         public Trie<T> tailTrie()
         {
-            return new InMemoryReadTrie<>(buffer, contentArray, currentFullNode);
+            return new InMemoryReadTrie<>(buffers, contentArrays, currentFullNode);
         }
 
         private int backtrack()

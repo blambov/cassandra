@@ -85,7 +85,7 @@ public abstract class InMemoryTrieTestBase
     public void testSingle()
     {
         ByteComparable e = ByteComparable.of("test");
-        InMemoryTrie<String> trie = new InMemoryTrie<>(strategy.create());
+        InMemoryTrie<String> trie = strategy.create();
         putSimpleResolve(trie, e, "test", (x, y) -> y);
         System.out.println("Trie " + trie.dump());
         assertEquals("test", trie.get(e));
@@ -96,23 +96,23 @@ public abstract class InMemoryTrieTestBase
     {
         SHORT_LIVED
         {
-            MemtableAllocationStrategy create()
+            <T> InMemoryTrie<T> create()
             {
-                return InMemoryTrie.shortLivedStrategy();
+                return InMemoryTrie.shortLived();
             }
         },
         LONG_LIVED
         {
-            MemtableAllocationStrategy create()
+            <T> InMemoryTrie<T> create()
             {
-                return InMemoryTrie.longLivedStrategy(null);
+                return InMemoryTrie.longLived(null);
             }
         };
 
-        abstract MemtableAllocationStrategy create();
+        abstract <T> InMemoryTrie<T> create();
     }
 
-    @Parameterized.Parameters()
+    @Parameterized.Parameters(name="{0}")
     public static Object[] generateData()
     {
         return ReuseStrategy.values();
@@ -143,7 +143,7 @@ public abstract class InMemoryTrieTestBase
         "40bdd47ec043641f2b403131323400",
         "40bd00bf5ae8cf9d1d403133323800",
         };
-        InMemoryTrie<String> trie = new InMemoryTrie<>(strategy.create());
+        InMemoryTrie<String> trie = strategy.create();
         for (String test : tests)
         {
             ByteComparable e = ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(test));
@@ -173,7 +173,7 @@ public abstract class InMemoryTrieTestBase
     {
         String[] tests = new String[] {"testing", "tests", "trials", "trial", "testing", "trial", "trial"};
         String[] values = new String[] {"testing", "tests", "trials", "trial", "t2", "x2", "y2"};
-        InMemoryTrie<String> trie = new InMemoryTrie<>(strategy.create());
+        InMemoryTrie<String> trie = strategy.create();
         for (int i = 0; i < tests.length; ++i)
         {
             String test = tests[i];
@@ -368,7 +368,7 @@ public abstract class InMemoryTrieTestBase
                             .mapToInt(src1 -> ByteComparable.length(src1, VERSION))
                             .sum();
         long ts = ObjectSizes.measureDeep(content);
-        long onh = ObjectSizes.measureDeep(trie.contentArray);
+        long onh = ObjectSizes.measureDeep(trie.contentArrays);
         System.out.format("Trie size on heap %,d off heap %,d measured %,d keys %,d treemap %,d\n",
                           trie.sizeOnHeap(), trie.sizeOffHeap(), onh, keysize, ts);
         System.out.format("per entry on heap %.2f off heap %.2f measured %.2f keys %.2f treemap %.2f\n",
@@ -458,7 +458,7 @@ public abstract class InMemoryTrieTestBase
     private void testEntries(String[] tests, Function<String, ByteComparable> mapping)
 
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(strategy.create());
+        InMemoryTrie<String> trie = strategy.create();
         for (String test : tests)
         {
             ByteComparable e = mapping.apply(test);
@@ -476,7 +476,7 @@ public abstract class InMemoryTrieTestBase
                                                      boolean usePut)
 
     {
-        InMemoryTrie<ByteBuffer> trie = new InMemoryTrie<>(strategy.create());
+        InMemoryTrie<ByteBuffer> trie = strategy.create();
         addToInMemoryTrie(src, content, trie, usePut);
         return trie;
     }

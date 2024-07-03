@@ -92,7 +92,7 @@ public class CellReuseTest
                                          lrobjs * 4
         ));
 
-        IntArrayList availableList = ((MemtableAllocationStrategy.OpOrderReuseStrategy) trieLong.allocator).cells.allAvailable();
+        IntArrayList availableList = ((MemoryAllocationStrategy.OpOrderReuseStrategy) trieLong.blockAllocator).indexesInPipeline();
         BitSet available = new BitSet(reachable.size());
         for (int v : availableList)
             available.set(v >> 5);
@@ -106,7 +106,7 @@ public class CellReuseTest
         // Check all unreachable cells are marked for reuse
         BitSet unreachable = new BitSet(reachable.size());
         unreachable.or(reachable);
-        unreachable.flip(0, ((MemtableAllocationStrategy.OpOrderReuseStrategy) trieLong.allocator).allocatedPos >> 5);
+        unreachable.flip(0, trieLong.getAllocatedPos() >> 5);
         unreachable.andNot(available);
         assertCellSetEmpty(unreachable, trieLong, " unreachable cells not marked as available");
     }
