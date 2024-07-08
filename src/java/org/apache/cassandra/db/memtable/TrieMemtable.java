@@ -403,18 +403,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     {
         AbstractBounds<PartitionPosition> keyRange = dataRange.keyRange();
 
-        PartitionPosition left = keyRange.left;
-        PartitionPosition right = keyRange.right;
-        if (left.isMinimum())
-            left = null;
-        if (right.isMinimum())
-            right = null;
-
         boolean isBound = keyRange instanceof Bounds;
         boolean includeStart = isBound || keyRange instanceof IncludingExcludingBounds;
         boolean includeStop = isBound || keyRange instanceof Range;
 
-        Trie<Object> subMap = mergedTrie.subtrie(left, includeStart, right, includeStop);
+        Trie<Object> subMap = mergedTrie.subtrie(toComparableBound(keyRange.left, includeStart),
+                                                 toComparableBound(keyRange.right, !includeStop));
 
         return new MemtableUnfilteredPartitionIterator(metadata(),
                                                        allocator.ensureOnHeap(),
@@ -422,6 +416,11 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                                                        columnFilter,
                                                        dataRange,
                                                        getMinLocalDeletionTime());
+    }
+
+    private static ByteComparable toComparableBound(PartitionPosition position, boolean before)
+    {
+        return (position.isMinimum() || position == null) ? null : position.asComparableBound(before);
     }
 
     public Partition getPartition(DecoratedKey key)
@@ -445,12 +444,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                                           trie,
                                           metadata,
                                           ensureOnHeap);
-    }
-
-    private static TrieBackedPartition getPartitionFromTrieEntry(TableMetadata metadata, EnsureOnHeap ensureOnHeap, Map.Entry<ByteComparable, Trie<Object>> en)
-    {
-        DecoratedKey key = getPartitionKeyFromPath(metadata, en.getKey());
-        return createPartition(metadata, ensureOnHeap, key, en.getValue());
     }
 
     private static DecoratedKey getPartitionKeyFromPath(TableMetadata metadata, ByteComparable path)
@@ -625,8 +618,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         // The smallest timestamp for all partitions stored in this shard
         private volatile long minTimestamp = Long.MAX_VALUE;
 
-        private volatile long minLocalDeletionTime = Long.MAX_VALUE;
-
         private volatile long liveDataSize = 0;
 
         private volatile long currentOperations = 0;
@@ -698,6 +689,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             {
                 try
                 {
+                    indexer.start();
                     long onHeap = data.sizeOnHeap();
                     long offHeap = data.sizeOffHeap();
                     // Use the fast recursive put if we know the key is small enough to not cause a stack overflow.
@@ -718,6 +710,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 }
                 finally
                 {
+                    indexer.commit();
                     updateMinTimestamp(update.stats().minTimestamp);
                     updateLiveDataSize(updater.dataSize);
                     updateCurrentOperations(update.operationCount());
