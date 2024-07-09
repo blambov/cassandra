@@ -48,7 +48,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
 
         try
         {
-            trie.putRecursive(ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, buf), "value", (x, y) -> y);
+            trie.putRecursive(ByteComparable.preencoded(byteComparableVersion, buf), "value", (x, y) -> y);
             Assert.fail("StackOverflowError expected with a recursive put for very long keys!");
         }
         catch (StackOverflowError soe)
@@ -56,7 +56,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
             // Expected.
         }
         // Using non-recursive put should work.
-        putSimpleResolve(trie, ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, buf), "value", (x, y) -> y, false);
+        putSimpleResolve(trie, ByteComparable.preencoded(byteComparableVersion, buf), "value", (x, y) -> y, false);
     }
 
     // This tests that trie space allocation works correctly close to the 2G limit. It is normally disabled because

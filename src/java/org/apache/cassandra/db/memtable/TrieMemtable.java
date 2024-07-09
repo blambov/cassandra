@@ -27,7 +27,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -449,7 +448,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     private static DecoratedKey getPartitionKeyFromPath(TableMetadata metadata, ByteComparable path)
     {
-        return BufferDecoratedKey.fromByteComparable(path, Trie.BYTE_COMPARABLE_VERSION, metadata.partitioner);
+        return BufferDecoratedKey.fromByteComparable(path,
+                                                     TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                     metadata.partitioner);
     }
 
     /**
@@ -536,7 +537,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             assert content instanceof PartitionData;
             ++keyCount;
             byte[] keyBytes = DecoratedKey.keyFromByteSource(ByteSource.preencoded(bytes, 0, byteLength),
-                                                             Trie.BYTE_COMPARABLE_VERSION,
+                                                             TrieBackedPartition.BYTE_COMPARABLE_VERSION,
                                                              metadata().partitioner);
             keySize += keyBytes.length;
         }
@@ -638,7 +639,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
             this.metadata = metadata;
-            this.data = InMemoryTrie.longLived(BUFFER_TYPE, opOrder);
+            this.data = InMemoryTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, BUFFER_TYPE, opOrder);
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.allocator = allocator;
@@ -777,7 +778,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             PartitionData pd = (PartitionData) content;
             DecoratedKey key = getPartitionKeyFromPath(metadata,
-                                                       ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION,
+                                                       ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
                                                                                  bytes, 0, byteLength));
             return TrieBackedPartition.create(key,
                                               pd.columns(),

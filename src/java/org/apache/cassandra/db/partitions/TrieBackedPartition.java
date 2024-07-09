@@ -86,6 +86,8 @@ public class TrieBackedPartition implements Partition
     @VisibleForTesting
     public static final int MAX_RECURSIVE_KEY_LENGTH = 128;
 
+    public static ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
+
     /** Pre-made path for STATIC_CLUSTERING, to avoid creating path object when querying static path. */
     public static final ByteComparable STATIC_CLUSTERING_PATH = v -> ByteSource.oneByte(ClusteringPrefix.Kind.STATIC_CLUSTERING.asByteComparableValue(v));
     /** Pre-made path for BOTTOM, to avoid creating path object when iterating rows. */
@@ -247,7 +249,7 @@ public class TrieBackedPartition implements Partition
             return toRow(rd,
                          metadata.comparator.clusteringFromByteComparable(
                              ByteBufferAccessor.instance,
-                             ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, bytes, 0, byteLength)));
+                             ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, bytes, 0, byteLength)));
         }
     }
 
@@ -640,7 +642,7 @@ public class TrieBackedPartition implements Partition
             this.deletionBuilder = MutableDeletionInfo.builder(partitionLevelDeletion,
                                                                comparator,
                                                                isReverseOrder);
-            this.trie = InMemoryTrie.shortLived();
+            this.trie = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION);
 
             this.useRecursive = useRecursive(comparator);
             this.collectDataSize = collectDataSize;

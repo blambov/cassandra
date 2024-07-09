@@ -23,6 +23,8 @@ import java.util.List;
 
 import com.google.common.collect.Iterables;
 
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+
 /**
  * A merged view of multiple tries.
  *
@@ -355,6 +357,12 @@ class CollectionMergeTrie<T> extends Trie<T>
         public Direction direction()
         {
             return direction;
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return head.byteComparableVersion();
         }
 
         @Override

@@ -76,6 +76,11 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
         return mapContent(v, keyBytes, keyPos);
     }
 
+    ByteComparable.Version byteComparableVersion()
+    {
+        return cursor.byteComparableVersion();
+    }
+
     protected abstract V mapContent(T content, byte[] bytes, int byteLength);
 
     /**
@@ -91,7 +96,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
         @Override
         protected Map.Entry<ByteComparable, T> mapContent(T content, byte[] bytes, int byteLength)
         {
-            return toEntry(content, bytes, byteLength);
+            return toEntry(byteComparableVersion(), content, bytes, byteLength);
         }
     }
 
@@ -109,12 +114,12 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
         @SuppressWarnings("unchecked")  // checked by the predicate
         protected Map.Entry<ByteComparable, U> mapContent(T content, byte[] bytes, int byteLength)
         {
-            return toEntry((U) content, bytes, byteLength);
+            return toEntry(byteComparableVersion(), (U) content, bytes, byteLength);
         }
     }
 
-    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(T content, byte[] bytes, int byteLength)
+    static <T> java.util.Map.Entry<ByteComparable, T> toEntry(ByteComparable.Version version, T content, byte[] bytes, int byteLength)
     {
-        return new AbstractMap.SimpleImmutableEntry<>(toByteComparable(bytes, byteLength), content);
+        return new AbstractMap.SimpleImmutableEntry<>(toByteComparable(version, bytes, byteLength), content);
     }
 }

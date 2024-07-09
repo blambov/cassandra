@@ -101,6 +101,8 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
 
     public static final Factory FACTORY = new TrieMemtableStage1.Factory();
 
+    static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS41;
+
     /** If keys is below this length, we will use a recursive procedure for inserting data in the memtable trie. */
     @VisibleForTesting
     public static final int MAX_RECURSIVE_KEY_LENGTH = 128;
@@ -405,14 +407,14 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
     private static MemtablePartition getPartitionFromTrieEntry(TableMetadata metadata, EnsureOnHeap ensureOnHeap, Map.Entry<ByteComparable, BTreePartitionData> en)
     {
         DecoratedKey key = BufferDecoratedKey.fromByteComparable(en.getKey(),
-                                                                 Trie.BYTE_COMPARABLE_VERSION,
+                                                                 BYTE_COMPARABLE_VERSION,
                                                                  metadata.partitioner);
         return createPartition(metadata, ensureOnHeap, key, en.getValue());
     }
 
     private static DecoratedKey getPartitionKeyFromPath(TableMetadata metadata, ByteComparable path)
     {
-        return BufferDecoratedKey.fromByteComparable(path, Trie.BYTE_COMPARABLE_VERSION, metadata.partitioner);
+        return BufferDecoratedKey.fromByteComparable(path, BYTE_COMPARABLE_VERSION, metadata.partitioner);
     }
 
     public FlushCollection<MemtablePartition> getFlushSet(PartitionPosition from, PartitionPosition to)
@@ -424,8 +426,8 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
         for (Iterator<Map.Entry<ByteComparable, BTreePartitionData>> it = toFlush.entryIterator(); it.hasNext(); )
         {
             Map.Entry<ByteComparable, BTreePartitionData> en = it.next();
-            ByteComparable byteComparable = v -> en.getKey().asPeekableBytes(Trie.BYTE_COMPARABLE_VERSION);
-            byte[] keyBytes = DecoratedKey.keyFromByteComparable(byteComparable, Trie.BYTE_COMPARABLE_VERSION, metadata().partitioner);
+            ByteComparable byteComparable = v -> en.getKey().asPeekableBytes(BYTE_COMPARABLE_VERSION);
+            byte[] keyBytes = DecoratedKey.keyFromByteComparable(byteComparable, BYTE_COMPARABLE_VERSION, metadata().partitioner);
             keySize += keyBytes.length;
             keyCount++;
         }
@@ -522,7 +524,7 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
         @VisibleForTesting
         MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics)
         {
-            this.data = InMemoryTrie.shortLived(TrieMemtable.BUFFER_TYPE);
+            this.data = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION, TrieMemtable.BUFFER_TYPE);
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.allocator = allocator;

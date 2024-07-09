@@ -67,7 +67,6 @@ import org.openjdk.jmh.annotations.Warmup;
 @State(Scope.Benchmark)
 public class ComparisonReadBench
 {
-    public static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS41;
     // Note: To see a printout of the usage for each object, add .printVisitedTree() here (most useful with smaller number of
     // partitions).
     static MemoryMeter meter = new MemoryMeter().withGuessing(Guess.FALLBACK_UNSAFE);
@@ -79,16 +78,19 @@ public class ComparisonReadBench
     }
 
     @Param({"SHORT_LIVED"})
-    TrieAllocation allocation = TrieAllocation.SHORT_LIVED;
+    static TrieAllocation allocation = TrieAllocation.SHORT_LIVED;
+
+    @Param({"OSS50"})
+    static ByteComparable.Version byteComparableVersion = ByteComparable.Version.OSS50;
 
     @Param({"1000", "100000", "10000000"})
-    int count = 1000;
+    static int count = 1000;
 
     @Param({"TREE_MAP", "CSLM", "TRIE"})
-    MapOption map = MapOption.TRIE;
+    static MapOption map = MapOption.TRIE;
 
     @Param({"LONG"})
-    TypeOption type = TypeOption.LONG;
+    static TypeOption type = TypeOption.LONG;
 
     final static InMemoryTrie.UpsertTransformer<Byte, Byte> resolver = (x, y) -> y;
 
@@ -160,7 +162,7 @@ public class ComparisonReadBench
 
         public Long fromByteComparable(ByteComparable bc)
         {
-            return ByteSourceInverse.getSignedLong(bc.asComparableBytes(BYTE_COMPARABLE_VERSION));
+            return ByteSourceInverse.getSignedLong(bc.asComparableBytes(byteComparableVersion));
         }
 
         public ByteComparable longToByteComparable(long l)
@@ -183,8 +185,8 @@ public class ComparisonReadBench
 
         public BigInteger fromByteComparable(ByteComparable bc)
         {
-            return IntegerType.instance.compose(IntegerType.instance.fromComparableBytes(ByteSource.peekable(bc.asComparableBytes(BYTE_COMPARABLE_VERSION)),
-                                                                                         BYTE_COMPARABLE_VERSION));
+            return IntegerType.instance.compose(IntegerType.instance.fromComparableBytes(ByteSource.peekable(bc.asComparableBytes(byteComparableVersion)),
+                                                                                         byteComparableVersion));
         }
 
         public ByteComparable longToByteComparable(long l)
@@ -207,8 +209,8 @@ public class ComparisonReadBench
 
         public BigDecimal fromByteComparable(ByteComparable bc)
         {
-            return DecimalType.instance.compose(DecimalType.instance.fromComparableBytes(ByteSource.peekable(bc.asComparableBytes(BYTE_COMPARABLE_VERSION)),
-                                                                                         BYTE_COMPARABLE_VERSION));
+            return DecimalType.instance.compose(DecimalType.instance.fromComparableBytes(ByteSource.peekable(bc.asComparableBytes(byteComparableVersion)),
+                                                                                         byteComparableVersion));
         }
 
         public ByteComparable longToByteComparable(long l)
@@ -238,12 +240,12 @@ public class ComparisonReadBench
 
         public String fromByteComparable(ByteComparable bc)
         {
-            return new String(ByteSourceInverse.readBytes(bc.asComparableBytes(BYTE_COMPARABLE_VERSION)), StandardCharsets.UTF_8);
+            return new String(ByteSourceInverse.readBytes(bc.asComparableBytes(byteComparableVersion)), StandardCharsets.UTF_8);
         }
 
         public ByteComparable longToByteComparable(long l)
         {
-            return ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, fromLong(l).getBytes(StandardCharsets.UTF_8));
+            return ByteComparable.preencoded(byteComparableVersion, fromLong(l).getBytes(StandardCharsets.UTF_8));
         }
 
         public Comparator<String> comparator()
@@ -274,12 +276,12 @@ public class ComparisonReadBench
 
         public byte[] fromByteComparable(ByteComparable bc)
         {
-            return ByteSourceInverse.readBytes(bc.asComparableBytes(BYTE_COMPARABLE_VERSION));
+            return ByteSourceInverse.readBytes(bc.asComparableBytes(byteComparableVersion));
         }
 
         public ByteComparable longToByteComparable(long l)
         {
-            return ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, fromLong(l));
+            return ByteComparable.preencoded(byteComparableVersion, fromLong(l));
         }
 
         public Comparator<byte[]> comparator()
@@ -318,13 +320,13 @@ public class ComparisonReadBench
             switch (allocation)
             {
                 case SHORT_LIVED:
-                    trie = InMemoryTrie.shortLived();
+                    trie = InMemoryTrie.shortLived(byteComparableVersion);
                     break;
                 case LONG_LIVED_ON_HEAP:
-                    trie = InMemoryTrie.longLived(BufferType.ON_HEAP, null);
+                    trie = InMemoryTrie.longLived(byteComparableVersion, BufferType.ON_HEAP, null);
                     break;
                 case LONG_LIVED_OFF_HEAP:
-                    trie = InMemoryTrie.longLived(BufferType.OFF_HEAP, null);
+                    trie = InMemoryTrie.longLived(byteComparableVersion, BufferType.OFF_HEAP, null);
                     break;
                 default:
                     throw new AssertionError();

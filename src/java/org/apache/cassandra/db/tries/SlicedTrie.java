@@ -61,11 +61,11 @@ public class SlicedTrie<T> extends Trie<T>
         this.includeRight = includeRight;
     }
 
-    static ByteSource openAndMaybeAdd0(ByteComparable key, boolean shouldAdd0)
+    static ByteSource openAndMaybeAdd0(ByteComparable key, ByteComparable.Version byteComparableVersion, boolean shouldAdd0)
     {
         if (key == null)
             return null;
-        ByteSource src = key.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION);
+        ByteSource src = key.asComparableBytes(byteComparableVersion);
         if (shouldAdd0)
             return ByteSource.append(src, 0);
         else
@@ -75,10 +75,11 @@ public class SlicedTrie<T> extends Trie<T>
     @Override
     protected Cursor<T> cursor(Direction direction)
     {
+        Cursor<T> sourceCursor = source.cursor(direction);
         // The cursor is left-inclusive and right-exclusive by default. If we need to change the inclusiveness, adjust
         // the bound to the next possible value by adding a 00 byte at the end.
-        ByteSource leftSource = openAndMaybeAdd0(left, !includeLeft);
-        ByteSource rightSource = openAndMaybeAdd0(right, includeRight);
+        ByteSource leftSource = openAndMaybeAdd0(left, sourceCursor.byteComparableVersion(), !includeLeft);
+        ByteSource rightSource = openAndMaybeAdd0(right, sourceCursor.byteComparableVersion(), includeRight);
 
         // Empty left bound is the same as having no left bound, adjust for that.
         int leftNext = -1;
@@ -97,11 +98,11 @@ public class SlicedTrie<T> extends Trie<T>
             if (rightNext == ByteSource.END_OF_STREAM)
             {
                 assert leftSource == null : "Invalid range " + sliceString();
-                return Trie.<T>empty().cursor(direction);
+                return new Trie.EmptyCursor<>(direction, sourceCursor.byteComparableVersion());
             }
         }
 
-        return new SlicedCursor<>(source.cursor(direction),
+        return new SlicedCursor<>(sourceCursor,
                                   leftSource,
                                   leftNext,
                                   rightSource,
@@ -111,10 +112,11 @@ public class SlicedTrie<T> extends Trie<T>
 
     String sliceString()
     {
+        ByteComparable.Version version = source.cursor(Direction.FORWARD).byteComparableVersion();
         return String.format("%s%s;%s%s",
                              includeLeft ? "[" : "(",
-                             left.byteComparableAsString(Trie.BYTE_COMPARABLE_VERSION),
-                             right.byteComparableAsString(Trie.BYTE_COMPARABLE_VERSION),
+                             left.byteComparableAsString(version),
+                             right.byteComparableAsString(version),
                              includeRight ? "]" : ")");
     }
 
@@ -362,6 +364,12 @@ public class SlicedTrie<T> extends Trie<T>
         public Direction direction()
         {
             return direction;
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return source.byteComparableVersion();
         }
 
         @Override

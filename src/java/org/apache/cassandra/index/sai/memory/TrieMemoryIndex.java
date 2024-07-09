@@ -103,7 +103,7 @@ public class TrieMemoryIndex extends MemoryIndex
     {
         super(indexContext);
         this.keyBounds = keyBounds;
-        this.data = InMemoryTrie.longLived(TrieMemtable.BUFFER_TYPE, indexContext.owner().readOrdering());
+        this.data = InMemoryTrie.longLived(ByteComparable.Version.OSS41, TrieMemtable.BUFFER_TYPE, indexContext.owner().readOrdering());
         this.primaryKeysReducer = new PrimaryKeysReducer();
         this.memtable = memtable;
     }
