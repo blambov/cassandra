@@ -64,7 +64,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryTrie<Long> rowMapping = InMemoryTrie.shortLived();
+    private final InMemoryTrie<Long> rowMapping = InMemoryTrie.shortLived(ByteComparable.Version.OSS41);
 
     private volatile boolean complete = false;
 

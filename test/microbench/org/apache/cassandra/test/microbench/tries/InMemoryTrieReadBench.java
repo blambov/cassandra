@@ -42,6 +42,9 @@ public class InMemoryTrieReadBench
     @Param({"ON_HEAP", "OFF_HEAP"})
     BufferType bufferType = BufferType.OFF_HEAP;
 
+    @Param({"OSS50"})
+    ByteComparable.Version byteComparableVersion = ByteComparable.Version.OSS50;
+
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
 
@@ -55,7 +58,7 @@ public class InMemoryTrieReadBench
     @Setup(Level.Trial)
     public void setup() throws Throwable
     {
-        trie = InMemoryTrie.longLived(bufferType, null);
+        trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
         Random rand = new Random(1);
 
         System.out.format("Putting %,d\n", count);

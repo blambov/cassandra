@@ -38,7 +38,8 @@ public class PrefixedTrie<T> extends Trie<T>
     @Override
     protected Trie.Cursor<T> cursor(Direction direction)
     {
-        return new Cursor<>(prefix.asComparableBytes(Trie.BYTE_COMPARABLE_VERSION), trie.cursor(direction));
+        Trie.Cursor<T> sourceCursor = trie.cursor(direction);
+        return new Cursor<>(prefix.asComparableBytes(sourceCursor.byteComparableVersion()), sourceCursor);
     }
 
     private static class Cursor<T> implements Trie.Cursor<T>
@@ -139,6 +140,11 @@ public class PrefixedTrie<T> extends Trie<T>
         public Direction direction()
         {
             return source.direction();
+        }
+
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return source.byteComparableVersion();
         }
 
         @Override

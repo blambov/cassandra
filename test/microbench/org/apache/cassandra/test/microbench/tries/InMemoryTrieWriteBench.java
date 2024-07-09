@@ -51,6 +51,9 @@ public class InMemoryTrieWriteBench
     @Param({"ON_HEAP", "OFF_HEAP"})
     BufferType bufferType = BufferType.OFF_HEAP;
 
+    @Param({"OSS50"})
+    ByteComparable.Version byteComparableVersion = ByteComparable.Version.OSS50;
+
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
 
@@ -66,7 +69,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void putSequential(Blackhole bh) throws TrieSpaceExhaustedException
     {
-        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(bufferType, null);
+        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -87,7 +90,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void putRandom(Blackhole bh) throws TrieSpaceExhaustedException
     {
-        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(bufferType, null);
+        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 
@@ -108,7 +111,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void applySequential(Blackhole bh) throws TrieSpaceExhaustedException
     {
-        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(bufferType, null);
+        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
         ByteBuffer buf = ByteBuffer.allocate(keyLength);
 
         for (long current = 0; current < count; ++current)
@@ -129,7 +132,7 @@ public class InMemoryTrieWriteBench
     @Benchmark
     public void applyRandom(Blackhole bh) throws TrieSpaceExhaustedException
     {
-        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(bufferType, null);
+        InMemoryTrie<Byte> trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
         Random rand = new Random(1);
         byte[] buf = new byte[keyLength];
 

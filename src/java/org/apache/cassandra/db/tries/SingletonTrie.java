@@ -26,10 +26,12 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 class SingletonTrie<T> extends Trie<T>
 {
     private final ByteComparable key;
+    private final ByteComparable.Version byteComparableVersion;
     private final T value;
 
-    SingletonTrie(ByteComparable key, T value)
+    SingletonTrie(ByteComparable key, ByteComparable.Version byteComparableVersion, T value)
     {
+        this.byteComparableVersion = byteComparableVersion;
         this.key = key;
         this.value = value;
     }
@@ -42,7 +44,7 @@ class SingletonTrie<T> extends Trie<T>
     class Cursor implements Trie.Cursor<T>
     {
         private final Direction direction;
-        private ByteSource src = key.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        private ByteSource src = key.asComparableBytes(byteComparableVersion);
         private int currentDepth = 0;
         private int currentTransition = -1;
         private int nextTransition = src.next();
@@ -127,13 +129,19 @@ class SingletonTrie<T> extends Trie<T>
         }
 
         @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return byteComparableVersion;
+        }
+
+        @Override
         public Trie<T> tailTrie()
         {
             if (!(src instanceof ByteSource.Duplicatable))
                 src = ByteSource.duplicatable(src);
             ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
 
-            return new SingletonTrie(v -> duplicatableSource.duplicate(), value);
+            return new SingletonTrie(v -> duplicatableSource.duplicate(), byteComparableVersion, value);
         }
     }
 }

@@ -81,7 +81,7 @@ public class TrieMemoryIndex extends MemoryIndex
     public TrieMemoryIndex(IndexContext indexContext)
     {
         super(indexContext);
-        this.data = InMemoryTrie.longLived(TrieMemtable.BUFFER_TYPE, indexContext.owner().readOrdering());
+        this.data = InMemoryTrie.longLived(ByteComparable.Version.OSS41, TrieMemtable.BUFFER_TYPE, indexContext.owner().readOrdering());
         this.primaryKeysReducer = new PrimaryKeysReducer();
     }
 

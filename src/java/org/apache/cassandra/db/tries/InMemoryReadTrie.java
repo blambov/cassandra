@@ -217,9 +217,11 @@ public class InMemoryReadTrie<T> extends Trie<T>
 
     final UnsafeBuffer[] buffers;
     final AtomicReferenceArray<T>[] contentArrays;
+    final ByteComparable.Version byteComparableVersion;
 
-    InMemoryReadTrie(UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
+    InMemoryReadTrie(ByteComparable.Version byteComparableVersion, UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
     {
+        this.byteComparableVersion = byteComparableVersion;
         this.buffers = buffers;
         this.contentArrays = contentArrays;
         this.root = root;
@@ -655,9 +657,15 @@ public class InMemoryReadTrie<T> extends Trie<T>
         }
 
         @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return byteComparableVersion;
+        }
+
+        @Override
         public Trie<T> tailTrie()
         {
-            return new InMemoryReadTrie<>(buffers, contentArrays, currentFullNode);
+            return new InMemoryReadTrie<>(byteComparableVersion, buffers, contentArrays, currentFullNode);
         }
 
         private int backtrack()
@@ -1096,7 +1104,7 @@ public class InMemoryReadTrie<T> extends Trie<T>
     public T get(ByteComparable path)
     {
         int n = root;
-        ByteSource source = path.asComparableBytes(BYTE_COMPARABLE_VERSION);
+        ByteSource source = path.asComparableBytes(byteComparableVersion);
         while (!isNull(n))
         {
             int c = source.next();
@@ -1159,6 +1167,12 @@ public class InMemoryReadTrie<T> extends Trie<T>
             public Direction direction()
             {
                 return source.direction();
+            }
+
+            @Override
+            public ByteComparable.Version byteComparableVersion()
+            {
+                return source.byteComparableVersion();
             }
 
             @Override

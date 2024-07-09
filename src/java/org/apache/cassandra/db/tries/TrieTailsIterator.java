@@ -89,6 +89,11 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
         return mapContent(v, cursor.tailTrie(), keyBytes, keyPos);
     }
 
+    ByteComparable.Version byteComparableVersion()
+    {
+        return cursor.byteComparableVersion();
+    }
+
     protected abstract V mapContent(T value, Trie<T> tailTrie, byte[] bytes, int byteLength);
 
     /**
@@ -104,7 +109,7 @@ public abstract class TrieTailsIterator<T, V> extends TriePathReconstructor impl
         @Override
         protected Map.Entry<ByteComparable, Trie<T>> mapContent(T value, Trie<T> tailTrie, byte[] bytes, int byteLength)
         {
-            ByteComparable key = toByteComparable(bytes, byteLength);
+            ByteComparable key = toByteComparable(byteComparableVersion(), bytes, byteLength);
             return new AbstractMap.SimpleImmutableEntry<>(key, tailTrie);
         }
     }

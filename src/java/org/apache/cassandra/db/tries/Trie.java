@@ -176,6 +176,11 @@ public abstract class Trie<T>
         Direction direction();
 
         /**
+         * Returns the byte-comparable version that this trie uses.
+         */
+        ByteComparable.Version byteComparableVersion();
+
+        /**
          * Advance one position to the node whose associated path is next lexicographically.
          * This can be either:<ul>
          * <li>descending one level to the first child of the current node,
@@ -315,9 +320,6 @@ public abstract class Trie<T>
         R complete();
     }
 
-    // Version of the byte comparable conversion to use for all operations
-    public static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
-
     /**
      * Adapter interface providing the methods a {@link Walker} to a {@link Consumer}, so that the latter can be used
      * with {@link #process}.
@@ -380,7 +382,8 @@ public abstract class Trie<T>
      */
     public void forEachEntry(Direction direction, BiConsumer<ByteComparable, T> consumer)
     {
-        process(new TrieEntriesWalker.WithConsumer<T>(consumer), direction);
+        Cursor<T> cursor = cursor(direction);
+        process(new TrieEntriesWalker.WithConsumer<T>(consumer, cursor.byteComparableVersion()), cursor);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
@@ -432,7 +435,8 @@ public abstract class Trie<T>
      */
     public void forEachEntrySkippingBranches(Direction direction, BiConsumer<ByteComparable, T> consumer)
     {
-        processSkippingBranches(new TrieEntriesWalker.WithConsumer<T>(consumer), direction);
+        Cursor<T> cursor = cursor(direction);
+        processSkippingBranches(new TrieEntriesWalker.WithConsumer<T>(consumer, cursor.byteComparableVersion()), cursor);
         // Note: we can't do the ValueConsumer trick here, because the implementation requires state and cannot be
         // implemented with default methods alone.
     }
@@ -474,7 +478,7 @@ public abstract class Trie<T>
     public T get(ByteComparable key)
     {
         Cursor<T> cursor = cursor(Direction.FORWARD);
-        if (cursor.descendAlong(key.asComparableBytes(BYTE_COMPARABLE_VERSION)))
+        if (cursor.descendAlong(key.asComparableBytes(cursor.byteComparableVersion())))
             return cursor.content();
         else
             return null;
@@ -499,9 +503,9 @@ public abstract class Trie<T>
     /**
      * Returns a singleton trie mapping the given byte path to content.
      */
-    public static <T> Trie<T> singleton(ByteComparable b, T v)
+    public static <T> Trie<T> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
     {
-        return new SingletonTrie<>(b, v);
+        return new SingletonTrie<>(b, byteComparableVersion, v);
     }
 
     /**
@@ -748,7 +752,7 @@ public abstract class Trie<T>
         switch (sources.size())
         {
         case 0:
-            return empty();
+            throw new AssertionError();
         case 1:
             return sources.iterator().next();
         case 2:
@@ -774,7 +778,7 @@ public abstract class Trie<T>
         switch (sources.size())
         {
         case 0:
-            return empty();
+            throw new AssertionError();
         case 1:
             return sources.iterator().next();
         case 2:
@@ -788,55 +792,6 @@ public abstract class Trie<T>
             return new CollectionMergeTrie.Distinct<>(sources);
         }
     }
-
-    private static final Trie<Object> EMPTY = new Trie<Object>()
-    {
-        protected Cursor<Object> cursor(Direction direction)
-        {
-            return new Cursor<Object>()
-            {
-                int depth = 0;
-
-                public int advance()
-                {
-                    return depth = -1;
-                }
-
-                public int skipTo(int skipDepth, int skipTransition)
-                {
-                    return depth = -1;
-                }
-
-                @Override
-                public Trie<Object> tailTrie()
-                {
-                    return EMPTY;
-                }
-
-                public int depth()
-                {
-                    return depth;
-                }
-
-                public Object content()
-                {
-                    return null;
-                }
-
-                @Override
-                public Direction direction()
-                {
-                    return direction;
-                }
-
-                public int incomingTransition()
-                {
-                    return -1;
-                }
-            };
-        }
-    };
-
 
     /**
      * Returns a Trie that is a view of this one, where the given prefix is prepended before the root.
@@ -866,15 +821,78 @@ public abstract class Trie<T>
     public Trie<T> tailTrie(ByteComparable prefix)
     {
         Cursor<T> c = cursor(Direction.FORWARD);
-        if (c.descendAlong(prefix.asComparableBytes(BYTE_COMPARABLE_VERSION)))
+        if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
             return c.tailTrie();
         else
-            return empty();
+            return empty(c.byteComparableVersion());
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T> Trie<T> empty()
+    public static <T> Trie<T> empty(ByteComparable.Version byteComparableVersion)
     {
-        return (Trie<T>) EMPTY;
+        return new Trie<T>()
+        {
+            public Cursor<T> cursor(Direction dir)
+            {
+                return new EmptyCursor<>(dir, byteComparableVersion);
+            }
+        };
+    }
+
+    static class EmptyCursor<T> implements Cursor<T>
+    {
+        private final Direction direction;
+        private final ByteComparable.Version byteComparableVersion;
+        int depth;
+
+        public EmptyCursor(Direction direction, ByteComparable.Version byteComparableVersion)
+        {
+            this.direction = direction;
+            this.byteComparableVersion = byteComparableVersion;
+            depth = 0;
+        }
+
+        public int advance()
+        {
+            return depth = -1;
+        }
+
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return depth = -1;
+        }
+
+        public ByteComparable.Version byteComparableVersion()
+        {
+            if (byteComparableVersion != null)
+                return byteComparableVersion;
+            throw new AssertionError();
+        }
+
+        @Override
+        public Trie<T> tailTrie()
+        {
+            return empty(byteComparableVersion);
+        }
+
+        public int depth()
+        {
+            return depth;
+        }
+
+        public T content()
+        {
+            return null;
+        }
+
+        @Override
+        public Direction direction()
+        {
+            return direction;
+        }
+
+        public int incomingTransition()
+        {
+            return -1;
+        }
     }
 }

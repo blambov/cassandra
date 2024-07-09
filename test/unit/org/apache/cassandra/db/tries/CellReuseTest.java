@@ -54,6 +54,7 @@ public class CellReuseTest
 
     static Predicate<InMemoryTrie.NodeFeatures<Object>> NO_ATOMICITY = features -> false;
 
+    private static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
     private static final int COUNT = 10000;
     Random rand = new Random(2);
 
@@ -72,7 +73,7 @@ public class CellReuseTest
     public void testCellReuse(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate) throws Exception
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
-        InMemoryTrie<Object> trieLong = makeInMemoryTrie(src, opOrder -> InMemoryTrie.longLived(BufferType.ON_HEAP, opOrder),
+        InMemoryTrie<Object> trieLong = makeInMemoryTrie(src, opOrder -> InMemoryTrie.longLived(BYTE_COMPARABLE_VERSION, BufferType.ON_HEAP, opOrder),
                                                              forceCopyPredicate);
 
         // dump some information first
@@ -120,8 +121,8 @@ public class CellReuseTest
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
         OpOrder order = new OpOrder();
-        InMemoryTrie<Object> trie = InMemoryTrie.longLived(order);
-        InMemoryTrie<Object> check = InMemoryTrie.shortLived();
+        InMemoryTrie<Object> trie = InMemoryTrie.longLived(BYTE_COMPARABLE_VERSION, order);
+        InMemoryTrie<Object> check = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION);
         int step = Math.min(100, COUNT / 100);
         int throwStep = (COUNT + 10) / 5;   // do 4 throwing inserts
         int nextThrow = throwStep;
@@ -270,7 +271,7 @@ public class CellReuseTest
             // (so that all sources have the same value).
             int payload = asString(b).hashCode();
             ByteBuffer v = ByteBufferUtil.bytes(payload);
-            Trie<Object> update = Trie.singleton(b, v);
+            Trie<Object> update = Trie.singleton(b, BYTE_COMPARABLE_VERSION, v);
             update = InMemoryTrieThreadedTest.withRootMetadata(update, Boolean.TRUE);
             update = update.prefix(source("prefix"));
             applyUpdating(trie, update, forceCopyPredicate);
@@ -288,7 +289,7 @@ public class CellReuseTest
     {
         int payload = asString(b).hashCode();
         ByteBuffer v = ByteBufferUtil.bytes(payload);
-        Trie<Object> update = Trie.singleton(b, v);
+        Trie<Object> update = Trie.singleton(b, BYTE_COMPARABLE_VERSION, v);
 
         // Create an update with two metadata entries, so that the lower is already a copied node.
         // Abort processing on the lower metadata, where the new branch is not attached yet (so as not to affect the

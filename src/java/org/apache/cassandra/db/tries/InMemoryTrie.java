@@ -106,9 +106,9 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
 
     static
     {
-        InMemoryTrie<Object> empty = new InMemoryTrie<>(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+        InMemoryTrie<Object> empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
         EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
-        empty = new InMemoryTrie<>(BufferType.OFF_HEAP, ExpectedLifetime.SHORT, null);
+        empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, ExpectedLifetime.SHORT, null);
         EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
     }
 
@@ -117,9 +117,10 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         SHORT, LONG
     }
 
-    InMemoryTrie(BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    InMemoryTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
-        super(new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
+        super(byteComparableVersion,
+              new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
               new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
@@ -139,19 +140,34 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-    public static <T> InMemoryTrie<T> shortLived()
+//    public static <T> InMemoryTrie<T> shortLived()
+//    {
+//        return shortLived(ByteComparable.Version.OSS50);
+//    }
+
+    public static <T> InMemoryTrie<T> shortLived(ByteComparable.Version byteComparableVersion)
     {
-        return new InMemoryTrie<T>(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+        return new InMemoryTrie<T>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
     }
 
-    public static <T> InMemoryTrie<T> longLived(OpOrder opOrder)
+//    public static <T> InMemoryTrie<T> longLived(OpOrder opOrder)
+//    {
+//        return longLived(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, opOrder);
+//    }
+
+    public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, OpOrder opOrder)
     {
-        return new InMemoryTrie<T>(BufferType.OFF_HEAP, ExpectedLifetime.LONG, opOrder);
+        return longLived(byteComparableVersion, BufferType.OFF_HEAP, opOrder);
     }
 
-    public static <T> InMemoryTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
+//    public static <T> InMemoryTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
+//    {
+//        return longLived(ByteComparable.Version.OSS50, bufferType, opOrder);
+//    }
+//
+    public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
-        return new InMemoryTrie<T>(bufferType, ExpectedLifetime.LONG, opOrder);
+        return new InMemoryTrie<T>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
     }
 
 
@@ -1233,6 +1249,11 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
             }
             return data;
         }
+
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return byteComparableVersion;
+        }
     }
 
     public interface KeyProducer<T>
@@ -1249,6 +1270,8 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
          * the method is being called.
          */
         byte[] getBytes(Predicate<T> shouldStop);
+
+        ByteComparable.Version byteComparableVersion();
     }
 
     /**
@@ -1475,7 +1498,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
                                  R value,
                                  UpsertTransformer<T, ? super R> transformer) throws TrieSpaceExhaustedException
     {
-        apply(Trie.singleton(key, value), transformer, Predicates.alwaysFalse());
+        apply(Trie.singleton(key, byteComparableVersion, value), transformer, Predicates.alwaysFalse());
     }
 
     /**
@@ -1508,7 +1531,7 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
     {
         try
         {
-            int newRoot = putRecursive(root, key.asComparableBytes(BYTE_COMPARABLE_VERSION), value, transformer);
+            int newRoot = putRecursive(root, key.asComparableBytes(byteComparableVersion), value, transformer);
             if (newRoot != root)
                 root = newRoot;
             completeMutation();

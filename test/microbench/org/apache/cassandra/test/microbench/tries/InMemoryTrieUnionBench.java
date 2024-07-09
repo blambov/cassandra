@@ -43,6 +43,9 @@ public class InMemoryTrieUnionBench
     @Param({"ON_HEAP", "OFF_HEAP"})
     BufferType bufferType = BufferType.OFF_HEAP;
 
+    @Param({"OSS50"})
+    ByteComparable.Version byteComparableVersion = ByteComparable.Version.OSS50;
+
     @Param({"1000", "100000", "10000000"})
     int count = 1000;
 
@@ -66,7 +69,7 @@ public class InMemoryTrieUnionBench
         {
             long sz = 65536 / sources;
             for (int i = 0; i < sources; ++i)
-                tries.add(InMemoryTrie.longLived(bufferType, null));
+                tries.add(InMemoryTrie.longLived(byteComparableVersion, bufferType, null));
 
             for (long current = 0; current < count; ++current)
             {
@@ -81,7 +84,7 @@ public class InMemoryTrieUnionBench
             long current = 0;
             for (int i = 0; i < sources; ++i)
             {
-                InMemoryTrie<Byte> trie = InMemoryTrie.longLived(bufferType, null);
+                InMemoryTrie<Byte> trie = InMemoryTrie.longLived(byteComparableVersion, bufferType, null);
                 int currMax = this.count * (i + 1) / sources;
 
                 for (; current < currMax; ++current)

@@ -82,7 +82,10 @@ public class SlicedTrieTest
     "\000\000\377",
     "\377\377"
     });
-    public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, Trie.BYTE_COMPARABLE_VERSION);
+
+    static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
+
+    public static final Comparator<ByteComparable> BYTE_COMPARABLE_COMPARATOR = (bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, BYTE_COMPARABLE_VERSION);
     private static final int COUNT = 15000;
     Random rand = new Random();
 
@@ -95,7 +98,7 @@ public class SlicedTrieTest
     public void testIntersectRange(int count)
     {
         ByteComparable[] src1 = generateKeys(rand, count);
-        NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, Trie.BYTE_COMPARABLE_VERSION));
+        NavigableMap<ByteComparable, ByteBuffer> content1 = new TreeMap<>((bytes1, bytes2) -> ByteComparable.compare(bytes1, bytes2, BYTE_COMPARABLE_VERSION));
 
         InMemoryTrie<ByteBuffer> trie1 = makeInMemoryTrie(src1, content1, true);
 
@@ -106,7 +109,7 @@ public class SlicedTrieTest
         {
             ByteComparable l = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
             ByteComparable r = rand.nextBoolean() ? InMemoryTrieTestBase.generateKey(rand) : src1[rand.nextInt(src1.length)];
-            int cmp = ByteComparable.compare(l, r, Trie.BYTE_COMPARABLE_VERSION);
+            int cmp = ByteComparable.compare(l, r, BYTE_COMPARABLE_VERSION);
             if (cmp > 0)
             {
                 ByteComparable t = l;
@@ -132,7 +135,7 @@ public class SlicedTrieTest
     @Test
     public void testSingletonSubtrie()
     {
-        Arrays.sort(BOUNDARIES, (a, b) -> ByteComparable.compare(a, b, ByteComparable.Version.OSS41));
+        Arrays.sort(BOUNDARIES, (a, b) -> ByteComparable.compare(a, b, BYTE_COMPARABLE_VERSION));
         for (int li = -1; li < BOUNDARIES.length; ++li)
         {
             ByteComparable l = li < 0 ? null : BOUNDARIES[li];
@@ -147,9 +150,9 @@ public class SlicedTrieTest
 
                     for (ByteComparable key : KEYS)
                     {
-                        int cmp1 = l != null ? ByteComparable.compare(key, l, ByteComparable.Version.OSS41) : 1;
-                        int cmp2 = r != null ? ByteComparable.compare(r, key, ByteComparable.Version.OSS41) : 1;
-                        Trie<Boolean> ix = new SlicedTrie<>(Trie.singleton(key, true), l, includeLeft, r, includeRight);
+                        int cmp1 = l != null ? ByteComparable.compare(key, l, BYTE_COMPARABLE_VERSION) : 1;
+                        int cmp2 = r != null ? ByteComparable.compare(r, key, BYTE_COMPARABLE_VERSION) : 1;
+                        Trie<Boolean> ix = new SlicedTrie<>(Trie.singleton(key, BYTE_COMPARABLE_VERSION, true), l, includeLeft, r, includeRight);
                         boolean expected = true;
                         if (cmp1 < 0 || cmp1 == 0 && !includeLeft)
                             expected = false;
@@ -162,10 +165,10 @@ public class SlicedTrieTest
                             System.err.println(ix.dump());
                             Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
                                                       includeLeft ? "[" : "(",
-                                                      l != null ? l.byteComparableAsString(ByteComparable.Version.OSS41) : null,
-                                                      r != null ? r.byteComparableAsString(ByteComparable.Version.OSS41) : null,
+                                                      l != null ? l.byteComparableAsString(BYTE_COMPARABLE_VERSION) : null,
+                                                      r != null ? r.byteComparableAsString(BYTE_COMPARABLE_VERSION) : null,
                                                       includeRight ? "]" : ")",
-                                                      key.byteComparableAsString(ByteComparable.Version.OSS41),
+                                                      key.byteComparableAsString(BYTE_COMPARABLE_VERSION),
                                                       expected,
                                                       actual));
                         }
@@ -359,6 +362,12 @@ public class SlicedTrieTest
                 public Direction direction()
                 {
                     return direction;
+                }
+
+                @Override
+                public ByteComparable.Version byteComparableVersion()
+                {
+                    return BYTE_COMPARABLE_VERSION;
                 }
 
                 @Override

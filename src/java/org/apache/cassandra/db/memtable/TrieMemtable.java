@@ -115,9 +115,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     public static final Predicate<Object> IS_PARTITION_BOUNDARY = TrieMemtable::isPartitionBoundary;
 
-    /** The byte-ordering conversion version to use for memtables. */
-    public static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS41;
-
     // Set to true when the memtable requests a switch (e.g. for trie size limit being reached) to ensure only one
     // thread calls cfs.switchMemtableIfCurrent.
     private AtomicBoolean switchRequested = new AtomicBoolean(false);
@@ -445,7 +442,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     private static DecoratedKey getPartitionKeyFromPath(TableMetadata metadata, ByteComparable path)
     {
-        return BufferDecoratedKey.fromByteComparable(path, BYTE_COMPARABLE_VERSION, metadata.partitioner);
+        return BufferDecoratedKey.fromByteComparable(path,
+                                                     TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                     metadata.partitioner);
     }
 
     /**
@@ -614,7 +613,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
             this.metadata = metadata;
-            this.data = InMemoryTrie.longLived(BUFFER_TYPE, opOrder);
+            this.data = InMemoryTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, BUFFER_TYPE, opOrder);
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.allocator = allocator;
@@ -653,7 +652,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                     catch (TrieSpaceExhaustedException e)
                     {
                         // This should never really happen as a flush would be triggered long before this limit is reached.
-                        throw Throwables.propagate(e);
+                        throw new AssertionError(e);
                     }
                     allocator.offHeap().adjust(data.sizeOffHeap() - offHeap, opGroup);
                     allocator.onHeap().adjust((data.sizeOnHeap() - onHeap) + updater.heapSize, opGroup);
@@ -760,7 +759,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             PartitionData pd = (PartitionData) content;
             DecoratedKey key = getPartitionKeyFromPath(metadata,
-                                                       ByteComparable.preencoded(BYTE_COMPARABLE_VERSION,
+                                                       ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
                                                                                  bytes, 0, byteLength));
             return TrieBackedPartition.create(key,
                                               pd.columns(),

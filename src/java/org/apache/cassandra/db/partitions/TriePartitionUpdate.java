@@ -90,7 +90,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
 
     private static InMemoryTrie<Object> newTrie(DeletionInfo deletion)
     {
-        InMemoryTrie<Object> trie = InMemoryTrie.shortLived();
+        InMemoryTrie<Object> trie = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION);
         try
         {
             trie.putRecursive(ByteComparable.EMPTY, deletion, NO_CONFLICT_RESOLVER);
@@ -293,7 +293,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     public TriePartitionUpdate withUpdatedTimestamps(long newTimestamp)
     {
 
-        InMemoryTrie<Object> t = InMemoryTrie.shortLived();
+        InMemoryTrie<Object> t = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION);
         try
         {
             t.apply(trie, new InMemoryTrie.UpsertTransformer<Object, Object>()
@@ -490,7 +490,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         private final MutableDeletionInfo deletionInfo;
         private final boolean canHaveShadowedData;
         private final RegularAndStaticColumns columns;
-        private final InMemoryTrie<Object> trie = InMemoryTrie.shortLived();
+        private final InMemoryTrie<Object> trie = InMemoryTrie.shortLived(BYTE_COMPARABLE_VERSION);
         private final EncodingStats.Collector statsCollector = new EncodingStats.Collector();
         private final boolean useRecursive;
 

@@ -19,6 +19,8 @@ package org.apache.cassandra.db.tries;
 
 import com.google.common.collect.Iterables;
 
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+
 /**
  * A merged view of two tries.
  *
@@ -147,6 +149,13 @@ class MergeTrie<T> extends Trie<T>
         public Direction direction()
         {
             return direction;
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            assert c1.byteComparableVersion() == c2.byteComparableVersion();
+            return c1.byteComparableVersion();
         }
 
         public T content()

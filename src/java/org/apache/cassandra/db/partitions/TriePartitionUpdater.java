@@ -126,7 +126,7 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
     {
         return metadata.comparator.clusteringFromByteComparable(
             ByteArrayAccessor.instance,
-            ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION,
+            ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
                                       keyState.getBytes(TrieMemtable.IS_PARTITION_BOUNDARY)));
     }
 
