@@ -27,6 +27,7 @@ import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -123,8 +124,10 @@ public final class TriePartitionUpdater implements InMemoryTrie.UpsertTransforme
 
     private Clustering<?> clusteringFor(InMemoryTrie.KeyProducer<Object> keyState)
     {
-        return metadata.comparator.clusteringFromByteComparable(ByteArrayAccessor.instance,
-                                                                ByteComparable.fixedLength(keyState.getBytes(TrieMemtable.IS_PARTITION_BOUNDARY)));
+        return metadata.comparator.clusteringFromByteComparable(
+            ByteArrayAccessor.instance,
+            ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION,
+                                      keyState.getBytes(TrieMemtable.IS_PARTITION_BOUNDARY)));
     }
 
     /**

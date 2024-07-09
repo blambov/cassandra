@@ -543,7 +543,7 @@ public class InMemoryTrieThreadedTest
             if (last < 0)
                 return null;
             ++bytes[last];
-            return ByteSource.fixedLength(bytes, 0, last + 1);
+            return ByteSource.preencoded(bytes, 0, last + 1);
         };
     }
 

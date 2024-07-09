@@ -219,7 +219,7 @@ public class SortedTermsReader
          */
         public @Nonnull ByteComparable term()
         {
-            return ByteComparable.fixedLength(currentTerm.bytes, currentTerm.offset, currentTerm.length);
+            return ByteComparable.preencoded(reader.byteComparableVersion, currentTerm.bytes, currentTerm.offset, currentTerm.length);
         }
 
         /**

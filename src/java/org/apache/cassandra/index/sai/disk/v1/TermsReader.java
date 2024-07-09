@@ -237,6 +237,7 @@ public class TermsReader implements Closeable
         {
             // This works by creating an iterator over all the map entries for a given key and then filtering
             // the results in the materializeResults method.
+            // The value encoding here is fixed length and non-byte-comparable-version-specific.
             final ByteComparable lower = exp.lower != null ? ByteComparable.fixedLength(exp.getLowerBound()) : null;
             final ByteComparable upper = exp.upper != null ? ByteComparable.fixedLength(exp.getUpperBound()) : null;
             try (TrieTermsDictionaryReader reader = new TrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(),

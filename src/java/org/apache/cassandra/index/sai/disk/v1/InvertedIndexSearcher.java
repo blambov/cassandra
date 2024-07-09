@@ -97,6 +97,7 @@ public class InvertedIndexSearcher extends IndexSearcher
 
         if (exp.getOp().isEquality() || exp.getOp() == Expression.Op.MATCH)
         {
+            // Value is encoded in non-byte-comparable-version-specific fixed-length format.
             final ByteComparable term = ByteComparable.fixedLength(exp.lower.value.encoded);
             QueryEventListener.TrieIndexEventListener listener = MulticastQueryEventListeners.of(context, perColumnEventListener);
             return reader.exactMatch(term, listener, context);

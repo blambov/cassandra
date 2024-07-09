@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.partitions;
 
 import java.util.Iterator;
-import java.util.Map;
 import java.util.NavigableSet;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -44,7 +43,6 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.ColumnData;
@@ -232,8 +230,10 @@ public class TrieBackedPartition implements Partition
         protected Row mapContent(Object content, byte[] bytes, int byteLength)
         {
             var rd = (RowData) content;
-            return toRow(rd, metadata.comparator.clusteringFromByteComparable(ByteBufferAccessor.instance,
-                                                                              ByteComparable.fixedLength(bytes, 0, byteLength)));
+            return toRow(rd,
+                         metadata.comparator.clusteringFromByteComparable(
+                             ByteBufferAccessor.instance,
+                             ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, bytes, 0, byteLength)));
         }
     }
 

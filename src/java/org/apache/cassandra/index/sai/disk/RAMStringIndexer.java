@@ -144,7 +144,7 @@ public class RAMStringIndexer
 
             private ByteComparable asByteComparable(byte[] bytes, int offset, int length)
             {
-                return v -> ByteSource.fixedLength(bytes, offset, length);
+                return v -> ByteSource.preencoded(bytes, offset, length);
             }
         };
     }

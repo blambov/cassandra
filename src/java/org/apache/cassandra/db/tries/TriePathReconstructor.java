@@ -51,6 +51,7 @@ public class TriePathReconstructor implements Trie.ResettingTransitionsReceiver
 
     static ByteComparable toByteComparable(byte[] bytes, int byteLength)
     {
-        return ByteComparable.fixedLength(Arrays.copyOf(bytes, byteLength));
+        // Taking a copy here to make sure it does not get modified when the cursor advances.
+        return ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, Arrays.copyOf(bytes, byteLength));
     }
 }
