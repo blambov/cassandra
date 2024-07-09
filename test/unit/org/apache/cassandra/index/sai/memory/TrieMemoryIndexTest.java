@@ -51,6 +51,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
 
 import static org.junit.Assert.assertEquals;
@@ -158,7 +159,7 @@ public class TrieMemoryIndexTest
 
             final int rowId = i;
             final ByteComparable expectedByteComparable = TypeUtil.isLiteral(type)
-                                                          ? ByteComparable.fixedLength(decompose.apply(rowId))
+                                                          ? v -> ByteSource.preencoded(decompose.apply(rowId))
                                                           : version -> type.asComparableBytes(decompose.apply(rowId), version);
             final ByteComparable actualByteComparable = pair.left;
             assertEquals("Mismatch at: " + i, 0, ByteComparable.compare(expectedByteComparable, actualByteComparable, ByteComparable.Version.OSS41));

@@ -129,7 +129,7 @@ public class SortedTermsBenchmark extends AbstractOnDiskBenchmark
                 ByteSource byteSource = Int32Type.instance.asComparableBytes(buffer, ByteComparable.Version.OSS41);
                 byte[] bytes = ByteSourceInverse.readBytes(byteSource);
                 bcIntBytes[x] = bytes;
-                writer.add(ByteComparable.fixedLength(bytes));
+                writer.add(ByteComparable.preencoded(ByteComparable.Version.OSS41, bytes));
             }
         }
 
@@ -256,7 +256,8 @@ public class SortedTermsBenchmark extends AbstractOnDiskBenchmark
         {
             for (int i = 0; i < NUM_INVOCATIONS; i++)
             {
-                bh.consume(cursor.ceiling(ByteComparable.fixedLength(this.bcIntBytes[i * skippingDistance])));
+                int iFinal = i;
+                bh.consume(cursor.ceiling(v -> ByteSource.preencoded(this.bcIntBytes[iFinal * skippingDistance])));
             }
         }
     }

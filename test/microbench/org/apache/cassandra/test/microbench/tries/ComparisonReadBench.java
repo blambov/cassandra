@@ -243,7 +243,7 @@ public class ComparisonReadBench
 
         public ByteComparable longToByteComparable(long l)
         {
-            return ByteComparable.fixedLength(fromLong(l).getBytes(StandardCharsets.UTF_8));
+            return ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, fromLong(l).getBytes(StandardCharsets.UTF_8));
         }
 
         public Comparator<String> comparator()
@@ -279,7 +279,7 @@ public class ComparisonReadBench
 
         public ByteComparable longToByteComparable(long l)
         {
-            return ByteComparable.fixedLength(fromLong(l));
+            return ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, fromLong(l));
         }
 
         public Comparator<byte[]> comparator()

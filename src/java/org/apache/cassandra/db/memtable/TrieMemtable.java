@@ -535,7 +535,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             // This is used with processSkippingBranches which should ensure that we only see the partition roots.
             assert content instanceof PartitionData;
             ++keyCount;
-            byte[] keyBytes = DecoratedKey.keyFromByteSource(ByteSource.fixedLength(bytes, 0, byteLength), Trie.BYTE_COMPARABLE_VERSION, metadata().partitioner);
+            byte[] keyBytes = DecoratedKey.keyFromByteSource(ByteSource.preencoded(bytes, 0, byteLength),
+                                                             Trie.BYTE_COMPARABLE_VERSION,
+                                                             metadata().partitioner);
             keySize += keyBytes.length;
         }
     }
@@ -774,7 +776,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         protected TrieBackedPartition mapContent(Object content, Trie<Object> tailTrie, byte[] bytes, int byteLength)
         {
             PartitionData pd = (PartitionData) content;
-            DecoratedKey key = getPartitionKeyFromPath(metadata, ByteComparable.fixedLength(bytes, 0, byteLength));
+            DecoratedKey key = getPartitionKeyFromPath(metadata,
+                                                       ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION,
+                                                                                 bytes, 0, byteLength));
             return TrieBackedPartition.create(key,
                                               pd.columns(),
                                               pd.stats(),

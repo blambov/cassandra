@@ -279,7 +279,7 @@ public class CellReuseTest
 
     static ByteComparable source(String key)
     {
-        return ByteComparable.fixedLength(key.getBytes(StandardCharsets.UTF_8));
+        return ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, key.getBytes(StandardCharsets.UTF_8));
     }
 
     static void addThrowingEntry(ByteComparable b,

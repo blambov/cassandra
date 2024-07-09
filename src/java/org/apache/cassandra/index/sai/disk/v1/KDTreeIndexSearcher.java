@@ -150,9 +150,9 @@ public class KDTreeIndexSearcher extends IndexSearcher
             // We have to copy scratch to prevent it from being overwritten by the next call to computeNext()
             var indexValue = new byte[iterator.scratch.length];
             System.arraycopy(iterator.scratch, 0, indexValue, 0, iterator.scratch.length);
-            // We store the indexValue in an already encoded format, so we use the fixedLength method here
+            // We store the indexValue in an already encoded format, so we use the preencoded method here
             // to avoid re-encoding it.
-            return new RowIdWithByteComparable(Math.toIntExact(segmentRowId), (v) -> ByteSource.fixedLength(indexValue));
+            return new RowIdWithByteComparable(Math.toIntExact(segmentRowId), (v) -> ByteSource.preencoded(indexValue));
         }
 
         @Override

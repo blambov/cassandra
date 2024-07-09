@@ -63,6 +63,7 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Reducer;
 import org.apache.cassandra.utils.SortingIterator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class TrieMemtableIndex implements MemtableIndex
@@ -278,7 +279,7 @@ public class TrieMemtableIndex implements MemtableIndex
 
     private ByteComparable encode(ByteBuffer input)
     {
-        return indexContext.isLiteral() ? ByteComparable.fixedLength(input)
+        return indexContext.isLiteral() ? v -> ByteSource.preencoded(input)
                                         : v -> TypeUtil.asComparableBytes(input, indexContext.getValidator(), v);
     }
 

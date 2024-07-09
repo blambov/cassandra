@@ -146,7 +146,7 @@ public abstract class InMemoryTrieTestBase
         InMemoryTrie<String> trie = strategy.create();
         for (String test : tests)
         {
-            ByteComparable e = ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(test));
+            ByteComparable e = ByteComparable.preencoded(VERSION, ByteBufferUtil.hexToBytes(test));
             System.out.println("Adding " + asString(e) + ": " + test);
             putSimpleResolve(trie, e, test, (x, y) -> y);
         }
@@ -154,7 +154,7 @@ public abstract class InMemoryTrieTestBase
         System.out.println(trie.dump());
 
         for (String test : tests)
-            assertEquals(test, trie.get(ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(test))));
+            assertEquals(test, trie.get(ByteComparable.preencoded(VERSION, ByteBufferUtil.hexToBytes(test))));
 
         Arrays.sort(tests);
 
@@ -355,7 +355,7 @@ public abstract class InMemoryTrieTestBase
     static ByteComparable comparable(String s)
     {
         ByteBuffer b = ByteBufferUtil.bytes(s);
-        return ByteComparable.fixedLength(b);
+        return ByteComparable.preencoded(VERSION, b);
     }
 
     @Test
@@ -442,7 +442,7 @@ public abstract class InMemoryTrieTestBase
     {
         for (Function<String, ByteComparable> mapping :
                 ImmutableList.<Function<String, ByteComparable>>of(ByteComparable::of,
-                                                                   s -> ByteComparable.fixedLength(s.getBytes())))
+                                                                   s -> ByteComparable.preencoded(VERSION, s.getBytes())))
         {
             testEntries(tests, mapping);
         }
@@ -450,7 +450,7 @@ public abstract class InMemoryTrieTestBase
 
     private void testEntriesHex(String[] tests)
     {
-        testEntries(tests, s -> ByteComparable.fixedLength(ByteBufferUtil.hexToBytes(s)));
+        testEntries(tests, s -> ByteComparable.preencoded(VERSION, ByteBufferUtil.hexToBytes(s)));
         // Run the other translations just in case.
         testEntries(tests);
     }
@@ -728,7 +728,7 @@ public abstract class InMemoryTrieTestBase
                 bytes[p++] = (byte) r2.nextInt(256);
         }
         return prefixFree ? v -> ByteSource.withTerminator(ByteSource.TERMINATOR, ByteSource.of(bytes, v))
-                          : ByteComparable.fixedLength(bytes);
+                          : ByteComparable.preencoded(VERSION, bytes);
     }
 
     static String asString(ByteComparable bc)

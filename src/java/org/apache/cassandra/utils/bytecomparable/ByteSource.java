@@ -757,7 +757,7 @@ public interface ByteSource
 
     static <V> ByteSource optionalFixedLength(ValueAccessor<V> accessor, V data)
     {
-        return !accessor.isEmpty(data) ? fixedLength(accessor, data) : null;
+        return !accessor.isEmpty(data) ? preencoded(accessor, data) : null;
     }
 
     /**
@@ -766,19 +766,19 @@ public interface ByteSource
      * underlying type has a fixed length.
      * In tests, this method is also used to generate non-escaped test cases.
      */
-    public static <V> ByteSource fixedLength(ValueAccessor<V> accessor, V data)
+    public static <V> ByteSource preencoded(ValueAccessor<V> accessor, V data)
     {
-        return new UnencodedBytesByAccessor<>(accessor, data, 0, accessor.size(data));
+        return new PreencodedBytesByAccessor<>(accessor, data, 0, accessor.size(data));
     }
 
-    class UnencodedBytesByAccessor<V> implements Duplicatable
+    class PreencodedBytesByAccessor<V> implements Duplicatable
     {
         int pos;
         final int end;
         final V data;
         final ValueAccessor<V> accessor;
 
-        UnencodedBytesByAccessor(ValueAccessor<V> accessor, V data, int start, int end)
+        PreencodedBytesByAccessor(ValueAccessor<V> accessor, V data, int start, int end)
         {
             this.data = data;
             this.accessor = accessor;
@@ -816,7 +816,7 @@ public interface ByteSource
         @Override
         public Duplicatable duplicate()
         {
-            return new UnencodedBytesByAccessor(accessor, data, pos, end);
+            return new PreencodedBytesByAccessor(accessor, data, pos, end);
         }
     }
 
@@ -826,18 +826,18 @@ public interface ByteSource
      * underlying type has a fixed length.
      * In tests, this method is also used to generate non-escaped test cases.
      */
-    public static Duplicatable fixedLength(ByteBuffer b)
+    public static Duplicatable preencoded(ByteBuffer b)
     {
-        return new UnencodedByteBuffer(b, b.position(), b.limit());
+        return new PreencodedByteBuffer(b, b.position(), b.limit());
     }
 
-    class UnencodedByteBuffer implements Duplicatable
+    class PreencodedByteBuffer implements Duplicatable
     {
         int pos;
         final int end;
         final ByteBuffer b;
 
-        UnencodedByteBuffer(ByteBuffer b, int start, int end)
+        PreencodedByteBuffer(ByteBuffer b, int start, int end)
         {
             this.b = b;
             this.pos = start;
@@ -874,7 +874,7 @@ public interface ByteSource
         @Override
         public Duplicatable duplicate()
         {
-            return new UnencodedByteBuffer(b, pos, end);
+            return new PreencodedByteBuffer(b, pos, end);
         }
     }
 
@@ -884,26 +884,26 @@ public interface ByteSource
      * underlying type has a fixed length.
      * In tests, this method is also used to generate non-escaped test cases.
      */
-    public static Duplicatable fixedLength(byte[] b)
+    public static Duplicatable preencoded(byte[] b)
     {
-        return fixedLength(b, 0, b.length);
+        return preencoded(b, 0, b.length);
     }
 
-    public static Duplicatable fixedLength(byte[] b, int offset, int length)
+    public static Duplicatable preencoded(byte[] b, int offset, int length)
     {
         checkArgument(offset >= 0 && offset <= b.length);
         checkArgument(length >= 0 && offset + length <= b.length);
 
-        return new UnencodedBytes(b, offset, offset + length);
+        return new PreencodedBytes(b, offset, offset + length);
     }
 
-    class UnencodedBytes implements Duplicatable
+    class PreencodedBytes implements Duplicatable
     {
         int pos;
         final int end;
         final byte[] b;
 
-        UnencodedBytes(byte[] b, int start, int end)
+        PreencodedBytes(byte[] b, int start, int end)
         {
             this.b = b;
             this.pos = start;
@@ -940,7 +940,7 @@ public interface ByteSource
         @Override
         public Duplicatable duplicate()
         {
-            return new UnencodedBytes(b, pos, end);
+            return new PreencodedBytes(b, pos, end);
         }
     }
 
@@ -1009,6 +1009,6 @@ public interface ByteSource
         if (src instanceof Duplicatable)
             return (Duplicatable) src;
 
-        return fixedLength(ByteSourceInverse.readBytes(src));
+        return preencoded(ByteSourceInverse.readBytes(src));
     }
 }

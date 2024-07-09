@@ -164,7 +164,7 @@ public class NumericIndexWriterTest extends SaiRandomizedTest
                 @Override
                 public boolean visit(byte[] packedValue)
                 {
-                    final ByteComparable actualTerm = ByteComparable.fixedLength(packedValue);
+                    final ByteComparable actualTerm = ByteComparable.preencoded(ByteComparable.Version.OSS41, packedValue);
                     final ByteComparable expectedTerm = ByteComparable.of(Math.toIntExact(visited.get()));
                     assertEquals("Point value mismatch after visiting " + visited.get() + " entries.", 0,
                                  ByteComparable.compare(actualTerm, expectedTerm, ByteComparable.Version.OSS41));

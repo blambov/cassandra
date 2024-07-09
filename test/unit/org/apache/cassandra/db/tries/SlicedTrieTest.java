@@ -125,7 +125,7 @@ public class SlicedTrieTest
     private static ByteComparable[] toByteComparable(String[] keys)
     {
         return Arrays.stream(keys)
-                     .map(x -> ByteComparable.fixedLength(x.getBytes(StandardCharsets.UTF_8)))
+                     .map(x -> ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, x.getBytes(StandardCharsets.UTF_8)))
                      .toArray(ByteComparable[]::new);
     }
 
@@ -374,7 +374,7 @@ public class SlicedTrieTest
     private static ByteComparable of(int value)
     {
         assert value >= 0 && value <= Byte.MAX_VALUE;
-        return ByteComparable.fixedLength(new byte[]{ (byte)value });
+        return ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, new byte[]{ (byte)value });
     }
 
     @Test

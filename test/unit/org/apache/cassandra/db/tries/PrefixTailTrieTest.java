@@ -249,8 +249,9 @@ public class PrefixTailTrieTest
     {
         if (b == null)
             return ifBNull;
-        return ByteComparable.fixedLength(Bytes.concat(a.asByteComparableArray(VERSION),
-                                                       b.asByteComparableArray(VERSION)));
+        return ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION,
+                                         Bytes.concat(a.asByteComparableArray(VERSION),
+                                                      b.asByteComparableArray(VERSION)));
     }
 
     private Trie<Object> prepareSplitInTailTrie(int splits, ByteComparable[] prefixes, Map<ByteComparable, Tail> data) throws TrieSpaceExhaustedException
@@ -275,7 +276,7 @@ public class PrefixTailTrieTest
                 tries[k].apply(tail.prefixedBy(prefixes[i]), THROWING_UPSERT, Predicates.alwaysFalse());
             }
             Tail t = new Tail(prefixes[i].asByteComparableArray(VERSION), allContent);
-            data.put(ByteComparable.fixedLength(t.prefix), t);
+            data.put(ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, t.prefix), t);
         }
 
         return Trie.merge(Arrays.asList(tries), c -> c.stream().reduce(PrefixTailTrieTest::combineTails).get());
@@ -301,7 +302,7 @@ public class PrefixTailTrieTest
 //            System.out.println(tail.dump(CONTENT_TO_STRING));
             tries[trieIndex].apply(tail.prefixedBy(prefixes[i]), THROWING_UPSERT, Predicates.alwaysFalse());
 
-            data.put(ByteComparable.fixedLength(t.prefix), t);
+            data.put(ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, t.prefix), t);
             trieIndex = (trieIndex + 1) % splits;
         }
 
@@ -425,7 +426,7 @@ public class PrefixTailTrieTest
 
                 if (!(update instanceof ByteBuffer))
                     output.append("Not ByteBuffer " + update + msg);
-                ByteBuffer expected = currentTail.data.get(ByteComparable.fixedLength(tailPath));
+                ByteBuffer expected = currentTail.data.get(ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, tailPath));
                 if (expected == null)
                     output.append("Suffix not found" + msg);
                 if (!expected.equals(update))

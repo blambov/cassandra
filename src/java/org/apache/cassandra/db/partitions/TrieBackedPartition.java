@@ -244,8 +244,10 @@ public class TrieBackedPartition implements Partition
         protected Row mapContent(Object content, byte[] bytes, int byteLength)
         {
             var rd = (RowData) content;
-            return toRow(rd, metadata.comparator.clusteringFromByteComparable(ByteBufferAccessor.instance,
-                                                                              ByteComparable.fixedLength(bytes, 0, byteLength)));
+            return toRow(rd,
+                         metadata.comparator.clusteringFromByteComparable(
+                             ByteBufferAccessor.instance,
+                             ByteComparable.preencoded(Trie.BYTE_COMPARABLE_VERSION, bytes, 0, byteLength)));
         }
     }
 

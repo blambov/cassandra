@@ -19,11 +19,9 @@
 package org.apache.cassandra.utils.bytecomparable;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 
 /**
  * Interface indicating a value can be represented/identified by a comparable {@link ByteSource}.
@@ -94,19 +92,48 @@ public interface ByteComparable
         return v -> ByteSource.of(value);
     }
 
-    static ByteComparable fixedLength(ByteBuffer bytes)
+    private static void checkVersion(Version expected, Version actual)
     {
-        return v -> ByteSource.fixedLength(bytes);
+        Preconditions.checkState(actual == expected,
+                                 "Preprocessed byte-source at version %s queried at version %s",
+                                 actual,
+                                 expected);
     }
 
-    static ByteComparable fixedLength(byte[] bytes)
+    /**
+     * A ByteComparable value that is already encoded for a specific version. Requesting the source with a different
+     * version will result in an exception.
+     */
+    static ByteComparable preencoded(Version version, ByteBuffer bytes)
     {
-        return v -> ByteSource.fixedLength(bytes);
+        return v -> {
+            checkVersion(version, v);
+            return ByteSource.preencoded(bytes);
+        };
     }
 
-    static ByteComparable fixedLength(byte[] bytes, int offset, int len)
+    /**
+     * A ByteComparable value that is already encoded for a specific version. Requesting the source with a different
+     * version will result in an exception.
+     */
+    static ByteComparable preencoded(Version version, byte[] bytes)
     {
-        return v -> ByteSource.fixedLength(bytes, offset, len);
+        return v -> {
+            checkVersion(version, v);
+            return ByteSource.preencoded(bytes);
+        };
+    }
+
+    /**
+     * A ByteComparable value that is already encoded for a specific version. Requesting the source with a different
+     * version will result in an exception.
+     */
+    static ByteComparable preencoded(Version version, byte[] bytes, int offset, int len)
+    {
+        return v -> {
+            checkVersion(version, v);
+            return ByteSource.preencoded(bytes, offset, len);
+        };
     }
 
     /**

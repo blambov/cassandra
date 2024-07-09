@@ -136,7 +136,7 @@ public class RAMStringIndexer
             private ByteComparable asByteComparable(byte[] bytes, int offset, int length)
             {
                 // The bytes were encoded when they were inserted into the termsHash.
-                return v -> ByteSource.fixedLength(bytes, offset, length);
+                return v -> ByteSource.preencoded(bytes, offset, length);
             }
         };
     }

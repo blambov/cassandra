@@ -25,7 +25,7 @@ import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -73,7 +73,7 @@ public class InMemoryTrieWriteBench
         {
             long l = current;
             buf.putLong(keyLength - 8, l);
-            trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
+            trie.putRecursive(v -> ByteSource.preencoded(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
         if (PRINT_SIZES)
         {
@@ -94,7 +94,7 @@ public class InMemoryTrieWriteBench
         for (long current = 0; current < count; ++current)
         {
             rand.nextBytes(buf);
-            trie.putRecursive(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
+            trie.putRecursive(v -> ByteSource.preencoded(buf), Byte.valueOf(buf[0]), resolver);
         }
         if (PRINT_SIZES)
         {
@@ -115,7 +115,7 @@ public class InMemoryTrieWriteBench
         {
             long l = current;
             buf.putLong(keyLength - 8, l);
-            trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf((byte) (l >> 56)), resolver);
+            trie.putSingleton(v -> ByteSource.preencoded(buf), Byte.valueOf((byte) (l >> 56)), resolver);
         }
         if (PRINT_SIZES)
         {
@@ -136,7 +136,7 @@ public class InMemoryTrieWriteBench
         for (long current = 0; current < count; ++current)
         {
             rand.nextBytes(buf);
-            trie.putSingleton(ByteComparable.fixedLength(buf), Byte.valueOf(buf[0]), resolver);
+            trie.putSingleton(v -> ByteSource.preencoded(buf), Byte.valueOf(buf[0]), resolver);
         }
         if (PRINT_SIZES)
         {
