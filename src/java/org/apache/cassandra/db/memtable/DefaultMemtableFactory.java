@@ -33,7 +33,7 @@ public class DefaultMemtableFactory implements Memtable.Factory
     @Override
     public Memtable create(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadaRef, Memtable.Owner owner)
     {
-        return TrieMemtable.FACTORY.create(commitLogLowerBound, metadaRef, owner);
+        return TrieMemtableStage1.FACTORY.create(commitLogLowerBound, metadaRef, owner);
     }
 
     @Override
