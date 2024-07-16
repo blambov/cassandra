@@ -100,9 +100,9 @@ public class TrieBackedPartition implements Partition
     {
         final Object[] columnsBTree;
         final LivenessInfo livenessInfo;
-        final Row.Deletion deletion;
+        final DeletionTime deletion;
 
-        RowData(Object[] columnsBTree, LivenessInfo livenessInfo, Row.Deletion deletion)
+        RowData(Object[] columnsBTree, LivenessInfo livenessInfo, DeletionTime deletion)
         {
             this.columnsBTree = columnsBTree;
             this.livenessInfo = livenessInfo;
@@ -113,7 +113,7 @@ public class TrieBackedPartition implements Partition
         {
             return BTreeRow.create(clustering,
                                    livenessInfo,
-                                   deletion,
+                                   Row.Deletion.regular(deletion),
                                    columnsBTree);
         }
 
@@ -242,13 +242,13 @@ public class TrieBackedPartition implements Partition
 
     static RowData rowToData(Row row)
     {
-        return new RowData(((BTreeRow) row).getBTree(), row.primaryKeyLivenessInfo(), row.deletion());
+        return new RowData(((BTreeRow) row).getBTree(), row.primaryKeyLivenessInfo(), row.deletion().time());
     }
 
     public static RowData cloneRowToData(Cloner cloner, BTreeRow row)
     {
         Object[] tree = BTree.<ColumnData, ColumnData>transform(row.getBTree(), c -> c.clone(cloner));
-        return new RowData(tree, row.primaryKeyLivenessInfo(), row.deletion());
+        return new RowData(tree, row.primaryKeyLivenessInfo(), row.deletion().time());
     }
 
     /**

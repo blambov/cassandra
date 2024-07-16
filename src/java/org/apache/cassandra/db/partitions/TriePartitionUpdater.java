@@ -22,11 +22,9 @@ import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
-import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.ColumnData;
-import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.utils.memory.Cloner;
@@ -68,21 +66,15 @@ implements InMemoryTrie.UpsertTransformer<Object, Object>
                                 BTreeRow update,
                                 ColumnData.PostReconciliationFunction reconcileF)
     {
-        Object[] existingBtree = existing.columnsBTree;
-        Object[] updateBtree = update.getBTree();
-
         LivenessInfo livenessInfo = LivenessInfo.merge(update.primaryKeyLivenessInfo(), existing.livenessInfo);
-
-        Row.Deletion rowDeletion = existing.deletion.supersedes(update.deletion()) ? existing.deletion : update.deletion();
-
-        if (rowDeletion.deletes(livenessInfo))
+        DeletionTime deletion = DeletionTime.merge(existing.deletion, update.deletion().time());
+        if (deletion.deletes(livenessInfo))
             livenessInfo = LivenessInfo.EMPTY;
-        else if (rowDeletion.isShadowedBy(livenessInfo))
-            rowDeletion = Row.Deletion.LIVE;
 
-        DeletionTime deletion = rowDeletion.time();
-        Object[] tree = BTreeRow.mergeRowBTrees(reconcileF, existingBtree, updateBtree, deletion, existing.deletion.time());
-        return new RowData(tree, livenessInfo, rowDeletion);
+        Object[] tree = BTreeRow.mergeRowBTrees(reconcileF,
+                                                existing.columnsBTree, update.getBTree(),
+                                                deletion, existing.deletion);
+        return new RowData(tree, livenessInfo, deletion);
     }
 
     /**
