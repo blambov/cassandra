@@ -19,14 +19,10 @@
 package org.apache.cassandra.db.partitions;
 
 import java.util.Iterator;
-import java.util.Map;
 import java.util.NavigableSet;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
@@ -44,7 +40,6 @@ import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.ColumnData;
@@ -153,11 +148,13 @@ public class TrieBackedPartition implements Partition
     protected final TableMetadata metadata;
     protected final RegularAndStaticColumns columns;
     protected final EncodingStats stats;
+    protected final int rowCount;
     protected final boolean canHaveShadowedData;
 
     public TrieBackedPartition(DecoratedKey partitionKey,
                                RegularAndStaticColumns columns,
                                EncodingStats stats,
+                               int rowCount,
                                Trie<Object> trie,
                                TableMetadata metadata,
                                boolean canHaveShadowedData)
@@ -167,6 +164,7 @@ public class TrieBackedPartition implements Partition
         this.metadata = metadata;
         this.columns = columns;
         this.stats = stats;
+        this.rowCount = rowCount;
         this.canHaveShadowedData = canHaveShadowedData;
         // There must always be deletion info metadata.
         // Note: we can't use deletionInfo() because WithEnsureOnHeap's override is not yet set up.
@@ -176,15 +174,17 @@ public class TrieBackedPartition implements Partition
 
     public static TrieBackedPartition create(UnfilteredRowIterator iterator)
     {
+        ContentBuilder builder = build(iterator);
         return new TrieBackedPartition(iterator.partitionKey(),
-                                       iterator.metadata().regularAndStaticColumns(),
+                                       iterator.columns(),
                                        iterator.stats(),
-                                       build(iterator),
+                                       builder.rowCount(),
+                                       builder.trie(),
                                        iterator.metadata(),
                                        false);
     }
 
-    protected static InMemoryTrie<Object> build(UnfilteredRowIterator iterator)
+    protected static ContentBuilder build(UnfilteredRowIterator iterator)
     {
         try
         {
@@ -195,7 +195,7 @@ public class TrieBackedPartition implements Partition
             while (iterator.hasNext())
                 builder.addUnfiltered(iterator.next());
 
-            return builder.buildTrie();
+            return builder.complete();
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -210,13 +210,14 @@ public class TrieBackedPartition implements Partition
     public static TrieBackedPartition create(DecoratedKey partitionKey,
                                              RegularAndStaticColumns columnMetadata,
                                              EncodingStats encodingStats,
+                                             int rowCount,
                                              Trie<Object> trie,
                                              TableMetadata metadata,
                                              EnsureOnHeap ensureOnHeap)
     {
         return ensureOnHeap == EnsureOnHeap.NOOP
-               ? new TrieBackedPartition(partitionKey, columnMetadata, encodingStats, trie, metadata, true)
-               : new WithEnsureOnHeap(partitionKey, columnMetadata, encodingStats, trie, metadata, true, ensureOnHeap);
+               ? new TrieBackedPartition(partitionKey, columnMetadata, encodingStats, rowCount, trie, metadata, true)
+               : new WithEnsureOnHeap(partitionKey, columnMetadata, encodingStats, rowCount, trie, metadata, true, ensureOnHeap);
     }
 
     class RowIterator extends TrieEntriesIterator<Object, Row>
@@ -329,10 +330,7 @@ public class TrieBackedPartition implements Partition
 
     public int rowCount()
     {
-        // TODO: Not very efficient. Perhaps we could cache the value as this object is immutable.
-        // Note: InMemoryTrie.valuesCount() is not good enough here as values will remain in the trie if overwritten
-        // with forceCopy, and we may be holding a Memtable tail trie which only has a portion of the values.
-        return Iterables.size(nonStaticSubtrie().filteredValues(RowData.class));
+        return rowCount;
     }
 
     public DeletionInfo deletionInfo()
@@ -450,7 +448,6 @@ public class TrieBackedPartition implements Partition
 
     public UnfilteredRowIterator unfilteredIterator(ColumnFilter selection, NavigableSet<Clustering<?>> clusteringsInQueryOrder, boolean reversed)
     {
-        // TODO: Use trie slices.
         Row staticRow = staticRow(selection, false);
         if (clusteringsInQueryOrder.isEmpty())
         {
@@ -580,12 +577,13 @@ public class TrieBackedPartition implements Partition
         public WithEnsureOnHeap(DecoratedKey partitionKey,
                                 RegularAndStaticColumns columns,
                                 EncodingStats stats,
+                                int rowCount,
                                 Trie<Object> trie,
                                 TableMetadata metadata,
                                 boolean canHaveShadowedData,
                                 EnsureOnHeap ensureOnHeap)
         {
-            super(partitionKey, columns, stats, trie, metadata, canHaveShadowedData);
+            super(partitionKey, columns, stats, rowCount, trie, metadata, canHaveShadowedData);
             this.ensureOnHeap = ensureOnHeap;
             this.onHeapDeletion = ensureOnHeap.applyToDeletionInfo(super.deletionInfo());
         }
@@ -629,6 +627,8 @@ public class TrieBackedPartition implements Partition
 
         private final boolean useRecursive;
 
+        private int rowCount;
+
         public ContentBuilder(TableMetadata metadata, DeletionTime partitionLevelDeletion, boolean isReverseOrder)
         {
             this.metadata = metadata;
@@ -640,6 +640,8 @@ public class TrieBackedPartition implements Partition
             this.trie = InMemoryTrie.shortLived();
 
             this.useRecursive = useRecursive(comparator);
+
+            rowCount = 0;
         }
 
         public ContentBuilder addStatic(Row staticRow) throws TrieSpaceExhaustedException
@@ -651,6 +653,7 @@ public class TrieBackedPartition implements Partition
         public ContentBuilder addRow(Row row) throws TrieSpaceExhaustedException
         {
             putInTrie(comparator, useRecursive, trie, row);
+            ++rowCount;
             return this;
         }
 
@@ -668,10 +671,20 @@ public class TrieBackedPartition implements Partition
                 return addRangeTombstoneMarker((RangeTombstoneMarker) unfiltered);
         }
 
-        public InMemoryTrie<Object> buildTrie() throws TrieSpaceExhaustedException
+        public ContentBuilder complete() throws TrieSpaceExhaustedException
         {
             trie.putRecursive(ByteComparable.EMPTY, deletionBuilder.build(), NO_CONFLICT_RESOLVER);
+            return this;
+        }
+
+        public Trie<Object> trie()
+        {
             return trie;
+        }
+
+        public int rowCount()
+        {
+            return rowCount;
         }
     }
 }
