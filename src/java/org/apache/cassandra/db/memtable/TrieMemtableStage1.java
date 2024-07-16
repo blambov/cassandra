@@ -135,11 +135,11 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
                                                            TrieMemtableMetricsView metrics)
     {
         if (splits == 1)
-            return new MemtableShard[] { new MemtableShard(0, metadata, metrics) };
+            return new MemtableShard[] { new MemtableShard(metadata, metrics) };
 
         MemtableShard[] partitionMapContainer = new MemtableShard[splits];
         for (int i = 0; i < splits; i++)
-            partitionMapContainer[i] = new MemtableShard(i, metadata, metrics);
+            partitionMapContainer[i] = new MemtableShard(metadata, metrics);
 
         return partitionMapContainer;
     }
@@ -493,7 +493,7 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
 
         private TableMetadataRef metadata;
 
-        MemtableShard(int shardId, TableMetadataRef metadata, TrieMemtableMetricsView metrics)
+        MemtableShard(TableMetadataRef metadata, TrieMemtableMetricsView metrics)
         {
             this(metadata, AbstractAllocatorMemtable.MEMORY_POOL.newAllocator(), metrics);
         }
@@ -774,6 +774,7 @@ public class TrieMemtableStage1 extends AbstractAllocatorMemtable
         }
     }
 
+    @Override
     @VisibleForTesting
     public long unusedReservedOnHeapMemory()
     {
