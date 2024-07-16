@@ -20,10 +20,13 @@ package org.apache.cassandra.db.partitions;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DeletionInfo;
+import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.LivenessInfo;
+import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.utils.memory.Cloner;
@@ -61,12 +64,32 @@ implements InMemoryTrie.UpsertTransformer<Object, Object>
             throw new AssertionError("Unexpected update type: " + update.getClass());
     }
 
+    public static RowData merge(RowData existing,
+                                BTreeRow update,
+                                ColumnData.PostReconciliationFunction reconcileF)
+    {
+        Object[] existingBtree = existing.columnsBTree;
+        Object[] updateBtree = update.getBTree();
+
+        LivenessInfo livenessInfo = LivenessInfo.merge(update.primaryKeyLivenessInfo(), existing.livenessInfo);
+
+        Row.Deletion rowDeletion = existing.deletion.supersedes(update.deletion()) ? existing.deletion : update.deletion();
+
+        if (rowDeletion.deletes(livenessInfo))
+            livenessInfo = LivenessInfo.EMPTY;
+        else if (rowDeletion.isShadowedBy(livenessInfo))
+            rowDeletion = Row.Deletion.LIVE;
+
+        DeletionTime deletion = rowDeletion.time();
+        Object[] tree = BTreeRow.mergeRowBTrees(reconcileF, existingBtree, updateBtree, deletion, existing.deletion.time());
+        return new RowData(tree, livenessInfo, rowDeletion);
+    }
+
     /**
      * Called when a row needs to be copied to the Memtable trie.
      *
      * @param existing Existing RowData for this clustering, or null if there isn't any.
      * @param insert RowData to be inserted.
-     * @param keyState Used to obtain the path through which this node was reached.
      * @return the insert row, or the merged row, copied using our allocator
      */
     public RowData applyRow(RowData existing, BTreeRow insert)
@@ -85,16 +108,14 @@ implements InMemoryTrie.UpsertTransformer<Object, Object>
         }
         else
         {
-            // TODO: Avoid going through Row.
-            Clustering<?> clustering = insert.clustering();
-
-            Row existingRow = existing.toRow(clustering);
-            Row reconciledRow = Rows.merge(existingRow, insert, this);
             // data and heap size are updated during merge through the PostReconciliationFunction interface
-            RowData reconciled = TrieBackedPartition.rowToData(reconciledRow);
+            RowData reconciled = merge(existing, insert, this);
 
             if (indexer != UpdateTransaction.NO_OP)
-                indexer.onUpdated(existingRow, reconciledRow);
+            {
+                Clustering<?> clustering = insert.clustering();
+                indexer.onUpdated(existing.toRow(clustering), reconciled.toRow(clustering));
+            }
 
             return reconciled;
         }
