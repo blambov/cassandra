@@ -281,12 +281,45 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         }
     }
 
+    static class PrependIterator<T> implements Iterator<T>
+    {
+        private final T prepend;
+        private final Iterator<T> source;
+        private boolean atFirstEntry;
+
+
+        PrependIterator(T prepend, Iterator<T> source)
+        {
+            this.prepend = prepend;
+            this.source = source;
+            this.atFirstEntry = true;
+        }
+
+        @Override
+        public boolean hasNext()
+        {
+            return atFirstEntry || source.hasNext();
+        }
+
+        @Override
+        public T next()
+        {
+            if (atFirstEntry)
+            {
+                atFirstEntry = false;
+                return prepend;
+            }
+            else
+                return source.next();
+        }
+    }
+
     static class TrieFromRows extends TrieFromOrderedData<Row, Object>
     {
-        final Partition partition;
+        final PartitionUpdate partition;
         final ClusteringComparator comparator;
 
-        TrieFromRows(Partition partition)
+        TrieFromRows(PartitionUpdate partition)
         {
             this.partition = partition;
             comparator = partition.metadata().comparator;
@@ -296,30 +329,29 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         public Iterator<Row> getIterator(Direction direction)
         {
             assert direction.isForward();
-            return partition.rowIterator();
+            Iterator<Row> rowIterator = partition.rowIterator();
+            Row staticRow = partition.staticRow();
+            if (!staticRow.isEmpty())
+                rowIterator = new PrependIterator<>(staticRow, rowIterator);
+            return new PrependIterator<>(null, rowIterator);
         }
 
         @Override
         public ByteComparable keyFor(Row entry)
         {
-            return comparator.asByteComparable(entry.clustering());
+            return entry == null ? ByteComparable.EMPTY : comparator.asByteComparable(entry.clustering());
         }
 
         @Override
         public Object contentFor(Row entry)
         {
-            return rowToData(entry);
+            return entry == null ? partition.deletionInfo() : rowToData(entry);
         }
     }
 
     static Trie<Object> trieFor(PartitionUpdate update)
     {
-        Trie<Object> trie = Trie.singleton(ByteComparable.EMPTY, update.deletionInfo());
-        Row staticRow = update.staticRow();
-        if (!staticRow.isEmpty())
-            trie = trie.mergeWith(Trie.singleton(Clustering.STATIC_CLUSTERING_PATH, rowToData(staticRow)), Trie.throwingResolver());
-
-        return trie.mergeWith(new TrieFromRows(update), Trie.throwingResolver());
+        return new TrieFromRows(update);
     }
 
     public static Trie<Object> asMergableTrie(PartitionUpdate update)
