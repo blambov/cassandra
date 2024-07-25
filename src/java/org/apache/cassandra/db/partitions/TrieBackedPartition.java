@@ -276,6 +276,19 @@ public class TrieBackedPartition implements Partition
         trie.putSingleton(comparator.asByteComparable(row.clustering()), rowToData(row), NO_CONFLICT_RESOLVER, useRecursive);
     }
 
+    protected static Trie<Object> singletonTrie(ClusteringComparator comparator, Row row, DeletionInfo deletionInfo)
+    {
+        return emptyTrie(deletionInfo).mergeWith(Trie.singleton(comparator.asByteComparable(row.clustering()),
+                                                                rowToData(row)),
+                                                 Trie.throwingResolver());
+    }
+
+
+    protected static Trie<Object> emptyTrie(DeletionInfo deletionInfo)
+    {
+        return Trie.singleton(ByteComparable.EMPTY, deletionInfo);
+    }
+
     /**
      * Check if we can use recursive operations when putting a value in tries.
      * True if all types in the clustering keys are fixed length, and total size is small enough.

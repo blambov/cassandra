@@ -109,13 +109,26 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
      */
     public static TriePartitionUpdate emptyUpdate(TableMetadata metadata, DecoratedKey key)
     {
+        return deletionOnlyUpdate(metadata, key, DeletionInfo.LIVE);
+    }
+
+    /**
+     * Creates a empty immutable partition update.
+     *
+     * @param metadata the metadata for the created update.
+     * @param key the partition key for the created update.
+     *
+     * @return the newly created empty (and immutable) update.
+     */
+    public static TriePartitionUpdate deletionOnlyUpdate(TableMetadata metadata, DecoratedKey key, DeletionInfo deletionInfo)
+    {
         return new TriePartitionUpdate(metadata,
                                        key,
                                        RegularAndStaticColumns.NONE,
                                        EncodingStats.NO_STATS,
                                        0,
-                                       MutableDeletionInfo.live().dataSize(),
-                                       newTrie(MutableDeletionInfo.live()),
+                                       deletionInfo.dataSize(),
+                                       emptyTrie(deletionInfo),
                                        false);
     }
 
@@ -131,15 +144,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
      */
     public static TriePartitionUpdate fullPartitionDelete(TableMetadata metadata, DecoratedKey key, long timestamp, int nowInSec)
     {
-        MutableDeletionInfo deletion = new MutableDeletionInfo(timestamp, nowInSec);
-        return new TriePartitionUpdate(metadata,
-                                       key,
-                                       RegularAndStaticColumns.NONE,
-                                       new EncodingStats(timestamp, nowInSec, LivenessInfo.NO_TTL),
-                                       0,
-                                       deletion.dataSize(),
-                                       newTrie(deletion),
-                                       false);
+        return deletionOnlyUpdate(metadata, key, new MutableDeletionInfo(timestamp, nowInSec));
     }
 
     /**
@@ -155,7 +160,6 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     public static TriePartitionUpdate singleRowUpdate(TableMetadata metadata, DecoratedKey key, Row row)
     {
         EncodingStats stats = EncodingStats.Collector.forRow(row);
-        InMemoryTrie<Object> trie = newTrie(DeletionInfo.LIVE);
 
         RegularAndStaticColumns columns;
         if (row.isStatic())
@@ -163,16 +167,32 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         else
             columns = new RegularAndStaticColumns(Columns.NONE, Columns.from(row.columns()));
 
-        try
-        {
-            putInTrie(metadata.comparator, useRecursive(metadata.comparator), trie, row);
-        }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e);
-        }
-
+        Trie<Object> trie = singletonTrie(metadata.comparator, row, DeletionInfo.LIVE);
         return new TriePartitionUpdate(metadata, key, columns, stats, 1, row.dataSize(), trie, false);
+    }
+
+    /**
+     * Creates an immutable partition update that contains a single row update.
+     *
+     * @param metadata the metadata for the created update.
+     * @param key the partition key for the partition to update.
+     * @param row the row for the update (may be null).
+     * @param row the static row for the update (may be null).
+     *
+     * @return the newly created partition update containing only {@code row}.
+     */
+    public static TriePartitionUpdate singleRowUpdate(TableMetadata metadata, DecoratedKey key, Row row, DeletionInfo deletionInfo)
+    {
+        EncodingStats stats = EncodingStats.Collector.collect(row, deletionInfo);
+
+        RegularAndStaticColumns columns;
+        if (row.isStatic())
+            columns = new RegularAndStaticColumns(Columns.from(row.columns()), Columns.NONE);
+        else
+            columns = new RegularAndStaticColumns(Columns.NONE, Columns.from(row.columns()));
+
+        Trie<Object> trie = singletonTrie(metadata.comparator, row, DeletionInfo.LIVE);
+        return new TriePartitionUpdate(metadata, key, columns, stats, 1, row.dataSize() + deletionInfo.dataSize(), trie, false);
     }
 
     /**
@@ -501,14 +521,16 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     {
         private final TableMetadata metadata;
         private final DecoratedKey key;
-        private final MutableDeletionInfo deletionInfo;
+        private MutableDeletionInfo deletionInfo;
         private final boolean canHaveShadowedData;
         private final RegularAndStaticColumns columns;
-        private final InMemoryTrie<Object> trie = InMemoryTrie.shortLived();
-        private final EncodingStats.Collector statsCollector = new EncodingStats.Collector();
+        private InMemoryTrie<Object> trie = null;
+        private EncodingStats.Collector statsCollector = null;
         private final boolean useRecursive;
         private int rowCount;
         private long dataSize;
+
+        private Row firstRow = null;
 
         public Builder(TableMetadata metadata,
                        DecoratedKey key,
@@ -528,10 +550,14 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             this.key = key;
             this.columns = columns;
             this.canHaveShadowedData = canHaveShadowedData;
-            this.deletionInfo = deletionInfo.mutableCopy();
+            if (!deletionInfo.isLive())
+                this.deletionInfo = deletionInfo.mutableCopy();
+            else
+                this.deletionInfo = null;
             useRecursive = useRecursive(metadata.comparator);
             rowCount = 0;
             dataSize = 0;
+            firstRow = null;
             add(staticRow);
         }
 
@@ -565,6 +591,23 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             assert (row.isStatic() ? columns().statics : columns().regulars).containsAll(row.columns())
             : (row.isStatic() ? columns().statics : columns().regulars) + " is not superset of " + row.columns();
 
+            if (trie == null)
+            {
+                if (firstRow == null)
+                {
+                    firstRow = row;
+                    return;
+                }
+                trie = InMemoryTrie.shortLived();
+                statsCollector = new EncodingStats.Collector();
+                doAddRow(firstRow);
+                firstRow = null;
+            }
+            doAddRow(row);
+        }
+
+        private void doAddRow(Row row)
+        {
             try
             {
                 trie.putSingleton(metadata.comparator.asByteComparable(row.clustering()),
@@ -581,11 +624,17 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
 
         public void addPartitionDeletion(DeletionTime deletionTime)
         {
+            if (deletionTime.isLive())
+                return;
+            if (deletionInfo == null)
+                deletionInfo = MutableDeletionInfo.live();
             deletionInfo.add(deletionTime);
         }
 
         public void add(RangeTombstone range)
         {
+            if (deletionInfo == null)
+                deletionInfo = MutableDeletionInfo.live();
             deletionInfo.add(range, metadata.comparator);
         }
 
@@ -601,6 +650,24 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
 
         public TriePartitionUpdate build()
         {
+            if (trie == null)
+            {
+                if (firstRow != null)
+                {
+                    if (deletionInfo != null)
+                        return singleRowUpdate(metadata, partitionKey(), firstRow, deletionInfo);
+                    else
+                        return singleRowUpdate(metadata, partitionKey(), firstRow);
+                }
+                else if (deletionInfo != null)
+                    return deletionOnlyUpdate(metadata, partitionKey(), deletionInfo);
+                else
+                    return emptyUpdate(metadata, partitionKey());
+            }
+
+            DeletionInfo deletionInfo = this.deletionInfo;
+            if (deletionInfo == null)
+                deletionInfo = DeletionInfo.LIVE;
             try
             {
                 trie.putRecursive(ByteComparable.EMPTY, deletionInfo, NO_CONFLICT_RESOLVER);
@@ -609,6 +676,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             {
                 throw new AssertionError(e);
             }
+
             deletionInfo.collectStats(statsCollector);
             TriePartitionUpdate pu = new TriePartitionUpdate(metadata,
                                                              partitionKey(),

@@ -284,6 +284,15 @@ public class EncodingStats implements IMeasurableMemory
             return collector.get();
         }
 
+        public static EncodingStats collect(Row row, DeletionInfo deletionInfo)
+        {
+            Collector collector = new Collector();
+            deletionInfo.collectStats(collector);
+            if (row != null && !row.isEmpty())
+                Rows.collectStats(row, collector);
+            return collector.get();
+        }
+
         public static EncodingStats forRow(Row row)
         {
             Collector collector = new Collector();
