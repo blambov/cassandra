@@ -352,7 +352,7 @@ public class TrieBackedPartition implements Partition
 
     public Row staticRow()
     {
-        RowData staticRow = (RowData) trie.get(path(Clustering.STATIC_CLUSTERING));
+        RowData staticRow = (RowData) trie.get(Clustering.STATIC_CLUSTERING_PATH);
 
         if (staticRow != null)
             return toRow(staticRow, Clustering.STATIC_CLUSTERING);
@@ -506,9 +506,11 @@ public class TrieBackedPartition implements Partition
 
     private Row staticRow(ColumnFilter columns, boolean setActiveDeletionToRow)
     {
+        if (columns.fetchedColumns().statics.isEmpty())
+            return Rows.EMPTY_STATIC_ROW;
         DeletionTime partitionDeletion = deletionInfo().getPartitionDeletion();
         Row staticRow = staticRow();
-        if (columns.fetchedColumns().statics.isEmpty() || (staticRow.isEmpty() && partitionDeletion.isLive()))
+        if (staticRow.isEmpty() && partitionDeletion.isLive())
             return Rows.EMPTY_STATIC_ROW;
 
         Row row = staticRow.filter(columns, partitionDeletion, setActiveDeletionToRow, metadata());

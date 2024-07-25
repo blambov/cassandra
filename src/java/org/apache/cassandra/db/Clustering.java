@@ -30,6 +30,8 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.memory.ByteBufferCloner;
 
 import static org.apache.cassandra.db.AbstractBufferClusteringPrefix.EMPTY_VALUES_ARRAY;
@@ -118,6 +120,8 @@ public interface Clustering<V> extends ClusteringPrefix<V>
             return toString();
         }
     };
+
+    public static final ByteComparable STATIC_CLUSTERING_PATH = v -> ByteSource.oneByte(Kind.STATIC_CLUSTERING.asByteComparableValue(v));
 
     /** Empty clustering for tables having no clustering columns. */
     public static final Clustering<ByteBuffer> EMPTY = new BufferClustering(EMPTY_VALUES_ARRAY)

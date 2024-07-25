@@ -526,7 +526,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         private final RegularAndStaticColumns columns;
         private InMemoryTrie<Object> trie = null;
         private EncodingStats.Collector statsCollector = null;
-        private final boolean useRecursive;
+        private boolean useRecursive = false;
         private int rowCount;
         private long dataSize;
 
@@ -554,7 +554,6 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                 this.deletionInfo = deletionInfo.mutableCopy();
             else
                 this.deletionInfo = null;
-            useRecursive = useRecursive(metadata.comparator);
             rowCount = 0;
             dataSize = 0;
             firstRow = null;
@@ -583,7 +582,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
          */
         public void add(Row row)
         {
-            if (row.isEmpty())
+            if (row == Rows.EMPTY_STATIC_ROW)
                 return;
 
             // this assert is expensive, and possibly of limited value; we should consider removing it
@@ -600,6 +599,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                 }
                 trie = InMemoryTrie.shortLived();
                 statsCollector = new EncodingStats.Collector();
+                useRecursive = useRecursive(metadata.comparator);
                 doAddRow(firstRow);
                 firstRow = null;
             }
