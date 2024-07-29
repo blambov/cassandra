@@ -23,8 +23,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.cassandra.index.sai.disk.PostingList;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.utils.Merger;
-import org.apache.cassandra.utils.Reducer;
+import org.apache.cassandra.utils.IntMerger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -32,29 +31,21 @@ import static com.google.common.base.Preconditions.checkArgument;
  * Merges multiple {@link PostingList} which individually contain unique items into a single list.
  */
 @NotThreadSafe
-public class MergePostingList implements PostingList
+public class MergePostingList extends IntMerger<PostingList.PeekablePostingList> implements PostingList
 {
-    final ArrayList<PeekablePostingList> postingLists;
-    Merger<PeekablePostingList, PeekablePostingList, PeekablePostingList> pq;
     final int size;
 
     private MergePostingList(ArrayList<PeekablePostingList> postingLists)
     {
+        super(postingLists, PeekablePostingList.class);
         checkArgument(!postingLists.isEmpty());
-        this.postingLists = postingLists;
         long totalPostings = 0;
         for (PostingList postingList : postingLists)
-        {
             totalPostings += postingList.size();
-        }
+
         // We could technically "overflow" integer if enough row ids are duplicated in the source posting lists.
         // The size does not affect correctness, so just use integer max if that happens.
         this.size = (int) Math.min(totalPostings, Integer.MAX_VALUE);
-        this.pq = new Merger<>(postingLists,
-                               x -> x,
-                               x -> {},
-                               (x, y) -> Integer.compare(x.peek(), y.peek()),
-                               new AdvancingListReducer());
     }
 
     public static PostingList merge(ArrayList<PeekablePostingList> postings)
@@ -68,34 +59,16 @@ public class MergePostingList implements PostingList
         return new MergePostingList(postings);
     }
 
-    static boolean advanceList(PeekablePostingList postingList, PeekablePostingList listAsItem, Integer position)
-    {
-        if (listAsItem != null && listAsItem.peek() >= position)
-            return false;
-
-        try
-        {
-            postingList.advanceWithoutConsuming(position);
-            return true;
-        }
-        catch (IOException e)
-        {
-            throw new AssertionError(e);
-        }
-    }
-
     @Override
     public int nextPosting() throws IOException
     {
-        return pq.next().nextPosting();
+        return advance();
     }
 
-    @SuppressWarnings("resource")
     @Override
     public int advance(int targetRowID) throws IOException
     {
-        pq.advanceTo(targetRowID, MergePostingList::advanceList);
-        return nextPosting();
+        return skipTo(targetRowID);
     }
 
     @Override
@@ -105,44 +78,26 @@ public class MergePostingList implements PostingList
     }
 
     @Override
-    public void close() throws IOException
+    public void close()
     {
-        FileUtils.close(postingLists);
+        applyToAll(FileUtils::closeQuietly);
     }
 
-    static class AdvancingListReducer extends Reducer<PeekablePostingList, PeekablePostingList>
+    @Override
+    public int position(PeekablePostingList s)
     {
-        PeekablePostingList reduced = null;
+        return s.peek();
+    }
 
-        @Override
-        public void reduce(int idx, PeekablePostingList current)
-        {
-            if (reduced == null)
-            {
-                reduced = current;
-                return;
-            }
-            // Otherwise advance the iterator, because we won't do it in nextPosting
-            try
-            {
-                current.nextPosting();
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+    @Override
+    public void advanceSource(PeekablePostingList s) throws IOException
+    {
+        s.nextPosting();
+    }
 
-        @Override
-        public void onKeyChange()
-        {
-            this.reduced = null;
-        }
-
-        @Override
-        public PeekablePostingList getReduced()
-        {
-            return reduced;
-        }
+    @Override
+    protected void skipTo(PeekablePostingList s, int targetPosition) throws IOException
+    {
+        s.advanceWithoutConsuming(targetPosition);
     }
 }
