@@ -58,7 +58,7 @@ public class MergeIteratorComparisonTest
 
     static int ITERATOR_COUNT = 15;
     static int LIST_LENGTH = 15000;
-    static boolean BENCHMARK = false;
+    static boolean BENCHMARK = true;//false;
 
     @Test
     public void testRandomInts()

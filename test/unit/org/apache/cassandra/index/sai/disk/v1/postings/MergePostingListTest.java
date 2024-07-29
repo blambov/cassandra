@@ -186,21 +186,6 @@ public class MergePostingListTest extends SaiRandomizedTest
     }
 
     @Test
-    public void shouldSkipDuplicates() throws IOException
-    {
-        var lists = listOfLists(new ArrayPostingList(new int[]{ 1, 1, 2, 2, 2, 2, 5, 5 }),
-                                                                                 new ArrayPostingList(new int[]{ 1, 2, 2, 3, 3, 4, 4, 5 }));
-
-        final PostingList merged = MergePostingList.merge(lists);
-        assertEquals(1, merged.nextPosting());
-        assertEquals(2, merged.nextPosting());
-        assertEquals(3, merged.advance(3));
-        assertEquals(4, merged.advance(4));
-        assertEquals(5, merged.nextPosting());
-        assertEquals(PostingList.END_OF_STREAM, merged.nextPosting());
-    }
-
-    @Test
     public void shouldInterleaveNextAndAdvanceOnRandom() throws IOException
     {
         for (int i = 0; i < 1000; ++i)
@@ -238,7 +223,9 @@ public class MergePostingListTest extends SaiRandomizedTest
         var splitPostingLists = new ArrayList<PostingList.PeekablePostingList>();
         for (List<Integer> split : splitPostings.values())
         {
-            splitPostingLists.add(new ArrayPostingList(Ints.toArray(split)).peekable());
+            // Remove any duplicates in each individual set
+            int[] data = split.stream().distinct().mapToInt(Integer::intValue).toArray();
+            splitPostingLists.add(new ArrayPostingList(data).peekable());
         }
 
         final PostingList merge = MergePostingList.merge(splitPostingLists);

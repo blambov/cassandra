@@ -21,6 +21,7 @@ package org.apache.cassandra.utils;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -80,6 +81,7 @@ public class Merger<In, Source, Out> implements AutoCloseable
 
     /** Function called on each source to get the next item. Should return null if the source is exhausted. */
     final Function<Source, In> inputRetriever;
+    final BiConsumer<Source, In> inputAdvanceTo;
 
     /** Method to call on each source on close, may be null. */
     final Consumer<Source> onClose;
@@ -100,6 +102,16 @@ public class Merger<In, Source, Out> implements AutoCloseable
      */
     static final int SORTED_SECTION_SIZE = 4;
 
+    public Merger(List<Source> sources,
+                  Function<Source, In> inputRetriever,
+                  Consumer<Source> onClose,
+                  Comparator<? super In> comparator,
+                  Reducer<In, Out> reducer)
+    {
+        this(sources, inputRetriever, null, onClose, comparator, reducer);
+    }
+
+
     /**
      * @param sources        The input sources.
      * @param inputRetriever Function called on each source to get the next item. Should return null if the source is
@@ -110,11 +122,13 @@ public class Merger<In, Source, Out> implements AutoCloseable
      */
     public Merger(List<Source> sources,
                   Function<Source, In> inputRetriever,
+                  BiConsumer<Source, In> inputAdvanceTo,
                   Consumer<Source> onClose,
                   Comparator<? super In> comparator,
                   Reducer<In, Out> reducer)
     {
         this.inputRetriever = inputRetriever;
+        this.inputAdvanceTo = inputAdvanceTo;
         this.onClose = onClose;
         this.reducer = reducer;
 
@@ -140,6 +154,23 @@ public class Merger<In, Source, Out> implements AutoCloseable
         advance();  // no-op if already advanced (e.g. hasNext() called)
         assert size > 0;
         return consume();
+    }
+
+    public void advanceTo(In value)
+    {
+        final int size = this.size;
+        final int sortedSectionSize = Math.min(size, SORTED_SECTION_SIZE);
+        int i;
+        consume: {
+            for (i = 0; i < sortedSectionSize; ++i)
+            {
+                if (heap[i].compareToValue(value) >= 0)
+                    break consume;
+                heap[i].advanceTo(inputAdvanceTo, value);
+            }
+            i = Math.max(i, advanceHeap(i, value) + 1);
+        }
+        needingAdvance = i;
     }
 
     public void close()
@@ -236,6 +267,22 @@ public class Merger<In, Source, Out> implements AutoCloseable
         int nextIdx = (idx << 1) - (SORTED_SECTION_SIZE - 1);
         return Math.max(idx, Math.max(consumeHeap(nextIdx), consumeHeap(nextIdx + 1)));
     }
+
+    /**
+     * Recursively consume all items equal to equalItem in the binary subheap rooted at position idx.
+     *
+     * @return the largest equal index found in this search.
+     */
+    private int advanceHeap(int idx, In value)
+    {
+        if (idx >= size || heap[idx].compareToValue(value) >= 0)
+            return -1;
+
+        heap[idx].advanceTo(inputAdvanceTo, value);
+        int nextIdx = (idx << 1) - (SORTED_SECTION_SIZE - 1);
+        return Math.max(idx, Math.max(advanceHeap(nextIdx, value), advanceHeap(nextIdx + 1, value)));
+    }
+
 
     /**
      * Replace a source in the heap with the given position and move it down the heap until it finds its proper
@@ -424,6 +471,14 @@ public class Merger<In, Source, Out> implements AutoCloseable
             return comp.compare(this.item, that.item);
         }
 
+        public int compareToValue(In value)
+        {
+            if (this.item == null)
+                return -1;
+            assert value != null;
+            return comp.compare(this.item, value);
+        }
+
         public void consume(Reducer reducer)
         {
             reducer.reduce(idx, item);
@@ -433,6 +488,12 @@ public class Merger<In, Source, Out> implements AutoCloseable
         public boolean needsAdvance()
         {
             return item == null;
+        }
+
+        public void advanceTo(BiConsumer<Source, In> inputAdvanceTo, In value)
+        {
+            inputAdvanceTo.accept(input, value);
+            item = null;
         }
     }
 }
