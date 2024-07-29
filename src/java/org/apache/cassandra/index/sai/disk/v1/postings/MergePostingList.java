@@ -19,8 +19,6 @@ package org.apache.cassandra.index.sai.disk.v1.postings;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.PriorityQueue;
-import java.util.Comparator;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.cassandra.index.sai.disk.PostingList;
@@ -37,7 +35,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class MergePostingList implements PostingList
 {
     final ArrayList<PeekablePostingList> postingLists;
-    Merger<Integer, PeekablePostingList, Integer> pq;
+    Merger<PeekablePostingList, PeekablePostingList, PeekablePostingList> pq;
     final int size;
 
     private MergePostingList(ArrayList<PeekablePostingList> postingLists)
@@ -53,11 +51,10 @@ public class MergePostingList implements PostingList
         // The size does not affect correctness, so just use integer max if that happens.
         this.size = (int) Math.min(totalPostings, Integer.MAX_VALUE);
         this.pq = new Merger<>(postingLists,
-                               MergePostingList::getNextItem,
-                               MergePostingList::advanceList,
+                               x -> x,
                                x -> {},
-                               Integer::compare,
-                               Reducer.getIdentity());
+                               (x, y) -> Integer.compare(x.peek(), y.peek()),
+                               new AdvancingListReducer());
     }
 
     public static PostingList merge(ArrayList<PeekablePostingList> postings)
@@ -71,23 +68,15 @@ public class MergePostingList implements PostingList
         return new MergePostingList(postings);
     }
 
-    static int getNextItem(PostingList postingList)
+    static boolean advanceList(PeekablePostingList postingList, PeekablePostingList listAsItem, Integer position)
     {
-        try
-        {
-            return postingList.nextPosting();
-        }
-        catch (IOException e)
-        {
-            throw new AssertionError(e);
-        }
-    }
+        if (listAsItem != null && listAsItem.peek() >= position)
+            return false;
 
-    static int advanceList(PeekablePostingList postingList, Integer position)
-    {
         try
         {
-            return postingList.advanceWithoutConsuming(position);
+            postingList.advanceWithoutConsuming(position);
+            return true;
         }
         catch (IOException e)
         {
@@ -98,14 +87,14 @@ public class MergePostingList implements PostingList
     @Override
     public int nextPosting() throws IOException
     {
-        return pq.next();
+        return pq.next().nextPosting();
     }
 
     @SuppressWarnings("resource")
     @Override
     public int advance(int targetRowID) throws IOException
     {
-        pq.advanceTo(targetRowID);
+        pq.advanceTo(targetRowID, MergePostingList::advanceList);
         return nextPosting();
     }
 
@@ -119,5 +108,41 @@ public class MergePostingList implements PostingList
     public void close() throws IOException
     {
         FileUtils.close(postingLists);
+    }
+
+    static class AdvancingListReducer extends Reducer<PeekablePostingList, PeekablePostingList>
+    {
+        PeekablePostingList reduced = null;
+
+        @Override
+        public void reduce(int idx, PeekablePostingList current)
+        {
+            if (reduced == null)
+            {
+                reduced = current;
+                return;
+            }
+            // Otherwise advance the iterator, because we won't do it in nextPosting
+            try
+            {
+                current.nextPosting();
+            }
+            catch (IOException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public void onKeyChange()
+        {
+            this.reduced = null;
+        }
+
+        @Override
+        public PeekablePostingList getReduced()
+        {
+            return reduced;
+        }
     }
 }

@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.ToIntBiFunction;
 
 /**
  * A merger of input streams (e.g. iterators or cursors) that may consume multiple input values per output value.
@@ -81,7 +82,6 @@ public class Merger<In, Source, Out> implements AutoCloseable
 
     /** Function called on each source to get the next item. Should return null if the source is exhausted. */
     final Function<Source, In> inputRetriever;
-    final BiConsumer<Source, In> inputAdvanceTo;
 
     /** Method to call on each source on close, may be null. */
     final Consumer<Source> onClose;
@@ -108,27 +108,7 @@ public class Merger<In, Source, Out> implements AutoCloseable
                   Comparator<? super In> comparator,
                   Reducer<In, Out> reducer)
     {
-        this(sources, inputRetriever, null, onClose, comparator, reducer);
-    }
-
-
-    /**
-     * @param sources        The input sources.
-     * @param inputRetriever Function called on each source to get the next item. Should return null if the source is
-     *                       exhausted.
-     * @param onClose        Method to call on each source on close, may be null.
-     * @param comparator     Comparator of input items.
-     * @param reducer        Reducer, called for each input item to combine them into the output.
-     */
-    public Merger(List<Source> sources,
-                  Function<Source, In> inputRetriever,
-                  BiConsumer<Source, In> inputAdvanceTo,
-                  Consumer<Source> onClose,
-                  Comparator<? super In> comparator,
-                  Reducer<In, Out> reducer)
-    {
         this.inputRetriever = inputRetriever;
-        this.inputAdvanceTo = inputAdvanceTo;
         this.onClose = onClose;
         this.reducer = reducer;
 
@@ -156,7 +136,13 @@ public class Merger<In, Source, Out> implements AutoCloseable
         return consume();
     }
 
-    public void advanceTo(In value)
+    public interface Advancer<Source, In, T>
+    {
+        /** return true if advanced, false if source was already at or ahead */
+        boolean advanceSourceTo(Source source, In current, T target);
+    }
+
+    public <T> void advanceTo(T value, Advancer<Source, In, T> advancer)
     {
         final int size = this.size;
         final int sortedSectionSize = Math.min(size, SORTED_SECTION_SIZE);
@@ -164,11 +150,10 @@ public class Merger<In, Source, Out> implements AutoCloseable
         consume: {
             for (i = 0; i < sortedSectionSize; ++i)
             {
-                if (heap[i].compareToValue(value) >= 0)
+                if (!heap[i].advanceTo(advancer, value))
                     break consume;
-                heap[i].advanceTo(inputAdvanceTo, value);
             }
-            i = Math.max(i, advanceHeap(i, value) + 1);
+            i = Math.max(i, advanceHeap(i, advancer, value) + 1);
         }
         needingAdvance = i;
     }
@@ -273,14 +258,13 @@ public class Merger<In, Source, Out> implements AutoCloseable
      *
      * @return the largest equal index found in this search.
      */
-    private int advanceHeap(int idx, In value)
+    private <T> int advanceHeap(int idx, Advancer<Source, In, T> advancer, T value)
     {
-        if (idx >= size || heap[idx].compareToValue(value) >= 0)
+        if (idx >= size || !heap[idx].advanceTo(advancer, value))
             return -1;
 
-        heap[idx].advanceTo(inputAdvanceTo, value);
         int nextIdx = (idx << 1) - (SORTED_SECTION_SIZE - 1);
-        return Math.max(idx, Math.max(advanceHeap(nextIdx, value), advanceHeap(nextIdx + 1, value)));
+        return Math.max(idx, Math.max(advanceHeap(nextIdx, advancer, value), advanceHeap(nextIdx + 1, advancer, value)));
     }
 
 
@@ -471,14 +455,6 @@ public class Merger<In, Source, Out> implements AutoCloseable
             return comp.compare(this.item, that.item);
         }
 
-        public int compareToValue(In value)
-        {
-            if (this.item == null)
-                return -1;
-            assert value != null;
-            return comp.compare(this.item, value);
-        }
-
         public void consume(Reducer reducer)
         {
             reducer.reduce(idx, item);
@@ -490,10 +466,12 @@ public class Merger<In, Source, Out> implements AutoCloseable
             return item == null;
         }
 
-        public void advanceTo(BiConsumer<Source, In> inputAdvanceTo, In value)
+        public <T> boolean advanceTo(Advancer<Source, In, T> advancer, T target)
         {
-            inputAdvanceTo.accept(input, value);
+            if (!advancer.advanceSourceTo(input, item, target))
+                return false;
             item = null;
+            return true;
         }
     }
 }
