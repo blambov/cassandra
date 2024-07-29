@@ -78,22 +78,15 @@ public abstract class IntMerger<Source>
      */
     private final Source[] heap;
     boolean started;
-    int currentTarget;
 
     protected abstract int position(Source s);
     protected abstract void advanceSource(Source s) throws IOException;
-    protected abstract void skipTo(Source s, int targetPosition) throws IOException;
+    protected abstract void skipSource(Source s, int targetPosition) throws IOException;
 
     protected boolean greaterCursor(Source a, Source b)
     {
         return position(a) > position(b);
     }
-
-    private void skipToCurrentPosition(Source s) throws IOException
-    {
-        skipTo(s, currentTarget + 1);
-    }
-
 
     protected IntMerger(Collection<? extends Source> inputs, Class<Source> sourceClass)
     {
@@ -114,20 +107,39 @@ public abstract class IntMerger<Source>
     }
 
     /**
-     * Interface for internal operations that can be applied to the equal top elements of the heap.
+     * Apply an operation to all elements on the heap that satisfy, recursively through the heap hierarchy, the
+     * {@code shouldContinueWithChild} condition (being equal to the head by default). Descends recursively in the
+     * heap structure to all selected children and applies the operation on the way back.
+     * <p>
+     * This operation can be something that does not change the cursor state or an operation
+     * that advances the cursor to a new state, wrapped in a {@link HeapOp} ({@link #advance} or
+     * {@link #skipSource}). The latter interface takes care of pushing elements down in the heap after advancing
+     * and restores the subheap state on return from each level of the recursion.
      */
-    private interface HeapOp<Source>
+    private void advanceHeap(int headPosition, int index) throws IOException
     {
-        void apply(IntMerger<Source> self, Source cursor) throws IOException;
-    }
+        if (index >= heap.length)
+            return;
 
-    /**
-     * Advance the state of all inputs in the heap that are on equal position as the head and restore the heap
-     * invariant.
-     */
-    private void advanceSelectedAndRestoreHeap(HeapOp<Source> action) throws IOException
-    {
-        applyToSelectedElementsInHeap(action, 0);
+        Source item = heap[index];
+        if (position(item) > headPosition)
+            return;
+
+        // If the children are at the same position, they also need advancing and their subheap
+        // invariant to be restored.
+        advanceHeap(headPosition, index * 2 + 1);
+        advanceHeap(headPosition, index * 2 + 2);
+
+        // Apply the action. This is done on the reverse direction to give the action a chance to form proper
+        // subheaps and combine them on processing the parent.
+        // Apply the operation, which should advance the position of the element.
+        advanceSource(item);
+
+        // This method is called on the back path of the recursion. At this point the heaps at both children are
+        // advanced and well-formed.
+        // Place current node in its proper position.
+        heapifyDown(item, index);
+        // The heap rooted at index is now advanced and well-formed.
     }
 
 
@@ -138,27 +150,27 @@ public abstract class IntMerger<Source>
      * <p>
      * This operation can be something that does not change the cursor state or an operation
      * that advances the cursor to a new state, wrapped in a {@link HeapOp} ({@link #advance} or
-     * {@link #skipTo}). The latter interface takes care of pushing elements down in the heap after advancing
+     * {@link #skipSource}). The latter interface takes care of pushing elements down in the heap after advancing
      * and restores the subheap state on return from each level of the recursion.
      */
-    private void applyToSelectedElementsInHeap(HeapOp<Source> action, int index) throws IOException
+    private void skipHeap(int targetPosition, int index) throws IOException
     {
         if (index >= heap.length)
             return;
 
         Source item = heap[index];
-        if (position(item) > currentTarget)
+        if (position(item) >= targetPosition)
             return;
 
         // If the children are at the same position, they also need advancing and their subheap
         // invariant to be restored.
-        applyToSelectedElementsInHeap(action, index * 2 + 1);
-        applyToSelectedElementsInHeap(action, index * 2 + 2);
+        skipHeap(targetPosition, index * 2 + 1);
+        skipHeap(targetPosition, index * 2 + 2);
 
         // Apply the action. This is done on the reverse direction to give the action a chance to form proper
         // subheaps and combine them on processing the parent.
         // Apply the operation, which should advance the position of the element.
-        action.apply(this, item);
+        skipSource(item, targetPosition);
 
         // This method is called on the back path of the recursion. At this point the heaps at both children are
         // advanced and well-formed.
@@ -194,8 +206,9 @@ public abstract class IntMerger<Source>
      * Check if the head is greater than the top element in the heap, and if so, swap them and push down the new
      * top until its proper place.
      */
-    private int maybeSwapHead(int headPosition)
+    private int maybeSwapHead()
     {
+        int headPosition = position(head);
         int heap0Position = position(heap[0]);
         if (headPosition <= heap0Position)
             return headPosition;   // head is still smallest
@@ -211,45 +224,45 @@ public abstract class IntMerger<Source>
     {
         if (started)
         {
-            currentTarget = position(head);
-            advanceSelectedAndRestoreHeap(IntMerger::advanceSource);
+            advanceHeap(position(head), 0);
             advanceSource(head);
         }
         else
-        {
-            advanceAllAndRestoreHeap((s, i) -> {});
-            started = true;
-        }
+            initializeHeap();
 
-        return maybeSwapHead(position(head));
+        return maybeSwapHead();
+    }
+
+    private void initializeHeap()
+    {
+        for (int i = heap.length - 1; i >= 0; --i)
+            heapifyDown(heap[i], i);
+        started = true;
     }
 
     protected int skipTo(int targetPosition) throws IOException
     {
-        currentTarget = targetPosition - 1;
         // We need to advance all cursors that stand before the requested position.
         // If a child cursor does not need to advance as it is greater than the skip position, neither of the ones
         // below it in the heap hierarchy do as they can't have an earlier position.
         if (started)
-            advanceSelectedAndRestoreHeap(IntMerger::skipToCurrentPosition);
+            skipHeap(targetPosition, 0);
         else
-        {
-            advanceAllAndRestoreHeap(IntMerger::skipToCurrentPosition);
-            started = true;
-        }
+            initializeSkipping(targetPosition);
 
-        skipToCurrentPosition(head);
-        return maybeSwapHead(position(head));
+        skipSource(head, targetPosition);
+        return maybeSwapHead();
     }
 
-    protected void advanceAllAndRestoreHeap(HeapOp<Source> heapOp) throws IOException
+    private void initializeSkipping(int targetPosition) throws IOException
     {
         for (int i = heap.length - 1; i >= 0; --i)
         {
             Source item = heap[i];
-            heapOp.apply(this, item);
+            skipSource(item, targetPosition);
             heapifyDown(item, i);
         }
+        started = true;
     }
 
     protected void applyToAll(Consumer<Source> op)

@@ -96,7 +96,7 @@ public class MergePostingList extends IntMerger<PostingList.PeekablePostingList>
     }
 
     @Override
-    protected void skipTo(PeekablePostingList s, int targetPosition) throws IOException
+    protected void skipSource(PeekablePostingList s, int targetPosition) throws IOException
     {
         s.advanceWithoutConsuming(targetPosition);
     }
