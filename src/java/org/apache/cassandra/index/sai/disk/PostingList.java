@@ -109,14 +109,21 @@ public interface PostingList extends Closeable
             }
         }
 
-        public int advanceWithoutConsuming(int targetRowID) throws IOException
+        public int current()
         {
-            if (peek() == END_OF_STREAM)
-                return END_OF_STREAM;
+            assert peeked;
+            return next;
+        }
 
-            if (peek() >= targetRowID)
-                return peek();
+        public int moveToNext() throws IOException
+        {
+            peeked = true;
+            return next = wrapped.nextPosting();
+        }
 
+        public int moveToGE(int targetRowID) throws IOException
+        {
+            assert !peeked || next < targetRowID;
             peeked = true;
             next = wrapped.advance(targetRowID);
             return next;

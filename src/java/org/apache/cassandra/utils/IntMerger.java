@@ -80,8 +80,8 @@ public abstract class IntMerger<Source>
     boolean started;
 
     protected abstract int position(Source s);
-    protected abstract void advanceSource(Source s) throws IOException;
-    protected abstract void skipSource(Source s, int targetPosition) throws IOException;
+    protected abstract int advanceSource(Source s) throws IOException;
+    protected abstract int skipSource(Source s, int targetPosition) throws IOException;
 
     protected boolean greaterCursor(Source a, Source b)
     {
@@ -133,12 +133,11 @@ public abstract class IntMerger<Source>
         // Apply the action. This is done on the reverse direction to give the action a chance to form proper
         // subheaps and combine them on processing the parent.
         // Apply the operation, which should advance the position of the element.
-        advanceSource(item);
 
         // This method is called on the back path of the recursion. At this point the heaps at both children are
         // advanced and well-formed.
         // Place current node in its proper position.
-        heapifyDown(item, index);
+        heapifyDown(item, advanceSource(item), index);
         // The heap rooted at index is now advanced and well-formed.
     }
 
@@ -170,12 +169,11 @@ public abstract class IntMerger<Source>
         // Apply the action. This is done on the reverse direction to give the action a chance to form proper
         // subheaps and combine them on processing the parent.
         // Apply the operation, which should advance the position of the element.
-        skipSource(item, targetPosition);
 
         // This method is called on the back path of the recursion. At this point the heaps at both children are
         // advanced and well-formed.
         // Place current node in its proper position.
-        heapifyDown(item, index);
+        heapifyDown(item, skipSource(item, targetPosition), index);
         // The heap rooted at index is now advanced and well-formed.
     }
 
@@ -183,7 +181,7 @@ public abstract class IntMerger<Source>
      * Push the given state down in the heap from the given index until it finds its proper place among
      * the subheap rooted at that position.
      */
-    private void heapifyDown(Source item, int index)
+    private void heapifyDown(Source item, int position, int index)
     {
         while (true)
         {
@@ -191,12 +189,23 @@ public abstract class IntMerger<Source>
             if (next >= heap.length)
                 break;
             // Select the smaller of the two children to push down to.
-            if (next + 1 < heap.length && greaterCursor(heap[next], heap[next + 1]))
-                ++next;
+            Source nextItem = heap[next];
+            int nextPosition = position(nextItem);
+            if (next + 1 < heap.length)
+            {
+                Source nextP1Item = heap[next + 1];
+                int nextP1Position = position(nextP1Item);
+                if (nextPosition > nextP1Position)
+                {
+                    nextItem = nextP1Item;
+                    nextPosition = nextP1Position;
+                    ++next;
+                }
+            }
             // If the child is greater or equal, the invariant has been restored.
-            if (!greaterCursor(item, heap[next]))
+            if (position <= nextPosition)
                 break;
-            heap[index] = heap[next];
+            heap[index] = nextItem;
             index = next;
         }
         heap[index] = item;
@@ -206,9 +215,8 @@ public abstract class IntMerger<Source>
      * Check if the head is greater than the top element in the heap, and if so, swap them and push down the new
      * top until its proper place.
      */
-    private int maybeSwapHead()
+    private int maybeSwapHead(int headPosition)
     {
-        int headPosition = position(head);
         int heap0Position = position(heap[0]);
         if (headPosition <= heap0Position)
             return headPosition;   // head is still smallest
@@ -216,27 +224,24 @@ public abstract class IntMerger<Source>
         // otherwise we need to swap heap and heap[0]
         Source newHeap0 = head;
         head = heap[0];
-        heapifyDown(newHeap0, 0);
+        heapifyDown(newHeap0, headPosition, 0);
         return heap0Position;
     }
 
     protected int advance() throws IOException
     {
         if (started)
-        {
             advanceHeap(position(head), 0);
-            advanceSource(head);
-        }
         else
             initializeHeap();
 
-        return maybeSwapHead();
+        return maybeSwapHead(advanceSource(head));
     }
 
-    private void initializeHeap()
+    private void initializeHeap() throws IOException
     {
         for (int i = heap.length - 1; i >= 0; --i)
-            heapifyDown(heap[i], i);
+            heapifyDown(heap[i], advanceSource(heap[i]), i);
         started = true;
     }
 
@@ -250,8 +255,7 @@ public abstract class IntMerger<Source>
         else
             initializeSkipping(targetPosition);
 
-        skipSource(head, targetPosition);
-        return maybeSwapHead();
+        return maybeSwapHead(skipSource(head, targetPosition));
     }
 
     private void initializeSkipping(int targetPosition) throws IOException
@@ -259,8 +263,7 @@ public abstract class IntMerger<Source>
         for (int i = heap.length - 1; i >= 0; --i)
         {
             Source item = heap[i];
-            skipSource(item, targetPosition);
-            heapifyDown(item, i);
+            heapifyDown(item, skipSource(item, targetPosition), i);
         }
         started = true;
     }

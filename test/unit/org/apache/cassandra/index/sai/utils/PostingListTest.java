@@ -53,10 +53,10 @@ public class PostingListTest extends SaiRandomizedTest
 
         postingList = new ArrayPostingList(new int[]{ 10, 20, 30, 40, 50, 60 }).peekable();
         assertEquals(10, postingList.peek());
-        assertEquals(50, postingList.advanceWithoutConsuming(45));
+        assertEquals(50, postingList.moveToGE(45));
         assertEquals(50, postingList.peek());
         assertEquals(50, postingList.advance(45));
-        assertEquals(60, postingList.advanceWithoutConsuming(60));
+        assertEquals(60, postingList.moveToGE(60));
         assertEquals(60, postingList.advance(60));
         assertEquals(PostingList.END_OF_STREAM, postingList.peek());
         assertEquals(PostingList.END_OF_STREAM, postingList.nextPosting());

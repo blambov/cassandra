@@ -86,18 +86,18 @@ public class MergePostingList extends IntMerger<PostingList.PeekablePostingList>
     @Override
     public int position(PeekablePostingList s)
     {
-        return s.peek();
+        return s.current();
     }
 
     @Override
-    public void advanceSource(PeekablePostingList s) throws IOException
+    public int advanceSource(PeekablePostingList s) throws IOException
     {
-        s.nextPosting();
+        return s.moveToNext();
     }
 
     @Override
-    protected void skipSource(PeekablePostingList s, int targetPosition) throws IOException
+    protected int skipSource(PeekablePostingList s, int targetPosition) throws IOException
     {
-        s.advanceWithoutConsuming(targetPosition);
+        return s.moveToGE(targetPosition);
     }
 }
