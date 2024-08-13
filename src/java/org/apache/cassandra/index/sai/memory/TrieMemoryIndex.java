@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
-
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -64,6 +63,7 @@ import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -329,7 +329,7 @@ public class TrieMemoryIndex extends MemoryIndex
 
     static class MergingRangeIterator extends RangeIterator
     {
-        org.apache.lucene.util.PriorityQueue<Object> keySets;  // class invariant: each object placed in this queue contains at least one key
+        LucenePriorityQueue<Object> keySets;  // class invariant: each object placed in this queue contains at least one key
 
         MergingRangeIterator(Collection<Object> keySets,
                              PrimaryKey minKey,
@@ -341,14 +341,7 @@ public class TrieMemoryIndex extends MemoryIndex
             // Use Lucene PriorityQueue because:
             // - it has optimized O(n) addAll
             // - it allows for a single-operation fast update of the top of the queue instead of poll+offer
-            this.keySets = new org.apache.lucene.util.PriorityQueue<>(keySets.size())
-            {
-                @Override
-                protected boolean lessThan(Object keys1, Object keys2)
-                {
-                    return peek(keys1).compareTo(peek(keys2)) < 0;
-                }
-            };
+            this.keySets = new LucenePriorityQueue<>(keySets.size(), (keys1, keys2) -> peek(keys1).compareTo(peek(keys2)));
 
             this.keySets.addAll(keySets);
         }
