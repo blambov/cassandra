@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.PriorityQueue;
 import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeMap;
@@ -71,6 +70,7 @@ import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.SortingIterator;
 
 import static java.lang.Math.min;
 
@@ -161,13 +161,9 @@ public class TopKProcessor
     private <U extends Unfiltered, R extends BaseRowIterator<U>, P extends BasePartitionIterator<R>> BasePartitionIterator<?> filterInternal(P partitions)
     {
         // priority queue ordered by score in descending order
-        PriorityQueue<Triple<PartitionInfo, Row, Float>> topK = new PriorityQueue<>(limit, Comparator.comparing((Triple<PartitionInfo, Row, Float> t) -> t.getRight()).reversed());
+        var topK = new SortingIterator.Builder<Triple<PartitionInfo, Row, ?>>(limit);
         // to store top-k results in primary key order
         TreeMap<PartitionInfo, TreeSet<Unfiltered>> unfilteredByPartition = new TreeMap<>(Comparator.comparing(p -> p.key));
-        Comparator<Triple<PartitionInfo, Row, ByteBuffer>> comparator = Comparator.comparing(Triple::getRight, indexContext.getValidator());
-        if (expression.operator() == Operator.ORDER_BY_DESC)
-            comparator = comparator.reversed();
-        var sorter = new PriorityQueue<>(limit, comparator);
 
         if (PARALLEL_EXECUTOR != ImmediateExecutor.INSTANCE && partitions instanceof ParallelCommandProcessor) {
             ParallelCommandProcessor pIter = (ParallelCommandProcessor) partitions;
@@ -253,7 +249,7 @@ public class TopKProcessor
                         while (partitionRowIterator.hasNext())
                         {
                             Row row = (Row) partitionRowIterator.next();
-                            sorter.add(Triple.of(PartitionInfo.create(partitionRowIterator), row, row.getCell(expression.column()).buffer()));
+                            topK.add(Triple.of(PartitionInfo.create(partitionRowIterator), row, row.getCell(expression.column()).buffer()));
                         }
                     }
 
@@ -262,10 +258,19 @@ public class TopKProcessor
         }
 
         // reorder rows in partition/clustering order
-        int min = Math.max(topK.size(), sorter.size());
-        final int numResults = min(min, limit);
+        Comparator<Triple<PartitionInfo, Row, ?>> comparator;
+        if (queryVector != null)
+            comparator = Comparator.comparing((Triple<PartitionInfo, Row, ?> t) -> (Float) t.getRight()).reversed();
+        else
+        {
+            comparator = Comparator.comparing(t -> (ByteBuffer) t.getRight(), indexContext.getValidator());
+            if (expression.operator() == Operator.ORDER_BY_DESC)
+                comparator = comparator.reversed();
+        }
+        var topKIterator = topK.build(comparator);
+        final int numResults = min(topK.size(), limit);
         for (int i = 0; i < numResults; i++) {
-            var triple = queryVector != null ? topK.poll() : sorter.poll();
+            var triple = topKIterator.next();
             addUnfiltered(unfilteredByPartition, triple.getLeft(), triple.getMiddle());
         }
 

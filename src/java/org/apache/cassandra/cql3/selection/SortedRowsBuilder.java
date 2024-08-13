@@ -28,7 +28,7 @@ import java.util.function.Supplier;
 import com.google.common.math.IntMath;
 
 import org.apache.cassandra.index.Index;
-import org.apache.lucene.util.PriorityQueue;
+import org.apache.cassandra.utils.LucenePriorityQueue;
 
 import static org.apache.cassandra.db.filter.DataLimits.NO_LIMIT;
 
@@ -239,7 +239,7 @@ public abstract class SortedRowsBuilder
         private final Comparator<T> comparator;
 
         private List<T> initialRows = new ArrayList<>(); // first limit+offset rows to be added with PriorityQueue#addAll
-        private PriorityQueue<T> heap; // lazily built for inital rows in #heapifyInitialRows
+        private LucenePriorityQueue<T> heap; // lazily built for inital rows in #heapifyInitialRows
         private int numAddedRows = 0;
         private boolean built = false;
 
@@ -287,17 +287,12 @@ public abstract class SortedRowsBuilder
 
         private void heapifyInitialRows()
         {
-            heap = new PriorityQueue<>(initialRows.size())
-            {
-                @Override
-                protected boolean lessThan(T t1, T t2)
-                {
+            heap = new LucenePriorityQueue<>(initialRows.size(), (t1, t2) -> {
                     // Reverse compare rows, so the worst stays at the top of the heap.
                     // Ties are solved by favoring the row which id indicates that it was inserted first.
-                    int cmp = comparator.compare(t1, t2);
-                    return cmp == 0 ? t1.id > t2.id : cmp > 0;
-                }
-            };
+                    int cmp = comparator.compare(t2, t1);
+                    return cmp == 0 ? Integer.compare(t2.id, t1.id) : cmp;
+                });
             heap.addAll(initialRows);
             initialRows = null;
         }

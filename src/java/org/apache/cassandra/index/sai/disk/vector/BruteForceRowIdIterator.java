@@ -18,12 +18,14 @@
 
 package org.apache.cassandra.index.sai.disk.vector;
 
-import java.util.PriorityQueue;
+import java.util.Comparator;
 
 import org.apache.cassandra.index.sai.utils.RowIdWithMeta;
 import org.apache.cassandra.index.sai.utils.RowIdWithScore;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.LucenePriorityQueue;
+import org.apache.cassandra.utils.SortingIterator;
 
 
 /**
@@ -45,8 +47,7 @@ import org.apache.cassandra.utils.AbstractIterator;
 public class BruteForceRowIdIterator extends AbstractIterator<RowIdWithScore>
 {
     /**
-     * Note: this class has a natural ordering that is inconsistent with equals in order to
-     * use {@link PriorityQueue}'s O(N) constructor.
+     * Note: this class has a natural ordering that is inconsistent with equals.
      */
     public static class RowWithApproximateScore implements Comparable<RowWithApproximateScore>
     {
@@ -73,9 +74,9 @@ public class BruteForceRowIdIterator extends AbstractIterator<RowIdWithScore>
     // sstables the query hits and the relative scores of vectors from those sstables, we may not need to return
     // more than the first handful of scores.
     // Priority queue with compressed vector scores
-    private final PriorityQueue<RowWithApproximateScore> approximateScoreQueue;
+    private final SortingIterator<RowWithApproximateScore> approximateScoreQueue;
     // Priority queue with full resolution scores
-    private final PriorityQueue<RowIdWithScore> exactScoreQueue;
+    private final LucenePriorityQueue<RowIdWithScore> exactScoreQueue;
     private final JVectorLuceneOnDiskGraph.CloseableReranker reranker;
     private final int topK;
     private final int limit;
@@ -87,13 +88,13 @@ public class BruteForceRowIdIterator extends AbstractIterator<RowIdWithScore>
      * @param limit The query limit
      * @param topK The number of vectors to resolve and score before returning results
      */
-    public BruteForceRowIdIterator(PriorityQueue<RowWithApproximateScore> approximateScoreQueue,
+    public BruteForceRowIdIterator(SortingIterator<RowWithApproximateScore> approximateScoreQueue,
                                    JVectorLuceneOnDiskGraph.CloseableReranker reranker,
                                    int limit,
                                    int topK)
     {
         this.approximateScoreQueue = approximateScoreQueue;
-        this.exactScoreQueue = new PriorityQueue<>(topK);
+        this.exactScoreQueue = new LucenePriorityQueue<>(topK, Comparator.naturalOrder());
         this.reranker = reranker;
         assert topK >= limit : "topK must be greater than or equal to limit. Found: " + topK + " < " + limit;
         this.limit = limit;
@@ -106,14 +107,15 @@ public class BruteForceRowIdIterator extends AbstractIterator<RowIdWithScore>
         int consumed = rerankedCount - exactScoreQueue.size();
         if (consumed >= limit) {
             // Refill the exactScoreQueue until it reaches topK exact scores, or the approximate score queue is empty
-            while (!approximateScoreQueue.isEmpty() && exactScoreQueue.size() < topK) {
-                RowWithApproximateScore rowOrdinalScore = approximateScoreQueue.poll();
+            while (approximateScoreQueue.hasNext() && exactScoreQueue.size() < topK) {
+                RowWithApproximateScore rowOrdinalScore = approximateScoreQueue.next();
                 float score = reranker.similarityTo(rowOrdinalScore.ordinal);
                 exactScoreQueue.add(new RowIdWithScore(rowOrdinalScore.rowId, score));
             }
             rerankedCount = exactScoreQueue.size();
         }
-        return exactScoreQueue.isEmpty() ? endOfData() : exactScoreQueue.poll();
+        RowIdWithScore top = exactScoreQueue.pop();
+        return top == null ? endOfData() : top;
     }
 
     @Override
