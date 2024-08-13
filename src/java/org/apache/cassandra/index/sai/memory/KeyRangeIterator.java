@@ -18,17 +18,15 @@
 package org.apache.cassandra.index.sai.memory;
 
 import java.io.IOException;
-import java.util.PriorityQueue;
 import java.util.SortedSet;
 
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
+import org.apache.cassandra.utils.SortingIterator;
 
 public class KeyRangeIterator extends RangeIterator
 {
-    private final PriorityQueue<PrimaryKey> keys;
-    private final boolean uniqueKeys;
-    private volatile PrimaryKey lastKey;
+    private final SortingIterator<PrimaryKey> keys;
 
     /**
      * An in-memory {@link RangeIterator} that uses a {@link SortedSet} which has no duplication as its backing store.
@@ -36,59 +34,28 @@ public class KeyRangeIterator extends RangeIterator
     public KeyRangeIterator(SortedSet<PrimaryKey> keys)
     {
         super(keys.first(), keys.last(), keys.size());
-        this.keys = new PriorityQueue<>(keys);
-        this.uniqueKeys = true;
+        this.keys = new SortingIterator<>(keys);
     }
 
     /**
-     * An in-memory {@link RangeIterator} that uses a {@link PriorityQueue} which may
-     * contain duplicated keys as its backing store.
+     * An in-memory {@link RangeIterator} that uses a {@link SortingIterator}.
      */
-    public KeyRangeIterator(PrimaryKey min, PrimaryKey max, PriorityQueue<PrimaryKey> keys)
+    public KeyRangeIterator(PrimaryKey min, PrimaryKey max, int size, SortingIterator<PrimaryKey> keys)
     {
-        super(min, max, keys.size());
+        super(min, max, size);
         this.keys = keys;
-        this.uniqueKeys = false;
     }
 
     protected PrimaryKey computeNext()
     {
-        PrimaryKey key = computeNextKey();
-        return key == null ? endOfData() : key;
-    }
-
-    protected PrimaryKey computeNextKey()
-    {
-        PrimaryKey next = null;
-
-        while (!keys.isEmpty())
-        {
-            PrimaryKey key = keys.poll();
-            if (uniqueKeys)
-                return key;
-
-            if (lastKey == null || lastKey.compareTo(key) != 0)
-            {
-                next = key;
-                lastKey = key;
-                break;
-            }
-        }
-
-        return next;
+        if (!keys.hasNext())
+            return endOfData();
+        return keys.next();
     }
 
     protected void performSkipTo(PrimaryKey nextKey)
     {
-        while (!keys.isEmpty())
-        {
-            PrimaryKey key = keys.peek();
-            if (key.compareTo(nextKey) >= 0)
-                break;
-
-            // consume smaller key
-            keys.poll();
-        }
+        keys.skipTo(nextKey);
     }
 
     public void close() throws IOException
