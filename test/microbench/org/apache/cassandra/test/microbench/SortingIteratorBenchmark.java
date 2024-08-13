@@ -18,19 +18,33 @@
 
 package org.apache.cassandra.test.microbench;
 
-import org.apache.cassandra.index.sai.utils.PriorityQueueIterator;
-import org.apache.cassandra.utils.LucenePriorityQueue;
-import org.apache.cassandra.utils.SortingIterator;
-import org.apache.cassandra.utils.SortingIteratorNulls;
-import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.infra.Blackhole;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterators;
+
+import org.apache.cassandra.utils.SortingIterator;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
+import org.openjdk.jmh.annotations.Measurement;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.Blackhole;
 
 @Fork(1)
 @Warmup(iterations = 5, time = 3)
@@ -75,46 +89,7 @@ public class SortingIteratorBenchmark {
     public void testSortingIterator(Blackhole bh) {
         int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
         List<Integer> integers = data.subList(startIndex, startIndex + size);
-        Iterator<Integer> iterator = new SortingIterator<>(Integer.class, comparator, integers, x -> x);
-        int i = (int) Math.ceil(consumeRatio * size + 0.01);
-        while (iterator.hasNext() && i-- > 0) {
-            bh.consume(iterator.next());
-        }
-    }
-
-
-    @Benchmark
-    public void testSortingIteratorNulls(Blackhole bh) {
-        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
-        List<Integer> integers = data.subList(startIndex, startIndex + size);
-        Iterator<Integer> iterator = new SortingIteratorNulls<>(Integer.class, comparator, integers, x -> x);
-        int i = (int) Math.ceil(consumeRatio * size + 0.01);
-        while (iterator.hasNext() && i-- > 0) {
-            bh.consume(iterator.next());
-        }
-    }
-
-
-    @Benchmark
-    public void testLuceneIterator(Blackhole bh) {
-        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
-        List<Integer> integers = data.subList(startIndex, startIndex + size);
-        Iterator<Integer> iterator = new LucenePriorityQueue.SortingIterator<>(comparator, integers);
-        int i = (int) Math.ceil(consumeRatio * size + 0.01);
-        while (iterator.hasNext() && i-- > 0) {
-            bh.consume(iterator.next());
-        }
-    }
-
-    @Benchmark
-    public void testPriorityQueueIterator(Blackhole bh) {
-        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
-        List<Integer> integers = data.subList(startIndex, startIndex + size);
-        var pq = new PriorityQueue<Integer>(data.size(), comparator);
-        for (Integer item : integers)
-            if (item != null)
-                pq.add(item);
-        var iterator = new PriorityQueueIterator<>(pq);
+        Iterator<Integer> iterator = SortingIterator.create(comparator, integers);
         int i = (int) Math.ceil(consumeRatio * size + 0.01);
         while (iterator.hasNext() && i-- > 0) {
             bh.consume(iterator.next());

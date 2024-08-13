@@ -22,11 +22,14 @@ import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
+import java.util.function.Consumer;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.util.concurrent.Runnables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +65,6 @@ import org.apache.cassandra.index.sai.plan.Orderer;
 import org.apache.cassandra.index.sai.plan.Plan;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeyWithSortKey;
-import org.apache.cassandra.index.sai.utils.PriorityQueueIterator;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.RangeUtil;
 import org.apache.cassandra.index.sai.utils.RowIdWithScore;
@@ -74,6 +76,7 @@ import org.apache.cassandra.metrics.QuickSlidingWindowReservoir;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.SortingIterator;
 
 import static java.lang.Math.ceil;
 import static java.lang.Math.min;
@@ -316,9 +319,9 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
      */
     private CloseableIterator<RowIdWithScore> orderByBruteForce(VectorFloat<?> queryVector, IntArrayList segmentRowIds) throws IOException
     {
-        var scoredRowIds = new ArrayList<RowIdWithScore>(segmentRowIds.size());
-        addScoredRowIdsToCollector(queryVector, segmentRowIds, 0, scoredRowIds);
-        return new PriorityQueueIterator<>(new PriorityQueue<>(scoredRowIds));
+        var scoredRowIds = new SortingIterator.Builder<RowIdWithScore>(segmentRowIds.size());
+        addScoredRowIdsToCollector(queryVector, segmentRowIds, 0, scoredRowIds::add);
+        return scoredRowIds.closeable(Comparator.naturalOrder(), Runnables.doNothing());
     }
 
     /**
@@ -331,14 +334,14 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
                                                                  float threshold) throws IOException
     {
         var results = new ArrayList<RowIdWithScore>(segmentRowIds.size());
-        addScoredRowIdsToCollector(queryVector, segmentRowIds, threshold, results);
+        addScoredRowIdsToCollector(queryVector, segmentRowIds, threshold, results::add);
         return CloseableIterator.wrap(results.iterator());
     }
 
     private void addScoredRowIdsToCollector(VectorFloat<?> queryVector,
                                             IntArrayList segmentRowIds,
                                             float threshold,
-                                            Collection<RowIdWithScore> collector) throws IOException
+                                            Consumer<RowIdWithScore> collector) throws IOException
     {
         var similarityFunction = indexContext.getIndexWriterConfig().getSimilarityFunction();
         try (var ordinalsView = graph.getOrdinalsView();
@@ -354,7 +357,7 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
 
                 var score = esf.similarityTo(ordinal);
                 if (score >= threshold)
-                    collector.add(new RowIdWithScore(segmentRowId, score));
+                    collector.accept(new RowIdWithScore(segmentRowId, score));
             }
         }
     }

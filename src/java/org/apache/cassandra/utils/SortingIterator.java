@@ -18,88 +18,172 @@
 
 package org.apache.cassandra.utils;
 
-import java.lang.reflect.Array;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.SortedSet;
 import java.util.function.Function;
 
+/**
+ * An iterator that lists a set of items in order.
+ * <p>
+ * This is intended for use where we would normally read only a small subset of the elements, or where we would skip
+ * over large sections of the sorted set. To implement this efficiently, we put the data in a binary heap and extract
+ * elements as the iterator is queried, effectively performing heapsort. We also implement a quicker skipTo operation
+ * where we remove all smaller elements and restore the heap for all of them in one step.
+ * <p>
+ * As in heapsort, the first stage of the process has complexity O(n), and every next item is extracted in O(log n)
+ * steps. skipTo works in O(m.log n) steps (where m is the number of skipped items), but is also limited to O(n) when m
+ * is large by the same argument as the initial heap construction.
+ * <p>
+ * The accepts and stores nulls as non-present values, which turns out to be quite a bit more efficient for iterating
+ * these sets when the comparator is complex at the expense of a small slowdown for simple comparators. The reason for
+ * this is that we can remove entries by replacing them with nulls and letting these descend the heap, which avoids half
+ * the comparisons compared to using the largest live element.
+ */
 public class SortingIterator<T> implements Iterator<T>
 {
     final Comparator<? super T> comparator;
-    final T[] heap;
-    int size;
+    final Object[] heap;
 
-    public <V> SortingIterator(Class<T> itemClass, Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper)
+    SortingIterator(Comparator<? super T> comparator, Object[] data)
     {
         this.comparator = comparator;
-        @SuppressWarnings("unchecked")
-        T[] h = (T[]) Array.newInstance(itemClass, sources.size());
-        this.heap = h;
-        for (V v : sources)
-        {
-            T item = mapper.apply(v);
-            if (item != null)
-                heap[size++] = item;
-        }
-        for (int i = size / 2 - 1; i >= 0; --i)
+        this.heap = data;
+
+        heapify();
+    }
+
+    /** Special-case constructor from sorted set. */
+    public SortingIterator(SortedSet<T> sortedSet)
+    {
+        comparator = sortedSet.comparator();
+        heap = sortedSet.toArray();
+        // no need to heapify as the data is already ordered
+    }
+
+    public static <T> SortingIterator<T> create(Comparator<? super T> comparator, Collection<T> sources)
+    {
+        return new SortingIterator<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
+    }
+
+    public static <T, V> SortingIterator<T> create(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper)
+    {
+        return new Builder(sources, mapper).build(comparator);
+    }
+
+    public static <T, V> CloseableIterator<T> createCloseable(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper, Runnable onClose)
+    {
+        return new Builder(sources, mapper).closeable(comparator, onClose);
+    }
+
+    public static <T> SortingIterator<T> createDeduplicating(Comparator<? super T> comparator, Collection<T> sources)
+    {
+        return new Deduplicating<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
+    }
+
+    private void heapify()
+    {
+        for (int i = heap.length / 2 - 1; i >= 0; --i)
             heapifyDown(heap[i], i);
     }
 
-    protected boolean greaterThan(T a, T b)
+    @SuppressWarnings("unchecked")
+    protected boolean greaterThan(Object a, Object b)
     {
-        return comparator.compare(a, b) > 0;
+        // nulls are treated as greater than non-nulls to be placed at the end of the sequence
+        if (a == null || b == null)
+            return b != null;
+        return comparator.compare((T) a, (T) b) > 0;
     }
 
     @Override
     public boolean hasNext()
     {
-        return size > 0;
+        return heap[0] != null;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public T next()
     {
-        if (size <= 0)
+        Object item = heap[0];
+        if (item == null)
             throw new NoSuchElementException();
-        T item = heap[0];
-        heapifyDown(heap[--size], 0);
-        return item;
+        heapifyDown(null, 0);
+        return (T) item;
     }
 
+    /**
+     * Get the next element and consume all items equal to it.
+     */
+    @SuppressWarnings("unchecked")
+    public T nextAndSkipEqual()
+    {
+        Object item = heap[0];
+        if (item == null)
+            throw new NoSuchElementException();
+        skipBeyond(item, 0);
+        return (T) item;
+    }
+
+    /**
+     * Recursively drop all elements in the subheap rooted at the given heapIndex that are not beyond the given
+     * targetKey, and restore the heap ordering on the way back from the recursion.
+     */
+    private void skipBeyond(Object targetKey, int heapIndex)
+    {
+        if (heapIndex >= heap.length)
+            return;
+        if (greaterThan(heap[heapIndex], targetKey))
+            return;
+
+        int nextIndex = heapIndex * 2 + 1;
+        if (nextIndex >= heap.length)
+        {
+            heap[heapIndex] = null;
+        }
+        else
+        {
+            skipBeyond(targetKey, nextIndex);
+            skipBeyond(targetKey, nextIndex + 1);
+
+            heapifyDown(null, heapIndex);
+        }
+    }
+
+    /**
+     * Skip to the first element that is greater than or equal to the given key.
+     */
     public void skipTo(T targetKey)
     {
-        skipTo(0, targetKey);
+        skipTo(targetKey, 0);
     }
 
-    private void skipTo(int heapIndex, T targetKey)
+    /**
+     * Recursively drop all elements in the subheap rooted at the given heapIndex that are before the given
+     * targetKey, and restore the heap ordering on the way back from the recursion.
+     */
+    private void skipTo(T targetKey, int heapIndex)
     {
-        if (heapIndex >= size)
+        if (heapIndex >= heap.length)
             return;
         if (!greaterThan(targetKey, heap[heapIndex]))
             return;
 
-        T newItem;
-        do
-        {
-            if (--size <= heapIndex)
-                return;
-            newItem = heap[size];
-        }
-        while (greaterThan(targetKey, newItem));
-
         int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= size)
+        if (nextIndex >= heap.length)
         {
-            heap[heapIndex] = newItem;
+            heap[heapIndex] = null;
         }
         else
         {
-            skipTo(nextIndex, targetKey);
-            skipTo(nextIndex + 1, targetKey);
+            skipTo(targetKey, nextIndex);
+            skipTo(targetKey, nextIndex + 1);
 
-            heapifyDown(newItem, heapIndex);
+            heapifyDown(null, heapIndex);
         }
     }
 
@@ -107,15 +191,15 @@ public class SortingIterator<T> implements Iterator<T>
      * Push the given state down in the heap from the given index until it finds its proper place among
      * the subheap rooted at that position.
      */
-    private void heapifyDown(T item, int index)
+    private void heapifyDown(Object item, int index)
     {
         while (true)
         {
             int next = index * 2 + 1;
-            if (next >= size)
+            if (next >= heap.length)
                 break;
             // Select the smaller of the two children to push down to.
-            if (next + 1 < size && greaterThan(heap[next], heap[next + 1]))
+            if (next + 1 < heap.length && greaterThan(heap[next], heap[next + 1]))
                 ++next;
             // If the child is greater or equal, the invariant has been restored.
             if (!greaterThan(item, heap[next]))
@@ -130,13 +214,11 @@ public class SortingIterator<T> implements Iterator<T>
     {
         final Runnable onClose;
 
-        public <V> Closeable(Class<T> itemClass,
-                             Comparator<? super T> comparator,
-                             Collection<V> sources,
-                             Function<V, T> mapper,
+        public <V> Closeable(Comparator<? super T> comparator,
+                             Object[] data,
                              Runnable onClose)
         {
-            super(itemClass, comparator, sources, mapper);
+            super(comparator, data);
             this.onClose = onClose;
         }
 
@@ -144,6 +226,108 @@ public class SortingIterator<T> implements Iterator<T>
         public void close()
         {
             onClose.run();
+        }
+    }
+
+    public static class Deduplicating<T> extends SortingIterator<T>
+    {
+        public Deduplicating(Comparator<? super T> comparator, Object[] data)
+        {
+            super(comparator, data);
+        }
+
+        @Override
+        public T next()
+        {
+            return super.nextAndSkipEqual();
+        }
+    }
+
+    public static class Builder<T>
+    {
+        Object[] data;
+        int count;
+
+        public Builder()
+        {
+            this(16);
+        }
+
+        public Builder(int initialSize)
+        {
+            data = new Object[Math.max(initialSize, 1)];    // at least one element so that we don't need to special-case empty
+            count = 0;
+        }
+
+        public Builder(Collection<T> collection)
+        {
+            this(collection.size());
+            for (T item : collection)
+                data[count++] = item;
+        }
+
+        public <V> Builder(Collection<V> collection, Function<V, T> mapper)
+        {
+            this(collection.size());
+            for (V item : collection)
+                data[count++] = mapper.apply(item);
+        }
+
+        public Builder add(T element)
+        {
+            if (element != null)   // avoid growing if we don't need to
+            {
+                if (count == data.length)
+                    data = Arrays.copyOf(data, data.length * 2);
+                data[count++] = element;
+            }
+            return this;
+        }
+
+        public Builder addAll(Iterator<T> iterator)
+        {
+            while (iterator.hasNext())
+                add(iterator.next());
+            return this;
+        }
+
+        public <V> Builder addAll(Iterator<V> iterator, Function<V, T> mapper)
+        {
+            while (iterator.hasNext())
+            {
+                add(mapper.apply(iterator.next()));
+            }
+            return this;
+        }
+
+        public Builder addAll(Collection<T> collection)
+        {
+            if (count + collection.size() > data.length)
+                data = Arrays.copyOf(data, count + collection.size());
+            for (T item : collection)
+                data[count++] = item;
+            return this;
+        }
+
+        public int size()
+        {
+            return count; // Note: may include null elements, depending on how data is added
+        }
+
+        // TODO: do we need variations that use Arrays.copyOf(data, count)?
+        public SortingIterator<T> build(Comparator<? super T> comparator)
+        {
+            return new SortingIterator<T>(comparator, data);    // this will have nulls at the end, which is okay
+        }
+
+        public Closeable<T> closeable(Comparator<? super T> comparator, Runnable onClose)
+        {
+            return new Closeable<T>(comparator, data, onClose);
+        }
+
+        public SortingIterator<T> deduplicating(Comparator<? super T> comparator)
+        {
+            return new Deduplicating<>(comparator, data);
         }
     }
 }

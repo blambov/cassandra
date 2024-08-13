@@ -18,15 +18,12 @@
 
 package org.apache.cassandra.index.sai.utils;
 
-import java.util.PriorityQueue;
-
 import org.apache.cassandra.index.sai.IndexContext;
 import org.apache.cassandra.io.sstable.SSTableId;
 
 /**
  * Represents a row id with a score.
- * Note: this class has a natural ordering that is inconsistent with equals in order to
- * use {@link PriorityQueue}'s O(N) constructor.
+ * Note: this class has a natural ordering that is inconsistent with equals.
  */
 public class RowIdWithScore extends RowIdWithMeta implements Comparable<RowIdWithScore>
 {
