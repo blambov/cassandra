@@ -31,11 +31,9 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.SortedSet;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
-
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -46,7 +44,6 @@ import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
-import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.tries.Direction;
@@ -54,7 +51,6 @@ import org.apache.cassandra.db.tries.MemtableTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.sai.IndexContext;
-import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.analyzer.AbstractAnalyzer;
 import org.apache.cassandra.index.sai.disk.format.Version;
 import org.apache.cassandra.index.sai.plan.Expression;
@@ -67,6 +63,7 @@ import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -321,7 +318,7 @@ public class TrieMemoryIndex extends MemoryIndex
 
     static class MergingRangeIterator extends RangeIterator
     {
-        org.apache.lucene.util.PriorityQueue<Object> keySets;  // class invariant: each object placed in this queue contains at least one key
+        LucenePriorityQueue<Object> keySets;  // class invariant: each object placed in this queue contains at least one key
 
         MergingRangeIterator(Collection<Object> keySets,
                              PrimaryKey minKey,
@@ -333,14 +330,7 @@ public class TrieMemoryIndex extends MemoryIndex
             // Use Lucene PriorityQueue because:
             // - it has optimized O(n) addAll
             // - it allows for a single-operation fast update of the top of the queue instead of poll+offer
-            this.keySets = new org.apache.lucene.util.PriorityQueue<>(keySets.size())
-            {
-                @Override
-                protected boolean lessThan(Object keys1, Object keys2)
-                {
-                    return peek(keys1).compareTo(peek(keys2)) < 0;
-                }
-            };
+            this.keySets = new LucenePriorityQueue<>(keySets.size(), (keys1, keys2) -> peek(keys1).compareTo(peek(keys2)));
 
             this.keySets.addAll(keySets);
         }
