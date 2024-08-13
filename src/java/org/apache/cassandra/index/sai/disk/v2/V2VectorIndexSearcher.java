@@ -20,12 +20,10 @@ package org.apache.cassandra.index.sai.disk.v2;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.PriorityQueue;
 import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -301,7 +299,7 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
                                                                 int limit,
                                                                 int rerankK) throws IOException
     {
-        var approximateScores = new ArrayList<BruteForceRowIdIterator.RowWithApproximateScore>(segmentOrdinalPairs.size());
+        var approximateScores = new SortingIterator.Builder<BruteForceRowIdIterator.RowWithApproximateScore>(segmentOrdinalPairs.size());
         var similarityFunction = indexContext.getIndexWriterConfig().getSimilarityFunction();
         var scoreFunction = cv.precomputedScoreFunctionFor(queryVector, similarityFunction);
 
@@ -309,8 +307,7 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
             var score = scoreFunction.similarityTo(ordinal);
             approximateScores.add(new BruteForceRowIdIterator.RowWithApproximateScore(segmentRowId, ordinal, score));
         });
-        // Leverage PQ's O(N) heapify time complexity
-        var approximateScoresQueue = new PriorityQueue<>(approximateScores);
+        var approximateScoresQueue = approximateScores.build(Comparator.naturalOrder());
         var reranker = new JVectorLuceneOnDiskGraph.CloseableReranker(similarityFunction, queryVector, graph.getVectorSupplier());
         return new BruteForceRowIdIterator(approximateScoresQueue, reranker, limit, rerankK);
     }

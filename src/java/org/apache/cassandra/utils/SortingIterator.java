@@ -42,6 +42,9 @@ import java.util.function.Function;
  * these sets when the comparator is complex at the expense of a small slowdown for simple comparators. The reason for
  * this is that we can remove entries by replacing them with nulls and letting these descend the heap, which avoids half
  * the comparisons compared to using the largest live element.
+ * <p>
+ * This class is not intended to be used as a priority queue and does not support adding elements to the set after the
+ * initial construction. If a priority queue is required, see {@link LucenePriorityQueue}.
  */
 public class SortingIterator<T> implements Iterator<T>
 {
@@ -259,7 +262,7 @@ public class SortingIterator<T> implements Iterator<T>
             count = 0;
         }
 
-        public Builder(Collection<T> collection)
+        public Builder(Collection<? extends T> collection)
         {
             this(collection.size());
             for (T item : collection)
@@ -284,7 +287,7 @@ public class SortingIterator<T> implements Iterator<T>
             return this;
         }
 
-        public Builder addAll(Iterator<T> iterator)
+        public Builder addAll(Iterator<? extends T> iterator)
         {
             while (iterator.hasNext())
                 add(iterator.next());
@@ -300,7 +303,7 @@ public class SortingIterator<T> implements Iterator<T>
             return this;
         }
 
-        public Builder addAll(Collection<T> collection)
+        public Builder addAll(Collection<? extends T> collection)
         {
             if (count + collection.size() > data.length)
                 data = Arrays.copyOf(data, count + collection.size());

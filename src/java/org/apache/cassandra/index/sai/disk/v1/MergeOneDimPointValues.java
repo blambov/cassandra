@@ -18,15 +18,14 @@
 package org.apache.cassandra.index.sai.disk.v1;
 
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
-
-import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.index.sai.disk.v1.kdtree.BKDReader;
 import org.apache.cassandra.index.sai.disk.v1.kdtree.MutableOneDimPointValues;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
-import org.apache.lucene.util.PriorityQueue;
+import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.lucene.util.bkd.BKDWriter;
 
 /**
@@ -38,7 +37,7 @@ import org.apache.lucene.util.bkd.BKDWriter;
  */
 public class MergeOneDimPointValues extends MutableOneDimPointValues
 {
-    private final MergeQueue queue;
+    private final LucenePriorityQueue<BKDReader.IteratorState> queue;
 
     public final int bytesPerDim;
 
@@ -54,7 +53,7 @@ public class MergeOneDimPointValues extends MutableOneDimPointValues
 
     public MergeOneDimPointValues(List<BKDReader.IteratorState> iterators, int bytesPerDim)
     {
-        queue = new MergeQueue(iterators.size());
+        queue = new LucenePriorityQueue(iterators.size(), Comparator.naturalOrder());
         this.bytesPerDim = bytesPerDim;
         for (BKDReader.IteratorState iterator : iterators)
         {
@@ -124,27 +123,5 @@ public class MergeOneDimPointValues extends MutableOneDimPointValues
     public int getBytesPerDimension()
     {
         return bytesPerDim;
-    }
-
-    private static class MergeQueue extends PriorityQueue<BKDReader.IteratorState>
-    {
-        public MergeQueue(int maxSize)
-        {
-            super(maxSize);
-        }
-
-        @Override
-        public boolean lessThan(BKDReader.IteratorState a, BKDReader.IteratorState b)
-        {
-            assert a != b;
-
-            int cmp = a.compareTo(b);
-
-            if (cmp < 0)
-            {
-                return true;
-            }
-            else return false;
-        }
     }
 }
