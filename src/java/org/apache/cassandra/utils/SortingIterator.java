@@ -23,7 +23,6 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.SortedSet;
 import java.util.function.Function;
 
 /**
@@ -57,24 +56,6 @@ public class SortingIterator<T> implements Iterator<T>
         this.heap = data;
 
         heapify();
-    }
-
-    /** Special-case constructor from sorted set. */
-    public <V extends Comparable<? super T>> SortingIterator(SortedSet<T> sortedSet)
-    {
-        Comparator<? super T> sourceComparator = sortedSet.comparator();
-        if (sourceComparator != null)
-            comparator = sourceComparator;
-        else
-        {
-            // Statically T is not necessarily Comparable, but if someone managed to create a sorted set without a
-            // comparator, it must be. Comparator.naturalOrder() does not work because there's nothing to cast to
-            // Comparable; instead we must do the casting during comparisons.
-            comparator = (T a, T b) -> ((Comparable<T>) a).compareTo(b);
-        }
-
-        heap = sortedSet.toArray();
-        // no need to heapify as the data is already ordered
     }
 
     public static <T> SortingIterator<T> create(Comparator<? super T> comparator, Collection<T> sources)
