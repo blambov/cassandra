@@ -188,10 +188,13 @@ public class VectorMemtableIndex implements MemtableIndex
         SortingIterator.Builder<PrimaryKey> keyQueue;
         try (var pkIterator = searchInternal(context, qv, keyRange, graph.size(), threshold))
         {
-            keyQueue = new SortingIterator.Builder<PrimaryKey>()
-                           .addAll(pkIterator, PrimaryKeyWithSortKey::primaryKey);
+            keyQueue = new SortingIterator.Builder<>();
+            while (pkIterator.hasNext())
+                keyQueue.add(pkIterator.next().primaryKey());
         }
 
+        if (keyQueue.size() == 0)
+            return RangeIterator.empty();
         return new ReorderingRangeIterator(keyQueue.build(Comparator.naturalOrder()), keyQueue.size());
     }
 
