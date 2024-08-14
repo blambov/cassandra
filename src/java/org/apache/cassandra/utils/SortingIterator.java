@@ -60,9 +60,19 @@ public class SortingIterator<T> implements Iterator<T>
     }
 
     /** Special-case constructor from sorted set. */
-    public SortingIterator(SortedSet<T> sortedSet)
+    public <V extends Comparable<? super T>> SortingIterator(SortedSet<T> sortedSet)
     {
-        comparator = sortedSet.comparator();
+        Comparator<? super T> sourceComparator = sortedSet.comparator();
+        if (sourceComparator != null)
+            comparator = sourceComparator;
+        else
+        {
+            // Statically T is not necessarily Comparable, but if someone managed to create a sorted set without a
+            // comparator, it must be. Comparator.naturalOrder() does not work because there's nothing to cast to
+            // Comparable; instead we must do the casting during comparisons.
+            comparator = (T a, T b) -> ((Comparable<T>) a).compareTo(b);
+        }
+
         heap = sortedSet.toArray();
         // no need to heapify as the data is already ordered
     }
@@ -74,12 +84,12 @@ public class SortingIterator<T> implements Iterator<T>
 
     public static <T, V> SortingIterator<T> create(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper)
     {
-        return new Builder(sources, mapper).build(comparator);
+        return new Builder<>(sources, mapper).build(comparator);
     }
 
     public static <T, V> CloseableIterator<T> createCloseable(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper, Runnable onClose)
     {
-        return new Builder(sources, mapper).closeable(comparator, onClose);
+        return new Builder<>(sources, mapper).closeable(comparator, onClose);
     }
 
     public static <T> SortingIterator<T> createDeduplicating(Comparator<? super T> comparator, Collection<T> sources)
@@ -258,25 +268,18 @@ public class SortingIterator<T> implements Iterator<T>
 
         public Builder(int initialSize)
         {
-            data = new Object[Math.max(initialSize, 1)];    // at least one element so that we don't need to special-case empty
+            data = new Object[Math.max(initialSize, 1)]; // at least one element so that we don't need to special-case empty
             count = 0;
-        }
-
-        public Builder(Collection<? extends T> collection)
-        {
-            this(collection.size());
-            for (T item : collection)
-                data[count++] = item;
         }
 
         public <V> Builder(Collection<V> collection, Function<V, T> mapper)
         {
             this(collection.size());
             for (V item : collection)
-                data[count++] = mapper.apply(item);
+                data[count++] = mapper.apply(item); // this may be null, which the iterator will properly handle
         }
 
-        public Builder add(T element)
+        public Builder<T> add(T element)
         {
             if (element != null)   // avoid growing if we don't need to
             {
@@ -287,23 +290,7 @@ public class SortingIterator<T> implements Iterator<T>
             return this;
         }
 
-        public Builder addAll(Iterator<? extends T> iterator)
-        {
-            while (iterator.hasNext())
-                add(iterator.next());
-            return this;
-        }
-
-        public <V> Builder addAll(Iterator<V> iterator, Function<V, T> mapper)
-        {
-            while (iterator.hasNext())
-            {
-                add(mapper.apply(iterator.next()));
-            }
-            return this;
-        }
-
-        public Builder addAll(Collection<? extends T> collection)
+        public Builder<T> addAll(Collection<? extends T> collection)
         {
             if (count + collection.size() > data.length)
                 data = Arrays.copyOf(data, count + collection.size());
@@ -312,25 +299,38 @@ public class SortingIterator<T> implements Iterator<T>
             return this;
         }
 
+        public <V> Builder<T> addAll(Collection<V> collection, Function<V, T> mapper)
+        {
+            if (count + collection.size() > data.length)
+                data = Arrays.copyOf(data, count + collection.size());
+            for (V item : collection)
+                data[count++] = mapper.apply(item); // this may be null, which the iterator will properly handle
+            return this;
+        }
+
         public int size()
         {
             return count; // Note: may include null elements, depending on how data is added
         }
 
-        // TODO: do we need variations that use Arrays.copyOf(data, count)?
         public SortingIterator<T> build(Comparator<? super T> comparator)
         {
-            return new SortingIterator<T>(comparator, data);    // this will have nulls at the end, which is okay
+            return new SortingIterator<>(comparator, data);    // this will have nulls at the end, which is okay
         }
 
         public Closeable<T> closeable(Comparator<? super T> comparator, Runnable onClose)
         {
-            return new Closeable<T>(comparator, data, onClose);
+            return new Closeable<>(comparator, data, onClose);
         }
 
         public SortingIterator<T> deduplicating(Comparator<? super T> comparator)
         {
             return new Deduplicating<>(comparator, data);
         }
+
+        // This does not offer build methods that trim the array to count (i.e. Arrays.copyOf(data, count) instead of
+        // data), because it is only meant for short-lived operations where the iterator is not expected to live much
+        // longer than the builder and thus both the builder and iterator will almost always expire in the same GC cycle
+        // and thus the cost of trimming is not offset by any gains.
     }
 }

@@ -53,7 +53,7 @@ public class MergeOneDimPointValues extends MutableOneDimPointValues
 
     public MergeOneDimPointValues(List<BKDReader.IteratorState> iterators, int bytesPerDim)
     {
-        queue = new LucenePriorityQueue(iterators.size(), Comparator.naturalOrder());
+        queue = new LucenePriorityQueue<>(iterators.size(), Comparator.naturalOrder());
         this.bytesPerDim = bytesPerDim;
         for (BKDReader.IteratorState iterator : iterators)
         {

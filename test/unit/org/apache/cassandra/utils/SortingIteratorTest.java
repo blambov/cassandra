@@ -174,7 +174,7 @@ public class SortingIteratorTest {
             iterator.skipTo(targetKey);
 
             // Find the expected position, considering the current position
-            int expectedIndex = currentIndex;
+            int expectedIndex = Integer.MAX_VALUE;
             for (int j = currentIndex; j < data.size(); j++) {
                 if (data.get(j) >= targetKey) {
                     expectedIndex = j;
@@ -185,12 +185,13 @@ public class SortingIteratorTest {
             if (expectedIndex >= data.size()) {
                 // If no element is greater than or equal to targetKey, iterator should be exhausted
                 assertFalse(iterator.hasNext());
+                currentIndex = expectedIndex;
             } else {
                 // Otherwise, the next element should be the expected one
                 assertTrue(iterator.hasNext());
                 assertEquals(data.get(expectedIndex), iterator.next());
+                currentIndex = expectedIndex + 1;
             }
-            currentIndex = expectedIndex + 1;
         }
     }
 
@@ -333,7 +334,9 @@ public class SortingIteratorTest {
             data.add(random.nextInt(50)); // Values between 0 and 49, likely to have duplicates
         }
 
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        // Construct through Builder for coverage
+        SortingIterator<Integer> iterator = new SortingIterator.Builder<>(data, x -> x)
+                                                .deduplicating(Comparator.naturalOrder());
 
         // Using a set to verify uniqueness of the iterator output
         Set<Integer> seenElements = new HashSet<>();
