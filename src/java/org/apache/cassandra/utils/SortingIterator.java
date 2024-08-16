@@ -37,10 +37,10 @@ import java.util.function.Function;
  * steps. skipTo works in O(m.log n) steps (where m is the number of skipped items), but is also limited to O(n) when m
  * is large by the same argument as the initial heap construction.
  * <p>
- * The accepts and stores nulls as non-present values, which turns out to be quite a bit more efficient for iterating
- * these sets when the comparator is complex at the expense of a small slowdown for simple comparators. The reason for
- * this is that we can remove entries by replacing them with nulls and letting these descend the heap, which avoids half
- * the comparisons compared to using the largest live element.
+ * The class accepts and stores nulls as non-present values, which turns out to be quite a bit more efficient for
+ * iterating these sets when the comparator is complex at the expense of a small slowdown for simple comparators. The
+ * reason for this is that we can remove entries by replacing them with nulls and letting these descend the heap, which
+ * avoids half the comparisons compared to using one of the largest live elements.
  * <p>
  * This class is not intended to be used as a priority queue and does not support adding elements to the set after the
  * initial construction. If a priority queue is required, see {@link LucenePriorityQueue}.

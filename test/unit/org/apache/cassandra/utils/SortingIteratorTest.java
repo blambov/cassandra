@@ -28,15 +28,10 @@ import com.google.common.base.Predicates;
 public class SortingIteratorTest {
     // Most of this test is ChatGPT-generated.
 
-    static <T> SortingIterator<T> makeIterator(Comparator<T> comparator, List<T> data)
-    {
-        return SortingIterator.create(comparator, data);
-    }
-
     @Test
     public void testSortingIterator_withFixedData() {
         List<Integer> data = Arrays.asList(4, 1, 3, 2);
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         List<Integer> sorted = new ArrayList<>();
         while (iterator.hasNext()) {
@@ -49,7 +44,7 @@ public class SortingIteratorTest {
     @Test
     public void testSortingIterator_withEmptyData() {
         List<Integer> data = Collections.emptyList();
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         assertFalse(iterator.hasNext());
     }
@@ -57,7 +52,7 @@ public class SortingIteratorTest {
     @Test
     public void testNextWithoutHasNext() {
         List<String> data = Arrays.asList("apple", "orange", "banana");
-        Iterator<String> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<String> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         assertEquals("apple", iterator.next());
         assertEquals("banana", iterator.next());
@@ -67,8 +62,8 @@ public class SortingIteratorTest {
 
     @Test(expected = NoSuchElementException.class)
     public void testNoSuchElementException() {
-        List<Integer> data = Arrays.asList(1, 2, 3);
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(1, 3, 2);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.next();
         iterator.next();
@@ -79,16 +74,29 @@ public class SortingIteratorTest {
     @Test(expected = UnsupportedOperationException.class)
     public void testUnsupportedOperationException() {
         List<Integer> data = Arrays.asList(1, 2, 3);
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.remove(); // Should throw UnsupportedOperationException
     }
 
 
     @Test
+    public void testWithDuplicates() {
+        List<Integer> data = Arrays.asList(4, 1, 2, 5, 3, 4, 2, 4, 4);
+        SortingIterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
+
+        List<Integer> result = new ArrayList<>();
+        while (iterator.hasNext()) {
+            result.add(iterator.next());
+        }
+
+        assertEquals(Arrays.asList(1, 2, 2, 3, 4, 4, 4, 4, 5), result);
+    }
+
+    @Test
     public void testSkipTo_existingKey() {
-        List<Integer> data = Arrays.asList(1, 3, 5, 7, 9);
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(5, 3, 1, 9, 7);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(5);
 
@@ -98,8 +106,8 @@ public class SortingIteratorTest {
 
     @Test
     public void testSkipTo_nonExistingKey() {
-        List<Integer> data = Arrays.asList(1, 3, 5, 7, 9);
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(1, 5, 7, 9, 3);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(6);
 
@@ -109,8 +117,8 @@ public class SortingIteratorTest {
 
     @Test
     public void testSkipTo_beyondLastKey() {
-        List<Integer> data = Arrays.asList(1, 3, 5, 7, 9);
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(9, 3, 1, 7, 5);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(10);
 
@@ -119,8 +127,8 @@ public class SortingIteratorTest {
 
     @Test
     public void testSkipTo_firstKey() {
-        List<Integer> data = Arrays.asList(1, 3, 5, 7, 9);
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(1, 5, 3, 9, 7);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(1);
 
@@ -130,8 +138,8 @@ public class SortingIteratorTest {
 
     @Test
     public void testSkipTo_beforeFirstKey() {
-        List<Integer> data = Arrays.asList(1, 3, 5, 7, 9);
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        List<Integer> data = Arrays.asList(3, 9, 1, 7, 5);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(0);
 
@@ -139,10 +147,37 @@ public class SortingIteratorTest {
         assertEquals((Integer) 1, iterator.next());
     }
 
+
+    @Test
+    public void testSkipTo_withDuplicates() {
+        List<Integer> data = Arrays.asList(3, 4, 1, 4, 2, 4, 5, 2, 4);
+        SortingIterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
+
+        iterator.skipTo(2);
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 2, iterator.next());
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 2, iterator.next());
+
+        iterator.skipTo(4);
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 4, iterator.next());
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 4, iterator.next());
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 4, iterator.next());
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 4, iterator.next());
+
+        iterator.skipTo(5);
+        assertTrue(iterator.hasNext());
+        assertEquals((Integer) 5, iterator.next());
+    }
+
     @Test
     public void testSkipTo_onEmptyCollection() {
         List<Integer> data = Collections.emptyList();
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(5);
 
@@ -161,7 +196,7 @@ public class SortingIteratorTest {
         }
 
         // Create the iterator
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         Collections.sort(data);
 
@@ -205,7 +240,7 @@ public class SortingIteratorTest {
             data.add(random.nextInt(size));
         }
 
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
         List<Integer> sorted = new ArrayList<>();
         while (iterator.hasNext()) {
             sorted.add(iterator.next());
@@ -230,7 +265,7 @@ public class SortingIteratorTest {
         Collections.sort(sorted);
         List<Integer> expected = new ArrayList<>();
 
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
         List<Integer> iterated = new ArrayList<>();
 
         int skipDistanceMax = 200;
@@ -258,8 +293,8 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testIteratorRemovesDuplicates() {
-        List<Integer> data = Arrays.asList(1, 2, 2, 3, 4, 4, 4, 5);
+    public void testDeduplicateRemovesDuplicates() {
+        List<Integer> data = Arrays.asList(4, 1, 2, 5, 3, 4, 2, 4, 4);
         SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         List<Integer> result = new ArrayList<>();
@@ -271,8 +306,8 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testSkipTo_withDuplicates() {
-        List<Integer> data = Arrays.asList(1, 2, 2, 3, 4, 4, 4, 5);
+    public void testSkipTo_deduplicate() {
+        List<Integer> data = Arrays.asList(3, 4, 1, 4, 2, 4, 5, 2, 4);
         SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         iterator.skipTo(3);
@@ -289,15 +324,14 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testSkipTo_withDuplicatesAndNonExistingTarget() {
-        List<Integer> data = Arrays.asList(1, 2, 2, 3, 4, 4, 4, 5);
+    public void testSkipTo_deduplicateWithNonExistingTarget() {
+        List<Integer> data = Arrays.asList(4, 5, 1, 3, 4, 4, 2, 4, 2);
         SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         iterator.skipTo(2); // Skip to the first occurrence of 2
         assertTrue(iterator.hasNext());
         assertEquals((Integer) 2, iterator.next());
-
-        iterator.skipTo(3); // Skip to 3, skipping over all the 2's
+        // The above must have consumed all 2s
         assertTrue(iterator.hasNext());
         assertEquals((Integer) 3, iterator.next());
 
@@ -306,7 +340,7 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testEmptyCollectionWithDuplicates() {
+    public void testEmptyCollectionDeduplicate() {
         List<Integer> data = Collections.emptyList();
         SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
@@ -314,7 +348,7 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testSingleElementWithDuplicates() {
+    public void testSingleElementDeduplicate() {
         List<Integer> data = Arrays.asList(42, 42, 42);
         SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
@@ -324,7 +358,7 @@ public class SortingIteratorTest {
     }
 
     @Test
-    public void testRandomizedWithDuplicates() {
+    public void testRandomizedDeduplicate() {
         Random random = new Random();
         int size = random.nextInt(100) + 50; // List size between 50 and 150
         List<Integer> data = new ArrayList<>();
@@ -360,7 +394,7 @@ public class SortingIteratorTest {
             data.add(random.nextInt(10) != 0 ? random.nextInt(size) : null);
         }
 
-        Iterator<Integer> iterator = makeIterator(Comparator.naturalOrder(), data);
+        Iterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
         List<Integer> sorted = new ArrayList<>();
         while (iterator.hasNext()) {
             sorted.add(iterator.next());
@@ -388,7 +422,7 @@ public class SortingIteratorTest {
         size = sorted.size();
         List<Integer> expected = new ArrayList<>();
 
-        var iterator = makeIterator(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
         List<Integer> iterated = new ArrayList<>();
 
         int skipDistanceMax = 200;
