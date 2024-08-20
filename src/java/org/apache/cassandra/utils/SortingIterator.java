@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -78,6 +79,13 @@ public class SortingIterator<T> extends BinaryHeap.WithComparator<T> implements 
     public static <T> SortingIterator<T> createDeduplicating(Comparator<? super T> comparator, Collection<T> sources)
     {
         return new Deduplicating<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public T peek()
+    {
+        return (T) super.peek();
     }
 
     @Override
