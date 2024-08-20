@@ -29,9 +29,14 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Predicates;
+import com.google.common.collect.Comparators;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.MinMaxPriorityQueue;
+import com.google.common.collect.Ordering;
 
+import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.cassandra.utils.SortingIterator;
+import org.apache.cassandra.utils.TopKSelector;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -52,7 +57,8 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @BenchmarkMode(Mode.AverageTime)
 @State(Scope.Thread)
-public class SortingIteratorBenchmark {
+public class PartialSortingBenchmark
+{
 
     @Param({"100", "1000", "10000"})
     public int size;
@@ -81,9 +87,15 @@ public class SortingIteratorBenchmark {
                                                    Blackhole.consumeCPU(comparatorSlowDown);
                                                    return Integer.compare(x, y);
                                                };
+        comparatorNulls = (a, b) -> {
+            if (a == null || b == null)
+                return b != null ? 1 : a != null ? -1 : 0;
+            return comparator.compare(a, b);
+        };
     }
 
     Comparator<Integer> comparator;
+    Comparator<Integer> comparatorNulls;
 
     @Benchmark
     public void testSortingIterator(Blackhole bh) {
@@ -134,9 +146,107 @@ public class SortingIteratorBenchmark {
     public void testStreamIterator(Blackhole bh) {
         int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
         List<Integer> integers = data.subList(startIndex, startIndex + size);
-        var iterator = integers.stream().filter(Predicates.notNull()).sorted(comparator).iterator();
-        int i = (int) Math.ceil(consumeRatio * size + 0.01);
-        while (iterator.hasNext() && i-- > 0) {
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var iterator = integers.stream().filter(Predicates.notNull()).sorted(comparator).limit(limit).iterator();
+        while (iterator.hasNext()) {
+            bh.consume(iterator.next());
+        }
+    }
+
+    @Benchmark
+    public void testPriorityQueuePreLimit(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var pq = new PriorityQueue<Integer>(limit + 1, comparator.reversed());
+        for (Integer i : integers)
+        {
+            if (i == null)
+                continue;
+            pq.add(i);
+            if (pq.size() > limit)
+                pq.poll();
+        }
+        limit = pq.size(); // less if close to size with nulls
+        Integer[] values = new Integer[limit];
+        for (int i = limit - 1; i >= 0; --i)
+            values[i] = pq.poll();
+        var iterator = Iterators.forArray(values);
+        while (iterator.hasNext()) {
+            bh.consume(iterator.next());
+        }
+    }
+
+    @Benchmark
+    public void testLucenePriorityQueuePreLimit(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var pq = new LucenePriorityQueue<Integer>(limit, comparator.reversed());
+        for (Integer i : integers)
+        {
+            if (i == null)
+                continue;
+            pq.insertWithOverflow(i);
+        }
+        limit = pq.size(); // less if close to size with nulls
+        Integer[] values = new Integer[limit];
+        for (int i = limit - 1; i >= 0; --i)
+            values[i] = pq.pop();
+        var iterator = Iterators.forArray(values);
+        while (iterator.hasNext()) {
+            bh.consume(iterator.next());
+        }
+    }
+
+    @Benchmark
+    public void testMinMaxPQPreLimit(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var pq = MinMaxPriorityQueue.orderedBy(comparatorNulls).maximumSize(limit).create();
+        for (Integer i : integers)
+        {
+            if (i == null)
+                continue;
+            pq.offer(i);
+        }
+        while (!pq.isEmpty()) {
+            bh.consume(pq.poll());
+        }
+    }
+
+    @Benchmark
+    public void testOrderingLeastOf(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var iterator = Ordering.from(comparatorNulls).leastOf(integers, limit).iterator();
+        while (iterator.hasNext()) {
+            bh.consume(iterator.next());
+        }
+    }
+
+    @Benchmark
+    public void testCollectLeast(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var iterator = integers.stream().collect(Comparators.least(limit, comparatorNulls)).iterator();
+        while (iterator.hasNext()) {
+            bh.consume(iterator.next());
+        }
+    }
+
+    @Benchmark
+    public void testTopKSelector(Blackhole bh) {
+        int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
+        List<Integer> integers = data.subList(startIndex, startIndex + size);
+        int limit = (int) Math.ceil(consumeRatio * size + 0.01);
+        var selector = new TopKSelector<>(comparator, limit);
+        selector.addAll(integers);
+        var iterator = selector.getShared().iterator();
+        while (iterator.hasNext()) {
             bh.consume(iterator.next());
         }
     }

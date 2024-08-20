@@ -42,110 +42,58 @@ import java.util.function.Function;
  * reason for this is that we can remove entries by replacing them with nulls and letting these descend the heap, which
  * avoids half the comparisons compared to using one of the largest live elements.
  * <p>
- * This class is not intended to be used as a priority queue and does not support adding elements to the set after the
- * initial construction. If a priority queue is required, see {@link LucenePriorityQueue}.
+ * If the number of items necessary is small and known in advance, it may be preferable to use {@link TopKSelector}
+ * which keeps a smaller memory footprint.
  */
-public class SortingIterator<T> implements Iterator<T>
+public class SortingIterator<T> extends BinaryHeap.WithComparator<T> implements Iterator<T>
 {
-    final Comparator<? super T> comparator;
-    final Object[] heap;
-
     SortingIterator(Comparator<? super T> comparator, Object[] data)
     {
-        this.comparator = comparator;
-        this.heap = data;
-
+        super(comparator, data);
         heapify();
     }
 
+    /**
+     * Create a sorting iterator from a list of sources.
+     * Duplicates will be returned in arbitrary order.
+     */
     public static <T> SortingIterator<T> create(Comparator<? super T> comparator, Collection<T> sources)
     {
         return new SortingIterator<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
     }
 
-    public static <T, V> SortingIterator<T> create(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper)
-    {
-        return new Builder<>(sources, mapper).build(comparator);
-    }
-
+    /**
+     * Create a closeable sorting iterator from a list of sources, calling the given method on close.
+     * Duplicates will be returned in arbitrary order.
+     */
     public static <T, V> CloseableIterator<T> createCloseable(Comparator<? super T> comparator, Collection<V> sources, Function<V, T> mapper, Runnable onClose)
     {
         return new Builder<>(sources, mapper).closeable(comparator, onClose);
     }
 
+    /**
+     * Create a sorting and deduplicating iterator from a list of sources.
+     * Duplicate values will only be reported once, using an arbitrarily-chosen representative.
+     */
     public static <T> SortingIterator<T> createDeduplicating(Comparator<? super T> comparator, Collection<T> sources)
     {
         return new Deduplicating<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
     }
 
-    private void heapify()
-    {
-        for (int i = heap.length / 2 - 1; i >= 0; --i)
-            heapifyDown(heap[i], i);
-    }
-
-    @SuppressWarnings("unchecked")
-    protected boolean greaterThan(Object a, Object b)
-    {
-        // nulls are treated as greater than non-nulls to be placed at the end of the sequence
-        if (a == null || b == null)
-            return b != null;
-        return comparator.compare((T) a, (T) b) > 0;
-    }
-
     @Override
     public boolean hasNext()
     {
-        return heap[0] != null;
+        return !isEmpty();
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public T next()
     {
-        Object item = heap[0];
+        Object item = pop();
         if (item == null)
             throw new NoSuchElementException();
-        heapifyDown(null, 0);
         return (T) item;
-    }
-
-    /**
-     * Get the next element and consume all items equal to it.
-     */
-    @SuppressWarnings("unchecked")
-    public T nextAndSkipEqual()
-    {
-        Object item = heap[0];
-        if (item == null)
-            throw new NoSuchElementException();
-        skipBeyond(item, 0);
-        return (T) item;
-    }
-
-    /**
-     * Recursively drop all elements in the subheap rooted at the given heapIndex that are not beyond the given
-     * targetKey, and restore the heap ordering on the way back from the recursion.
-     */
-    private void skipBeyond(Object targetKey, int heapIndex)
-    {
-        if (heapIndex >= heap.length)
-            return;
-        if (greaterThan(heap[heapIndex], targetKey))
-            return;
-
-        int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= heap.length)
-        {
-            heap[heapIndex] = null;
-        }
-        else
-        {
-            skipBeyond(targetKey, nextIndex);
-            skipBeyond(targetKey, nextIndex + 1);
-
-            heapifyDown(null, heapIndex);
-        }
     }
 
     /**
@@ -153,55 +101,7 @@ public class SortingIterator<T> implements Iterator<T>
      */
     public void skipTo(T targetKey)
     {
-        skipTo(targetKey, 0);
-    }
-
-    /**
-     * Recursively drop all elements in the subheap rooted at the given heapIndex that are before the given
-     * targetKey, and restore the heap ordering on the way back from the recursion.
-     */
-    private void skipTo(T targetKey, int heapIndex)
-    {
-        if (heapIndex >= heap.length)
-            return;
-        if (!greaterThan(targetKey, heap[heapIndex]))
-            return;
-
-        int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= heap.length)
-        {
-            heap[heapIndex] = null;
-        }
-        else
-        {
-            skipTo(targetKey, nextIndex);
-            skipTo(targetKey, nextIndex + 1);
-
-            heapifyDown(null, heapIndex);
-        }
-    }
-
-    /**
-     * Push the given state down in the heap from the given index until it finds its proper place among
-     * the subheap rooted at that position.
-     */
-    private void heapifyDown(Object item, int index)
-    {
-        while (true)
-        {
-            int next = index * 2 + 1;
-            if (next >= heap.length)
-                break;
-            // Select the smaller of the two children to push down to.
-            if (next + 1 < heap.length && greaterThan(heap[next], heap[next + 1]))
-                ++next;
-            // If the child is greater or equal, the invariant has been restored.
-            if (!greaterThan(item, heap[next]))
-                break;
-            heap[index] = heap[next];
-            index = next;
-        }
-        heap[index] = item;
+        advanceTo(targetKey);
     }
 
     public static class Closeable<T> extends SortingIterator<T> implements CloseableIterator<T>
@@ -233,7 +133,10 @@ public class SortingIterator<T> implements Iterator<T>
         @Override
         public T next()
         {
-            return super.nextAndSkipEqual();
+            Object item = popAndSkipEqual();
+            if (item == null)
+                throw new NoSuchElementException();
+            return (T) item;
         }
     }
 
@@ -294,16 +197,28 @@ public class SortingIterator<T> implements Iterator<T>
             return count; // Note: may include null elements, depending on how data is added
         }
 
+        /**
+         * Build a sorting iterator from the data added so far.
+         * The returned iterator will report duplicates in arbitrary order.
+         */
         public SortingIterator<T> build(Comparator<? super T> comparator)
         {
             return new SortingIterator<>(comparator, data);    // this will have nulls at the end, which is okay
         }
 
+        /**
+         * Build a closeable sorting iterator from the data added so far.
+         * The returned iterator will report duplicates in arbitrary order.
+         */
         public Closeable<T> closeable(Comparator<? super T> comparator, Runnable onClose)
         {
             return new Closeable<>(comparator, data, onClose);
         }
 
+        /**
+         * Build a sorting and deduplicating iterator from the data added so far.
+         * The returned iterator will only report equal items once, using an arbitrarily-chosen representative.
+         */
         public SortingIterator<T> deduplicating(Comparator<? super T> comparator)
         {
             return new Deduplicating<>(comparator, data);
