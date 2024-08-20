@@ -28,11 +28,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiFunction;
 import java.util.function.LongConsumer;
 import javax.annotation.Nullable;
 
@@ -62,9 +64,10 @@ import org.apache.cassandra.index.sai.utils.PrimaryKeys;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.BinaryHeap;
 import org.apache.cassandra.utils.CloseableIterator;
-import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.SortingIterator;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
@@ -327,94 +330,49 @@ public class TrieMemoryIndex extends MemoryIndex
         }
     }
 
-    static class MergingRangeIterator extends RangeIterator
+    /**
+     * A sorting iterator over items that can either be singleton PrimaryKey or a SortedSetRangeIterator.
+     */
+    static class SortingSingletonOrSetIterator extends BinaryHeap
     {
-        LucenePriorityQueue<Object> keySets;  // class invariant: each object placed in this queue contains at least one key
-
-        MergingRangeIterator(Collection<Object> keySets,
-                             PrimaryKey minKey,
-                             PrimaryKey maxKey,
-                             long count)
+        public SortingSingletonOrSetIterator(Collection<Object> data)
         {
-            super(minKey, maxKey, count);
-
-            // Use Lucene PriorityQueue because:
-            // - it has optimized O(n) addAll
-            // - it allows for a single-operation fast update of the top of the queue instead of poll+offer
-            this.keySets = new LucenePriorityQueue<>(keySets.size(), (keys1, keys2) -> peek(keys1).compareTo(peek(keys2)));
-
-            this.keySets.addAll(keySets);
-        }
-
-        static Builder builder(AbstractBounds<PartitionPosition> keyRange, PrimaryKey.Factory factory, int capacity)
-        {
-            return new Builder(keyRange, factory, capacity);
+            super(data.toArray());
+            heapify();
         }
 
         @Override
-        protected void performSkipTo(PrimaryKey nextKey)
+        protected boolean greaterThan(Object a, Object b)
         {
-            while (true)
-            {
-                // Preview the next key, but don't change the state of this iterator yet.
-                // We cannot use `this.peek()` to preview the key, because it may actually
-                // change the internal state of this iterator and would cause the keySets to no longer contain
-                // the previewed key.
-                Object keys = keySets.top();
-                if (keys == null || peek(keys).compareTo(nextKey) >= 0)
-                    break;
+            if (a == null || b == null)
+                return b != null;
 
-                if (keys instanceof SortedSetRangeIterator)
-                {
-                    // If we got an iterator, skip to the correct key and,
-                    // if there are any keys left, update the position of the iterator in the queue.
-                    var iterator = (SortedSetRangeIterator) keys;
-                    iterator.skipTo(nextKey);
-                    if (iterator.hasNext())
-                        keySets.updateTop(iterator);
-                    else
-                        keySets.pop();
-                }
-                else
-                {
-                    // We got a single key so just pop it from the queue.
-                    assert keys instanceof PrimaryKey;
-                    keySets.pop();
-                }
-            }
+            return peek(a).compareTo(peek(b)) > 0;
         }
 
-        @Override
-        protected PrimaryKey computeNext()
+        public PrimaryKey nextOrNull()
         {
-            Object keys = keySets.top();
-            if (keys == null)
-                return endOfData();
-
-            PrimaryKey result = peek(keys);
+            Object key = peek();
+            if (key == null)
+                return null;
+            PrimaryKey result = peek(key);
             assert result != null;
-
-            SortedSetRangeIterator iterator = dropFirst(keys);
-            if (iterator != null)
-                keySets.updateTop(iterator);
-            else
-                keySets.pop();
-
+            replaceTop(advanceItem(key));
             return result;
         }
 
-        @Override
-        public void close() throws IOException
+        public void skipTo(PrimaryKey target)
         {
+            advanceTo(target, SortingSingletonOrSetIterator::skipItem);
         }
 
         /**
-         * The purpose of this method is to avoid unnecessary allocation of iterators for singleton sets.
+         * Advance the given keys object to the next key.
          * If the keys object contains a single key, null is returned.
          * If the keys object contains more than one key, the first key is dropped and the iterator to the
          * remaining keys is returned.
          */
-        private static @Nullable SortedSetRangeIterator dropFirst(Object keys)
+        private static @Nullable Object advanceItem(Object keys)
         {
             if (keys instanceof PrimaryKey)
                 return null;
@@ -425,6 +383,26 @@ public class TrieMemoryIndex extends MemoryIndex
             return iterator.hasNext() ? iterator : null;
         }
 
+        /**
+         * Advance the given keys object to the first element that is greater than or equal to the target key.
+         * This is only called when the given item is known to be before the target key.
+         * If the keys object contains a single key, null is returned.
+         * If the keys object contains more than one key, it is skipped to the given target and the iterator to the
+         * remaining keys is returned.
+         */
+        private static @Nullable Object skipItem(Object keys, PrimaryKey target)
+        {
+            if (keys instanceof PrimaryKey)
+                return null;
+
+            SortedSetRangeIterator iterator = (SortedSetRangeIterator) keys;
+            iterator.skipTo(target);
+            return iterator.hasNext() ? iterator : null;
+        }
+
+        /**
+         * Resolve a keys object to either its singleton value or the current element in the iterator.
+         */
         static PrimaryKey peek(Object keys)
         {
             if (keys instanceof PrimaryKey)
@@ -433,6 +411,48 @@ public class TrieMemoryIndex extends MemoryIndex
                 return ((SortedSetRangeIterator) keys).peek();
 
             throw new AssertionError("Unreachable");
+        }
+    }
+
+    static class MergingRangeIterator extends RangeIterator
+    {
+        // A sorting iterator of items that can be either singletons or SortedSetRangeIterator
+        SortingSingletonOrSetIterator keySets;  // class invariant: each object placed in this queue contains at least one key
+
+        MergingRangeIterator(Collection<Object> keySets,
+                             PrimaryKey minKey,
+                             PrimaryKey maxKey,
+                             long count)
+        {
+            super(minKey, maxKey, count);
+
+            this.keySets = new SortingSingletonOrSetIterator(keySets);
+        }
+
+        static Builder builder(AbstractBounds<PartitionPosition> keyRange, PrimaryKey.Factory factory, int capacity)
+        {
+            return new Builder(keyRange, factory, capacity);
+        }
+
+        @Override
+        protected void performSkipTo(PrimaryKey nextKey)
+        {
+            keySets.skipTo(nextKey);
+        }
+
+        @Override
+        protected PrimaryKey computeNext()
+        {
+            PrimaryKey result = keySets.nextOrNull();
+            if (result == null)
+                return endOfData();
+            else
+                return result;
+        }
+
+        @Override
+        public void close() throws IOException
+        {
         }
 
         static class Builder

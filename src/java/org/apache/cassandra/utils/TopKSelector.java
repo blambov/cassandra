@@ -48,7 +48,7 @@ public class TopKSelector<T> extends BinaryHeap
 
     public TopKSelector(Comparator<? super T> comparator, int limit)
     {
-        super(limit);
+        super(new Object[limit]);
         this.comparator = comparator;
         remainingSpace = limit;
     }

@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils;
 
 import java.util.Comparator;
+import java.util.function.BiFunction;
 
 /**
  * A base binary heap implementation with fixed size, supporting only operations that push
@@ -52,16 +53,6 @@ public abstract class BinaryHeap
         this.heap = data;
         // Note that we can't perform any preparation here because the subclass defining greaterThan may have not been
         // initialized yet.
-    }
-
-    /**
-     * Create a binary heap for the given size with no data. Data must be inserted manually
-     * into {@link #heap} and {@link #heapify} must be applied before the class's retrieval
-     * methods are used (see {@link TopKSelector}).
-     */
-    protected BinaryHeap(int size)
-    {
-        this.heap = new Object[size];
     }
 
     /**
@@ -189,6 +180,42 @@ public abstract class BinaryHeap
             advanceTo(targetKey, nextIndex + 1);
 
             heapifyDown(null, heapIndex);
+        }
+    }
+
+    /**
+     * Skip to the first element that is greater than or equal to the given key, applying the given function to adjust
+     * each element instead of directly replacing it with null.
+     */
+    protected <T, K extends T> void advanceTo(K targetKey, BiFunction<T, K, T> itemAdvancer)
+    {
+        advanceTo(targetKey, 0, itemAdvancer);
+    }
+
+    /**
+     * Recursively drop all elements in the subheap rooted at the given heapIndex that are before the given
+     * targetKey, applying the given function to adjust each element instead of directly replacing it with null, and
+     * restore the heap ordering on the way back from the recursion.
+     */
+    private <T, K extends T> void advanceTo(K targetKey, int heapIndex, BiFunction<T, K, T> itemAdvancer)
+    {
+        if (heapIndex >= heap.length)
+            return;
+        Object item = heap[heapIndex];
+        if (!greaterThan(targetKey, item))
+            return;
+
+        int nextIndex = heapIndex * 2 + 1;
+        if (nextIndex >= heap.length)
+        {
+            heap[heapIndex] = itemAdvancer.apply((T) item, targetKey);
+        }
+        else
+        {
+            advanceTo(targetKey, nextIndex);
+            advanceTo(targetKey, nextIndex + 1);
+
+            heapifyDown(itemAdvancer.apply((T) item, targetKey), heapIndex);
         }
     }
 
