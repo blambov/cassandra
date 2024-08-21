@@ -197,6 +197,7 @@ public abstract class BinaryHeap
      * targetKey, applying the given function to adjust each element instead of directly replacing it with null, and
      * restore the heap ordering on the way back from the recursion.
      */
+    @SuppressWarnings("unchecked")
     private <T, K extends T> void advanceTo(K targetKey, int heapIndex, BiFunction<T, K, T> itemAdvancer)
     {
         if (heapIndex >= heap.length)
@@ -212,8 +213,8 @@ public abstract class BinaryHeap
         }
         else
         {
-            advanceTo(targetKey, nextIndex);
-            advanceTo(targetKey, nextIndex + 1);
+            advanceTo(targetKey, nextIndex, itemAdvancer);
+            advanceTo(targetKey, nextIndex + 1, itemAdvancer);
 
             heapifyDown(itemAdvancer.apply((T) item, targetKey), heapIndex);
         }
