@@ -48,7 +48,7 @@ public abstract class BinaryHeap
     /**
      * Create a binary heap with the given array. The data must be heapified before being used.
      */
-    public BinaryHeap(Object[] data)
+    protected BinaryHeap(Object[] data)
     {
         this.heap = data;
         // Note that we can't perform any preparation here because the subclass defining greaterThan may have not been

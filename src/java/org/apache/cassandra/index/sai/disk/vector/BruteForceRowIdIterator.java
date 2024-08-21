@@ -19,7 +19,6 @@
 package org.apache.cassandra.index.sai.disk.vector;
 
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import org.apache.cassandra.index.sai.utils.RowIdWithMeta;
