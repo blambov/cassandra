@@ -17,12 +17,12 @@
  */
 
 package org.apache.cassandra.utils;
+
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.function.Function;
@@ -32,128 +32,146 @@ import com.google.common.base.Predicates;
 
 import static org.junit.Assert.*;
 
-public class TopKSelectorTest {
+public class TopKSelectorTest
+{
 
     private TopKSelector<Integer> selector;
 
     @Before
-    public void setUp() {
+    public void setUp()
+    {
         selector = new TopKSelector<>(Integer::compareTo, 5);
     }
 
     @Test
-    public void testBasicFunctionality() {
-        List<Integer> data = Arrays.asList(10, 20, 5, 7, 1, 3, 9, 15, 25);
+    public void testBasicFunctionality()
+    {
+        List<Integer> data = List.of(10, 20, 5, 7, 1, 3, 9, 15, 25);
 
-        for (int num : data) {
+        for (int num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the smallest 5 elements in sorted order
-        assertEquals(Arrays.asList(1, 3, 5, 7, 9), topK);
+        assertEquals(List.of(1, 3, 5, 7, 9), topK);
     }
 
     @Test
-    public void testTopKSmallerThanK() {
-        List<Integer> data = Arrays.asList(10, 20, 5);
+    public void testTopKSmallerThanK()
+    {
+        List<Integer> data = List.of(10, 20, 5);
 
-        for (int num : data) {
+        for (int num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting all elements in sorted order because the total number is less than k
-        assertEquals(Arrays.asList(5, 10, 20), topK);
+        assertEquals(List.of(5, 10, 20), topK);
     }
 
     @Test
-    public void testTopKWithDuplicates() {
-        List<Integer> data = Arrays.asList(10, 20, 5, 5, 7, 10, 1, 3, 15, 25);
+    public void testTopKWithDuplicates()
+    {
+        List<Integer> data = List.of(10, 20, 5, 5, 7, 10, 1, 3, 15, 25);
 
-        for (int num : data) {
+        for (int num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the smallest 5 elements in sorted order
-        assertEquals(Arrays.asList(1, 3, 5, 5, 7), topK);
+        assertEquals(List.of(1, 3, 5, 5, 7), topK);
     }
 
 
     @Test
-    public void testTopKWithNulls() {
-        List<Integer> data = Arrays.asList(10, null, 5, 5, 7, 10, 1, 3, null, 25);
+    public void testTopKWithNulls()
+    {
+        List<Integer> data = Arrays.asList(10, null, 5, 5, 7, 10, 1, 3, null, 25);  // List.of does not like nulls
 
-        for (Integer num : data) {
+        for (Integer num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the smallest 5 elements in sorted order
-        assertEquals(Arrays.asList(1, 3, 5, 5, 7), topK);
+        assertEquals(List.of(1, 3, 5, 5, 7), topK);
     }
 
 
     @Test
-    public void testTopKWithNullsShort() {
+    public void testTopKWithNullsShort()
+    {
         List<Integer> data = Arrays.asList(10, null, 5, 7, null);
 
-        for (Integer num : data) {
+        for (Integer num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the non-null elements in sorted order
-        assertEquals(Arrays.asList(5, 7, 10), topK);
+        assertEquals(List.of(5, 7, 10), topK);
     }
 
     @Test
-    public void testTopKWithNegativeNumbers() {
-        List<Integer> data = Arrays.asList(-10, -20, -5, -7, -1, -3, -9, -15, -25);
+    public void testTopKWithNegativeNumbers()
+    {
+        List<Integer> data = List.of(-10, -20, -5, -7, -1, -3, -9, -15, -25);
 
-        for (int num : data) {
+        for (int num : data)
+        {
             selector.add(num);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the smallest (most negative) 5 elements in sorted order
-        assertEquals(Arrays.asList(-25, -20, -15, -10, -9), topK);
+        assertEquals(List.of(-25, -20, -15, -10, -9), topK);
     }
 
     @Test
-    public void testEmptyInput() {
+    public void testEmptyInput()
+    {
         List<Integer> topK = selector.get();
 
         // Expecting an empty list because no elements were added
-        assertEquals(Collections.emptyList(), topK);
+        assertEquals(List.of(), topK);
     }
 
     @Test
-    public void testSingleElementInput() {
+    public void testSingleElementInput()
+    {
         selector.add(42);
 
         List<Integer> topK = selector.get();
 
         // Expecting the single element in the list
-        assertEquals(Arrays.asList(42), topK);
+        assertEquals(List.of(42), topK);
     }
 
     @Test
-    public void testRandomizedInput() {
+    public void testRandomizedInput()
+    {
         Random random = new Random();
         int size = 1000;
         int k = random.nextInt(20) + 1;
 
         TopKSelector<Integer> randomSelector = new TopKSelector<>(Integer::compareTo, k);
         List<Integer> all = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
+        for (int i = 0; i < size; i++)
+        {
             Integer newItem = random.nextInt(10000); // Random values between 0 and 9999
             randomSelector.add(newItem);
             all.add(newItem);
@@ -170,14 +188,16 @@ public class TopKSelectorTest {
     }
 
     @Test
-    public void testRandomizedInputNulls() {
+    public void testRandomizedInputNulls()
+    {
         Random random = new Random();
         int size = 1000;
         int k = random.nextInt(20) + 1;
 
         TopKSelector<Integer> randomSelector = new TopKSelector<>(Integer::compareTo, k);
         List<Integer> all = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
+        for (int i = 0; i < size; i++)
+        {
             Integer newItem = random.nextDouble() < 0.05 ? null : random.nextInt(10000); // Random values between 0 and 9999
             randomSelector.add(newItem);
             all.add(newItem);
@@ -195,7 +215,8 @@ public class TopKSelectorTest {
 
 
     @Test
-    public void testRandomizedInputTransformedSliced() {
+    public void testRandomizedInputTransformedSliced()
+    {
         Random random = new Random();
         int size = 1000;
         int offset = random.nextInt(20) + 1;
@@ -203,7 +224,8 @@ public class TopKSelectorTest {
 
         TopKSelector<Integer> randomSelector = new TopKSelector<>(Integer::compareTo, k + offset);
         List<Integer> all = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
+        for (int i = 0; i < size; i++)
+        {
             Integer newItem = random.nextInt(10000); // Random values between 0 and 9999
             randomSelector.add(newItem);
             all.add(newItem);
@@ -221,19 +243,22 @@ public class TopKSelectorTest {
     }
 
     @Test
-    public void testAddMoreThanKElements() {
-        for (int i = 0; i < 20; i++) {
+    public void testAddMoreThanKElements()
+    {
+        for (int i = 0; i < 20; i++)
+        {
             selector.add(i);
         }
 
         List<Integer> topK = selector.get();
 
         // Expecting the smallest 5 elements in sorted order
-        assertEquals(Arrays.asList(0, 1, 2, 3, 4), topK);
+        assertEquals(List.of(0, 1, 2, 3, 4), topK);
     }
 
     @Test(expected = ArrayIndexOutOfBoundsException.class)
-    public void testZeroK() {
+    public void testZeroK()
+    {
         var selector = new TopKSelector<>(Integer::compareTo, 0);
         selector.addAll(List.of(10, 20, 3, 4, 5));
         assertEquals(List.of(), selector.get());
