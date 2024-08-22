@@ -81,7 +81,7 @@ public class TopKSelector<T> extends BinaryHeap
         }
     }
 
-    public void addAll(Iterable<T> items)
+    public void addAll(Iterable<? extends T> items)
     {
         for (T item : items)
             add(item);

@@ -33,7 +33,6 @@ import javax.annotation.Nullable;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.tuple.Triple;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,9 +69,7 @@ import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.SortingIterator;
-
-import static java.lang.Math.min;
+import org.apache.cassandra.utils.TopKSelector;
 
 /**
  * Processor applied to SAI based ORDER BY queries. This class could likely be refactored into either two filter
@@ -161,7 +158,16 @@ public class TopKProcessor
     private <U extends Unfiltered, R extends BaseRowIterator<U>, P extends BasePartitionIterator<R>> BasePartitionIterator<?> filterInternal(P partitions)
     {
         // priority queue ordered by score in descending order
-        var topK = new SortingIterator.Builder<Triple<PartitionInfo, Row, ?>>(limit);
+        Comparator<Triple<PartitionInfo, Row, ?>> comparator;
+        if (queryVector != null)
+            comparator = Comparator.comparing((Triple<PartitionInfo, Row, ?> t) -> (Float) t.getRight()).reversed();
+        else
+        {
+            comparator = Comparator.comparing(t -> (ByteBuffer) t.getRight(), indexContext.getValidator());
+            if (expression.operator() == Operator.ORDER_BY_DESC)
+                comparator = comparator.reversed();
+        }
+        var topK = new TopKSelector<>(comparator, limit);
         // to store top-k results in primary key order
         TreeMap<PartitionInfo, TreeSet<Unfiltered>> unfilteredByPartition = new TreeMap<>(Comparator.comparing(p -> p.key));
 
@@ -258,21 +264,8 @@ public class TopKProcessor
         }
 
         // reorder rows in partition/clustering order
-        Comparator<Triple<PartitionInfo, Row, ?>> comparator;
-        if (queryVector != null)
-            comparator = Comparator.comparing((Triple<PartitionInfo, Row, ?> t) -> (Float) t.getRight()).reversed();
-        else
-        {
-            comparator = Comparator.comparing(t -> (ByteBuffer) t.getRight(), indexContext.getValidator());
-            if (expression.operator() == Operator.ORDER_BY_DESC)
-                comparator = comparator.reversed();
-        }
-        var topKIterator = topK.build(comparator);
-        final int numResults = min(topK.size(), limit);
-        for (int i = 0; i < numResults; i++) {
-            var triple = topKIterator.next();
+        for (var triple : topK.get())
             addUnfiltered(unfilteredByPartition, triple.getLeft(), triple.getMiddle());
-        }
 
         if (partitions instanceof PartitionIterator)
             return new InMemoryPartitionIterator(command, unfilteredByPartition);
