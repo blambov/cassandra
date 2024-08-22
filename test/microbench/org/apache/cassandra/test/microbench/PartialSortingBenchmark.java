@@ -34,7 +34,6 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.collect.Ordering;
 
-import org.apache.cassandra.utils.LucenePriorityQueue;
 import org.apache.cassandra.utils.SortingIterator;
 import org.apache.cassandra.utils.TopKSelector;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -182,7 +181,14 @@ public class PartialSortingBenchmark
         int startIndex = ThreadLocalRandom.current().nextInt(data.size() - size);
         List<Integer> integers = data.subList(startIndex, startIndex + size);
         int limit = (int) Math.ceil(consumeRatio * size + 0.01);
-        var pq = new LucenePriorityQueue<Integer>(limit, comparator.reversed());
+        var pq = new org.apache.lucene.util.PriorityQueue<Integer>(limit)
+        {
+            @Override
+            protected boolean lessThan(Integer t, Integer t1)
+            {
+                return t > t1;
+            }
+        };
         for (Integer i : integers)
         {
             if (i == null)

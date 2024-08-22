@@ -36,8 +36,8 @@ import java.util.function.BiFunction;
  * to make some operations more efficient.
  * <p>
  * This class is not intended to be used as a priority queue and does not support adding elements
- * to the set after the initial construction. If a priority queue is required, see
- * {@link LucenePriorityQueue}.
+ * to the set after the initial construction. If a priority queue is required, consider using
+ * {@link org.apache.lucene.util.PriorityQueue}.
  */
 public abstract class BinaryHeap
 {
