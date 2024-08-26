@@ -170,13 +170,13 @@ public class TopKSelector<T> extends BinaryHeap
      */
     public <R> List<R> getTransformedSlicedShared(Function<T, R> transformer, int startIndex)
     {
-        int size = size() - startIndex;
-        if (size <= 0)
+        int selectedSize = size() - startIndex;
+        if (selectedSize <= 0)
             return List.of();
         maybeHeapify();
 
         heapSortFrom(startIndex);
-        TopKSelector.this.size = startIndex; // the rest of the top items remain heapified and can be extracted later
+        size = startIndex; // the rest of the top items remain heapified and can be extracted later
         return new AbstractList<R>()
         {
             @Override
@@ -188,7 +188,7 @@ public class TopKSelector<T> extends BinaryHeap
             @Override
             public int size()
             {
-                return size;
+                return selectedSize;
             }
         };
     }

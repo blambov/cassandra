@@ -77,6 +77,7 @@ public abstract class BinaryHeap
      * Advance an item. Return null if there are no further entries.
      * The default implementations assumes entries are single items and always returns null.
      * Override it to implement merging of sorted iterators.
+     * @param item The heap item to advance
      */
     protected Object advanceItem(Object item)
     {
@@ -88,6 +89,8 @@ public abstract class BinaryHeap
      * Return null if no such entry exists.
      * The default implementations assumes entries are single items and always returns null.
      * Override it to implement merging of sorted seeking iterators.
+     * @param item The heap item to advance
+     * @param targetKey The comparison key
      */
     protected Object advanceItemTo(Object item, Object targetKey)
     {
@@ -175,22 +178,22 @@ public abstract class BinaryHeap
     /**
      * Interface used to specify an advancing operation for {@link #applyAdvance}.
      */
-    protected interface AdvanceOperation<K>
+    protected interface AdvanceOperation
     {
         /**
          * Return true if the necessary condition is satisfied by this heap entry.
          * The condition is assumed to also be satisfied for all descendants of the
          * entry (as they are equal or greater).
          */
-        boolean shouldStop(BinaryHeap self, Object heapEntry, K targetKey);
+        boolean shouldStop(BinaryHeap self, Object heapEntry, Object targetKey);
 
         /**
          * Apply the relevant advancing operation and return the entry to use.
          */
-        Object advanceItem(BinaryHeap self, Object heapEntry, K targetKey);
+        Object advanceItem(BinaryHeap self, Object heapEntry, Object targetKey);
     }
 
-    final static AdvanceOperation<Object> ADVANCE_BEYOND = new AdvanceOperation<Object>()
+    static final AdvanceOperation ADVANCE_BEYOND = new AdvanceOperation()
     {
         @Override
         public boolean shouldStop(BinaryHeap self, Object heapEntry, Object targetKey)
@@ -205,7 +208,7 @@ public abstract class BinaryHeap
         }
     };
 
-    final static AdvanceOperation<Object> ADVANCE_TO = new AdvanceOperation<Object>()
+    static final AdvanceOperation ADVANCE_TO = new AdvanceOperation()
     {
         @Override
         public boolean shouldStop(BinaryHeap self, Object heapEntry, Object targetKey)
@@ -224,7 +227,7 @@ public abstract class BinaryHeap
      * Recursively apply the advance operation to all elements in the subheap rooted at the given heapIndex
      * that do not satisfy the shouldStop condition, and restore the heap ordering on the way back from the recursion.
      */
-    private <K> void applyAdvance(K targetKey, int heapIndex, AdvanceOperation<K> advanceOperation, int size)
+    private void applyAdvance(Object targetKey, int heapIndex, AdvanceOperation advanceOperation, int size)
     {
         if (advanceOperation.shouldStop(this, heap[heapIndex], targetKey))
             return;
@@ -251,7 +254,7 @@ public abstract class BinaryHeap
      * performs better.
      */
 
-    private <K> void heapifyRecursively(int heapIndex, int size)
+    private void heapifyRecursively(int heapIndex, int size)
     {
         if (heapIndex * 2 + 1 < size)
         {
