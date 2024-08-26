@@ -92,7 +92,7 @@ public class SortingIteratorTest
     public void testWithDuplicates()
     {
         List<Integer> data = List.of(4, 1, 2, 5, 3, 4, 2, 4, 4);
-        SortingIterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         List<Integer> result = new ArrayList<>();
         while (iterator.hasNext())
@@ -167,7 +167,7 @@ public class SortingIteratorTest
     public void testSkipTo_withDuplicates()
     {
         List<Integer> data = List.of(3, 4, 1, 4, 2, 4, 5, 2, 4);
-        SortingIterator<Integer> iterator = SortingIterator.create(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.create(Comparator.naturalOrder(), data);
 
         iterator.skipTo(2);
         assertTrue(iterator.hasNext());
@@ -326,7 +326,7 @@ public class SortingIteratorTest
     public void testDeduplicateRemovesDuplicates()
     {
         List<Integer> data = List.of(4, 1, 2, 5, 3, 4, 2, 4, 4);
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         List<Integer> result = new ArrayList<>();
         while (iterator.hasNext())
@@ -341,7 +341,7 @@ public class SortingIteratorTest
     public void testSkipTo_deduplicate()
     {
         List<Integer> data = List.of(3, 4, 1, 4, 2, 4, 5, 2, 4);
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         iterator.skipTo(3);
         assertTrue(iterator.hasNext());
@@ -360,7 +360,7 @@ public class SortingIteratorTest
     public void testSkipTo_deduplicateWithNonExistingTarget()
     {
         List<Integer> data = List.of(4, 5, 1, 3, 4, 4, 2, 4, 2);
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         iterator.skipTo(2); // Skip to the first occurrence of 2
         assertTrue(iterator.hasNext());
@@ -377,7 +377,7 @@ public class SortingIteratorTest
     public void testEmptyCollectionDeduplicate()
     {
         List<Integer> data = List.of();
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         assertFalse(iterator.hasNext());
     }
@@ -386,7 +386,7 @@ public class SortingIteratorTest
     public void testSingleElementDeduplicate()
     {
         List<Integer> data = List.of(42, 42, 42);
-        SortingIterator<Integer> iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
+        var iterator = SortingIterator.createDeduplicating(Comparator.naturalOrder(), data);
 
         assertTrue(iterator.hasNext());
         assertEquals((Integer) 42, iterator.next());
@@ -407,8 +407,8 @@ public class SortingIteratorTest
         }
 
         // Construct through Builder for coverage
-        SortingIterator<Integer> iterator = new SortingIterator.Builder<>(data, x -> x)
-                                            .deduplicating(Comparator.naturalOrder());
+        var iterator = new SortingIterator.Builder<>(data, x -> x)
+                           .deduplicating(Comparator.naturalOrder());
 
         // Using a set to verify uniqueness of the iterator output
         Set<Integer> seenElements = new HashSet<>();
@@ -491,5 +491,28 @@ public class SortingIteratorTest
         }
 
         assertEquals(expected, iterated);
+    }
+
+    /**
+     * Dump the evolution of a heap of 15 elements as mermaid graph sources for visualizations/documentation.
+     */
+    @Test
+    public void makeMermaids()
+    {
+        int size = 15;
+        Random rand = new Random(52);
+        Integer[] array = new Integer[size];
+        for (int i = 0; i < size; ++i)
+            array[i] = rand.nextDouble() < 0.03 ? null : rand.nextInt(100);
+        System.out.println(Arrays.toString(array));
+
+        var sorter = new SortingIterator<Integer>(Comparator.naturalOrder(), array);
+        var sorted = new ArrayList<Integer>();
+        while (sorter.hasNext())
+        {
+            System.out.println(sorter.toMermaid());
+            sorted.add(sorter.next());
+        }
+        System.out.println(sorted);
     }
 }

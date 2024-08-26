@@ -24,8 +24,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 
-import com.google.common.base.Preconditions;
-
 /**
  * This class selects the smallest k items from a stream.
  * <p>
@@ -44,13 +42,13 @@ import com.google.common.base.Preconditions;
 public class TopKSelector<T> extends BinaryHeap
 {
     private final Comparator<? super T> comparator;
-    private int remainingSpace;
+    private int size;
 
     public TopKSelector(Comparator<? super T> comparator, int limit)
     {
         super(new Object[limit]);
         this.comparator = comparator;
-        remainingSpace = limit;
+        size = 0;
     }
 
     @Override
@@ -68,15 +66,15 @@ public class TopKSelector<T> extends BinaryHeap
         if (newItem == null)
             return;
 
-        if (remainingSpace > 0)
+        if (size < heap.length)
         {
-            heap[heap.length - remainingSpace] = newItem;
-            if (--remainingSpace == 0)
+            heap[size] = newItem;
+            if (++size == heap.length)
                 heapify();
         }
         else
         {
-            if (greaterThan(newItem, peek()))
+            if (greaterThan(newItem, top()))
                 replaceTop(newItem);
         }
     }
@@ -87,12 +85,16 @@ public class TopKSelector<T> extends BinaryHeap
             add(item);
     }
 
-    private int prepareAndReturnSize()
+    @Override
+    protected int size()
     {
-        int size = heap.length - remainingSpace;
-        if (remainingSpace > 0)
-            heapifyUpTo(size);
         return size;
+    }
+
+    private void maybeHeapify()
+    {
+        if (size < heap.length)
+            heapify();
     }
 
     public List<T> get()
@@ -112,8 +114,8 @@ public class TopKSelector<T> extends BinaryHeap
 
     public List<T> getShared()
     {
-        int size = prepareAndReturnSize();
-        heapSortUpTo(size);
+        maybeHeapify();
+        heapSort();
         return getUnsortedShared();
     }
 
@@ -130,18 +132,19 @@ public class TopKSelector<T> extends BinaryHeap
             @Override
             public int size()
             {
-                return heap.length - remainingSpace;
+                return size;
             }
         };
     }
 
     public <R> List<R> getTransformedSlicedShared(Function<T, R> transformer, int startIndex)
     {
-        int size = prepareAndReturnSize() - startIndex;
+        int size = size() - startIndex;
         if (size <= 0)
             return List.of();
+        maybeHeapify();
 
-        heapSortBetween(startIndex, size + startIndex);
+        heapSortFrom(startIndex);
         return new AbstractList<R>()
         {
             @Override

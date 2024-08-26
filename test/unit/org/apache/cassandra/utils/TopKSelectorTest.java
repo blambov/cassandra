@@ -256,7 +256,7 @@ public class TopKSelectorTest
         assertEquals(List.of(0, 1, 2, 3, 4), topK);
     }
 
-    @Test(expected = ArrayIndexOutOfBoundsException.class)
+    @Test(expected = IllegalArgumentException.class)
     public void testZeroK()
     {
         var selector = new TopKSelector<>(Integer::compareTo, 0);

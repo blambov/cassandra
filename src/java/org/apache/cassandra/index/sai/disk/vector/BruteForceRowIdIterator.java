@@ -121,7 +121,7 @@ public class BruteForceRowIdIterator extends BinaryHeap.WithComparator<RowIdWith
             // Note that this will be redone if hasNext is called again after it returned false; this is okay because
             // in that case the approximateScoreQueue is empty and we will keep setting next to null and returning false.
 
-            next = peek();
+            next = top();
         }
         return next != null;
     }

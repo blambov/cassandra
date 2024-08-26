@@ -80,11 +80,22 @@ public class SortingIterator<T> extends BinaryHeap.WithComparator<T> implements 
         return new Deduplicating<>(comparator, sources.isEmpty() ? new Object[1] : sources.toArray());
     }
 
-    @SuppressWarnings("unchecked")
     @Override
+    protected Object advanceItem(Object item)
+    {
+        return null;
+    }
+
+    @Override
+    protected Object advanceItemTo(Object item, Object targetKey)
+    {
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
     public T peek()
     {
-        return (T) super.peek();
+        return (T) super.top();
     }
 
     @Override
@@ -190,7 +201,7 @@ public class SortingIterator<T> extends BinaryHeap.WithComparator<T> implements 
             return this;
         }
 
-        public <V> Builder<T> addAll(Collection<V> collection, Function<V, T> mapper)
+        public <V> Builder<T> addAll(Collection<V> collection, Function<V, ? extends T> mapper)
         {
             if (count + collection.size() > data.length)
                 data = Arrays.copyOf(data, count + collection.size());

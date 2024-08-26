@@ -28,13 +28,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.BiFunction;
 import java.util.function.LongConsumer;
 import javax.annotation.Nullable;
 
@@ -67,7 +65,6 @@ import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.BinaryHeap;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.SortingIterator;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
@@ -352,7 +349,7 @@ public class TrieMemoryIndex extends MemoryIndex
 
         public PrimaryKey nextOrNull()
         {
-            Object key = peek();
+            Object key = top();
             if (key == null)
                 return null;
             PrimaryKey result = peek(key);
@@ -363,7 +360,7 @@ public class TrieMemoryIndex extends MemoryIndex
 
         public void skipTo(PrimaryKey target)
         {
-            advanceTo(target, SortingSingletonOrSetIterator::skipItem);
+            advanceTo(target);
         }
 
         /**
@@ -372,7 +369,8 @@ public class TrieMemoryIndex extends MemoryIndex
          * If the keys object contains more than one key, the first key is dropped and the iterator to the
          * remaining keys is returned.
          */
-        private static @Nullable Object advanceItem(Object keys)
+        @Override
+        protected @Nullable Object advanceItem(Object keys)
         {
             if (keys instanceof PrimaryKey)
                 return null;
@@ -390,13 +388,14 @@ public class TrieMemoryIndex extends MemoryIndex
          * If the keys object contains more than one key, it is skipped to the given target and the iterator to the
          * remaining keys is returned.
          */
-        private static @Nullable Object skipItem(Object keys, PrimaryKey target)
+        @Override
+        protected @Nullable Object advanceItemTo(Object keys, Object target)
         {
             if (keys instanceof PrimaryKey)
                 return null;
 
             SortedSetRangeIterator iterator = (SortedSetRangeIterator) keys;
-            iterator.skipTo(target);
+            iterator.skipTo((PrimaryKey) target);
             return iterator.hasNext() ? iterator : null;
         }
 

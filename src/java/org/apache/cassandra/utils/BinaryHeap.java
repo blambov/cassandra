@@ -19,25 +19,27 @@
 package org.apache.cassandra.utils;
 
 import java.util.Comparator;
-import java.util.function.BiFunction;
+
+import com.google.common.base.Preconditions;
 
 /**
  * A base binary heap implementation with fixed size, supporting only operations that push
  * data down in the heap (i.e. after the initial initialization of the heap from a collection
- * of items, only top/smallest items can be modified (removed or replaced with larger)).
+ * of items, only top/smallest items can be modified (removed or replaced)).
  * <p>
- * This class does not implement a priority queue (because a queue's purpose is to support
- * adding and removing items), but works very well as a source of sorted entries e.g. for
- * merging iterators, producing a sorted iterator from an unsorted list of items
- * ({@link SortingIterator}) or selecting the top items from data of unbounded size
- * ({@link TopKSelector}).
+ * This class's purpose is to implement various sources of sorted entries, e.g.
+ * for merging iterators (see e.g. {@link TrieMemoryIndex.SortingSingletonOrSetIterator}, producing
+ * a sorted iterator from an unsorted list of items ({@link SortingIterator}) or selecting the
+ * top items from data of unbounded size ({@link TopKSelector}).
  * <p>
- * The implementation supports nulls among the source entries and relies on support for them
- * to make some operations more efficient.
+ * As it does not support adding elements after the initial construction, the class does not
+ * implement a priority queue, where items need to be repeatedly added and removed. If a priority
+ * queue is required, consider using {@link org.apache.lucene.util.PriorityQueue}.
  * <p>
- * This class is not intended to be used as a priority queue and does not support adding elements
- * to the set after the initial construction. If a priority queue is required, consider using
- * {@link org.apache.lucene.util.PriorityQueue}.
+ * By default, the implementation supports nulls among the source entries (by comparing them greater
+ * than all other elements and using null as a marker of completion) and achieves removal by
+ * replacing items with null. This adds slight overhead for simple comparators (e.g. ints), but
+ * significantly improves performance when the comparator is complex.
  */
 public abstract class BinaryHeap
 {
@@ -50,6 +52,7 @@ public abstract class BinaryHeap
      */
     protected BinaryHeap(Object[] data)
     {
+        Preconditions.checkArgument(data.length > 0, "Binary heap needs at least one item.");
         this.heap = data;
         // Note that we can't perform any preparation here because the subclass defining greaterThan may have not been
         // initialized yet.
@@ -62,22 +65,43 @@ public abstract class BinaryHeap
     protected abstract boolean greaterThan(Object a, Object b);
 
     /**
-     * Turn the current list of items into a binary heap by using the initial heap construction
-     * of the heapsort algorithm with complexity O(heap.length).
+     * Get the size. Usually just the heap length because we don't count removed elements, but some descendants may
+     * choose to control size differently.
      */
-    protected void heapify()
+    protected int size()
     {
-        heapifyUpTo(heap.length);
+        return heap.length;
     }
 
     /**
-     * Turn the list of items until the given index into a binary heap by using the initial heap construction
-     * of the heapsort algorithm with complexity O(heap.length).
+     * Advance an item. Return null if there are no further entries.
+     * The default implementations assumes entries are single items and always returns null.
+     * Override it to implement merging of sorted iterators.
      */
-    protected void heapifyUpTo(int size)
+    protected Object advanceItem(Object item)
     {
-        for (int i = size / 2 - 1; i >= 0; --i)
-            heapifyDownUpTo(heap[i], i, size);
+        return null;
+    }
+
+    /**
+     * Advance an item to the closest entry greater than or equal to the target.
+     * Return null if no such entry exists.
+     * The default implementations assumes entries are single items and always returns null.
+     * Override it to implement merging of sorted seeking iterators.
+     */
+    protected Object advanceItemTo(Object item, Object targetKey)
+    {
+        return null;
+    }
+
+    /**
+     * Turn the current list of items into a binary heap by using the initial heap construction
+     * of the heapsort algorithm with complexity O(size()). Done recursively to improve caching on
+     * larger heaps.
+     */
+    protected void heapify()
+    {
+        heapifyRecursively(0, size());
     }
 
     protected boolean isEmpty()
@@ -88,7 +112,7 @@ public abstract class BinaryHeap
     /**
      * Return the next element in the heap without advancing.
      */
-    protected Object peek()
+    protected Object top()
     {
         return heap[0];
     }
@@ -99,12 +123,13 @@ public abstract class BinaryHeap
      */
     protected Object pop()
     {
-        return replaceTop(null);
+        Object item = heap[0];
+        heapifyDown(advanceItem(item), 0);
+        return item;
     }
 
     /**
-     * Get and replace the top item with a new one. The new must compare greater than
-     * or equal to the item being replaced.
+     * Get and replace the top item with a new one.
      */
     protected Object replaceTop(Object newItem)
     {
@@ -121,33 +146,22 @@ public abstract class BinaryHeap
     protected Object popAndSkipEqual()
     {
         Object item = heap[0];
-        advanceBeyond(item, 0);
+        advanceBeyond(item, item);
         return item;
     }
 
-    /**
-     * Recursively drop all elements in the subheap rooted at the given heapIndex that are not beyond the given
-     * targetKey, and restore the heap ordering on the way back from the recursion.
-     */
-    private void advanceBeyond(Object targetKey, int heapIndex)
+    protected void advanceBeyond(Object targetKey, Object topItem)
     {
-        if (heapIndex >= heap.length)
-            return;
-        if (greaterThan(heap[heapIndex], targetKey))
-            return;
-
-        int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= heap.length)
+        Object advanced = advanceItem(topItem);
+        // avoid recomparing top element
+        int size = size();
+        if (1 < size)
         {
-            heap[heapIndex] = null;
+            if (2 < size)
+                applyAdvance(targetKey, 2, ADVANCE_BEYOND, size);
+            applyAdvance(targetKey, 1, ADVANCE_BEYOND, size);
         }
-        else
-        {
-            advanceBeyond(targetKey, nextIndex);
-            advanceBeyond(targetKey, nextIndex + 1);
-
-            heapifyDown(null, heapIndex);
-        }
+        heapifyDown(advanced, 0);
     }
 
     /**
@@ -155,68 +169,97 @@ public abstract class BinaryHeap
      */
     protected void advanceTo(Object targetKey)
     {
-        advanceTo(targetKey, 0);
+        applyAdvance(targetKey, 0, ADVANCE_TO, size());
     }
 
     /**
-     * Recursively drop all elements in the subheap rooted at the given heapIndex that are before the given
-     * targetKey, and restore the heap ordering on the way back from the recursion.
+     * Interface used to specify an advancing operation for {@link #applyAdvance}.
      */
-    private void advanceTo(Object targetKey, int heapIndex)
+    protected interface AdvanceOperation<K>
     {
-        if (heapIndex >= heap.length)
-            return;
-        if (!greaterThan(targetKey, heap[heapIndex]))
+        /**
+         * Return true if the necessary condition is satisfied by this heap entry.
+         * The condition is assumed to also be satisfied for all descendants of the
+         * entry (as they are equal or greater).
+         */
+        boolean shouldStop(BinaryHeap self, Object heapEntry, K targetKey);
+
+        /**
+         * Apply the relevant advancing operation and return the entry to use.
+         */
+        Object advanceItem(BinaryHeap self, Object heapEntry, K targetKey);
+    }
+
+    final static AdvanceOperation<Object> ADVANCE_BEYOND = new AdvanceOperation<Object>()
+    {
+        @Override
+        public boolean shouldStop(BinaryHeap self, Object heapEntry, Object targetKey)
+        {
+            return self.greaterThan(heapEntry, targetKey);
+        }
+
+        @Override
+        public Object advanceItem(BinaryHeap self, Object heapEntry, Object targetKey)
+        {
+            return self.advanceItem(heapEntry);
+        }
+    };
+
+    final static AdvanceOperation<Object> ADVANCE_TO = new AdvanceOperation<Object>()
+    {
+        @Override
+        public boolean shouldStop(BinaryHeap self, Object heapEntry, Object targetKey)
+        {
+            return !self.greaterThan(targetKey, heapEntry);
+        }
+
+        @Override
+        public Object advanceItem(BinaryHeap self, Object heapEntry, Object targetKey)
+        {
+            return self.advanceItemTo(heapEntry, targetKey);
+        }
+    };
+
+    /**
+     * Recursively apply the advance operation to all elements in the subheap rooted at the given heapIndex
+     * that do not satisfy the shouldStop condition, and restore the heap ordering on the way back from the recursion.
+     */
+    private <K> void applyAdvance(K targetKey, int heapIndex, AdvanceOperation<K> advanceOperation, int size)
+    {
+        if (advanceOperation.shouldStop(this, heap[heapIndex], targetKey))
             return;
 
-        int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= heap.length)
+        if (heapIndex * 2 + 1 < size)
         {
-            heap[heapIndex] = null;
+            if (heapIndex * 2 + 2 < size)
+                applyAdvance(targetKey, heapIndex * 2 + 2, advanceOperation, size);
+            applyAdvance(targetKey, heapIndex * 2 + 1, advanceOperation, size);
+
+            Object advanced = advanceOperation.advanceItem(this, heap[heapIndex], targetKey);
+            heapifyDown(advanced, heapIndex);
         }
         else
         {
-            advanceTo(targetKey, nextIndex);
-            advanceTo(targetKey, nextIndex + 1);
-
-            heapifyDown(null, heapIndex);
+            Object advanced = advanceOperation.advanceItem(this, heap[heapIndex], targetKey);
+            heap[heapIndex] = advanced;
         }
     }
 
     /**
-     * Skip to the first element that is greater than or equal to the given key, applying the given function to adjust
-     * each element instead of directly replacing it with null.
+     * Perform the initial heapification of the data. This could be achieved with the method above (with shouldStop
+     * always false and advanceItem returning the item unchanged), but a direct implementation is much simpler and
+     * performs better.
      */
-    protected <T, K extends T> void advanceTo(K targetKey, BiFunction<T, K, T> itemAdvancer)
+
+    private <K> void heapifyRecursively(int heapIndex, int size)
     {
-        advanceTo(targetKey, 0, itemAdvancer);
-    }
-
-    /**
-     * Recursively drop all elements in the subheap rooted at the given heapIndex that are before the given
-     * targetKey, applying the given function to adjust each element instead of directly replacing it with null, and
-     * restore the heap ordering on the way back from the recursion.
-     */
-    @SuppressWarnings("unchecked")
-    private <T, K extends T> void advanceTo(K targetKey, int heapIndex, BiFunction<T, K, T> itemAdvancer)
-    {
-        if (heapIndex >= heap.length)
-            return;
-        Object item = heap[heapIndex];
-        if (!greaterThan(targetKey, item))
-            return;
-
-        int nextIndex = heapIndex * 2 + 1;
-        if (nextIndex >= heap.length)
+        if (heapIndex * 2 + 1 < size)
         {
-            heap[heapIndex] = itemAdvancer.apply((T) item, targetKey);
-        }
-        else
-        {
-            advanceTo(targetKey, nextIndex, itemAdvancer);
-            advanceTo(targetKey, nextIndex + 1, itemAdvancer);
+            if (heapIndex * 2 + 2 < size)
+                heapifyRecursively(heapIndex * 2 + 2, size);
+            heapifyRecursively(heapIndex * 2 + 1, size);
 
-            heapifyDown(itemAdvancer.apply((T) item, targetKey), heapIndex);
+            heapifyDown(heap[heapIndex], heapIndex);
         }
     }
 
@@ -226,7 +269,7 @@ public abstract class BinaryHeap
      */
     private void heapifyDown(Object item, int index)
     {
-        heapifyDownUpTo(item, index, heap.length);
+        heapifyDownUpTo(item, index, size());
     }
 
     /**
@@ -255,12 +298,12 @@ public abstract class BinaryHeap
     /**
      * Sort the heap by repeatedly popping the top item and placing it at the end of the heap array.
      * The result will contain the elements in the heap sorted in descending order.
-     * The heap must be heapified up to the size before calling this method.
+     * The heap must be heapified before calling this method.
      */
-    protected void heapSortUpTo(int size)
+    protected void heapSort()
     {
         // Sorting the ones from 1 will also make put the right value in heap[0]
-        heapSortBetween(1, size);
+        heapSortFrom(1);
     }
 
     /**
@@ -271,10 +314,10 @@ public abstract class BinaryHeap
      * The heap must be heapified up to the size before calling this method.
      * Used to fetch items after a certain offset in a top-k selection.
      */
-    protected void heapSortBetween(int start, int size)
+    protected void heapSortFrom(int start)
     {
         // Data must already be heapified up to that size, comparator must be reverse
-        for (int i = size - 1; i >= start; --i)
+        for (int i = size() - 1; i >= start; --i)
         {
             Object top = heap[0];
             heapifyDownUpTo(heap[i], 0, i);
@@ -305,5 +348,25 @@ public abstract class BinaryHeap
                 return b != null;
             return comparator.compare((T) a, (T) b) > 0;
         }
+    }
+
+    /**
+     * Create a mermaid graph for the current state of the heap. Used to create visuals for documentation/slides.
+     */
+    String toMermaid()
+    {
+        StringBuilder builder = new StringBuilder();
+        builder.append("flowchart\n");
+        int size = size();
+        for (int i = 0; i < size; ++i)
+            builder.append("  s" + i + "(" + heap[i] + ")\n");
+        builder.append("\n");
+        for (int i = 0; i * 2 + 1 < size; ++i)
+        {
+            builder.append("  s" + i + " ---|<=| s" + (i * 2 + 1) + "\n");
+            if (i * 2 + 2 < size)
+                builder.append("  s" + i + " ---|<=| s" + (i * 2 + 2) + "\n");
+        }
+        return builder.toString();
     }
 }
