@@ -264,7 +264,7 @@ public class TopKProcessor
         }
 
         // reorder rows in partition/clustering order
-        for (var triple : topK.get())
+        for (var triple : topK.getUnsortedShared())
             addUnfiltered(unfilteredByPartition, triple.getLeft(), triple.getMiddle());
 
         if (partitions instanceof PartitionIterator)

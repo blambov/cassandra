@@ -43,7 +43,7 @@ public class BruteForceRowIdIteratorTest
     public void testBruteForceRowIdIteratorForEmptyPQAndTopKEqualsLimit()
     {
         var queryVector = vts.createFloatVector(new float[] { 1f, 0f });
-        var pq = SortingIterator.create(Comparator.naturalOrder(), ImmutableList.<BruteForceRowIdIterator.RowWithApproximateScore>of());
+        var pq = SortingIterator.create(BruteForceRowIdIterator.RowWithApproximateScore::compare, ImmutableList.of());
         var topK = 10;
         var limit = 10;
 

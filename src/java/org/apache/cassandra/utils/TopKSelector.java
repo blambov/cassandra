@@ -35,8 +35,8 @@ import java.util.function.Function;
  * This process has a time complexity of O(n log k) for n > k and uses O(k) space. Duplicates are not removed and are
  * returned in arbitrary order.
  * <p>
- * If the number of items required it not known in advance, {@link SortingIterator} can be used instead to get an
- * arbitrary number of ordered items at the expense of keeping track of all of them (using O(k log n) time and O(n)
+ * If the number of items required is not known in advance, {@link SortingIterator} can be used instead to get an
+ * arbitrary number of ordered items at the expense of keeping track of all of them (using O(n + k log n) time and O(n)
  * space).
  */
 public class TopKSelector<T> extends BinaryHeap
@@ -97,29 +97,56 @@ public class TopKSelector<T> extends BinaryHeap
             heapify();
     }
 
+    /**
+     * Get a copy of the top K elements.
+     * After this call the collector can be reused.
+     */
     public List<T> get()
     {
         return new ArrayList<>(getShared());
     }
 
+    /**
+     * Get a copy of the top K elements, applying the given transformation.
+     * After this call the collector can be reused.
+     */
     public <R> List<R> getTransformed(Function<T, R> transformer)
     {
         return getTransformedSliced(transformer, 0);
     }
 
+    /**
+     * Get a copy of the lowest size-startIndex elements, applying the given transformation.
+     * The top startIndex elements will remain in the selector.
+     */
     public <R> List<R> getTransformedSliced(Function<T, R> transformer, int startIndex)
     {
         return new ArrayList<>(getTransformedSlicedShared(transformer, startIndex));
     }
 
+    /**
+     * Get a shared list of the top K elements.
+     * If the selector is not used further, this is a quicker alternative to get().
+     */
     public List<T> getShared()
     {
         maybeHeapify();
         heapSort();
-        return getUnsortedShared();
+        int completedSize = size;
+        size = 0;
+        return getUnsortedShared(completedSize);
     }
 
+    /**
+     * Get a shared list of the top K elements in unsorted order.
+     * This avoids the final sort phase (and heapification if there are fewer than K elements).
+     */
     public List<T> getUnsortedShared()
+    {
+        return getUnsortedShared(size);
+    }
+
+    private List<T> getUnsortedShared(int size)
     {
         return new AbstractList<T>()
         {
@@ -137,6 +164,10 @@ public class TopKSelector<T> extends BinaryHeap
         };
     }
 
+    /**
+     * Get a shared list of the lowest size-startIndex elements, applying the given transformation.
+     * If the selector is not used further, this is a quicker alternative to getTransformedSliced().
+     */
     public <R> List<R> getTransformedSlicedShared(Function<T, R> transformer, int startIndex)
     {
         int size = size() - startIndex;
@@ -145,6 +176,7 @@ public class TopKSelector<T> extends BinaryHeap
         maybeHeapify();
 
         heapSortFrom(startIndex);
+        TopKSelector.this.size = startIndex; // the rest of the top items remain heapified and can be extracted later
         return new AbstractList<R>()
         {
             @Override

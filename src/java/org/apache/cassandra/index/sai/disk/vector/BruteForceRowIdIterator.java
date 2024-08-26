@@ -49,12 +49,11 @@ import org.apache.cassandra.utils.SortingIterator;
  * <p>
  * As an implementation detail, we use a binary heap to maintain state rather than a List and sorting.
  */
-public class BruteForceRowIdIterator extends BinaryHeap.WithComparator<RowIdWithScore> implements CloseableIterator<RowIdWithScore>
+public class BruteForceRowIdIterator
+extends BinaryHeap.WithComparator<RowIdWithScore>
+implements CloseableIterator<RowIdWithScore>
 {
-    /**
-     * Note: this class has a natural ordering that is inconsistent with equals.
-     */
-    public static class RowWithApproximateScore implements Comparable<RowWithApproximateScore>
+    public static class RowWithApproximateScore
     {
         private final int rowId;
         private final int ordinal;
@@ -67,11 +66,10 @@ public class BruteForceRowIdIterator extends BinaryHeap.WithComparator<RowIdWith
             this.appoximateScore = appoximateScore;
         }
 
-        @Override
-        public int compareTo(RowWithApproximateScore o)
+        public static int compare(RowWithApproximateScore l, RowWithApproximateScore r)
         {
             // Inverted comparison to sort in descending order
-            return Float.compare(o.appoximateScore, appoximateScore);
+            return Float.compare(r.appoximateScore, l.appoximateScore);
         }
     }
 
@@ -95,7 +93,7 @@ public class BruteForceRowIdIterator extends BinaryHeap.WithComparator<RowIdWith
                                    int limit,
                                    int topK)
     {
-        super(Comparator.naturalOrder(), new Object[topK]);
+        super(RowIdWithScore::compare, new Object[topK]);
         this.approximateScoreQueue = approximateScoreQueue;
         this.reranker = reranker;
         this.initialized = false;
@@ -117,7 +115,9 @@ public class BruteForceRowIdIterator extends BinaryHeap.WithComparator<RowIdWith
                 initialized = true;
             }
             else
+            {
                 replaceTop(getNextApproximateAndRerank());
+            }
             // Note that this will be redone if hasNext is called again after it returned false; this is okay because
             // in that case the approximateScoreQueue is empty and we will keep setting next to null and returning false.
 

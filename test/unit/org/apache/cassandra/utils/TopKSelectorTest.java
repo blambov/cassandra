@@ -119,7 +119,7 @@ public class TopKSelectorTest
             selector.add(num);
         }
 
-        List<Integer> topK = selector.get();
+        List<Integer> topK = selector.getShared();
 
         // Expecting the non-null elements in sorted order
         assertEquals(List.of(5, 7, 10), topK);
@@ -135,10 +135,11 @@ public class TopKSelectorTest
             selector.add(num);
         }
 
-        List<Integer> topK = selector.get();
+        // also test transformation
+        List<Integer> topK = selector.getTransformed(x -> -x);
 
-        // Expecting the smallest (most negative) 5 elements in sorted order
-        assertEquals(List.of(-25, -20, -15, -10, -9), topK);
+        // Expecting the smallest (most negative) 5 elements in sorted order, transformed to -x
+        assertEquals(List.of(25, 20, 15, 10, 9), topK);
     }
 
     @Test
@@ -240,6 +241,11 @@ public class TopKSelectorTest
 
         // Ensure the size of the top k list is k
         assertEquals(k, topK.size());
+
+        // Get the rest of the items now
+        List<Integer> remainder = randomSelector.getShared();
+        List<Integer> sortedRemainder = all.stream().sorted().limit(offset).collect(Collectors.toList());
+        assertEquals(sortedRemainder, remainder);
     }
 
     @Test
@@ -262,5 +268,16 @@ public class TopKSelectorTest
         var selector = new TopKSelector<>(Integer::compareTo, 0);
         selector.addAll(List.of(10, 20, 3, 4, 5));
         assertEquals(List.of(), selector.get());
+    }
+
+
+    @Test
+    public void testGetAndRestart()
+    {
+        testBasicFunctionality();
+        // Reusing the selector which is reset by the get() call
+        testTopKWithNegativeNumbers();
+        // Also test resetting after getTransformed
+        testBasicFunctionality();
     }
 }

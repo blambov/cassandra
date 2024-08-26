@@ -307,7 +307,7 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
             var score = scoreFunction.similarityTo(ordinal);
             approximateScores.add(new BruteForceRowIdIterator.RowWithApproximateScore(segmentRowId, ordinal, score));
         });
-        var approximateScoresQueue = approximateScores.build(Comparator.naturalOrder());
+        var approximateScoresQueue = approximateScores.build(BruteForceRowIdIterator.RowWithApproximateScore::compare);
         var reranker = new JVectorLuceneOnDiskGraph.CloseableReranker(similarityFunction, queryVector, graph.getVectorSupplier());
         return new BruteForceRowIdIterator(approximateScoresQueue, reranker, limit, rerankK);
     }
@@ -321,7 +321,7 @@ public class V2VectorIndexSearcher extends IndexSearcher implements SegmentOrder
     {
         var scoredRowIds = new SortingIterator.Builder<RowIdWithScore>(segmentOrdinalPairs.size());
         addScoredRowIdsToCollector(queryVector, segmentOrdinalPairs, 0, scoredRowIds::add);
-        return scoredRowIds.closeable(Comparator.naturalOrder(), Runnables.doNothing());
+        return scoredRowIds.closeable(RowIdWithScore::compare, Runnables.doNothing());
     }
 
     /**
