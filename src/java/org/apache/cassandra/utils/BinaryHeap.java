@@ -34,7 +34,7 @@ import com.google.common.base.Preconditions;
  * <p>
  * As it does not support adding elements after the initial construction, the class does not
  * implement a priority queue, where items need to be repeatedly added and removed. If a priority
- * queue is required, consider using {@link org.apache.lucene.util.PriorityQueue}.
+ * queue is required, consider using {@link LucenePriorityQueue}.
  * <p>
  * By default, the implementation supports nulls among the source entries (by comparing them greater
  * than all other elements and using null as a marker of completion) and achieves removal by
