@@ -686,8 +686,7 @@ public class TrieBackedPartition implements Partition
         {
             MutableDeletionInfo deletionInfo = deletionBuilder.build();
             trie.putRecursive(ByteComparable.EMPTY, deletionInfo, NO_CONFLICT_RESOLVER);    // will throw if called more than once
-            if (collectDataSize)
-                dataSize += deletionInfo.dataSize();
+            // dataSize does not include the deletion info bytes
             return this;
         }
 

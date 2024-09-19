@@ -107,7 +107,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                                        RegularAndStaticColumns.NONE,
                                        EncodingStats.NO_STATS,
                                        0,
-                                       MutableDeletionInfo.live().dataSize(),
+                                       0,
                                        newTrie(MutableDeletionInfo.live()),
                                        false);
     }
@@ -130,7 +130,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                                        RegularAndStaticColumns.NONE,
                                        new EncodingStats(timestamp, nowInSec, LivenessInfo.NO_TTL),
                                        0,
-                                       deletion.dataSize(),
+                                       0,
                                        newTrie(deletion),
                                        false);
     }
@@ -496,7 +496,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                                                              columns,
                                                              statsCollector.get(),
                                                              rowCountIncludingStatic,
-                                                             Ints.saturatedCast(dataSize + deletionInfo.dataSize()),
+                                                             Ints.saturatedCast(dataSize),
                                                              trie,
                                                              canHaveShadowedData);
 

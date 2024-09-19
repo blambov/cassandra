@@ -179,7 +179,7 @@ public class MutableDeletionInfo implements DeletionInfo
 
     public int dataSize()
     {
-        int size = TypeSizes.sizeof(partitionDeletion.markedForDeleteAt());
+        int size = (int) DeletionTime.serializer.serializedSize(partitionDeletion); // small enough so cast is okay
         return size + (ranges == null ? 0 : ranges.dataSize());
     }
 

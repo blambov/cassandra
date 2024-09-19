@@ -258,7 +258,7 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
     public int dataSize()
     {
         return Ints.saturatedCast(BTree.<Row>accumulate(holder.tree, (row, value) -> row.dataSize() + value, 0L)
-                + holder.staticRow.dataSize() + holder.deletionInfo.dataSize());
+                + holder.staticRow.dataSize());
     }
 
     @Override
