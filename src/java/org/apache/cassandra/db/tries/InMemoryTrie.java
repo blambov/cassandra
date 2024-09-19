@@ -141,11 +141,6 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-//    public static <T> InMemoryTrie<T> shortLived()
-//    {
-//        return shortLived(ByteComparable.Version.OSS50);
-//    }
-
     public static <T> InMemoryTrie<T> shortLived(ByteComparable.Version byteComparableVersion)
     {
         return new InMemoryTrie<>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
@@ -156,21 +151,11 @@ public class InMemoryTrie<T> extends InMemoryReadTrie<T>
         return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null);
     }
 
-//    public static <T> InMemoryTrie<T> longLived(OpOrder opOrder)
-//    {
-//        return longLived(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, opOrder);
-//    }
-
     public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, OpOrder opOrder)
     {
         return longLived(byteComparableVersion, BufferType.OFF_HEAP, opOrder);
     }
 
-//    public static <T> InMemoryTrie<T> longLived(BufferType bufferType, OpOrder opOrder)
-//    {
-//        return longLived(ByteComparable.Version.OSS50, bufferType, opOrder);
-//    }
-//
     public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
         return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);

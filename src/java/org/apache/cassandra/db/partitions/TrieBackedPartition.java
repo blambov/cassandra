@@ -86,12 +86,12 @@ public class TrieBackedPartition implements Partition
     @VisibleForTesting
     public static final int MAX_RECURSIVE_KEY_LENGTH = 128;
 
-    public static ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
+    public static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
 
     /** Pre-made path for STATIC_CLUSTERING, to avoid creating path object when querying static path. */
     public static final ByteComparable STATIC_CLUSTERING_PATH = v -> ByteSource.oneByte(ClusteringPrefix.Kind.STATIC_CLUSTERING.asByteComparableValue(v));
     /** Pre-made path for BOTTOM, to avoid creating path object when iterating rows. */
-    public static final ByteComparable BOTTOM_PATH = v -> ByteSource.oneByte(ClusteringBound.Kind.INCL_START_BOUND.asByteComparableValue(v));
+    public static final ByteComparable BOTTOM_PATH = v -> ByteSource.oneByte(ClusteringPrefix.Kind.INCL_START_BOUND.asByteComparableValue(v));
 
     /**
      * The representation of a row stored at the leaf of a trie. Does not contain the row key.
