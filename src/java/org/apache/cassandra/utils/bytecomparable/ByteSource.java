@@ -755,16 +755,25 @@ public interface ByteSource
         }
     }
 
+    /**
+     * A byte source representing a value of fixed length than can be compared using unsigned byte comparison. Such
+     * value can be used unchanged because their fixed length ensures that the encoding is prefix-free.
+     * This method also permits the value to be empty and encodes this as null.
+     */
     static <V> ByteSource optionalFixedLength(ValueAccessor<V> accessor, V data)
     {
         return !accessor.isEmpty(data) ? preencoded(accessor, data) : null;
     }
 
     /**
-     * A byte source of the given bytes without any encoding.
-     * The resulting source is only guaranteed to give correct comparison results and be prefix-free if the
-     * underlying type has a fixed length.
-     * In tests, this method is also used to generate non-escaped test cases.
+     * A byte source of the given bytes without any encoding. This has several uses:
+     * - to store a value that is already encoded for a given version (see ByteComparable.preencoded)
+     * - to store fixed-length values that can be used directly because their length ensures that the encoding is
+     *   prefix-free (see optionalFixedLength)
+     * - to implement ByteSource duplication
+     * - to store a value that has a custom encoding not handled by ByteSource and AbstractType implementations
+     *   (e.g. some SAI indexes)
+     * - to generate non-escaped test cases
      */
     public static <V> ByteSource preencoded(ValueAccessor<V> accessor, V data)
     {

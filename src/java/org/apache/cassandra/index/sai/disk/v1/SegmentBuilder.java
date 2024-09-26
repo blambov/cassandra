@@ -209,7 +209,7 @@ public abstract class SegmentBuilder
         {
             try (InvertedIndexWriter writer = new InvertedIndexWriter(components))
             {
-                return writer.writeAll(ramIndexer.getTermsWithPostings(minTerm, maxTerm));
+                return writer.writeAll(ramIndexer.getTermsWithPostings(minTerm, maxTerm, byteComparableVersion));
             }
         }
 

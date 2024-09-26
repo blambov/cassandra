@@ -28,6 +28,7 @@ import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.sai.utils.AbstractIterator;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
+import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -64,7 +65,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryTrie<Integer> rowMapping = InMemoryTrie.shortLived(ByteComparable.Version.OSS41);
+    private final InMemoryTrie<Integer> rowMapping = InMemoryTrie.shortLived(TypeUtil.BYTE_COMPARABLE_VERSION);
 
     private volatile boolean complete = false;
 

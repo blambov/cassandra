@@ -154,7 +154,9 @@ class MergeTrie<T> extends Trie<T>
         @Override
         public ByteComparable.Version byteComparableVersion()
         {
-            assert c1.byteComparableVersion() == c2.byteComparableVersion();
+            assert c1.byteComparableVersion() == c2.byteComparableVersion() :
+                "Merging cursors with different byteComparableVersions: " +
+                c1.byteComparableVersion() + " vs " + c2.byteComparableVersion();
             return c1.byteComparableVersion();
         }
 

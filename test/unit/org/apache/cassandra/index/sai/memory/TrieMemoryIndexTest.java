@@ -35,7 +35,6 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.UTF8Type;
-import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.index.TargetParser;
 import org.apache.cassandra.index.sai.IndexContext;
@@ -88,7 +87,7 @@ public class TrieMemoryIndexTest
         while(iterator.hasNext())
         {
             Pair<ByteComparable, PrimaryKeys> pair = iterator.next();
-            int value = ByteSourceInverse.getSignedInt(pair.left.asComparableBytes(ByteComparable.Version.OSS41));
+            int value = ByteSourceInverse.getSignedInt(pair.left.asComparableBytes(TypeUtil.BYTE_COMPARABLE_VERSION));
             int idCount = 0;
             Iterator<PrimaryKey> primaryKeyIterator = pair.right.iterator();
             while (primaryKeyIterator.hasNext())
@@ -119,7 +118,7 @@ public class TrieMemoryIndexTest
         while(iterator.hasNext())
         {
             Pair<ByteComparable, PrimaryKeys> pair = iterator.next();
-            String value = new String(ByteSourceInverse.readBytes(pair.left.asPeekableBytes(ByteComparable.Version.OSS41)), StandardCharsets.UTF_8);
+            String value = new String(ByteSourceInverse.readBytes(pair.left.asPeekableBytes(TypeUtil.BYTE_COMPARABLE_VERSION)), StandardCharsets.UTF_8);
             int idCount = 0;
             Iterator<PrimaryKey> primaryKeyIterator = pair.right.iterator();
             while (primaryKeyIterator.hasNext())
@@ -162,7 +161,7 @@ public class TrieMemoryIndexTest
                                                           ? v -> ByteSource.preencoded(decompose.apply(rowId))
                                                           : version -> type.asComparableBytes(decompose.apply(rowId), version);
             final ByteComparable actualByteComparable = pair.left;
-            assertEquals("Mismatch at: " + i, 0, ByteComparable.compare(expectedByteComparable, actualByteComparable, ByteComparable.Version.OSS41));
+            assertEquals("Mismatch at: " + i, 0, ByteComparable.compare(expectedByteComparable, actualByteComparable, TypeUtil.BYTE_COMPARABLE_VERSION));
 
             i++;
         }

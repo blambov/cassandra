@@ -43,6 +43,7 @@ import org.apache.cassandra.index.sai.disk.v1.bitpack.NumericValuesWriter;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.SAICodecUtils;
 import org.apache.cassandra.index.sai.utils.SaiRandomizedTest;
+import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -52,7 +53,7 @@ import org.apache.lucene.store.IndexInput;
 public class SortedTermsTest extends SaiRandomizedTest
 {
 
-    public static final ByteComparable.Version VERSION = ByteComparable.Version.OSS41;
+    public static final ByteComparable.Version VERSION = TypeUtil.BYTE_COMPARABLE_VERSION;
 
     @Test
     public void testLexicographicException() throws Exception

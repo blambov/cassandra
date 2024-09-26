@@ -40,9 +40,10 @@ import org.apache.cassandra.index.sai.utils.AbstractIterator;
 import org.apache.cassandra.index.sai.utils.PrimaryKeyWithSortKey;
 import org.apache.cassandra.index.sai.utils.RangeIterator;
 import org.apache.cassandra.index.sai.utils.RowIdWithByteComparable;
+import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.CloseableIterator;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.index.sai.disk.v1.kdtree.BKDQueries.bkdQueryFrom;
 
@@ -152,7 +153,9 @@ public class KDTreeIndexSearcher extends IndexSearcher
             System.arraycopy(iterator.scratch, 0, indexValue, 0, iterator.scratch.length);
             // We store the indexValue in an already encoded format, so we use the preencoded method here
             // to avoid re-encoding it.
-            return new RowIdWithByteComparable(Math.toIntExact(segmentRowId), (v) -> ByteSource.preencoded(indexValue));
+            return new RowIdWithByteComparable(Math.toIntExact(segmentRowId),
+                                               ByteComparable.preencoded(TypeUtil.BYTE_COMPARABLE_VERSION,
+                                                                         indexValue));
         }
 
         @Override
