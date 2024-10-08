@@ -39,7 +39,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import org.agrona.collections.IntArrayList;
 import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Token;
@@ -476,7 +475,7 @@ public class CompactionStrategyStatisticsTest extends BaseCompactionStrategyTest
         for (AbstractCompactionTask task : tasks)
         {
             assertNotNull(task);
-            UUID id = task.transaction().opId();
+            UUID id = task.getTransaction().opId();
 
             verifyStatistics(strategy,
                              1,
@@ -599,7 +598,7 @@ public class CompactionStrategyStatisticsTest extends BaseCompactionStrategyTest
                 i++;
 
                 assertNotNull(task);
-                UUID id = task.transaction().opId();
+                UUID id = task.getTransaction().opId();
 
                 numCompactionsInProgress++;
                 numSSTablesCompacting += candidates.size();
