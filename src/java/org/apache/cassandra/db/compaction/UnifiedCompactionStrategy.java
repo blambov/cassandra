@@ -214,7 +214,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         List<AbstractCompactionTask> tasks = new ArrayList<>();
         for (Arena arena : getCompactionArenas(realm.getLiveSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction))
         {
-            var compactingSets = Controller.MAJOR_COMPACTIONS_RESHARD
+            var compactingSets = Controller.RESHARD_MAJOR_COMPACTIONS
                                  ? ImmutableList.of(arena.sstables)
                                  : splitInNonOverlappingSets(arena.sstables);
 
@@ -435,8 +435,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         }
         double density = shardManager.calculateCombinedDensity(sstables);
         int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
-        List<Range<Token>> ranges = shardManager.boundaries(numShards).shardsCovering(min.getToken(), max.getToken());
-        if (ranges.size() > 1)
+        List<Range<Token>> ranges = shardManager.shardsCovering(numShards, min.getToken(), max.getToken());
+        if (ranges != null && ranges.size() > 1)
         {
             List<UnifiedCompactionTask> tasks = new ArrayList<>(ranges.size());
             CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction, ranges.size());
