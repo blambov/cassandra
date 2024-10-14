@@ -353,11 +353,14 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Apply the operation range.
             // done: Adjust progress reports for cursors.
             // post-first-version:
-            // TODO: Tests for SSTableReader.onDiskSizeForRanges, ShardManager.shardsCovering
-            // TODO: Is it okay to not rate control individual subtasks?
+            // TODO: Tests of PartialLifecycleTransaction, especially aborts
+            // TODO: Tests of createParallelCompactionTasks: expired sstables, no-sstable ranges, etc.
+            // TODO: Tests for SSTableReader.onDiskSizeForRanges,
+            // TODO: Tests of ShardManager.shardsCovering
+            // TODO: Is it okay to not rate control individual subtasks? No, top-level unaligned compaction can stop all.
             // TODO: Find a way to only run up to the limit subtasks for each level?
             // TODO: Take subtasks into account in getSelected?
-            // TODO: Maybe specify a task count parameter to createParallelCompactionTasks?
+            // TODO: Maybe specify a task count parameter to createParallelCompactionTasks (i.e. join ranges)?
             // TODO: Progress reports are incorrect for iterators
             // TODO: Maybe optimize scanners to not use index.
             tasks.addAll(createParallelCompactionTasks(transaction, gcBefore));
