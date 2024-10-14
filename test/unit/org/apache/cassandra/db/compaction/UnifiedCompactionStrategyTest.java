@@ -1131,7 +1131,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testGetNextBackgroundTasksParallelizeOutputShards() throws Exception
     {
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", true);
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         assertCompactionTask(1, 3, UnifiedCompactionTask.class);
         assertCompactionTask(3, 9, UnifiedCompactionTask.class);
     }
@@ -1139,7 +1139,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testGetNextBackgroundTasksNoParallelization() throws Exception
     {
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", false);
+        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
         assertCompactionTask(1, 3, UnifiedCompactionTask.class);
         assertCompactionTask(3, 3, UnifiedCompactionTask.class);
     }
@@ -1301,7 +1301,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testDropExpiredSSTables1Shard() throws Exception
     {
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", true);
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         testDropExpiredFromBucket(1);
         testDropExpiredAndCompactNonExpired();
     }
@@ -1310,7 +1310,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     public void testDropExpiredSSTables3Shards() throws Exception
     {
         // We don't want separate tasks for each output shard here
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", false);
+        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
         testDropExpiredFromBucket(3);
     }
 
@@ -1562,16 +1562,16 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testMaximalSelectionNoReshard() throws Exception
     {
-        Util.modifyStaticFinalField(Controller.class, "RESHARD_MAJOR_COMPACTIONS", false);
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", false);
+        Controller.RESHARD_MAJOR_COMPACTIONS = false;
+        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
         testMaximalSelection(3, 5, 2 + 3 + 5, ((2 * 100L + 3 * 200 + 5 * 400) << 20));
     }
 
     @Test
     public void testMaximalSelectionReshard() throws Exception
     {
-        Util.modifyStaticFinalField(Controller.class, "RESHARD_MAJOR_COMPACTIONS", true);
-        Util.modifyStaticFinalField(Controller.class, "PARALLELIZE_OUTPUT_SHARDS", true);
+        Controller.RESHARD_MAJOR_COMPACTIONS = true;
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         // shared transaction, all tasks refer to the same input sstables
         testMaximalSelection(1, 1, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));
         testMaximalSelection(3, 3, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));

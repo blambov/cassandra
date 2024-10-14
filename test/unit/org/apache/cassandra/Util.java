@@ -1331,7 +1331,7 @@ public class Util
         // Remove the 'final' modifier using reflection
         Field modifiersField = Field.class.getDeclaredField("modifiers");
         modifiersField.setAccessible(true);
-        modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+        modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL | Modifier.VOLATILE);
 
         // Set the new value for the static field
         field.set(null, newValue); // Use null for static fields

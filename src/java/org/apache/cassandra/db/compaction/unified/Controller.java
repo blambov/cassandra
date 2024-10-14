@@ -303,8 +303,8 @@ public abstract class Controller
     /**
      * Whether to create subtask for the output shards of individual compactions and execute them in parallel.
      */
-    public static final boolean PARALLELIZE_OUTPUT_SHARDS = Boolean.parseBoolean(getSystemProperty("parallelize_output_shards",
-                                                                                                   "true"));
+    public static boolean PARALLELIZE_OUTPUT_SHARDS = Boolean.parseBoolean(getSystemProperty("parallelize_output_shards",
+                                                                                             "true"));
 
     /**
      * Whether major compactions should not try to split the inputs into non-overlapping sets. Splitting the input is
@@ -312,8 +312,8 @@ public abstract class Controller
      * does not re-shard data that has already been split into shards, which is something we may want to do in some
      * scenarios.
      */
-    public static final boolean RESHARD_MAJOR_COMPACTIONS = Boolean.parseBoolean(getSystemProperty("reshard_major_compactions",
-                                                                                                   Boolean.toString(PARALLELIZE_OUTPUT_SHARDS)));
+    public static boolean RESHARD_MAJOR_COMPACTIONS = Boolean.parseBoolean(getSystemProperty("reshard_major_compactions",
+                                                                                             Boolean.toString(PARALLELIZE_OUTPUT_SHARDS)));
 
     /**
      * The scaling parameters W, one per bucket index and separated by a comma.
