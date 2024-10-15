@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,7 +43,6 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.DiskBoundaries;
-import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.commitlog.IntervalSet;
@@ -371,9 +371,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Adjust progress reports for cursors.
             // post-first-version:
             // done: Tests of PartialLifecycleTransaction, especially aborts
-            // TODO: Tests of createParallelCompactionTasks: expired sstables, no-sstable ranges, etc.
+            // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
             // TODO: Tests for SSTableReader.onDiskSizeForRanges,
-            // TODO: Tests of ShardManager.shardsCovering
             // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
             // TODO: Is it okay to not rate control individual subtasks?
             //  -- No, top-level unaligned compaction can stop all.
@@ -455,7 +454,19 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         if (numShards <= 1)
             return Collections.singletonList(createCompactionTask(transaction, gcBefore));
 
-        final List<CompactionTask> tasks = splitCompactionTaskRanges(gcBefore, transaction, shardManager, numShards);
+        CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
+        List<CompactionTask> tasks = splitSSTablesInShards(sstables,
+                                                           shardManager.boundaries(numShards),
+                                                           (rangeSSTables, range) -> new UnifiedCompactionTask(realm,
+                                                                                                                   this,
+                                                                                                                   new PartialLifecycleTransaction(compositeTransaction),
+                                                                                                                   gcBefore,
+                                                                                                                   shardManager,
+                                                                                                                   range,
+                                                                                                                   rangeSSTables));
+
+        if (tasks.isEmpty())
+            transaction.close(); // this should not be reachable normally, close the transaction for safety
 
         if (tasks.size() == 1) // if there's just one range, make it a non-ranged task (to apply early open etc.)
         {
@@ -466,12 +477,11 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             return tasks;
     }
 
-    private List<CompactionTask> splitCompactionTaskRanges(int gcBefore, LifecycleTransaction transaction, ShardManager shardManager, int numShards)
+    private <T> List<T> splitSSTablesInShards(Collection<SSTableReader> sstables,
+                                              ShardTracker boundaries,
+                                              BiFunction<Set<SSTableReader>, Range<Token>, T> maker)
     {
-        Collection<SSTableReader> sstables = transaction.originals();
-        var boundaries = shardManager.boundaries(numShards);
-        CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction, 0);
-        List<CompactionTask> tasks = new ArrayList<>();
+        List<T> tasks = new ArrayList<>();
         SortingIterator<SSTableReader> firsts = SortingIterator.create(SSTableReader.firstKeyComparator, sstables);
         SortingIterator<SSTableReader> lasts = SortingIterator.create(SSTableReader.lastKeyComparator, sstables);
         Set<SSTableReader> current = new HashSet<>(sstables.size());
@@ -488,24 +498,15 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                 current.add(firsts.next());
 
             if (!current.isEmpty())
-            {
-                tasks.add(new UnifiedCompactionTask(realm,
-                                                    this,
-                                                    new PartialLifecycleTransaction(compositeTransaction),
-                                                    gcBefore,
-                                                    shardManager,
-                                                    boundaries.shardSpan(),
-                                                    current));
-            }
+                tasks.add(maker.apply(current, boundaries.shardSpan()));
 
             while (lasts.hasNext() && (shardEnd == null || lasts.peek().getLast().getToken().compareTo(shardEnd) <= 0))
                 current.remove(lasts.next());
 
-            if (!current.isEmpty()) // shardEnd must be non-null (otherwise the line below exhausts all)
+            if (!current.isEmpty()) // shardEnd must be non-null (otherwise the line above exhausts all)
                 boundaries.advanceTo(shardEnd.nextValidToken());
         }
         assert current.isEmpty();
-        compositeTransaction.setPartCount(tasks.size());
         return tasks;
     }
 

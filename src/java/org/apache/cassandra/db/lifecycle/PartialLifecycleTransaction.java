@@ -42,6 +42,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
     {
         this.composite = composite;
         this.mainTransaction = composite.mainTransaction;
+        composite.register(this);
     }
 
     public void checkpoint()

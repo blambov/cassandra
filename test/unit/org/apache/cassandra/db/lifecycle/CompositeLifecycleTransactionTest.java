@@ -64,7 +64,7 @@ public class CompositeLifecycleTransactionTest
         tracker.addInitialSSTables(copyOf(readers));
         LifecycleTransaction txn = tracker.tryModify(copyOf(readers), OperationType.UNKNOWN);
 
-        CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn, count);
+        CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn);
         var partials = IntStream.range(0, count).mapToObj(i -> new PartialLifecycleTransaction(composite)).toArray(PartialLifecycleTransaction[]::new);
 
         partials[0].update(readers2[3], false);
@@ -154,7 +154,7 @@ public class CompositeLifecycleTransactionTest
         tracker.addInitialSSTables(copyOf(inputs));
         LifecycleTransaction txn = tracker.tryModify(copyOf(inputs), OperationType.UNKNOWN);
 
-        CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn, count);
+        CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn);
         var futures = new ArrayList<CompletableFuture<Void>>();
         for (int i = 0; i < count; ++i)
         {
