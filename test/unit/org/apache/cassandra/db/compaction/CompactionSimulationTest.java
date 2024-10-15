@@ -400,7 +400,6 @@ public class CompactionSimulationTest extends BaseCompactionStrategyTest
                                                          0,
                                                          maxSpaceOverhead,
                                                          0,
-                                                         expiredSSTableCheckFrequency,
                                                          ignoreOverlaps,
                                                          baseShardCount,
                                                          false,
@@ -427,7 +426,6 @@ public class CompactionSimulationTest extends BaseCompactionStrategyTest
                                                        0,
                                                        maxSpaceOverhead, // MB
                                                        0,
-                                                       expiredSSTableCheckFrequency,
                                                        ignoreOverlaps,
                                                        baseShardCount,
                                                        false,

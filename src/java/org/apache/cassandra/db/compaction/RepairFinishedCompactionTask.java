@@ -111,9 +111,8 @@ public class RepairFinishedCompactionTask extends AbstractCompactionTask
         throw new UnsupportedOperationException();
     }
 
-    protected int executeInternal()
+    protected void executeInternal()
     {
         run();
-        return transaction.originals().size();
     }
 }
