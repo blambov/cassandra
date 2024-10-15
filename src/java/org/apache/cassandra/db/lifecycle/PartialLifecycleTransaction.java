@@ -28,6 +28,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.utils.Throwables;
 
 @NotThreadSafe
 public class PartialLifecycleTransaction implements ILifecycleTransaction
@@ -55,15 +56,26 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public void update(SSTableReader reader, boolean original)
     {
+        throwIfAborted();
         if (original)
             throw earlyOpenUnsupported();
 
-        mainTransaction.update(reader, original);
+        synchronized (mainTransaction)
+        {
+            mainTransaction.update(reader, original);
+        }
     }
 
     public void update(Collection<SSTableReader> readers, boolean original)
     {
-        mainTransaction.update(readers, original);
+        throwIfAborted();
+        if (original)
+            throw earlyOpenUnsupported();
+
+        synchronized (mainTransaction)
+        {
+            mainTransaction.update(readers, original);
+        }
     }
 
     public SSTableReader current(SSTableReader reader)
@@ -98,27 +110,35 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public Throwable commit(Throwable accumulate)
     {
+        Throwables.maybeFail(accumulate); // we must be called with a null accumulate
         if (markCommittedOrAborted())
             composite.commitPart();
-        return accumulate;
+        else
+            throw new IllegalStateException("Partial transaction already committed or aborted.");
+        return null;
     }
 
     public Throwable abort(Throwable accumulate)
     {
+        Throwables.maybeFail(accumulate); // we must be called with a null accumulate
         if (markCommittedOrAborted())
             composite.abortPart();
-        return accumulate;
+        else
+            throw new IllegalStateException("Partial transaction already committed or aborted.");
+        return null;
     }
 
     private void throwIfAborted()
     {
-        // maybe throw if the composite transaction is already aborted?
         if (composite.wasAborted())
             throw new IllegalStateException("Transaction aborted");
     }
 
     public void prepareToCommit()
     {
+        if (committedOrAborted.get())
+            throw new IllegalStateException("Partial transaction already committed or aborted.");
+
         throwIfAborted();
         // nothing else to do, the composite transaction will perform the preparation when all parts are done
     }
@@ -132,12 +152,18 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
     public void trackNew(SSTable table)
     {
         throwIfAborted();
-        mainTransaction.trackNew(table);
+        synchronized (mainTransaction)
+        {
+            mainTransaction.trackNew(table);
+        }
     }
 
     public void untrackNew(SSTable table)
     {
-        mainTransaction.untrackNew(table);
+        synchronized (mainTransaction)
+        {
+            mainTransaction.untrackNew(table);
+        }
     }
 
     public OperationType opType()
@@ -159,6 +185,9 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
     @Override
     public void cancel(SSTableReader removedSSTable)
     {
-        mainTransaction.cancel(removedSSTable);
+        synchronized (mainTransaction)
+        {
+            mainTransaction.cancel(removedSSTable);
+        }
     }
 }
