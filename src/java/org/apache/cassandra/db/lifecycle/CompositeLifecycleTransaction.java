@@ -27,17 +27,17 @@ public class CompositeLifecycleTransaction
     private volatile boolean obsoleteOriginalsRequested;
     private volatile boolean wasAborted;
 
-    public CompositeLifecycleTransaction(LifecycleTransaction mainTransaction, int partCount)
+    public CompositeLifecycleTransaction(LifecycleTransaction mainTransaction)
     {
         this.mainTransaction = mainTransaction;
-        this.partsToCommitOrAbort = new AtomicInteger(partCount);
+        this.partsToCommitOrAbort = new AtomicInteger(0);
         this.wasAborted = false;
         this.obsoleteOriginalsRequested = false;
     }
 
-    public void setPartCount(int partCount)
+    public void register(PartialLifecycleTransaction part)
     {
-        partsToCommitOrAbort.set(partCount);
+        partsToCommitOrAbort.incrementAndGet();
     }
 
     public void requestObsoleteOriginals()

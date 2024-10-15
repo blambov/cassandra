@@ -63,6 +63,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Overlaps;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.concurrent.Transactional;
 import org.mockito.Mockito;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1662,12 +1663,15 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
             assertFalse(t.inputSSTables().isEmpty());
             collectedSSTablesPerTask[i] = t.inputSSTables().size();
             expectedSSTablesInTasks[i] = (int) allSSTables.stream().filter(x -> intersects(x, t.tokenRange())).count();
+            t.rejected(null); // close transaction
             ++i;
         }
         if (tasks.size() == 1)
             assertNull(tasks.get(0).tokenRange()); // make sure single-task compactions are not ranged
         Assert.assertEquals(Arrays.toString(expectedSSTablesInTasks), Arrays.toString(collectedSSTablesPerTask));
         System.out.println(Arrays.toString(expectedSSTablesInTasks));
+        // make sure the composite transaction has the correct number of tasks
+        assertEquals(Transactional.AbstractTransactional.State.ABORTED, txn.state());
     }
 
     private boolean intersects(SSTableReader r, Range<Token> range)
