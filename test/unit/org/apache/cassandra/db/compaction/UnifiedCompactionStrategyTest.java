@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -52,6 +53,7 @@ import org.apache.cassandra.db.compaction.unified.Reservations;
 import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
+import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
@@ -65,7 +67,9 @@ import org.mockito.Mockito;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -1562,12 +1566,84 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testCreateParallelTasks()
     {
-        int numShards = 8;
+        testCreateParallelTasks(8, arr(1, 2, 4));
+        testCreateParallelTasks(4, arr(1, 2, 4));
+        testCreateParallelTasks(2, arr(1, 2, 4));
+        testCreateParallelTasks(5, arr(1, 2, 4));
+        testCreateParallelTasks(5, arr(2, 4, 8));
+        testCreateParallelTasks(3, arr(1, 3, 5));
+        testCreateParallelTasks(3, arr(3, 3, 3));
+
+        testCreateParallelTasks(1, arr(1, 2, 3));
+
+        testCreateParallelTasks(3, arr());
+    }
+
+    @Test
+    public void testCreateParallelTasksMissingParts()
+    {
+        // Drop some sstables without losing ranges
+        testCreateParallelTasks(8, arr(2, 4, 8),
+                                arr(1));
+
+        testCreateParallelTasks(8, arr(2, 4, 8),
+                                arr(1), arr(0), arr(2, 7));
+
+        testCreateParallelTasks(5, arr(2, 4, 8),
+                                arr(1), arr(0), arr(2, 7));
+    }
+
+    @Test
+    public void testCreateParallelTasksOneRange()
+    {
+        // Drop second half
+        testCreateParallelTasks(2, arr(2, 4, 8),
+                                arr(1), arr(2, 3), arr(4, 5, 6, 7));
+        // Drop all except center, within shard
+        testCreateParallelTasks(3, arr(5, 7, 9),
+                                arr(0, 1, 3, 4), arr(0, 1, 2, 4, 5, 6), arr(0, 1, 2, 6, 7, 8));
+    }
+
+    @Test
+    public void testCreateParallelTasksSkippedRange()
+    {
+        // Drop all sstables containing the 4/8-5/8 range.
+        testCreateParallelTasks(8, arr(2, 4, 8),
+                                arr(1), arr(2), arr(4));
+        // Drop all sstables containing the 4/8-6/8 range.
+        testCreateParallelTasks(8, arr(2, 4, 8),
+                                arr(1), arr(2), arr(4, 5));
+        // Drop all sstables containing the 4/8-8/8 range.
+        testCreateParallelTasks(8, arr(2, 4, 8),
+                                arr(1), arr(2, 3), arr(4, 5, 6, 7));
+
+        // Drop all sstables containing the 0/8-2/8 range.
+        testCreateParallelTasks(5, arr(2, 4, 8),
+                                arr(0), arr(0), arr(0, 1));
+        // Drop all sstables containing the 6/8-8/8 range.
+        testCreateParallelTasks(5, arr(2, 4, 8),
+                                arr(1), arr(3), arr(6, 7));
+        // Drop sstables on both ends.
+        testCreateParallelTasks(5, arr(3, 4, 8),
+                                arr(0, 2), arr(0, 3), arr(0, 1, 6, 7));
+    }
+
+    public void testCreateParallelTasks(int numShards, int[] perLevelCounts, int[]... dropsPerLevel)
+    {
         Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         Set<SSTableReader> allSSTables = new HashSet<>();
-        allSSTables.addAll(mockNonOverlappingSSTables(1, 0, 100 << 20));
-        allSSTables.addAll(mockNonOverlappingSSTables(2, 1, 200 << 20));
-        allSSTables.addAll(mockNonOverlappingSSTables(4, 2, 400 << 20));
+        int levelNum = 0;
+        for (int perLevelCount : perLevelCounts)
+        {
+            List<SSTableReader> ssTables = mockNonOverlappingSSTables(perLevelCount, levelNum, 100 << (20 + levelNum));
+            if (levelNum < dropsPerLevel.length)
+            {
+                for (int i = dropsPerLevel[levelNum].length - 1; i >= 0; i--)
+                    ssTables.remove(dropsPerLevel[levelNum][i]);
+            }
+            allSSTables.addAll(ssTables);
+            ++levelNum;
+        }
         dataTracker.addInitialSSTables(allSSTables);
 
         Controller controller = Mockito.mock(Controller.class);
@@ -1577,29 +1653,55 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         LifecycleTransaction txn = dataTracker.tryModify(allSSTables, OperationType.COMPACTION);
         var tasks = new ArrayList<CompactionTask>();
         strategy.createAndAddTasks(0, txn, tasks);
-        assertEquals(numShards, tasks.size());
+        int i = 0;
+        int[] expectedSSTablesInTasks = new int[tasks.size()];
+        int[] collectedSSTablesPerTask = new int[tasks.size()];
         for (CompactionTask t : tasks)
         {
             assertTrue(t instanceof UnifiedCompactionTask);
+            assertFalse(t.inputSSTables().isEmpty());
+            collectedSSTablesPerTask[i] = t.inputSSTables().size();
+            expectedSSTablesInTasks[i] = (int) allSSTables.stream().filter(x -> intersects(x, t.tokenRange())).count();
+            ++i;
         }
+        if (tasks.size() == 1)
+            assertNull(tasks.get(0).tokenRange()); // make sure single-task compactions are not ranged
+        Assert.assertEquals(Arrays.toString(expectedSSTablesInTasks), Arrays.toString(collectedSSTablesPerTask));
+        System.out.println(Arrays.toString(expectedSSTablesInTasks));
     }
 
-    @Test
-    public void testCreateParallelTasksOneRange()
+    private boolean intersects(SSTableReader r, Range<Token> range)
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
+        if (range == null)
+            return true;
+        return range.intersects(range(r));
     }
 
-    @Test
-    public void testCreateParallelTasksSkippedRange()
+
+    private Bounds<Token> range(SSTableReader x)
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
+        return new Bounds<>(x.getFirst().getToken(), x.getLast().getToken());
     }
 
     @Test
     public void testDontCreateParallelTasks()
     {
         Controller.PARALLELIZE_OUTPUT_SHARDS = false;
+        int numShards = 5;
+        Set<SSTableReader> allSSTables = new HashSet<>();
+        allSSTables.addAll(mockNonOverlappingSSTables(10, 0, 100 << 20));
+        allSSTables.addAll(mockNonOverlappingSSTables(15, 1, 200 << 20));
+        allSSTables.addAll(mockNonOverlappingSSTables(25, 2, 400 << 20));
+        dataTracker.addInitialSSTables(allSSTables);
+        Controller controller = Mockito.mock(Controller.class);
+        when(controller.getNumShards(anyDouble())).thenReturn(numShards);
+        UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
+        strategy.startup();
+        LifecycleTransaction txn = dataTracker.tryModify(allSSTables, OperationType.COMPACTION);
+        var tasks = new ArrayList<CompactionTask>();
+        strategy.createAndAddTasks(0, txn, tasks);
+        assertEquals(1, tasks.size());
+        assertEquals(allSSTables, tasks.get(0).inputSSTables());
     }
 
     @Test

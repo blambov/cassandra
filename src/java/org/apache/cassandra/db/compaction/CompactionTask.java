@@ -192,7 +192,7 @@ public class CompactionTask extends AbstractCompactionTask
         // it is not empty, it may compact down to nothing if all rows are deleted.
         assert transaction != null;
 
-        if (transaction.originals().isEmpty())
+        if (inputSSTables().isEmpty())
             return;
 
         if (DatabaseDescriptor.isSnapshotBeforeCompaction())
@@ -200,7 +200,7 @@ public class CompactionTask extends AbstractCompactionTask
 
         // The set of sstables given here may be later modified by buildCompactionCandidatesForAvailableDiskSpace() and
         // the compaction iterators in CompactionController and OverlapTracker will reflect the updated set of sstables.
-        try (CompactionController controller = getCompactionController(transaction.originals());
+        try (CompactionController controller = getCompactionController(inputSSTables());
              CompactionOperation operation = createCompactionOperation(controller, strategy))
         {
             operation.execute();
@@ -216,6 +216,11 @@ public class CompactionTask extends AbstractCompactionTask
         return null;
     }
 
+    protected Set<SSTableReader> inputSSTables()
+    {
+        return transaction.originals();
+    }
+
     /**
      * @return True if the task should try to limit the operation size to the available space by removing sstables from
      * the compacting set. This cannot be done if this is part of a multi-task operation with a shared transaction.
@@ -228,7 +233,7 @@ public class CompactionTask extends AbstractCompactionTask
     private CompactionOperation createCompactionOperation(CompactionController controller, CompactionStrategy strategy)
     {
         Set<CompactionSSTable> fullyExpiredSSTables = controller.getFullyExpiredSSTables();
-        Set<SSTableReader> actuallyCompact = new HashSet<>(transaction.originals());
+        Set<SSTableReader> actuallyCompact = new HashSet<>(inputSSTables());
         actuallyCompact.removeAll(fullyExpiredSSTables);
         // select SSTables to compact based on available disk space.
         if (shouldReduceScopeForSpace() && !buildCompactionCandidatesForAvailableDiskSpace(actuallyCompact, !fullyExpiredSSTables.isEmpty()))
@@ -240,6 +245,8 @@ public class CompactionTask extends AbstractCompactionTask
             controller.refreshOverlaps();
         }
 
+        // sanity check: sstables to compact is a subset of the transaction originals
+        assert transaction.originals().containsAll(actuallyCompact);
         // sanity check: all sstables must belong to the same table
         assert !Iterables.any(transaction.originals(), sstable -> !sstable.descriptor.cfname.equals(realm.getTableName()));
 
@@ -248,8 +255,8 @@ public class CompactionTask extends AbstractCompactionTask
         boolean compactByIterators = !CURSORS_ENABLED.getBoolean()
                                      ||strategy != null && !strategy.supportsCursorCompaction()  // strategy does not support it
                                      || controller.shouldProvideTombstoneSources()  // garbagecollect
-                                     || realm.getIndexManager().hasIndexes()
-                                     || realm.metadata().enforceStrictLiveness();   // indexes
+                                     || realm.getIndexManager().hasIndexes()  // indexes
+                                     || realm.metadata().enforceStrictLiveness();   // strict liveness
 
         logger.debug("Compacting in {} by {}: {} {} {} {} {}",
                      realm.toString(),
@@ -324,12 +331,6 @@ public class CompactionTask extends AbstractCompactionTask
             this.completed = false;
 
             Directories dirs = getDirectories();
-            // Filter out sstables that don't intersect the target range.
-            if (tokenRange != null)
-                actuallyCompact = actuallyCompact.stream()
-                                                 .filter(rdr -> tokenRange.intersects(new Bounds(rdr.getFirst().getToken(),
-                                                                                                 rdr.getLast().getToken())))
-                                                 .collect(Collectors.toSet());
 
             try
             {

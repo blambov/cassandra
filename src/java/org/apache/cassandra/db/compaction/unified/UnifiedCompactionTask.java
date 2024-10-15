@@ -18,6 +18,8 @@ package org.apache.cassandra.db.compaction.unified;
 
 import java.util.Set;
 
+import com.google.common.collect.ImmutableSet;
+
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionRealm;
 import org.apache.cassandra.db.compaction.CompactionTask;
@@ -37,6 +39,7 @@ public class UnifiedCompactionTask extends CompactionTask
     private final ShardManager shardManager;
     private final Controller controller;
     private final Range<Token> operationRange;
+    private final Set<SSTableReader> actuallyCompact;
 
     public UnifiedCompactionTask(CompactionRealm cfs,
                                  UnifiedCompactionStrategy strategy,
@@ -44,7 +47,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  int gcBefore,
                                  ShardManager shardManager)
     {
-        this(cfs, strategy, txn, gcBefore, shardManager, null);
+        this(cfs, strategy, txn, gcBefore, shardManager, null, txn.originals());
     }
 
 
@@ -53,12 +56,14 @@ public class UnifiedCompactionTask extends CompactionTask
                                  ILifecycleTransaction txn,
                                  int gcBefore,
                                  ShardManager shardManager,
-                                 Range<Token> operationRange)
+                                 Range<Token> operationRange,
+                                 Set<SSTableReader> actuallyCompact)
     {
         super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy);
         this.controller = strategy.getController();
         this.shardManager = shardManager;
         this.operationRange = operationRange;
+        this.actuallyCompact = ImmutableSet.copyOf(actuallyCompact);
     }
 
     @Override
@@ -79,8 +84,15 @@ public class UnifiedCompactionTask extends CompactionTask
                                            shardManager.boundaries(numShards));
     }
 
+    @Override
     protected Range<Token> tokenRange()
     {
         return operationRange;
+    }
+
+    @Override
+    protected Set<SSTableReader> inputSSTables()
+    {
+        return actuallyCompact;
     }
 }
