@@ -64,10 +64,9 @@ public class SingleSSTableLCSTask extends AbstractCompactionTask
     }
 
     @Override
-    protected int executeInternal()
+    protected void executeInternal()
     {
         run();
-        return 1;
     }
 
     @Override

@@ -213,9 +213,22 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         List<AbstractCompactionTask> tasks = new ArrayList<>();
         for (Arena arena : getCompactionArenas(realm.getLiveSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction))
         {
+            // Separate expired sstables in a separate task that can complete quickly.
+            var live = arena.sstables;
+            var expired = arena.getExpiredSSTables(gcBefore, controller.getIgnoreOverlapsInExpirationCheck());
+            if (!expired.isEmpty())
+            {
+                live = new ArrayList<>(live);
+                live.removeAll(expired);
+                LifecycleTransaction txn = realm.tryModify(expired, OperationType.COMPACTION);
+                if (txn != null)
+                    tasks.add(createCompactionTask(txn, gcBefore));
+                // TODO: Should we really ignore failure to create transaction?
+            }
+
             var compactingSets = Controller.RESHARD_MAJOR_COMPACTIONS
-                                 ? ImmutableList.of(arena.sstables)
-                                 : splitInNonOverlappingSets(arena.sstables);
+                                 ? ImmutableList.of(live)
+                                 : splitInNonOverlappingSets(live);
 
             for (Collection<CompactionSSTable> set : compactingSets)
             {
@@ -315,7 +328,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         return createCompactionTasks(aggregates, gcBefore);
     }
 
-    private synchronized Collection<AbstractCompactionTask> createCompactionTasks(Collection<CompactionAggregate> aggregates, int gcBefore)
+    private Collection<AbstractCompactionTask> createCompactionTasks(Collection<CompactionAggregate> aggregates, int gcBefore)
     {
         Collection<AbstractCompactionTask> tasks = new ArrayList<>(aggregates.size());
         for (CompactionAggregate aggregate : aggregates)
@@ -330,7 +343,10 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             if (transaction != null)
             {
                 backgroundCompactions.setSubmitted(this, transaction.opId(), aggregate);
-                createAndAddTasks(gcBefore, transaction, tasks);
+                if (selected.parent() == EXPIRED_TABLES_LEVEL.index)
+                    tasks.add(createCompactionTask(transaction, gcBefore));
+                else
+                    createAndAddTasks(gcBefore, transaction, tasks);
             }
             else
             {
@@ -342,7 +358,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         return tasks;
     }
 
-    private void createAndAddTasks(int gcBefore, LifecycleTransaction transaction, Collection<AbstractCompactionTask> tasks)
+    @VisibleForTesting
+    void createAndAddTasks(int gcBefore, LifecycleTransaction transaction, Collection<? super CompactionTask> tasks)
     {
         if (Controller.PARALLELIZE_OUTPUT_SHARDS)
         {
@@ -356,7 +373,10 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // TODO: Tests of createParallelCompactionTasks: expired sstables, no-sstable ranges, etc.
             // TODO: Tests for SSTableReader.onDiskSizeForRanges,
             // TODO: Tests of ShardManager.shardsCovering
-            // TODO: Is it okay to not rate control individual subtasks? No, top-level unaligned compaction can stop all.
+            // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
+            // TODO: Is it okay to not rate control individual subtasks?
+            //  -- No, top-level unaligned compaction can stop all.
+            //  -- We can see accumulation of L0 tasks in fallout test.
             // TODO: Find a way to only run up to the limit subtasks for each level?
             // TODO: Take subtasks into account in getSelected?
             // TODO: Maybe specify a task count parameter to createParallelCompactionTasks (i.e. join ranges)?
@@ -435,6 +455,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             min = min == null || min.compareTo(sstable.getFirst()) > 0 ? sstable.getFirst() : min;
             max = max == null || max.compareTo(sstable.getLast()) < 0 ? sstable.getLast() : max;
         }
+        ShardManager shardManager = getShardManager();
         double density = shardManager.calculateCombinedDensity(sstables);
         int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
         List<Range<Token>> ranges = shardManager.shardsCovering(numShards, min.getToken(), max.getToken());
@@ -674,24 +695,22 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         maybeUpdateSelector();
 
         List<CompactionAggregate.UnifiedAggregate> pending = new ArrayList<>();
-        long ts = System.currentTimeMillis();
-        boolean expiredCheck = ts - lastExpiredCheck > controller.getExpiredSSTableCheckFrequency();
-        if (expiredCheck)
-            lastExpiredCheck = ts;
 
-        Set<CompactionSSTable> expired = Collections.emptySet();
         for (Map.Entry<Arena, List<Level>> entry : getLevels().entrySet())
         {
             Arena arena = entry.getKey();
-            if (expiredCheck)
+            // Always check for expired sstables (not just periodically) as expiration will save us unnecessary work.
+            var expired = arena.getExpiredSSTables(gcBefore, controller.getIgnoreOverlapsInExpirationCheck());
+            if (!expired.isEmpty())
             {
-                expired = arena.getExpiredSSTables(gcBefore, controller.getIgnoreOverlapsInExpirationCheck());
-                if (!expired.isEmpty())
-                {
-                    if (logger.isTraceEnabled())
-                        logger.trace("Expiration check for arena {} found {} fully expired SSTables", arena.name(), expired.size());
-                    pending.add(CompactionAggregate.createUnified(expired, 0, CompactionPick.create(-1, expired, expired), Collections.emptySet(), arena, EXPIRED_TABLES_LEVEL));
-                }
+                if (logger.isTraceEnabled())
+                    logger.trace("Expiration check for arena {} found {} fully expired SSTables", arena.name(), expired.size());
+                pending.add(CompactionAggregate.createUnified(expired,
+                                                              0,
+                                                              CompactionPick.create(EXPIRED_TABLES_LEVEL.index, expired, expired),
+                                                              Collections.emptySet(),
+                                                              arena,
+                                                              EXPIRED_TABLES_LEVEL));
             }
 
             for (Level level : entry.getValue())
@@ -1062,7 +1081,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         {
             return CompactionController.getFullyExpiredSSTables(realm,
                                                                 sstables,
-                                                                realm.getOverlappingLiveSSTables(sstables),
+                                                                realm::getOverlappingLiveSSTables,
                                                                 gcBefore,
                                                                 ignoreOverlaps);
         }

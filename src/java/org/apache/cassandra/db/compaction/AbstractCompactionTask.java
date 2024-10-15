@@ -123,18 +123,18 @@ public abstract class AbstractCompactionTask extends WrappedRunnable
      * Executes the task after setting a new observer, normally the observer is the
      * compaction manager metrics.
      */
-    public int execute(TableOperationObserver observer)
+    public void execute(TableOperationObserver observer)
     {
-        return setOpObserver(observer).execute();
+        setOpObserver(observer).execute();
     }
 
     /** Executes the task */
-    public int execute()
+    public void execute()
     {
         Throwable t = null;
         try
         {
-            return executeInternal();
+            executeInternal();
         }
         catch (FSDiskFullWriteError e)
         {
@@ -176,7 +176,7 @@ public abstract class AbstractCompactionTask extends WrappedRunnable
         return compactionType;
     }
 
-    protected abstract int executeInternal();
+    protected abstract void executeInternal();
 
     // TODO Eventually these three setters should be passed in to the constructor.
 

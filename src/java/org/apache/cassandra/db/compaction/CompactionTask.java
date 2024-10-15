@@ -36,7 +36,6 @@ import javax.annotation.Nullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.RateLimiter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -137,10 +136,9 @@ public class CompactionTask extends AbstractCompactionTask
     }
 
     @Override
-    protected int executeInternal()
+    protected void executeInternal()
     {
         run();
-        return transaction.originals().size();
     }
 
     /*
@@ -176,6 +174,7 @@ public class CompactionTask extends AbstractCompactionTask
             // Note that we have removed files that are still marked as compacting.
             // This suboptimal but ok since the caller will unmark all the sstables at the end.
             transaction.cancel(removedSSTable);
+            nonExpiredSSTables.remove(removedSSTable);
             return true;
         }
         return false;
@@ -229,8 +228,10 @@ public class CompactionTask extends AbstractCompactionTask
     private CompactionOperation createCompactionOperation(CompactionController controller, CompactionStrategy strategy)
     {
         Set<CompactionSSTable> fullyExpiredSSTables = controller.getFullyExpiredSSTables();
+        Set<SSTableReader> actuallyCompact = new HashSet<>(transaction.originals());
+        actuallyCompact.removeAll(fullyExpiredSSTables);
         // select SSTables to compact based on available disk space.
-        if (shouldReduceScopeForSpace() && !buildCompactionCandidatesForAvailableDiskSpace(fullyExpiredSSTables))
+        if (shouldReduceScopeForSpace() && !buildCompactionCandidatesForAvailableDiskSpace(actuallyCompact, !fullyExpiredSSTables.isEmpty()))
         {
             // The set of sstables has changed (one or more were excluded due to limited available disk space).
             // We need to recompute the overlaps between sstables. The iterators used in the compaction controller 
@@ -242,7 +243,6 @@ public class CompactionTask extends AbstractCompactionTask
         // sanity check: all sstables must belong to the same table
         assert !Iterables.any(transaction.originals(), sstable -> !sstable.descriptor.cfname.equals(realm.getTableName()));
 
-        Set<SSTableReader> actuallyCompact = Sets.difference(transaction.originals(), fullyExpiredSSTables);
 
         // Cursors currently don't support:
         boolean compactByIterators = !CURSORS_ENABLED.getBoolean()
@@ -943,8 +943,9 @@ public class CompactionTask extends AbstractCompactionTask
      * other compactions.
      *
      * @return true if there is enough disk space to execute the complete compaction, false if some sstables are excluded.
+     *         If SSTables are excluded, they are removed from the transaction as well as the nonExpiredSSTables set.
      */
-    protected boolean buildCompactionCandidatesForAvailableDiskSpace(final Set<CompactionSSTable> fullyExpiredSSTables)
+    protected boolean buildCompactionCandidatesForAvailableDiskSpace(Set<SSTableReader> nonExpiredSSTables, boolean containsExpired)
     {
         if(!realm.isCompactionDiskSpaceCheckEnabled() && compactionType == OperationType.COMPACTION)
         {
@@ -952,7 +953,6 @@ public class CompactionTask extends AbstractCompactionTask
             return true;
         }
 
-        final Set<SSTableReader> nonExpiredSSTables = Sets.difference(transaction.originals(), fullyExpiredSSTables);
         int sstablesRemoved = 0;
 
         while(!nonExpiredSSTables.isEmpty())
@@ -972,10 +972,10 @@ public class CompactionTask extends AbstractCompactionTask
                 // usually means we've run out of disk space
 
                 // but we can still compact expired SSTables
-                if(partialCompactionsAcceptable() && fullyExpiredSSTables.size() > 0 )
+                if(partialCompactionsAcceptable() && containsExpired)
                 {
                     // if all remaining sstables are fully expired, we can still start compaction; otherwise throw
-                    if (transaction.originals().equals(fullyExpiredSSTables))
+                    if (nonExpiredSSTables.isEmpty())
                         break;
                 }
 

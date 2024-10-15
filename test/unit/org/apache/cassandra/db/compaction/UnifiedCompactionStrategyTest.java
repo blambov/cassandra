@@ -45,12 +45,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.Util;
 import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.db.compaction.unified.Reservations;
 import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
+import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -1560,7 +1560,50 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     }
 
     @Test
-    public void testMaximalSelectionNoReshard() throws Exception
+    public void testCreateParallelTasks()
+    {
+        int numShards = 8;
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
+        Set<SSTableReader> allSSTables = new HashSet<>();
+        allSSTables.addAll(mockNonOverlappingSSTables(1, 0, 100 << 20));
+        allSSTables.addAll(mockNonOverlappingSSTables(2, 1, 200 << 20));
+        allSSTables.addAll(mockNonOverlappingSSTables(4, 2, 400 << 20));
+        dataTracker.addInitialSSTables(allSSTables);
+
+        Controller controller = Mockito.mock(Controller.class);
+        when(controller.getNumShards(anyDouble())).thenReturn(numShards);
+        UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
+        strategy.startup();
+        LifecycleTransaction txn = dataTracker.tryModify(allSSTables, OperationType.COMPACTION);
+        var tasks = new ArrayList<CompactionTask>();
+        strategy.createAndAddTasks(0, txn, tasks);
+        assertEquals(numShards, tasks.size());
+        for (CompactionTask t : tasks)
+        {
+            assertTrue(t instanceof UnifiedCompactionTask);
+        }
+    }
+
+    @Test
+    public void testCreateParallelTasksOneRange()
+    {
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
+    }
+
+    @Test
+    public void testCreateParallelTasksSkippedRange()
+    {
+        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
+    }
+
+    @Test
+    public void testDontCreateParallelTasks()
+    {
+        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
+    }
+
+    @Test
+    public void testMaximalSelectionNoReshard()
     {
         Controller.RESHARD_MAJOR_COMPACTIONS = false;
         Controller.PARALLELIZE_OUTPUT_SHARDS = false;
@@ -1568,7 +1611,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     }
 
     @Test
-    public void testMaximalSelectionReshard() throws Exception
+    public void testMaximalSelectionReshard()
     {
         Controller.RESHARD_MAJOR_COMPACTIONS = true;
         Controller.PARALLELIZE_OUTPUT_SHARDS = true;
