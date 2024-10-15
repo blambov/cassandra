@@ -110,29 +110,6 @@ public interface ShardManager
      */
     ShardTracker boundaries(int shardCount);
 
-    default List<Range<Token>> shardsCovering(int shardCount, Token min, Token max)
-    {
-        if (shardCount <= 1)
-            return null;
-
-        ShardTracker boundaries = boundaries(shardCount);
-        if (!min.isMinimum())
-            boundaries.advanceTo(min);
-
-        List<Range<Token>> ranges = new ArrayList<>();
-        Token end = boundaries.shardEnd();
-        while (end != null && end.compareTo(max) <= 0)
-        {
-            ranges.add(boundaries.shardSpan());
-            boolean advanced = boundaries.advanceTo(end.nextValidToken());
-            assert advanced;
-            end = boundaries.shardEnd();
-        }
-        ranges.add(boundaries.shardSpan());
-        return ranges;
-    }
-
-
     static Range<Token> coveringRange(CompactionSSTable sstable)
     {
         return coveringRange(sstable.getFirst(), sstable.getLast());

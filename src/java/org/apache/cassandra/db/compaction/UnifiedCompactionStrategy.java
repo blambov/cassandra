@@ -65,6 +65,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Overlaps;
+import org.apache.cassandra.utils.SortingIterator;
 
 import static org.apache.cassandra.utils.Throwables.perform;
 
@@ -444,36 +445,68 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         return createCompactionTask(txn, gcBefore);
     }
 
-    private Collection<UnifiedCompactionTask> createParallelCompactionTasks(LifecycleTransaction transaction, int gcBefore)
+    private Collection<CompactionTask> createParallelCompactionTasks(LifecycleTransaction transaction, int gcBefore)
     {
         // Separating the expired sstables is too hard, just use all (C* 5's version of UCS splits these out and will solve this).
         Collection<SSTableReader> sstables = transaction.originals();
-        PartitionPosition min = null;
-        PartitionPosition max = null;
-        for (CompactionSSTable sstable : sstables)
-        {
-            min = min == null || min.compareTo(sstable.getFirst()) > 0 ? sstable.getFirst() : min;
-            max = max == null || max.compareTo(sstable.getLast()) < 0 ? sstable.getLast() : max;
-        }
         ShardManager shardManager = getShardManager();
         double density = shardManager.calculateCombinedDensity(sstables);
         int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
-        List<Range<Token>> ranges = shardManager.shardsCovering(numShards, min.getToken(), max.getToken());
-        if (ranges != null && ranges.size() > 1)
+        if (numShards <= 1)
+            return Collections.singletonList(createCompactionTask(transaction, gcBefore));
+
+        final List<CompactionTask> tasks = splitCompactionTaskRanges(gcBefore, transaction, shardManager, numShards);
+
+        if (tasks.size() == 1) // if there's just one range, make it a non-ranged task (to apply early open etc.)
         {
-            List<UnifiedCompactionTask> tasks = new ArrayList<>(ranges.size());
-            CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction, ranges.size());
-            for (Range<Token> range : ranges)
+            assert tasks.get(0).inputSSTables().equals(transaction.originals());
+            return Collections.singletonList(createCompactionTask(transaction, gcBefore));
+        }
+        else
+            return tasks;
+    }
+
+    private List<CompactionTask> splitCompactionTaskRanges(int gcBefore, LifecycleTransaction transaction, ShardManager shardManager, int numShards)
+    {
+        Collection<SSTableReader> sstables = transaction.originals();
+        var boundaries = shardManager.boundaries(numShards);
+        CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction, 0);
+        List<CompactionTask> tasks = new ArrayList<>();
+        SortingIterator<SSTableReader> firsts = SortingIterator.create(SSTableReader.firstKeyComparator, sstables);
+        SortingIterator<SSTableReader> lasts = SortingIterator.create(SSTableReader.lastKeyComparator, sstables);
+        Set<SSTableReader> current = new HashSet<>(sstables.size());
+        while (lasts.hasNext())
+        {
+            if (current.isEmpty())
+            {
+                assert firsts.hasNext();
+                boundaries.advanceTo(firsts.peek().getFirst().getToken());
+            }
+            Token shardEnd = boundaries.shardEnd();
+
+            while (firsts.hasNext() && (shardEnd == null || firsts.peek().getFirst().getToken().compareTo(shardEnd) <= 0))
+                current.add(firsts.next());
+
+            if (!current.isEmpty())
+            {
                 tasks.add(new UnifiedCompactionTask(realm,
                                                     this,
                                                     new PartialLifecycleTransaction(compositeTransaction),
                                                     gcBefore,
                                                     shardManager,
-                                                    range));
-            return tasks;
+                                                    boundaries.shardSpan(),
+                                                    current));
+            }
+
+            while (lasts.hasNext() && (shardEnd == null || lasts.peek().getLast().getToken().compareTo(shardEnd) <= 0))
+                current.remove(lasts.next());
+
+            if (!current.isEmpty()) // shardEnd must be non-null (otherwise the line below exhausts all)
+                boundaries.advanceTo(shardEnd.nextValidToken());
         }
-        else
-            return Collections.singletonList(createCompactionTask(transaction, gcBefore));
+        assert current.isEmpty();
+        compositeTransaction.setPartCount(tasks.size());
+        return tasks;
     }
 
 

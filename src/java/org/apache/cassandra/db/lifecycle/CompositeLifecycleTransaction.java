@@ -35,6 +35,10 @@ public class CompositeLifecycleTransaction
         this.obsoleteOriginalsRequested = false;
     }
 
+    public void setPartCount(int partCount)
+    {
+        partsToCommitOrAbort.set(partCount);
+    }
 
     public void requestObsoleteOriginals()
     {
