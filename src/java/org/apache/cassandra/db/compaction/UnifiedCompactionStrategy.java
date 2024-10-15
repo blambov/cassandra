@@ -28,7 +28,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -353,7 +352,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Apply the operation range.
             // done: Adjust progress reports for cursors.
             // post-first-version:
-            // TODO: Tests of PartialLifecycleTransaction, especially aborts
+            // done: Tests of PartialLifecycleTransaction, especially aborts
             // TODO: Tests of createParallelCompactionTasks: expired sstables, no-sstable ranges, etc.
             // TODO: Tests for SSTableReader.onDiskSizeForRanges,
             // TODO: Tests of ShardManager.shardsCovering
