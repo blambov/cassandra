@@ -26,6 +26,7 @@ public class CompositeLifecycleTransaction
     private final AtomicInteger partsToCommitOrAbort;
     private volatile boolean obsoleteOriginalsRequested;
     private volatile boolean wasAborted;
+    private volatile boolean initializationComplete;
 
     public CompositeLifecycleTransaction(LifecycleTransaction mainTransaction)
     {
@@ -40,6 +41,11 @@ public class CompositeLifecycleTransaction
         partsToCommitOrAbort.incrementAndGet();
     }
 
+    public void completeInitialization()
+    {
+        initializationComplete = true;
+    }
+
     public void requestObsoleteOriginals()
     {
         obsoleteOriginalsRequested = true;
@@ -52,6 +58,8 @@ public class CompositeLifecycleTransaction
 
     private void partCommittedOrAborted()
     {
+        if (!initializationComplete)
+            throw new IllegalStateException("Composite transaction used before initialization is complete.");
         if (partsToCommitOrAbort.decrementAndGet() == 0)
         {
             if (wasAborted)

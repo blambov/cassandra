@@ -464,6 +464,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                                                                                                                    shardManager,
                                                                                                                    range,
                                                                                                                    rangeSSTables));
+        compositeTransaction.completeInitialization();
 
         if (tasks.isEmpty())
             transaction.close(); // this should not be reachable normally, close the transaction for safety
