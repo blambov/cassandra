@@ -44,11 +44,11 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
 import org.apache.cassandra.db.compaction.writers.CompactionAwareWriter;
 import org.apache.cassandra.db.compaction.writers.DefaultCompactionWriter;
 import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.FSWriteError;
@@ -216,6 +216,11 @@ public class CompactionTask extends AbstractCompactionTask
         return null;
     }
 
+    /**
+     * @return The set of input sstables for this compaction. This must be a subset of the transaction originals and
+     * must reflect any removal of sstables from the originals set for correct overlap tracking.
+     * See {@link UnifiedCompactionTask} for an example.
+     */
     protected Set<SSTableReader> inputSSTables()
     {
         return transaction.originals();
@@ -227,7 +232,7 @@ public class CompactionTask extends AbstractCompactionTask
      */
     protected boolean shouldReduceScopeForSpace()
     {
-        return tokenRange() == null;
+        return true;
     }
 
     private CompactionOperation createCompactionOperation(CompactionController controller, CompactionStrategy strategy)

@@ -19,6 +19,7 @@ package org.apache.cassandra.db.compaction.unified;
 import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionRealm;
@@ -47,7 +48,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  int gcBefore,
                                  ShardManager shardManager)
     {
-        this(cfs, strategy, txn, gcBefore, shardManager, null, txn.originals());
+        this(cfs, strategy, txn, gcBefore, shardManager, null, null);
     }
 
 
@@ -62,8 +63,16 @@ public class UnifiedCompactionTask extends CompactionTask
         super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy);
         this.controller = strategy.getController();
         this.shardManager = shardManager;
+        assert (operationRange == null) == (actuallyCompact == null)
+            : "operationRange and actuallyCompact must be both null or both non-null";
+
         this.operationRange = operationRange;
-        this.actuallyCompact = ImmutableSet.copyOf(actuallyCompact);
+        // To make sure actuallyCompact tracks any removals from txn.originals(), we intersect the given set with it.
+        // This should not be entirely necessary (as shouldReduceScopeForSpace() is false for ranged tasks), but it
+        // is cleaner to enforce inputSSTables()'s requirements.
+        this.actuallyCompact = actuallyCompact != null ? Sets.intersection(ImmutableSet.copyOf(actuallyCompact),
+                                                                           txn.originals())
+                                                       : txn.originals();
     }
 
     @Override
@@ -88,6 +97,12 @@ public class UnifiedCompactionTask extends CompactionTask
     protected Range<Token> tokenRange()
     {
         return operationRange;
+    }
+
+    @Override
+    protected boolean shouldReduceScopeForSpace()
+    {
+        return tokenRange() == null;
     }
 
     @Override
