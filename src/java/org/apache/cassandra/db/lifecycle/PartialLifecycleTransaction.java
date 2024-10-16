@@ -33,7 +33,6 @@ import org.apache.cassandra.utils.Throwables;
 @NotThreadSafe
 public class PartialLifecycleTransaction implements ILifecycleTransaction
 {
-
     final CompositeLifecycleTransaction composite;
     final ILifecycleTransaction mainTransaction;
     final AtomicBoolean committedOrAborted = new AtomicBoolean(false);
@@ -132,7 +131,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
     private void throwIfAborted()
     {
         if (composite.wasAborted())
-            throw new IllegalStateException("Transaction aborted");
+            throw new AbortedException("Transaction aborted, likely by another partial operation.");
     }
 
     public void prepareToCommit()
@@ -189,6 +188,14 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
         synchronized (mainTransaction)
         {
             mainTransaction.cancel(removedSSTable);
+        }
+    }
+
+    public static class AbortedException extends RuntimeException
+    {
+        public AbortedException(String message)
+        {
+            super(message);
         }
     }
 }

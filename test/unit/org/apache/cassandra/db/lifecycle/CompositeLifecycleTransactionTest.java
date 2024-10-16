@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Runnables;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -38,6 +37,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.MockSchema;
+import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Transactional.AbstractTransactional.State;
 
 import static com.google.monitoring.runtime.instrumentation.common.collect.ImmutableSet.copyOf;
@@ -66,6 +66,7 @@ public class CompositeLifecycleTransactionTest
 
         CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn);
         var partials = IntStream.range(0, count).mapToObj(i -> new PartialLifecycleTransaction(composite)).toArray(PartialLifecycleTransaction[]::new);
+        composite.completeInitialization();
 
         partials[0].update(readers2[3], false);
 
@@ -104,48 +105,48 @@ public class CompositeLifecycleTransactionTest
     @Test
     public void testCommit()
     {
-        testCommit(300, true, none(), none());
+        testPartialTransactions(300, true, none(), none());
     }
 
     @Test
     public void testCommitPreserveOriginals()
     {
-        testCommit(300, false, none(), none());
+        testPartialTransactions(300, false, none(), none());
     }
 
     @Test
     public void testAbort()
     {
-        testCommit(300, true, arr(33), none());
+        testPartialTransactions(300, true, arr(33), none());
     }
 
     @Test
     public void testAbortAll()
     {
         int count = 300;
-        testCommit(count, true, all(count), none());
+        testPartialTransactions(count, true, all(count), none());
     }
 
     @Test
     public void testOnlyClose()
     {
-        testCommit(300, true, none(), arr(55));
+        testPartialTransactions(300, true, none(), arr(55));
     }
 
     @Test
     public void testOnlyCloseAll()
     {
         int count = 300;
-        testCommit(count, true, none(), all(count));
+        testPartialTransactions(count, true, none(), all(count));
     }
 
     @Test
     public void testAbortAndOnlyClose()
     {
-        testCommit(300, true, arr(89), arr(98));
+        testPartialTransactions(300, true, arr(89), arr(98));
     }
 
-    public void testCommit(int count, boolean obsoleteOriginals, int[] indexesToAbort, int[] indexesToOnlyClose)
+    public void testPartialTransactions(int count, boolean obsoleteOriginals, int[] indexesToAbort, int[] indexesToOnlyClose)
     {
         ColumnFamilyStore cfs = MockSchema.newCFS();
         Tracker tracker = Tracker.newDummyTracker(cfs.metadata);
@@ -155,33 +156,40 @@ public class CompositeLifecycleTransactionTest
         LifecycleTransaction txn = tracker.tryModify(copyOf(inputs), OperationType.UNKNOWN);
 
         CompositeLifecycleTransaction composite = new CompositeLifecycleTransaction(txn);
+        // register partial transactions before we launch committing threads
+        var partials = new PartialLifecycleTransaction[count];
+        for (int i = 0; i < count; ++i)
+            partials[i] = new PartialLifecycleTransaction(composite);
+        composite.completeInitialization();
+
         var futures = new ArrayList<CompletableFuture<Void>>();
         for (int i = 0; i < count; ++i)
         {
             boolean abort = in(indexesToAbort, i);
             boolean onlyClose = in(indexesToOnlyClose, i);
-            PartialLifecycleTransaction partial = new PartialLifecycleTransaction(composite);
+            PartialLifecycleTransaction partial = partials[i];
             SSTableReader output = outputs[i];
-            futures.add((onlyClose ? CompletableFuture.runAsync(Runnables.doNothing())
-                                   : CompletableFuture.runAsync(() ->
-                                                                {
-                                                                    partial.update(output, false);
-                                                                    partial.checkpoint();
-                                                                    if (obsoleteOriginals)
-                                                                        partial.obsoleteOriginals();
-                                                                    if (abort)
-                                                                        partial.abort();
-                                                                    else
-                                                                    {
-                                                                        partial.prepareToCommit();
-                                                                        partial.commit();
-                                                                    }
+            Runnable r = onlyClose ? Runnables.doNothing()
+                                   : () ->
+                                     {
+                                         partial.update(output, false);
+                                         partial.checkpoint();
+                                         if (obsoleteOriginals)
+                                             partial.obsoleteOriginals();
+                                         if (abort)
+                                             partial.abort();
+                                         else
+                                         {
+                                             partial.prepareToCommit();
+                                             partial.commit();
+                                         }
 
-                                                                    testThrows(() -> partial.abort());
-                                                                    testThrows(() -> partial.prepareToCommit());
-                                                                    testThrows(() -> partial.commit());
-                                                                }))
-                        .whenComplete((v, t) -> partial.close()));
+                                         testThrows(() -> partial.abort());
+                                         testThrows(() -> partial.prepareToCommit());
+                                         testThrows(() -> partial.commit());
+                                     };
+            futures.add(CompletableFuture.runAsync(r)
+                                         .whenComplete((v, t) -> partial.close()));
         }
 
         if (indexesToAbort.length == 0 && indexesToOnlyClose.length == 0)
@@ -203,6 +211,8 @@ public class CompositeLifecycleTransactionTest
             }
             catch(Throwable t)
             {
+                if (!Throwables.isCausedBy(t, PartialLifecycleTransaction.AbortedException.class))
+                    throw t;
                 // expected path where other tasks are aborted by an exception
                 System.out.println("Got expected exception: " + t);
             }
