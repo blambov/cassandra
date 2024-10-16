@@ -1631,6 +1631,8 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
 
     public void testCreateParallelTasks(int numShards, int[] perLevelCounts, int[]... dropsPerLevel)
     {
+        // Note: This test has a counterpart in ShardManagerTest that exercises splitSSTablesInShards directly and more thoroughly.
+        // This one ensures the data is correctly passed to and presented in compaction tasks.
         Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         Set<SSTableReader> allSSTables = new HashSet<>();
         int levelNum = 0;
