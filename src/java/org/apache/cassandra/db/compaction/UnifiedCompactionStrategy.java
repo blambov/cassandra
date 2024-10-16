@@ -90,8 +90,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     private volatile ArenaSelector arenaSelector;
     private volatile ShardManager shardManager;
 
-    private long lastExpiredCheck;
-
     static final Level EXPIRED_TABLES_LEVEL = new Level(-1, 0, 0, 0, 0, 0, 0)
     {
         @Override
@@ -219,7 +217,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                 live.removeAll(expired);
                 LifecycleTransaction txn = realm.tryModify(expired, OperationType.COMPACTION);
                 if (txn != null)
-                    tasks.add(createCompactionTask(txn, gcBefore));
+                    tasks.add(createExpirationTask(txn));
                 // TODO: Should we really ignore failure to create transaction?
             }
 
@@ -341,7 +339,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             {
                 backgroundCompactions.setSubmitted(this, transaction.opId(), aggregate);
                 if (selected.parent() == EXPIRED_TABLES_LEVEL.index)
-                    tasks.add(createCompactionTask(transaction, gcBefore));
+                    tasks.add(createExpirationTask(transaction));
                 else
                     createAndAddTasks(gcBefore, transaction, tasks);
             }
@@ -474,6 +472,10 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             return tasks;
     }
 
+    private ExpirationTask createExpirationTask(LifecycleTransaction transaction)
+    {
+        return new ExpirationTask(realm, transaction);
+    }
 
     private void maybeUpdateSelector()
     {

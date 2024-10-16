@@ -135,12 +135,6 @@ public class CompactionTask extends AbstractCompactionTask
         return totalBytesCompacted.addAndGet(bytesCompacted);
     }
 
-    @Override
-    protected void executeInternal()
-    {
-        run();
-    }
-
     /*
      *  Find the maximum size file in the list .
      */
@@ -864,7 +858,6 @@ public class CompactionTask extends AbstractCompactionTask
         }
     }
 
-    @Override
     public CompactionAwareWriter getCompactionAwareWriter(CompactionRealm realm,
                                                           Directories directories,
                                                           Set<SSTableReader> nonExpiredSSTables)

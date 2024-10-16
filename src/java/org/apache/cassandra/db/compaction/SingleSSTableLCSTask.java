@@ -52,21 +52,9 @@ public class SingleSSTableLCSTask extends AbstractCompactionTask
         addObserver(strategy);
     }
 
-    @Override
-    public CompactionAwareWriter getCompactionAwareWriter(CompactionRealm realm, Directories directories, Set<SSTableReader> nonExpiredSSTables)
-    {
-        throw new UnsupportedOperationException("This method should never be called on SingleSSTableLCSTask");
-    }
-
     int getLevel()
     {
         return level;
-    }
-
-    @Override
-    protected void executeInternal()
-    {
-        run();
     }
 
     @Override
