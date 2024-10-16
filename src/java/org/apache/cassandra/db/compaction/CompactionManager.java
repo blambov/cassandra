@@ -913,9 +913,19 @@ public class CompactionManager implements CompactionManagerMBean
 
         List<Future<?>> futures = new ArrayList<>();
 
+        // Expiration tasks must be run immediately, so that overlap tracking doesn't look at expired sstables.
+        for (AbstractCompactionTask task : tasks)
+        {
+            if (task instanceof ExpirationTask)
+                task.execute(obs);
+        }
+
         int nonEmptyTasks = 0;
         for (final AbstractCompactionTask task : tasks)
         {
+            if (task instanceof ExpirationTask)
+                continue;
+
             if (task.transaction.originals().size() > 0)
                 nonEmptyTasks++;
 

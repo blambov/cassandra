@@ -168,15 +168,16 @@ public abstract class AbstractCompactionTask extends WrappedRunnable
         return Throwables.perform(err, () -> transaction.close());
     }
 
-    public abstract CompactionAwareWriter getCompactionAwareWriter(CompactionRealm realm, Directories directories, Set<SSTableReader> nonExpiredSSTables);
-
     @VisibleForTesting
     public OperationType getCompactionType()
     {
         return compactionType;
     }
 
-    protected abstract void executeInternal();
+    protected void executeInternal()
+    {
+        run();
+    }
 
     // TODO Eventually these three setters should be passed in to the constructor.
 

@@ -105,14 +105,4 @@ public class RepairFinishedCompactionTask extends AbstractCompactionTask
             }
         }
     }
-
-    public CompactionAwareWriter getCompactionAwareWriter(CompactionRealm realm, Directories directories, Set<SSTableReader> nonExpiredSSTables)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    protected void executeInternal()
-    {
-        run();
-    }
 }
