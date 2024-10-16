@@ -28,7 +28,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
-import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,8 +53,6 @@ import org.apache.cassandra.db.lifecycle.CompositeLifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -65,7 +62,6 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Overlaps;
-import org.apache.cassandra.utils.SortingIterator;
 
 import static org.apache.cassandra.utils.Throwables.perform;
 
@@ -455,9 +451,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             return Collections.singletonList(createCompactionTask(transaction, gcBefore));
 
         CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
-        List<CompactionTask> tasks = splitSSTablesInShards(sstables,
-                                                           shardManager.boundaries(numShards),
-                                                           (rangeSSTables, range) -> new UnifiedCompactionTask(realm,
+        List<CompactionTask> tasks = shardManager.splitSSTablesInShards(sstables,
+                                                                        numShards,
+                                                                        (rangeSSTables, range) -> new UnifiedCompactionTask(realm,
                                                                                                                    this,
                                                                                                                    new PartialLifecycleTransaction(compositeTransaction),
                                                                                                                    gcBefore,
@@ -476,39 +472,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         }
         else
             return tasks;
-    }
-
-    private <T> List<T> splitSSTablesInShards(Collection<SSTableReader> sstables,
-                                              ShardTracker boundaries,
-                                              BiFunction<Set<SSTableReader>, Range<Token>, T> maker)
-    {
-        List<T> tasks = new ArrayList<>();
-        SortingIterator<SSTableReader> firsts = SortingIterator.create(SSTableReader.firstKeyComparator, sstables);
-        SortingIterator<SSTableReader> lasts = SortingIterator.create(SSTableReader.lastKeyComparator, sstables);
-        Set<SSTableReader> current = new HashSet<>(sstables.size());
-        while (lasts.hasNext())
-        {
-            if (current.isEmpty())
-            {
-                assert firsts.hasNext();
-                boundaries.advanceTo(firsts.peek().getFirst().getToken());
-            }
-            Token shardEnd = boundaries.shardEnd();
-
-            while (firsts.hasNext() && (shardEnd == null || firsts.peek().getFirst().getToken().compareTo(shardEnd) <= 0))
-                current.add(firsts.next());
-
-            if (!current.isEmpty())
-                tasks.add(maker.apply(current, boundaries.shardSpan()));
-
-            while (lasts.hasNext() && (shardEnd == null || lasts.peek().getLast().getToken().compareTo(shardEnd) <= 0))
-                current.remove(lasts.next());
-
-            if (!current.isEmpty()) // shardEnd must be non-null (otherwise the line above exhausts all)
-                boundaries.advanceTo(shardEnd.nextValidToken());
-        }
-        assert current.isEmpty();
-        return tasks;
     }
 
 
