@@ -20,7 +20,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,6 +68,7 @@ import org.mockito.Mockito;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -258,7 +258,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
                 assertEquals(i, level.getIndex());
 
                 Collection<CompactionAggregate.UnifiedAggregate> compactionAggregates =
-                level.getCompactionAggregates(entry.getKey(), Collections.EMPTY_SET, controller, dataSetSizeBytes);
+                level.getCompactionAggregates(entry.getKey(), controller, dataSetSizeBytes);
 
                 long selectedCount = compactionAggregates.stream()
                                                          .filter(a -> !a.isEmpty())
@@ -369,7 +369,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
                 assertEquals(i, level.getIndex());
 
                 Collection<CompactionAggregate.UnifiedAggregate> compactionAggregates =
-                    level.getCompactionAggregates(entry.getKey(), Collections.EMPTY_SET, controller, dataSetSizeBytes);
+                    level.getCompactionAggregates(entry.getKey(), controller, dataSetSizeBytes);
 
                 Set<CompactionSSTable> selectedSSTables = new HashSet<>();
                 for (CompactionAggregate.UnifiedAggregate aggregate : compactionAggregates)
@@ -1356,22 +1356,28 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
             int timestamp = sstables.get(sstables.size() - 1).getMaxLocalDeletionTime();
             int expirationPoint = timestamp + 1;
 
-            assertEquals(3, strategy.getNextBackgroundTasks(expirationPoint).size()); // repaired, unrepaired, pending
+            var tasks = strategy.getNextBackgroundTasks(expirationPoint);
+            assertEquals(3, tasks.size()); // repaired, unrepaired, pending
+
             Collection<CompactionPick> picks = strategy.backgroundCompactions.getCompactionsInProgress();
-            for (CompactionPick pick : picks)
+            assertEquals(0, picks.size()); // Expiration tasks are quick and not tracked
+
+            assertEquals(sstables.size(), dataTracker.getLiveSSTables().size());
+            assertEquals(sstables.size(), dataTracker.getCompacting().size());
+
+            var tableset = new HashSet<>(sstables);
+            for (var t : tasks)
             {
-                // expired SSTables don't contribute to total size
-                assertTrue(pick.hasExpiredOnly());
-                assertEquals(sstables.size() / 3, pick.expired().size());
-                assertEquals(0L, pick.totSizeInBytes());
-                assertEquals(0L, pick.avgSizeInBytes());
-                assertEquals(-1, pick.parent());
+                assertTrue(tableset.containsAll(t.transaction.originals()));
+                tableset.removeAll(t.transaction.originals());
             }
+            assertTrue(tableset.isEmpty());
         }
         finally
         {
             strategy.shutdown();
-            dataTracker.dropSSTables();
+            dataTracker.removeCompactingUnsafe(dataTracker.getCompacting());
+            dataTracker.removeUnsafe(dataTracker.getLiveSSTables());
         }
     }
 
@@ -1401,6 +1407,12 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
 
         UUID pendingRepair = UUID.randomUUID();
         List<SSTableReader> expiredSSTables = createSStables(realm.getPartitioner(), 1000, pendingRepair);
+        long millis = System.currentTimeMillis();
+        while (millis == System.currentTimeMillis()) // make sure we have different timestamps
+        {
+            Thread.yield();
+        }
+
         List<SSTableReader> nonExpiredSSTables = createSStables(realm.getPartitioner(), 0, pendingRepair);
         List<SSTableReader> allSSTables = Stream.concat(expiredSSTables.stream(), nonExpiredSSTables.stream())
                                                 .collect(Collectors.toList());
@@ -1411,37 +1423,37 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
 
         try
         {
-            strategy.getNextBackgroundTasks(expirationPoint);
+            for (var task : strategy.getNextBackgroundTasks(expirationPoint))
+            {
+                assertTrue(task instanceof ExpirationTask);
+                assertEquals(4, task.transaction.originals().size());
+            }
             Collection<CompactionPick> picks = strategy.backgroundCompactions.getCompactionsInProgress();
+            assertEquals(0, picks.size()); // expiration tasks are not tracked
+
+            // Try again, expired SSTables are in compacting state and should not be picked
+            strategy.getNextBackgroundTasks(expirationPoint);
+            picks = strategy.backgroundCompactions.getCompactionsInProgress();
+            assertNotEquals(0, picks.size());
 
             for (CompactionPick pick : picks)
             {
-                if (pick.hasExpiredOnly())
-                {
-                    assertEquals(4, pick.sstables().size());
-                    assertEquals(4, pick.expired().size());
-                    assertEquals(0L, pick.totSizeInBytes());
-                    assertEquals(0L, pick.avgSizeInBytes());
-                    assertEquals(-1, pick.parent());
-                }
-                else
-                {
-                    assertEquals(4, pick.sstables().size());
-                    assertEquals(0, pick.expired().size());
-                    Set<CompactionSSTable> nonExpired = pick.sstables();
-                    long expectedTotSize = nonExpired.stream()
-                                                     .mapToLong(CompactionSSTable::onDiskLength)
-                                                     .sum();
-                    assertEquals(expectedTotSize, pick.totSizeInBytes());
-                    assertEquals(expectedTotSize / nonExpired.size(), pick.avgSizeInBytes());
-                    assertEquals(0, pick.parent());
-                }
+                assertEquals(4, pick.sstables().size());
+                assertEquals(0, pick.expired().size());
+                Set<CompactionSSTable> nonExpired = pick.sstables();
+                long expectedTotSize = nonExpired.stream()
+                                                 .mapToLong(CompactionSSTable::onDiskLength)
+                                                 .sum();
+                assertEquals(expectedTotSize, pick.totSizeInBytes());
+                assertEquals(expectedTotSize / nonExpired.size(), pick.avgSizeInBytes());
+                assertEquals(0, pick.parent());
             }
         }
         finally
         {
             strategy.shutdown();
-            dataTracker.dropSSTables();
+            dataTracker.removeCompactingUnsafe(dataTracker.getCompacting());
+            dataTracker.removeUnsafe(dataTracker.getLiveSSTables());
         }
     }
 
@@ -1873,7 +1885,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         boolean compactionFound;
         do
         {
-            Collection<CompactionAggregate.UnifiedAggregate> aggregates = strategy.getPendingCompactionAggregates(0);
+            Collection<CompactionAggregate.UnifiedAggregate> aggregates = strategy.getPendingCompactionAggregates();
             compactionFound = false;
             for (CompactionAggregate a : aggregates)
             {
@@ -1926,14 +1938,5 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         assertEquals(1, level.index);
         assertEquals(0.25d, level.min, 0);
         assertEquals(0.5d, level.max, 0);
-    }
-
-    @Test
-    public void testGetExpiredLevel()
-    {
-        Controller controller = Mockito.mock(Controller.class);
-        UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
-
-        assertEquals(strategy.getLevel(-1, 0, 0), UnifiedCompactionStrategy.EXPIRED_TABLES_LEVEL);
     }
 }
