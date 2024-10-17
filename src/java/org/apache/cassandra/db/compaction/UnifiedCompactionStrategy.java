@@ -91,6 +91,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     private volatile ArenaSelector arenaSelector;
     private volatile ShardManager shardManager;
 
+    private long lastExpiredCheck;
+
     public UnifiedCompactionStrategy(CompactionStrategyFactory factory, BackgroundCompactions backgroundCompactions, Map<String, String> options)
     {
         this(factory, backgroundCompactions, options, Controller.fromOptions(factory.getRealm(), options));
@@ -301,9 +303,14 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     private Collection<AbstractCompactionTask> getExpirationTasks(int gcBefore)
     {
-        // TODO: Restore expiration check timer
+        long ts = System.currentTimeMillis();
+        boolean expiredCheck = ts - lastExpiredCheck > controller.getExpiredSSTableCheckFrequency();
+        if (!expiredCheck)
+            return null;
+        lastExpiredCheck = ts;
+
         // Get all expired sstables, regardless of expiration status.
-        // This is simpler and faster than per-arena collection.
+        // This is simpler and faster than per-arena collection, and will find nothing in most calls.
         var expired = CompactionController.getFullyExpiredSSTables(realm,
                                                                    getSuitableSSTables(),
                                                                    realm::getOverlappingLiveSSTables,

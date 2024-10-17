@@ -241,6 +241,7 @@ public class StaticControllerTest extends ControllerTest
                                                            0,
                                                            Controller.DEFAULT_MAX_SPACE_OVERHEAD,
                                                            0,
+                                                           Controller.DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS,
                                                            Controller.DEFAULT_ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION,
                                                            numShards,
                                                            false,
@@ -267,6 +268,7 @@ public class StaticControllerTest extends ControllerTest
                                                            0,
                                                            Controller.DEFAULT_MAX_SPACE_OVERHEAD,
                                                            0,
+                                                           Controller.DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS,
                                                            Controller.DEFAULT_ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION,
                                                            numShards,
                                                            false,
@@ -293,6 +295,7 @@ public class StaticControllerTest extends ControllerTest
                                                            0,
                                                            Controller.DEFAULT_MAX_SPACE_OVERHEAD,
                                                            0,
+                                                           Controller.DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS,
                                                            Controller.DEFAULT_ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION,
                                                            numShards,
                                                            false,
@@ -371,6 +374,34 @@ public class StaticControllerTest extends ControllerTest
         options.put(Controller.MAX_SSTABLES_TO_COMPACT_OPTION, "0");
         controller = testFromOptions(false, options);
         assertTrue(controller.maxSSTablesToCompact <= controller.dataSetSize * controller.maxSpaceOverhead / controller.minSSTableSize);
+    }
+
+    @Test
+    public void testExpiredSSTableCheckFrequency()
+    {
+        Map<String, String> options = new HashMap<>();
+        options.put(Controller.SSTABLE_GROWTH_OPTION, "0");
+
+        Controller controller = testFromOptions(false, options);
+        assertTrue(controller instanceof StaticController);
+        assertEquals(TimeUnit.MILLISECONDS.convert(Controller.DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS, TimeUnit.SECONDS),
+                     controller.getExpiredSSTableCheckFrequency());
+
+        options.put(Controller.EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION, "5");
+        controller = testFromOptions(false, options);
+        assertTrue(controller instanceof StaticController);
+        assertEquals(5000L, controller.getExpiredSSTableCheckFrequency());
+
+        try
+        {
+            options.put(Controller.EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION, "0");
+            testFromOptions(false, options);
+            fail("Exception should be thrown");
+        }
+        catch (ConfigurationException e)
+        {
+            // valid path
+        }
     }
 
     @Test

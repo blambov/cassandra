@@ -511,14 +511,13 @@ UCS accepts these compaction strategy parameters:
   reservations are only used by the specific level. If set to `level_or_below`, the reservations can be used by this
   level as well as any one below it.  
   The default value is `level_or_below`.
+* `expired_sstable_check_frequency_seconds` Determines how often to check for expired SSTables.  
+  The default value is 10 minutes.
 * `num_shards` Specifying this switches the strategy to UCS V1 mode, where the number of shards is fixed, but a
   minimum sstable size applies for the lowest levels. Provided for compatibility with DSE 6.8's UCS implementation.
   Sets $b$ to the specified value, $\lambda$ to 1, and the default minimum sstable size to 'auto'.  
   Disabled by default and cannot be used in combination with `base_shard_count`, `target_sstable_size` or
   `sstable_growth`.
-* `expired_sstable_check_frequency_seconds` *Deprecated*, previously used to determine how often to check for expired
-  SSTables. Ignored as UCS will check for expired SSTables with every background tasks run, because skipping a check
-  can create a lot of unnecessary work.
 
 In `cassandra.yaml`:
 

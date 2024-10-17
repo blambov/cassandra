@@ -274,6 +274,7 @@ public abstract class Controller
     static final String OVERRIDE_UCS_CONFIG_FOR_VECTOR_TABLES_PROPERTY = PREFIX + "override_ucs_config_for_vector_tables";
     static final boolean DEFAULT_OVERRIDE_UCS_CONFIG_FOR_VECTOR_TABLES = Boolean.parseBoolean(System.getProperty(OVERRIDE_UCS_CONFIG_FOR_VECTOR_TABLES_PROPERTY, "false"));
 
+    static final int DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS = 60 * 10;
     static final String EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION = "expired_sstable_check_frequency_seconds";
 
     /**
@@ -332,6 +333,7 @@ public abstract class Controller
     protected final long flushSizeOverride;
     protected volatile long currentFlushSize;
     protected final int maxSSTablesToCompact;
+    protected final long expiredSSTableCheckFrequency;
     protected final boolean ignoreOverlapsInExpirationCheck;
     protected String keyspaceName;
     protected String tableName;
@@ -362,6 +364,7 @@ public abstract class Controller
                long currentFlushSize,
                double maxSpaceOverhead,
                int maxSSTablesToCompact,
+               long expiredSSTableCheckFrequency,
                boolean ignoreOverlapsInExpirationCheck,
                int baseShardCount,
                boolean isReplicaAware,
@@ -379,6 +382,7 @@ public abstract class Controller
         this.minSSTableSize = minSSTableSize;
         this.flushSizeOverride = flushSizeOverride;
         this.currentFlushSize = currentFlushSize;
+        this.expiredSSTableCheckFrequency = TimeUnit.MILLISECONDS.convert(expiredSSTableCheckFrequency, TimeUnit.SECONDS);
         this.baseShardCount = baseShardCount;
         this.isReplicaAware = isReplicaAware;
         this.targetSSTableSize = targetSStableSize;
@@ -729,6 +733,11 @@ public abstract class Controller
         return ignoreOverlapsInExpirationCheck;
     }
 
+    public long getExpiredSSTableCheckFrequency()
+    {
+        return expiredSSTableCheckFrequency;
+    }
+
     /**
      * Perform any initialization that requires the strategy.
      */
@@ -916,7 +925,9 @@ public abstract class Controller
                 ? FBUtilities.parsePercent(options.get(MAX_SPACE_OVERHEAD_OPTION))
                 : DEFAULT_MAX_SPACE_OVERHEAD;
         int maxSSTablesToCompact = Integer.parseInt(options.getOrDefault(MAX_SSTABLES_TO_COMPACT_OPTION, "32"));
-        // expiredSSTableCheckFrequency is ignored
+        long expiredSSTableCheckFrequency = options.containsKey(EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION)
+                ? Long.parseLong(options.get(EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION))
+                : DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS;
         boolean ignoreOverlapsInExpirationCheck = options.containsKey(ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION_OPTION)
                 ? Boolean.parseBoolean(options.get(ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION_OPTION))
                 : DEFAULT_ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION;
@@ -1024,6 +1035,7 @@ public abstract class Controller
                                                 flushSizeOverride,
                                                 maxSpaceOverhead,
                                                 maxSSTablesToCompact,
+                                                expiredSSTableCheckFrequency,
                                                 ignoreOverlapsInExpirationCheck,
                                                 useVectorOptions ? vectorBaseShardCount : baseShardCount,
                                                 isReplicaAware,
@@ -1043,6 +1055,7 @@ public abstract class Controller
                                               flushSizeOverride,
                                               maxSpaceOverhead,
                                               maxSSTablesToCompact,
+                                              expiredSSTableCheckFrequency,
                                               ignoreOverlapsInExpirationCheck,
                                               useVectorOptions ? vectorBaseShardCount : baseShardCount,
                                               isReplicaAware,
@@ -1127,7 +1140,6 @@ public abstract class Controller
         s = options.remove(EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_OPTION);
         if (s != null)
         {
-            // parsed but ignored
             try
             {
                 long expiredSSTableCheckFrequency = Long.parseLong(s);
