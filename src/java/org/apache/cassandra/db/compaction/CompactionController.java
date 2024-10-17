@@ -20,7 +20,6 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.LongPredicate;
-import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
 
@@ -30,7 +29,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.partitions.Partition;

@@ -76,6 +76,7 @@ public class AdaptiveControllerTest extends ControllerTest
                                       0,
                                       Controller.DEFAULT_MAX_SPACE_OVERHEAD,
                                       0,
+                                      Controller.DEFAULT_EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS,
                                       Controller.DEFAULT_ALLOW_UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION,
                                       numShards,
                                       false,
