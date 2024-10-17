@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.math3.analysis.function.Exp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -346,12 +345,6 @@ public class BackgroundCompactionRunner implements Runnable
         if (!compactionTasks.isEmpty())
         {
             logger.debug("Running compaction tasks: {}", compactionTasks);
-            for (AbstractCompactionTask task : compactionTasks)
-            {
-                if (task instanceof ExpirationTask)
-                    task.execute(activeOperations);
-            }
-
             CompletableFuture<Void>[] arr = new CompletableFuture[compactionTasks.size()];
             int index = 0;
             for (AbstractCompactionTask task : compactionTasks)
@@ -368,9 +361,6 @@ public class BackgroundCompactionRunner implements Runnable
 
     private CompletableFuture<Void> startTask(ColumnFamilyStore cfs, AbstractCompactionTask task)
     {
-        if (task instanceof ExpirationTask)
-            return CompletableFuture.completedFuture(null);
-
         ongoingCompactions.incrementAndGet();
         try
         {
