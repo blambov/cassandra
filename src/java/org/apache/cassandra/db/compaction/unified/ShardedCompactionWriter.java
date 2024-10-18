@@ -46,21 +46,20 @@ public class ShardedCompactionWriter extends CompactionAwareWriter
 
     private final ShardTracker boundaries;
 
+    /// @param uniqueKeyRatio the expected ratio between the expected number of unique keys in the output sstable and
+    /// the number of keys in the individual inputs.
     public ShardedCompactionWriter(CompactionRealm realm,
                                    Directories directories,
                                    ILifecycleTransaction txn,
                                    Set<SSTableReader> nonExpiredSSTables,
+                                   double uniqueKeyRatio,
                                    boolean keepOriginals,
                                    boolean earlyOpenAllowed,
                                    ShardTracker boundaries)
     {
         super(realm, directories, txn, nonExpiredSSTables, keepOriginals, earlyOpenAllowed);
-
         this.boundaries = boundaries;
-        long totalKeyCount = nonExpiredSSTables.stream()
-                                               .mapToLong(SSTableReader::estimatedKeys)
-                                               .sum();
-        this.uniqueKeyRatio = 1.0 * SSTableReader.getApproximateKeyCount(nonExpiredSSTables) / totalKeyCount;
+        this.uniqueKeyRatio = uniqueKeyRatio;
     }
 
     @Override

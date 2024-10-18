@@ -31,6 +31,7 @@ import org.apache.cassandra.db.SortedLocalRanges;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.utils.SortingIterator;
 
@@ -141,6 +142,11 @@ public interface ShardManager
             span = rangeSpanned(rdr.getFirst(), rdr.getLast());
 
         long partitionCount = rdr.estimatedKeys();
+        return adjustSmallSpans(span, partitionCount);
+    }
+
+    private double adjustSmallSpans(double span, long partitionCount)
+    {
         if (partitionCount >= PER_PARTITION_SPAN_THRESHOLD && span >= MINIMUM_TOKEN_COVERAGE)
             return span;
 
@@ -148,7 +154,7 @@ public interface ShardManager
         // or falling outside the local token ranges. In these cases we apply a per-partition minimum calculated from
         // the number of partitions in the table.
         double perPartitionMinimum = Math.min(partitionCount * minimumPerPartitionSpan(), 1.0);
-        return span > perPartitionMinimum ? span : perPartitionMinimum; // The latter will be chosen if span is NaN too.
+        return span > perPartitionMinimum ? span : perPartitionMinimum;
     }
 
     default double rangeSpanned(PartitionPosition first, PartitionPosition last)
@@ -176,7 +182,7 @@ public interface ShardManager
     /**
      * Estimate the density of the sstable that will be the result of compacting the given sources.
      */
-    default double calculateCombinedDensity(Collection<? extends CompactionSSTable> sstables)
+    default double calculateCombinedDensity(Collection<? extends CompactionSSTable> sstables, long approximatePartitionCount)
     {
         if (sstables.isEmpty())
             return 0;
@@ -190,10 +196,7 @@ public interface ShardManager
             max = max == null || max.compareTo(sstable.getLast()) < 0 ? sstable.getLast() : max;
         }
         double span = rangeSpanned(min, max);
-        if (span >= MINIMUM_TOKEN_COVERAGE)
-            return onDiskLength / span;
-        else
-            return onDiskLength; // TODO: Update this to use number of partitions
+        return onDiskLength / adjustSmallSpans(span, approximatePartitionCount);
     }
 
     /**

@@ -49,7 +49,7 @@ public class ShardManagerTrivial implements ShardManager
     }
 
     @Override
-    public double calculateCombinedDensity(Collection<? extends CompactionSSTable> sstables)
+    public double calculateCombinedDensity(Collection<? extends CompactionSSTable> sstables, long approximatePartitionCount)
     {
         double totalSize = 0;
         for (CompactionSSTable sstable : sstables)

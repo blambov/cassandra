@@ -80,7 +80,13 @@ public class UnifiedCompactionTask extends CompactionTask
                                                           Directories directories,
                                                           Set<SSTableReader> nonExpiredSSTables)
     {
-        double density = shardManager.calculateCombinedDensity(nonExpiredSSTables);
+        long approximateKeyCount = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
+        long totalKeyCount = nonExpiredSSTables.stream()
+                                               .mapToLong(SSTableReader::estimatedKeys)
+                                               .sum();
+        double uniqueKeyRatio = 1.0 * approximateKeyCount / totalKeyCount;
+
+        double density = shardManager.calculateCombinedDensity(nonExpiredSSTables, approximateKeyCount);
         int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
         // In multi-task operations we need to expire many ranges in a source sstable for early open. Not doable yet.
         final boolean earlyOpenAllowed = operationRange == null;
@@ -88,6 +94,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                            directories,
                                            transaction,
                                            nonExpiredSSTables,
+                                           uniqueKeyRatio,
                                            keepOriginals,
                                            earlyOpenAllowed,
                                            shardManager.boundaries(numShards));
