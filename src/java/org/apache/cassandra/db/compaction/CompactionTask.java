@@ -817,7 +817,7 @@ public class CompactionTask extends AbstractCompactionTask
         @Override
         public long adjustedInputDiskSize()
         {
-            return compactionCursor.getTotalCompressedSize();
+            return inputDiskSize();
         }
 
         @Override

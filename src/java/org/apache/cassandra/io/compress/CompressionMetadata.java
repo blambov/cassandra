@@ -593,9 +593,12 @@ public class CompressionMetadata implements AutoCloseable
             return String.format("Chunk<offset: %d, length: %d>", offset, length);
         }
 
-        public long endOffset()
+        /**
+         * @return the end of the chunk in the file, including the checksum
+         */
+        public long chunkEnd()
         {
-            return offset + length;
+            return offset + length + 4;
         }
     }
 

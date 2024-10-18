@@ -72,8 +72,6 @@ public class CompactionCursor implements SSTableCursorMerger.MergeListener, Auto
     private final long[] mergedPartitionsHistogram;
     private final long[] mergedRowsHistogram;
 
-    private final long totalCompressedSize;
-
     @SuppressWarnings("resource")
     public CompactionCursor(OperationType type, Collection<SSTableReader> readers, Range<Token> tokenRange, CompactionController controller, RateLimiter limiter, int nowInSec, UUID compactionId)
     {
@@ -88,14 +86,6 @@ public class CompactionCursor implements SSTableCursorMerger.MergeListener, Auto
         this.totalBytes = cursor.bytesTotal();
         this.currentBytes = 0;
         this.currentProgressMillisSinceStartup = System.currentTimeMillis();
-
-        if (tokenRange != null)
-        {
-            var rangeList = ImmutableList.of(tokenRange);
-            this.totalCompressedSize = readers.stream().mapToLong(rdr -> rdr.onDiskSizeForRanges(rangeList)).sum();
-        }
-        else
-            this.totalCompressedSize = readers.stream().mapToLong(rdr -> rdr.onDiskLength()).sum();
     }
 
     private SSTableCursor makeMergedAndPurgedCursor(Collection<SSTableReader> readers,
@@ -256,11 +246,6 @@ public class CompactionCursor implements SSTableCursorMerger.MergeListener, Auto
     long totalSourceRows()
     {
         return Arrays.stream(mergedRowsHistogram).reduce(0L, Long::sum);
-    }
-
-    public long getTotalCompressedSize()
-    {
-        return totalCompressedSize;
     }
 
     long[] mergedPartitionsHistogram()
