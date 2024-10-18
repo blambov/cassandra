@@ -73,6 +73,7 @@ import static org.apache.cassandra.utils.Throwables.perform;
  */
 public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 {
+    @SuppressWarnings("unused") // accessed via reflection
     public static final Class<? extends CompactionStrategyContainer> CONTAINER_CLASS = UnifiedCompactionContainer.class;
 
     private static final Logger logger = LoggerFactory.getLogger(UnifiedCompactionStrategy.class);
@@ -161,9 +162,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     public static String printScalingParameter(int w)
     {
         if (w < 0)
-            return "L" + Integer.toString(2 - w);
+            return 'L' + Integer.toString(2 - w);
         else if (w > 0)
-            return "T" + Integer.toString(w + 2);
+            return 'T' + Integer.toString(w + 2);
         else
             return "N";
     }
@@ -267,7 +268,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     /**
      * Returns a collections of compaction tasks.
-     *
+     * <p>
      * This method is synchornized because task creation is significantly more expensive in UCS; the strategy is
      * stateless, therefore it has to compute the shard/bucket structure on each call.
      *
@@ -659,7 +660,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     /**
      * Selects compactions to run next from the passed aggregates.
-     *
+     * <p>
      * The intention here is to use this method directly from outside processes, to run compactions from a set
      * of pre-existing aggregates, that have been generated out of process.
      *
@@ -677,7 +678,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     /**
      * Returns all pending compaction aggregates.
-     *
+     * <p>
      * This method is used by CNDB to find all pending compactions and put them to etcd.
      *
      * @return all pending compaction aggregates
@@ -690,11 +691,11 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     /**
      * Set the compaction aggregates passed in as pending in {@link BackgroundCompactions}. This ensures
      * that the compaction statistics will be accurate.
-     * <p/>
+     * <p>
      * This is called by {@link UnifiedCompactionStrategy#getNextCompactionAggregates()}
      * and externally after calling {@link UnifiedCompactionStrategy#getPendingCompactionAggregates()}
      * or before submitting tasks.
-     *
+     * <p>
      * Also, note that skipping the call to {@link BackgroundCompactions#setPending(CompactionStrategy, Collection)}
      * would result in memory leaks: the aggregates added in {@link BackgroundCompactions#setSubmitted(CompactionStrategy, UUID, CompactionAggregate)}
      * would never be removed, and the aggregates hold references to the compaction tasks, so they retain a significant
@@ -762,7 +763,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
      * compaction picks with a higher max overlap, with a random selection when multiple picks have the same maximum.
      * Note that if a level does not have tasks to fill its share, its quota will remain unused in this
      * allocation.
-     *
+     * <p>
      * The selection also limits the size of the newly scheduled compactions to be below spaceAvailable by not
      * scheduling compactions if they would push the combined size above that limit.
      *
@@ -902,23 +903,23 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         Set<? extends CompactionSSTable> compacting = realm.getCompactingSSTables();
         for (CompactionSSTable sstable : sstables)
             if (compactionFilter.test(sstable, compacting.contains(sstable)))
-                arenasBySSTables.computeIfAbsent(sstable, t -> new Arena(arenaSelector, realm))
+                arenasBySSTables.computeIfAbsent(sstable, t -> new Arena(arenaSelector))
                       .add(sstable);
 
         return arenasBySSTables.values();
     }
 
-    // used by CNDB to deserialize aggregates
+    @SuppressWarnings("unused") // used by CNDB to deserialize aggregates
     public Arena getCompactionArena(Collection<? extends CompactionSSTable> sstables)
     {
         maybeUpdateSelector();
-        Arena arena = new Arena(arenaSelector, realm);
+        Arena arena = new Arena(arenaSelector);
         for (CompactionSSTable table : sstables)
             arena.add(table);
         return arena;
     }
 
-    // used by CNDB to deserialize aggregates
+    @SuppressWarnings("unused") // used by CNDB to deserialize aggregates
     public Level getLevel(int index, double min, double max)
     {
         return new Level(controller, index, min, max);
@@ -1046,11 +1047,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     {
         final List<CompactionSSTable> sstables;
         final ArenaSelector selector;
-        private final CompactionRealm realm;
 
-        Arena(ArenaSelector selector, CompactionRealm realm)
+        Arena(ArenaSelector selector)
         {
-            this.realm = realm;
             this.sstables = new ArrayList<>();
             this.selector = selector;
         }
@@ -1292,12 +1291,11 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             assert count >= threshold;
             if (count <= fanout)
             {
-                /**
-                 * Happy path. We are not late or (for levelled) we are only so late that a compaction now will
-                 * have the same effect as doing levelled compactions one by one. Compact all. We do not cap
-                 * this pick at maxSSTablesToCompact due to an assumption that maxSSTablesToCompact is much
-                 * greater than F. See {@link Controller#MAX_SSTABLES_TO_COMPACT_OPTION} for more details.
-                 */
+
+                // Happy path. We are not late or (for levelled) we are only so late that a compaction now will
+                // have the same effect as doing levelled compactions one by one. Compact all. We do not cap
+                // this pick at maxSSTablesToCompact due to an assumption that maxSSTablesToCompact is much
+                // greater than F. See {@link Controller#MAX_SSTABLES_TO_COMPACT_OPTION} for more details.
                 return CompactionAggregate.createUnified(allSSTablesSorted,
                                                          maxOverlap,
                                                          CompactionPick.create(index, allSSTablesSorted),
@@ -1367,15 +1365,14 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
         /**
          * Collects in {@param list} compactions of {@param sstables} such that they land in {@param level} and higher.
-         *
+         * <p>
          * Recursively combines SSTables into {@link CompactionPick}s in way that up to {@param maxSSTablesToCompact}
          * SSTables are combined to reach the highest possible level, then the rest is combined for the level before,
          * etc up to {@param level}.
-         *
+         * <p>
          * To agree with what compaction normally does, the first sstables from the list are placed in the picks that
          * combine to reach the highest levels.
          *
-         * @param controller
          * @param level minimum target level for compactions to land
          * @param step - number of source SSTables required to reach level
          * @param maxSSTablesToCompact limit on the number of sstables per compaction
