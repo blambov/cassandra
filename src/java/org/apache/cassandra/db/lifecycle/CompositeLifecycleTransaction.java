@@ -36,7 +36,7 @@ public class CompositeLifecycleTransaction
         this.obsoleteOriginalsRequested = false;
     }
 
-    public void register(PartialLifecycleTransaction part)
+    public void register(PartialLifecycleTransaction ignoredPart)
     {
         partsToCommitOrAbort.incrementAndGet();
     }
