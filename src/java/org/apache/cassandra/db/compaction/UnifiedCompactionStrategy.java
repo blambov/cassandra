@@ -66,11 +66,9 @@ import org.apache.cassandra.utils.Overlaps;
 
 import static org.apache.cassandra.utils.Throwables.perform;
 
-/**
- * The unified compaction strategy is described in this design document:
- *
- * See CEP-26: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-26%3A+Unified+Compaction+Strategy
- */
+/// The design of the unified compaction strategy is described in [UnifiedCompactionStrategy.md](./UnifiedCompactionStrategy.md).
+///
+/// See also CEP-26: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-26%3A+Unified+Compaction+Strategy
 public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 {
     @SuppressWarnings("unused") // accessed via reflection
