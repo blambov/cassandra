@@ -18,8 +18,8 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.*;
-import java.util.function.Function;
 import java.util.function.LongPredicate;
+import java.util.function.UnaryOperator;
 
 import javax.annotation.Nullable;
 
@@ -143,7 +143,7 @@ public class CompactionController extends AbstractCompactionController
     public static
     Set<CompactionSSTable> getFullyExpiredSSTables(CompactionRealm realm,
                                                    Iterable<? extends CompactionSSTable> compacting,
-                                                   Function<Iterable<? extends CompactionSSTable>, Iterable<? extends CompactionSSTable>> overlappingSupplier,
+                                                   UnaryOperator<Iterable<? extends CompactionSSTable>> overlappingSupplier,
                                                    int gcBefore,
                                                    boolean ignoreOverlaps)
     {
@@ -216,7 +216,7 @@ public class CompactionController extends AbstractCompactionController
     public static
     Set<CompactionSSTable> getFullyExpiredSSTables(CompactionRealm realm,
                                                    Iterable<? extends CompactionSSTable> compacting,
-                                                   Function<Iterable<? extends CompactionSSTable>, Iterable<? extends CompactionSSTable>> overlappingSupplier,
+                                                   UnaryOperator<Iterable<? extends CompactionSSTable>> overlappingSupplier,
                                                    int gcBefore)
     {
         return getFullyExpiredSSTables(realm, compacting, overlappingSupplier, gcBefore, false);

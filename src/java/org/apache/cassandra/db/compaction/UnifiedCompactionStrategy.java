@@ -461,7 +461,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         // Separating the expired sstables is too hard, just use all (C* 5's version of UCS splits these out and will solve this).
         Collection<SSTableReader> sstables = transaction.originals();
         ShardManager shardManager = getShardManager();
-        double density = shardManager.calculateCombinedDensity(sstables);
+        // We don't need to be precise with the number of keys, if the output covers a very small token range it will
+        // not be split. Save some time by directly summing instead of applying SSTableReader#getApproximateKeyCount.
+        double density = shardManager.calculateCombinedDensity(sstables, sstables.stream().mapToLong(SSTableReader::estimatedKeys).sum());
         int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
         if (numShards <= 1)
             return Collections.singletonList(createCompactionTask(transaction, gcBefore));
@@ -469,13 +471,14 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
         List<CompactionTask> tasks = shardManager.splitSSTablesInShards(sstables,
                                                                         numShards,
-                                                                        (rangeSSTables, range) -> new UnifiedCompactionTask(realm,
-                                                                                                                   this,
-                                                                                                                   new PartialLifecycleTransaction(compositeTransaction),
-                                                                                                                   gcBefore,
-                                                                                                                   shardManager,
-                                                                                                                   range,
-                                                                                                                   rangeSSTables));
+                                                                        (rangeSSTables, range) ->
+                                                                            new UnifiedCompactionTask(realm,
+                                                                                                      this,
+                                                                                                      new PartialLifecycleTransaction(compositeTransaction),
+                                                                                                      gcBefore,
+                                                                                                      shardManager,
+                                                                                                      range,
+                                                                                                      rangeSSTables));
         compositeTransaction.completeInitialization();
 
         if (tasks.isEmpty())

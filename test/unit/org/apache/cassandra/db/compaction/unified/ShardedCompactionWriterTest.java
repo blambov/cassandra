@@ -108,7 +108,7 @@ public class ShardedCompactionWriterTest extends CQLTester
         LifecycleTransaction txn = cfs.getTracker().tryModify(cfs.getLiveSSTables(), OperationType.COMPACTION);
 
         ShardManager boundaries = new ShardManagerNoDisks(SortedLocalRanges.forTestingFull(cfs));
-        ShardedCompactionWriter writer = new ShardedCompactionWriter(cfs, cfs.getDirectories(), txn, txn.originals(), false, true, boundaries.boundaries(numShards));
+        ShardedCompactionWriter writer = new ShardedCompactionWriter(cfs, cfs.getDirectories(), txn, txn.originals(), 1, false, true, boundaries.boundaries(numShards));
 
         int rows = compact(cfs, txn, writer);
         assertEquals(numOutputSSTables, cfs.getLiveSSTables().size());
@@ -203,6 +203,7 @@ public class ShardedCompactionWriterTest extends CQLTester
                                                                      cfs.getDirectories(),
                                                                      txn,
                                                                      txn.originals(),
+                                                                     1,
                                                                      false,
                                                                      true,
                                                                      shardManager.boundaries(numShards));
