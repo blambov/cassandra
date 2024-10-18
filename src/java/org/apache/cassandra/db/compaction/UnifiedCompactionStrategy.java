@@ -87,8 +87,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     private final Controller controller;
 
-    private volatile ArenaSelector arenaSelector;
-    private volatile ShardManager shardManager;
+    private volatile ArenaSelector currentArenaSelector;
+    private volatile ShardManager currentShardManager;
 
     private long lastExpiredCheck;
 
@@ -385,6 +385,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Tests of PartialLifecycleTransaction, especially aborts
             // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
             // done: Tests for SSTableReader.onDiskSizeForRanges,
+            // TODO: PARALLELIZE_OUTPUT_SHARDS and RESHARD_MAJOR_COMPACTIONS in compaction options?
             // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
             // TODO: Is it okay to not rate control individual subtasks?
             //  -- No, top-level unaligned compaction can delay all.
@@ -458,7 +459,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     private Collection<CompactionTask> createParallelCompactionTasks(LifecycleTransaction transaction, int gcBefore)
     {
-        // Separating the expired sstables is too hard, just use all (C* 5's version of UCS splits these out and will solve this).
         Collection<SSTableReader> sstables = transaction.originals();
         ShardManager shardManager = getShardManager();
         // We don't need to be precise with the number of keys, if the output covers a very small token range it will
@@ -500,17 +500,17 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     private void maybeUpdateSelector()
     {
-        if (arenaSelector != null && !arenaSelector.diskBoundaries.isOutOfDate())
+        if (currentArenaSelector != null && !currentArenaSelector.diskBoundaries.isOutOfDate())
             return; // the disk boundaries (and thus the local ranges too) have not changed since the last time we calculated
 
         synchronized (this)
         {
-            if (arenaSelector != null && !arenaSelector.diskBoundaries.isOutOfDate())
+            if (currentArenaSelector != null && !currentArenaSelector.diskBoundaries.isOutOfDate())
                 return; // another thread beat us to the update
 
             DiskBoundaries currentBoundaries = realm.getDiskBoundaries();
-            shardManager = ShardManager.create(currentBoundaries, realm.getKeyspaceReplicationStrategy(), controller.isReplicaAware());
-            arenaSelector = new ArenaSelector(controller, currentBoundaries);
+            currentShardManager = ShardManager.create(currentBoundaries, realm.getKeyspaceReplicationStrategy(), controller.isReplicaAware());
+            currentArenaSelector = new ArenaSelector(controller, currentBoundaries);
             // Note: this can just as well be done without the synchronization (races would be benign, just doing some
             // redundant work). For the current usages of this blocking is fine and expected to perform no worse.
         }
@@ -520,7 +520,13 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     ShardManager getShardManager()
     {
         maybeUpdateSelector();
-        return shardManager;
+        return currentShardManager;
+    }
+
+    ArenaSelector getArenaSelector()
+    {
+        maybeUpdateSelector();
+        return currentArenaSelector;
     }
 
     private CompactionLimits getCurrentLimits(int maxConcurrentCompactions)
@@ -892,8 +898,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     public Collection<Arena> getCompactionArenas(Collection<? extends CompactionSSTable> sstables,
                                                  BiPredicate<CompactionSSTable, Boolean> compactionFilter)
     {
-        maybeUpdateSelector();
-        return getCompactionArenas(sstables, compactionFilter, this.arenaSelector);
+        return getCompactionArenas(sstables, compactionFilter, getArenaSelector());
     }
 
     Collection<Arena> getCompactionArenas(Collection<? extends CompactionSSTable> sstables,
@@ -913,8 +918,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     @SuppressWarnings("unused") // used by CNDB to deserialize aggregates
     public Arena getCompactionArena(Collection<? extends CompactionSSTable> sstables)
     {
-        maybeUpdateSelector();
-        Arena arena = new Arena(arenaSelector);
+        Arena arena = new Arena(getArenaSelector());
         for (CompactionSSTable table : sstables)
             arena.add(table);
         return arena;

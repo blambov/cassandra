@@ -70,21 +70,21 @@ public abstract class CompactionAwareWriter extends Transactional.AbstractTransa
     private int locationIndex;
     protected Directories.DataDirectory currentDirectory;
 
-    public CompactionAwareWriter(CompactionRealm realm,
-                                 Directories directories,
-                                 ILifecycleTransaction txn,
-                                 Set<SSTableReader> nonExpiredSSTables,
-                                 boolean keepOriginals)
+    protected CompactionAwareWriter(CompactionRealm realm,
+                                    Directories directories,
+                                    ILifecycleTransaction txn,
+                                    Set<SSTableReader> nonExpiredSSTables,
+                                    boolean keepOriginals)
     {
         this(realm, directories, txn, nonExpiredSSTables, keepOriginals, true);
     }
 
-    public CompactionAwareWriter(CompactionRealm realm,
-                                 Directories directories,
-                                 ILifecycleTransaction txn,
-                                 Set<SSTableReader> nonExpiredSSTables,
-                                 boolean keepOriginals,
-                                 boolean earlyOpenAllowed)
+    protected CompactionAwareWriter(CompactionRealm realm,
+                                    Directories directories,
+                                    ILifecycleTransaction txn,
+                                    Set<SSTableReader> nonExpiredSSTables,
+                                    boolean keepOriginals,
+                                    boolean earlyOpenAllowed)
     {
         this.realm = realm;
         this.directories = directories;
