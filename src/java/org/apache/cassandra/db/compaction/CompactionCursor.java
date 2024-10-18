@@ -24,7 +24,6 @@ import java.util.Collection;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.RateLimiter;
@@ -72,7 +71,6 @@ public class CompactionCursor implements SSTableCursorMerger.MergeListener, Auto
     private final long[] mergedPartitionsHistogram;
     private final long[] mergedRowsHistogram;
 
-    @SuppressWarnings("resource")
     public CompactionCursor(OperationType type, Collection<SSTableReader> readers, Range<Token> tokenRange, CompactionController controller, RateLimiter limiter, int nowInSec, UUID compactionId)
     {
         this.controller = controller;
