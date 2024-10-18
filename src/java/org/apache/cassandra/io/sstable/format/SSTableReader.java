@@ -1490,9 +1490,16 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         else
         {
             final CompressionMetadata compressionMetadata = getCompressionMetadata();
+            long lastEnd = 0;
             for (var position : getPositionsForRanges(ranges))
-                total += compressionMetadata.chunkFor(position.upperPosition).endOffset() -
-                         compressionMetadata.chunkFor(position.lowerPosition).offset;
+            {
+                long upperChunkEnd = compressionMetadata.chunkFor(position.upperPosition).chunkEnd();
+                long lowerChunkStart = compressionMetadata.chunkFor(position.lowerPosition).offset;
+                if (lowerChunkStart < lastEnd)  // if regions include the same chunk, count it only once
+                    lowerChunkStart = lastEnd;
+                total += upperChunkEnd - lowerChunkStart;
+                lastEnd = upperChunkEnd;
+            }
         }
         return total;
     }

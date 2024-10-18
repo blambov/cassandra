@@ -385,10 +385,10 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // post-first-version:
             // done: Tests of PartialLifecycleTransaction, especially aborts
             // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
-            // TODO: Tests for SSTableReader.onDiskSizeForRanges,
+            // done: Tests for SSTableReader.onDiskSizeForRanges,
             // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
             // TODO: Is it okay to not rate control individual subtasks?
-            //  -- No, top-level unaligned compaction can stop all.
+            //  -- No, top-level unaligned compaction can delay all.
             //  -- We can see accumulation of L0 tasks in fallout test.
             // TODO: Find a way to only run up to the limit subtasks for each level?
             // TODO: Take subtasks into account in getSelected?
