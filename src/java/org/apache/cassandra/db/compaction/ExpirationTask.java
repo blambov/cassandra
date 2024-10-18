@@ -34,5 +34,6 @@ public class ExpirationTask extends AbstractCompactionTask
         transaction.obsoleteOriginals();
         transaction.prepareToCommit();
         transaction.commit();
+        CompactionManager.instance.incrementDeleteOnlyCompactions();
     }
 }

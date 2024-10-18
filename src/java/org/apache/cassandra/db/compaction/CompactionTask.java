@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -96,14 +95,6 @@ public class CompactionTask extends AbstractCompactionTask
             addObserver(strategy);
 
         logger.debug("Created compaction task with id {} and strategy {}", txn.opId(), strategy);
-    }
-
-    /**
-     * Create a compaction task without a compaction strategy, currently only called by tests.
-     */
-    static AbstractCompactionTask forTesting(CompactionRealm realm, ILifecycleTransaction txn, int gcBefore)
-    {
-        return new CompactionTask(realm, txn, gcBefore, false, null);
     }
 
     /**
@@ -203,7 +194,7 @@ public class CompactionTask extends AbstractCompactionTask
 
     /**
      * @return The token range that the operation should compact. This is usually null, but if we have a parallelizable
-     * multi-task operation (see {@link UnifiedCompactionStrategy#createCompactionTasks}), it will specify a subrange.
+     * multi-task operation (see {@link UnifiedCompactionStrategy#createAndAddTasks}), it will specify a subrange.
      */
     protected Range<Token> tokenRange()
     {
@@ -461,7 +452,7 @@ public class CompactionTask extends AbstractCompactionTask
                     updateCompactionHistory(taskId, realm.getKeyspaceName(), realm.getTableName(), this);
                 }
                 CompactionManager.instance.incrementRemovedExpiredSSTables(fullyExpiredSSTablesCount);
-                if (transaction.originals().size() > 0 && actuallyCompact.size() == 0)
+                if (!transaction.originals().isEmpty() && actuallyCompact.isEmpty())
                     // this CompactionOperation only deleted fully expired SSTables without compacting anything
                     CompactionManager.instance.incrementDeleteOnlyCompactions();
 
@@ -865,24 +856,6 @@ public class CompactionTask extends AbstractCompactionTask
         return new DefaultCompactionWriter(realm, directories, transaction, nonExpiredSSTables, keepOriginals, getLevel());
     }
 
-    public static String updateCompactionHistory(UUID taskId, String keyspaceName, String columnFamilyName, long[] mergedRowCounts, long startSize, long endSize)
-    {
-        StringBuilder mergeSummary = new StringBuilder(mergedRowCounts.length * 10);
-        Map<Integer, Long> mergedRows = new HashMap<>();
-        for (int i = 0; i < mergedRowCounts.length; i++)
-        {
-            long count = mergedRowCounts[i];
-            if (count == 0)
-                continue;
-
-            int rows = i + 1;
-            mergeSummary.append(String.format("%d:%d, ", rows, count));
-            mergedRows.put(rows, count);
-        }
-        SystemKeyspace.updateCompactionHistory(taskId, keyspaceName, columnFamilyName, System.currentTimeMillis(), startSize, endSize, mergedRows);
-        return mergeSummary.toString();
-    }
-
     protected Directories getDirectories()
     {
         return realm.getDirectories();
@@ -1050,14 +1023,14 @@ public class CompactionTask extends AbstractCompactionTask
 
         StringBuilder newSSTableNames = new StringBuilder(newSStables.size() * 100);
         for (SSTableReader reader : newSStables)
-            newSSTableNames.append(reader.descriptor.baseFileUri()).append(",");
+            newSSTableNames.append(reader.descriptor.baseFileUri()).append(',');
         logger.debug("Compacted ({}{}) {} sstables to [{}] to level={}. {} to {} (~{}% of original) in {}ms. " +
                      "Read Throughput = {}, Write Throughput = {}, Row Throughput = ~{}/s, Partition Throughput = ~{}/s." +
                      " {} total partitions merged to {}. Partition merge counts were {}.",
                      taskId,
                      tokenRange() != null ? " range " + tokenRange() : "",
                      transaction.originals().size(),
-                     newSSTableNames.toString(),
+                     newSSTableNames,
                      getLevel(),
                      prettyPrintMemory(progress.adjustedInputDiskSize()),
                      prettyPrintMemory(progress.outputDiskSize()),
@@ -1069,7 +1042,7 @@ public class CompactionTask extends AbstractCompactionTask
                      (int) progress.partitionsRead() / (TimeUnit.NANOSECONDS.toSeconds(progress.durationInNanos()) + 1),
                      totalMergedPartitions,
                      totalKeysWritten,
-                     mergeSummary.toString());
+                     mergeSummary);
     }
 
     private void debugLogCompactingMessage(UUID taskId)
@@ -1087,7 +1060,7 @@ public class CompactionTask extends AbstractCompactionTask
                             .append(sstr.getSSTableLevel())
                             .append(", ");
         }
-        ssTableLoggerMsg.append("]");
+        ssTableLoggerMsg.append(']');
 
         logger.debug(ssTableLoggerMsg.toString());
     }
