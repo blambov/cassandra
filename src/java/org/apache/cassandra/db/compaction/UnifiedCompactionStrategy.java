@@ -201,7 +201,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         List<AbstractCompactionTask> tasks = new ArrayList<>();
         for (Arena arena : getCompactionArenas(realm.getLiveSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction))
         {
-            var compactingSets = Controller.RESHARD_MAJOR_COMPACTIONS
+            var compactingSets = controller.reshardMajorCompactions()
                                  ? ImmutableList.of(arena.sstables)
                                  : splitInNonOverlappingSets(arena.sstables);
 
@@ -374,7 +374,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     @VisibleForTesting
     void createAndAddTasks(int gcBefore, LifecycleTransaction transaction, Collection<? super CompactionTask> tasks)
     {
-        if (Controller.PARALLELIZE_OUTPUT_SHARDS)
+        if (controller.parallelizeOutputShards())
         {
             // done: Orchestrate scheduling of potentially large number of subtasks.
             // done: Make sure no signals are lost when scheduling individual subtasks (e.g. rejected execution).
@@ -385,7 +385,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Tests of PartialLifecycleTransaction, especially aborts
             // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
             // done: Tests for SSTableReader.onDiskSizeForRanges,
-            // TODO: PARALLELIZE_OUTPUT_SHARDS and RESHARD_MAJOR_COMPACTIONS in compaction options?
+            // done: PARALLELIZE_OUTPUT_SHARDS and RESHARD_MAJOR_COMPACTIONS in compaction options?
             // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
             // TODO: Is it okay to not rate control individual subtasks?
             //  -- No, top-level unaligned compaction can delay all.

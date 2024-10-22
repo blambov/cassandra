@@ -1136,20 +1136,18 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testGetNextBackgroundTasksParallelizeOutputShards() throws Exception
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
-        assertCompactionTask(1, 3, UnifiedCompactionTask.class);
-        assertCompactionTask(3, 9, UnifiedCompactionTask.class);
+        assertCompactionTask(1, 3, true, UnifiedCompactionTask.class);
+        assertCompactionTask(3, 9, true, UnifiedCompactionTask.class);
     }
 
     @Test
     public void testGetNextBackgroundTasksNoParallelization() throws Exception
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
-        assertCompactionTask(1, 3, UnifiedCompactionTask.class);
-        assertCompactionTask(3, 3, UnifiedCompactionTask.class);
+        assertCompactionTask(1, 3, false, UnifiedCompactionTask.class);
+        assertCompactionTask(3, 3, false, UnifiedCompactionTask.class);
     }
 
-    private void assertCompactionTask(final int numShards, final int expectedNumOfTasks, Class expectedClass)
+    private void assertCompactionTask(final int numShards, final int expectedNumOfTasks, boolean parallelizeOutputShards, Class expectedClass)
     {
         Controller controller = Mockito.mock(Controller.class);
         long minimalSizeBytes = 2 << 20;
@@ -1169,6 +1167,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(parallelizeOutputShards);
         when(controller.random()).thenCallRealMethod();
 
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
@@ -1306,20 +1305,18 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testDropExpiredSSTables1Shard() throws Exception
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
-        testDropExpiredFromBucket(1);
-        testDropExpiredAndCompactNonExpired();
+        testDropExpiredFromBucket(1, true);
+        testDropExpiredAndCompactNonExpired(true);
     }
 
     @Test
     public void testDropExpiredSSTables3Shards() throws Exception
     {
         // We don't want separate tasks for each output shard here
-        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
-        testDropExpiredFromBucket(3);
+        testDropExpiredFromBucket(3, false);
     }
 
-    private void testDropExpiredFromBucket(int numShards) throws Exception
+    private void testDropExpiredFromBucket(int numShards, boolean parallelizeOutputShards) throws Exception
     {
         Controller controller = Mockito.mock(Controller.class);
         long minimalSizeBytes = 2 << 20;
@@ -1340,6 +1337,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.getIgnoreOverlapsInExpirationCheck()).thenReturn(false);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(parallelizeOutputShards);
         when(controller.random()).thenCallRealMethod();
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
         strategy.startup();
@@ -1381,7 +1379,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         }
     }
 
-    private void testDropExpiredAndCompactNonExpired()
+    private void testDropExpiredAndCompactNonExpired(boolean parallelizeOutputShards)
     {
         Controller controller = Mockito.mock(Controller.class);
         long minimalSizeBytes = 2 << 20;
@@ -1398,6 +1396,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.maxThroughput()).thenReturn(Double.MAX_VALUE);
         when(controller.getIgnoreOverlapsInExpirationCheck()).thenReturn(false);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(parallelizeOutputShards);
         when(controller.maxSSTablesToCompact()).thenReturn(1000);
 
         when(controller.prioritize(anyList())).thenAnswer(answ -> answ.getArgument(0));
@@ -1490,6 +1489,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.maxThroughput()).thenReturn(Double.MAX_VALUE);
         when(controller.maxSSTablesToCompact()).thenReturn(2);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
         when(controller.prioritize(anyList())).thenAnswer(answ -> {
             List<CompactionAggregate.UnifiedAggregate> pending = answ.getArgument(0);
             pending.sort(Comparator.comparingLong(a -> ((CompactionAggregate.UnifiedAggregate) a).sstables.stream().mapToLong(CompactionSSTable::onDiskLength).sum()).reversed());
@@ -1561,6 +1561,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
 
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
         strategy.startup();
@@ -1645,7 +1646,6 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     {
         // Note: This test has a counterpart in ShardManagerTest that exercises splitSSTablesInShards directly and more thoroughly.
         // This one ensures the data is correctly passed to and presented in compaction tasks.
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         Set<SSTableReader> allSSTables = new HashSet<>();
         int levelNum = 0;
         for (int perLevelCount : perLevelCounts)
@@ -1663,6 +1663,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
 
         Controller controller = Mockito.mock(Controller.class);
         when(controller.getNumShards(anyDouble())).thenReturn(numShards);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
         strategy.startup();
         LifecycleTransaction txn = dataTracker.tryModify(allSSTables, OperationType.COMPACTION);
@@ -1704,7 +1705,6 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testDontCreateParallelTasks()
     {
-        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
         int numShards = 5;
         Set<SSTableReader> allSSTables = new HashSet<>();
         allSSTables.addAll(mockNonOverlappingSSTables(10, 0, 100 << 20));
@@ -1713,6 +1713,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         dataTracker.addInitialSSTables(allSSTables);
         Controller controller = Mockito.mock(Controller.class);
         when(controller.getNumShards(anyDouble())).thenReturn(numShards);
+        when(controller.parallelizeOutputShards()).thenReturn(false);
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
         strategy.startup();
         LifecycleTransaction txn = dataTracker.tryModify(allSSTables, OperationType.COMPACTION);
@@ -1725,22 +1726,18 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
     @Test
     public void testMaximalSelectionNoReshard()
     {
-        Controller.RESHARD_MAJOR_COMPACTIONS = false;
-        Controller.PARALLELIZE_OUTPUT_SHARDS = false;
-        testMaximalSelection(3, 5, 2 + 3 + 5, ((2 * 100L + 3 * 200 + 5 * 400) << 20));
+        testMaximalSelection(3, 5, false, 2 + 3 + 5, ((2 * 100L + 3 * 200 + 5 * 400) << 20));
     }
 
     @Test
     public void testMaximalSelectionReshard()
     {
-        Controller.RESHARD_MAJOR_COMPACTIONS = true;
-        Controller.PARALLELIZE_OUTPUT_SHARDS = true;
         // shared transaction, all tasks refer to the same input sstables
-        testMaximalSelection(1, 1, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));
-        testMaximalSelection(3, 3, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));
+        testMaximalSelection(1, 1, true, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));
+        testMaximalSelection(3, 3, true, 10 + 15 + 25, ((10 * 100L + 15 * 200 + 25 * 400) << 20));
     }
 
-    private void testMaximalSelection(int numShards, int expectedTaskCount, int originalsCount, long onDiskLength)
+    private void testMaximalSelection(int numShards, int expectedTaskCount, boolean parallelizeAndReshard, int originalsCount, long onDiskLength)
     {
         Set<SSTableReader> allSSTables = new HashSet<>();
         allSSTables.addAll(mockNonOverlappingSSTables(10, 0, 100 << 20));
@@ -1750,6 +1747,8 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
 
         Controller controller = Mockito.mock(Controller.class);
         when(controller.getNumShards(anyDouble())).thenReturn(numShards);
+        when(controller.parallelizeOutputShards()).thenReturn(parallelizeAndReshard);
+        when(controller.reshardMajorCompactions()).thenReturn(parallelizeAndReshard);
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
 
         CompactionTasks tasks = strategy.getMaximalTasks(0, false);
