@@ -419,9 +419,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                                                        Collection<Index.Group> indexGroups,
                                                        LifecycleNewTracker lifecycleNewTracker)
     {
-        ShardManager currentShardManager = getShardManager();
-        double flushDensity = realm.metrics().flushSizeOnDisk().get() * currentShardManager.shardSetCoverage() / currentShardManager.localSpaceCoverage();
-        ShardTracker boundaries = currentShardManager.boundaries(controller.getFlushShards(flushDensity));
+        ShardManager shardManager = getShardManager();
+        double flushDensity = realm.metrics().flushSizeOnDisk().get() * shardManager.shardSetCoverage() / shardManager.localSpaceCoverage();
+        ShardTracker boundaries = shardManager.boundaries(controller.getFlushShards(flushDensity));
         return new ShardedMultiWriter(realm,
                                       descriptor,
                                       keyCount,

@@ -30,7 +30,13 @@ import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.Throwables;
 
-@NotThreadSafe
+/// Partial lifecycle transaction. This works together with a CompositeLifecycleTransaction to allow for multiple
+/// tasks using a shared transaction to be committed or aborted together. This is used to parallelize compaction
+/// operations over the same sources. See [CompositeLifecycleTransaction] for more details.
+///
+/// This class takes care of synchronizing various operations on the shared transaction, making sure that an abort
+/// or commit signal is given exactly once (provided that this partial transaction is closed), and throwing an exception
+/// when progress is made when the transaction was already aborted by another part.
 public class PartialLifecycleTransaction implements ILifecycleTransaction
 {
     final CompositeLifecycleTransaction composite;
@@ -108,6 +114,10 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
         return committedOrAborted.compareAndSet(false, true);
     }
 
+    /// Commit the transaction part. Because this is a part of a composite transaction, the actual commit will be
+    /// carried out only after all parts have committed.
+    ///
+    ///
     public Throwable commit(Throwable accumulate)
     {
         Throwables.maybeFail(accumulate); // we must be called with a null accumulate

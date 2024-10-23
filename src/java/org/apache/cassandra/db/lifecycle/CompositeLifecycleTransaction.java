@@ -20,6 +20,25 @@ package org.apache.cassandra.db.lifecycle;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+/// Composite lifecycle transaction. This is a wrapper around a lifecycle transaction that allows for multiple partial
+/// operations that comprise the whole transaction. This is used to parallelize compaction operations over individual
+/// output shards where the compaction sources are shared among the operations; in this case we can only release the
+/// shared sources once all operations are complete.
+///
+/// A composite transaction is initialized with a main transaction that will be used to commit the transaction. Each
+/// part of the composite transaction must be registered with the transaction before it is used. The transaction must
+/// be initialized by calling [#completeInitialization()] before any of the processing is allowed to proceed.
+///
+/// The transaction is considered complete when all parts have been committed or aborted. If any part is aborted, the
+/// whole transaction is also aborted ([PartialLifecycleTransaction] will also throw an exception on other parts when
+/// they access it if the composite is already aborted).
+///
+/// When all parts are committed, the full transaction is applied by performing a checkpoint, obsoletion of the
+/// originals if any of the parts requested it, preparation and commit. This may somewhat violate the rules of
+/// transactions as a part that has been committed may actually have no effect if another part is aborted later.
+/// There are also restrictions on the operations that this model can accept, e.g. replacement of sources and partial
+/// checkpointing are not supported (as they are parts of early open which we don't aim to support at this time),
+/// and we consider that all parts will have the same opinion about the obsoletion of the originals.
 public class CompositeLifecycleTransaction
 {
     final LifecycleTransaction mainTransaction;
@@ -36,24 +55,51 @@ public class CompositeLifecycleTransaction
         this.obsoleteOriginalsRequested = false;
     }
 
-    public void register(PartialLifecycleTransaction ignoredPart)
+    /// Register one part of the composite transaction. Every part must register itself before the composite transaction
+    /// is initialized and the parts are allowed to proceed.
+    /// @param part the part to register
+    public void register(PartialLifecycleTransaction part)
     {
         partsToCommitOrAbort.incrementAndGet();
     }
 
+    /// Complete the initialization of the composite transaction. This must be called before any of the parts are
+    /// executed.
     public void completeInitialization()
     {
         initializationComplete = true;
     }
 
+    /// Request that the original sstables are obsoleted when the transaction is committed. Note that this class has
+    /// an expectation that all parts will have the same opinion about this, and one request will be sufficient to
+    /// trigger obsoletion.
     public void requestObsoleteOriginals()
     {
         obsoleteOriginalsRequested = true;
     }
 
+    /// Commit a part of the composite transaction. This will trigger the final commit of the whole transaction if it is
+    /// the last part to complete. A part has to commit or abort exactly once.
     public void commitPart()
     {
         partCommittedOrAborted();
+    }
+
+    /// Signal an abort of one part of the transaction. If this is the last part to signal, the whole transaction will
+    /// now abort. Otherwise the composite transaction will wait for the other parts to complete and will abort the
+    /// composite when they all give their commit or abort signal. A part has to commit or abort exactly once.
+    ///
+    /// [PartialLifecycleTransaction] will attempt to abort other parts sooner by throwing an exception when any of its
+    /// methods are called when the composite transaction is already aborted.
+    public void abortPart()
+    {
+        wasAborted = true;
+        partCommittedOrAborted();
+    }
+
+    boolean wasAborted()
+    {
+        return wasAborted;
     }
 
     private void partCommittedOrAborted()
@@ -73,16 +119,5 @@ public class CompositeLifecycleTransaction
                 mainTransaction.commit();
             }
         }
-    }
-
-    public void abortPart()
-    {
-        wasAborted = true;
-        partCommittedOrAborted();
-    }
-
-    boolean wasAborted()
-    {
-        return wasAborted;
     }
 }
