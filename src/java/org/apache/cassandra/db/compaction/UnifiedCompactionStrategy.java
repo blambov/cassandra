@@ -386,13 +386,29 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
             // done: Tests for SSTableReader.onDiskSizeForRanges,
             // done: PARALLELIZE_OUTPUT_SHARDS and RESHARD_MAJOR_COMPACTIONS in compaction options?
-            // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
-            // TODO: Is it okay to not rate control individual subtasks?
+            // done: Is it okay to not rate control individual subtasks?
             //  -- No, top-level unaligned compaction can delay all.
             //  -- We can see accumulation of L0 tasks in fallout test.
-            // TODO: Find a way to only run up to the limit subtasks for each level?
-            // TODO: Take subtasks into account in getSelected?
-            // TODO: Maybe specify a task count parameter to createParallelCompactionTasks (i.e. join ranges)?
+            // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
+            // TODO: Find a way to only run up to the limit subtasks for each level:
+            //  -- Hold a buffer of tasks to execute for each level.
+            //  -- On query, first produce buffered tasks; ignore levels where buffered tasks are enough to saturate
+            //     permitted count.
+            //  -- Parallelization must be taken into account in getSelected. If we can split a task and saturate
+            //     permitted, getSelected should not choose another one as well.
+            //  -- Must never lose buffered tasks. This is a serious problem for reload.
+            // TODO alternate:
+            //  -- Assign permitted parallelism to each aggregate in getSelected from the number of available threads.
+            //  -- Take into account possible parallelism (may be costly; store in aggregate?).
+            //  -- Only parallelize up to that number, adjust if parallelized lower.
+            //  -- Track this in the pending aggregates data.
+            //  -- Maybe prefer same-size tasks so that they complete nearly at the same time and don't hold reserved
+            //     threads. E.g. permitted 3 with 4 shards should prefer splitting in 1/2,1/2 and adjusting permitted
+            //     rather than split in 1/4,1/4,1/2 and have two threads complete much earlier with a pending aggregate
+            //     keeping hold of 3 threads with only 1 executing.)
+            //  -- Downside: can't take advantage of resources that freed up for the current tasks, next
+            //     getNextBackgroundTasks would instead shedule others, also with limited resources.
+            // TODO: Check if compaction history can deal with id duplicates
             // TODO: Progress reports are incorrect for iterators
             // TODO: Maybe optimize scanners to not use index.
             tasks.addAll(createParallelCompactionTasks(transaction, gcBefore));
@@ -469,6 +485,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             return Collections.singletonList(createCompactionTask(transaction, gcBefore));
 
         CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
+        SharedCompactionProgress sharedProgress = new SharedCompactionProgress();
         List<CompactionTask> tasks = shardManager.splitSSTablesInShards(sstables,
                                                                         numShards,
                                                                         (rangeSSTables, range) ->
@@ -478,7 +495,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                                                                                                       gcBefore,
                                                                                                       shardManager,
                                                                                                       range,
-                                                                                                      rangeSSTables));
+                                                                                                      rangeSSTables,
+                                                                                                      sharedProgress));
         compositeTransaction.completeInitialization();
 
         if (tasks.isEmpty())

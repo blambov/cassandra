@@ -25,6 +25,7 @@ import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionRealm;
 import org.apache.cassandra.db.compaction.CompactionTask;
 import org.apache.cassandra.db.compaction.ShardManager;
+import org.apache.cassandra.db.compaction.SharedCompactionProgress;
 import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
 import org.apache.cassandra.db.compaction.writers.CompactionAwareWriter;
 import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
@@ -41,6 +42,7 @@ public class UnifiedCompactionTask extends CompactionTask
     private final Controller controller;
     private final Range<Token> operationRange;
     private final Set<SSTableReader> actuallyCompact;
+    private final SharedCompactionProgress sharedProgress;
 
     public UnifiedCompactionTask(CompactionRealm cfs,
                                  UnifiedCompactionStrategy strategy,
@@ -48,7 +50,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  int gcBefore,
                                  ShardManager shardManager)
     {
-        this(cfs, strategy, txn, gcBefore, shardManager, null, null);
+        this(cfs, strategy, txn, gcBefore, shardManager, null, null, null);
     }
 
 
@@ -58,7 +60,8 @@ public class UnifiedCompactionTask extends CompactionTask
                                  int gcBefore,
                                  ShardManager shardManager,
                                  Range<Token> operationRange,
-                                 Set<SSTableReader> actuallyCompact)
+                                 Set<SSTableReader> actuallyCompact,
+                                 SharedCompactionProgress sharedProgress)
     {
         super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy);
         this.controller = strategy.getController();
@@ -67,6 +70,9 @@ public class UnifiedCompactionTask extends CompactionTask
             : "operationRange and actuallyCompact must be both null or both non-null";
 
         this.operationRange = operationRange;
+        this.sharedProgress = sharedProgress;
+        if (sharedProgress != null)
+            sharedProgress.addExpectedSubtask();
         // To make sure actuallyCompact tracks any removals from txn.originals(), we intersect the given set with it.
         // This should not be entirely necessary (as shouldReduceScopeForSpace() is false for ranged tasks), but it
         // is cleaner to enforce inputSSTables()'s requirements.
@@ -104,6 +110,12 @@ public class UnifiedCompactionTask extends CompactionTask
     protected Range<Token> tokenRange()
     {
         return operationRange;
+    }
+
+    @Override
+    protected SharedCompactionProgress sharedProgress()
+    {
+        return sharedProgress;
     }
 
     @Override

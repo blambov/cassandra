@@ -202,6 +202,15 @@ public class CompactionTask extends AbstractCompactionTask
     }
 
     /**
+     * If this is a partial compaction, its progress reports are shared between tasks. This method returns the shared
+     * progress object.
+     */
+    protected SharedCompactionProgress sharedProgress()
+    {
+        return null;
+    }
+
+    /**
      * @return The set of input sstables for this compaction. This must be a subset of the transaction originals and
      * must reflect any removal of sstables from the originals set for correct overlap tracking.
      * See {@link UnifiedCompactionTask} for an example.
@@ -260,9 +269,9 @@ public class CompactionTask extends AbstractCompactionTask
                      realm.metadata().enforceStrictLiveness() ? "strict liveness" : "");
 
         if (compactByIterators)
-            return new CompactionOperationIterator(controller, actuallyCompact, tokenRange(), fullyExpiredSSTables.size());
+            return new CompactionOperationIterator(controller, actuallyCompact, fullyExpiredSSTables.size());
         else
-            return new CompactionOperationCursor(controller, actuallyCompact, tokenRange(), fullyExpiredSSTables.size());
+            return new CompactionOperationCursor(controller, actuallyCompact, fullyExpiredSSTables.size());
     }
 
     /**
@@ -305,7 +314,7 @@ public class CompactionTask extends AbstractCompactionTask
          * @param actuallyCompact the set of sstables to compact (excludes any fully expired ones)
          * @param fullyExpiredSSTablesCount the number of fully expired sstables (used in metrics)
          */
-        private CompactionOperation(CompactionController controller, Set<SSTableReader> actuallyCompact, Range<Token> tokenRange, int fullyExpiredSSTablesCount)
+        private CompactionOperation(CompactionController controller, Set<SSTableReader> actuallyCompact, int fullyExpiredSSTablesCount)
         {
             this.controller = controller;
             this.actuallyCompact = actuallyCompact;
@@ -326,12 +335,20 @@ public class CompactionTask extends AbstractCompactionTask
             {
                 // resources that need closing, must be created last in case of exceptions and released if there is an exception in the c.tor
                 this.sstableRefs = Refs.ref(actuallyCompact);
-                this.inputDiskSize = getTotalOnDiskBytes(actuallyCompact, tokenRange);
-                this.op = initializeSource(tokenRange);
+                this.inputDiskSize = getTotalOnDiskBytes(actuallyCompact, tokenRange());
+                this.op = initializeSource(tokenRange());
                 this.writer = getCompactionAwareWriter(realm, dirs, actuallyCompact);
                 this.obsCloseable = opObserver.onOperationStart(op);
+                CompactionProgress progress = this;
+                var sharedProgress = sharedProgress();
+                if (sharedProgress != null)
+                {
+                    sharedProgress.registerSubtask(this);
+                    progress = sharedProgress;
+                }
 
-                getCompObservers().forEach(obs -> obs.onInProgress(this));
+                for (var obs : getCompObservers())
+                    obs.onInProgress(progress);
             }
             catch (Throwable t)
             {
@@ -447,14 +464,22 @@ public class CompactionTask extends AbstractCompactionTask
 
             if (completed)
             {
-                if (COMPACTION_HISTORY_ENABLED.getBoolean())
+                boolean shouldSignalCompletion = true;
+                var sharedProgress = sharedProgress();
+                if (sharedProgress != null)
+                    shouldSignalCompletion = sharedProgress.completeSubtask(this);
+
+                if (shouldSignalCompletion)
                 {
-                    updateCompactionHistory(taskId, realm.getKeyspaceName(), realm.getTableName(), this);
+                    if (COMPACTION_HISTORY_ENABLED.getBoolean())
+                    {
+                        updateCompactionHistory(taskId, realm.getKeyspaceName(), realm.getTableName(), this);
+                    }
+                    CompactionManager.instance.incrementRemovedExpiredSSTables(fullyExpiredSSTablesCount);
+                    if (!transaction.originals().isEmpty() && actuallyCompact.isEmpty())
+                        // this CompactionOperation only deleted fully expired SSTables without compacting anything
+                        CompactionManager.instance.incrementDeleteOnlyCompactions();
                 }
-                CompactionManager.instance.incrementRemovedExpiredSSTables(fullyExpiredSSTablesCount);
-                if (!transaction.originals().isEmpty() && actuallyCompact.isEmpty())
-                    // this CompactionOperation only deleted fully expired SSTables without compacting anything
-                    CompactionManager.instance.incrementDeleteOnlyCompactions();
 
                 if (logger.isDebugEnabled())
                     debugLogCompactionSummaryInfo(taskId, System.nanoTime() - startNanos, totalKeysWritten, newSStables, this);
@@ -463,6 +488,7 @@ public class CompactionTask extends AbstractCompactionTask
                 if (strategy != null)
                     strategy.getCompactionLogger().compaction(startTime,
                                                               transaction.originals(),
+                                                              tokenRange(),
                                                               System.currentTimeMillis(),
                                                               newSStables);
 
@@ -571,21 +597,9 @@ public class CompactionTask extends AbstractCompactionTask
         }
 
         @Override
-        public long durationInNanos()
+        public long startTimeNanos()
         {
-            return System.nanoTime() - startNanos;
-        }
-
-        @Override
-        public double sizeRatio()
-        {
-            long estInputSizeBytes = adjustedInputDiskSize();
-            if (estInputSizeBytes > 0)
-                return outputDiskSize() / (double) estInputSizeBytes;
-
-            // this is a valid case, when there are no sstables to actually compact
-            // the previous code would return a NaN that would be logged as zero
-            return 0;
+            return startNanos;
         }
     }
 
@@ -606,9 +620,9 @@ public class CompactionTask extends AbstractCompactionTask
          * <p/>
          * @param controller the compaction controller is needed by the scanners and compaction iterator to manage options
          */
-        CompactionOperationIterator(CompactionController controller, Set<SSTableReader> actuallyCompact, Range<Token> tokenRange, int fullyExpiredSSTablesCount)
+        CompactionOperationIterator(CompactionController controller, Set<SSTableReader> actuallyCompact, int fullyExpiredSSTablesCount)
         {
-            super(controller, actuallyCompact, tokenRange, fullyExpiredSSTablesCount);
+            super(controller, actuallyCompact, fullyExpiredSSTablesCount);
         }
 
         @Override
@@ -735,9 +749,9 @@ public class CompactionTask extends AbstractCompactionTask
          * <p/>
          * @param controller the compaction controller is needed by the scanners and compaction iterator to manage options
          */
-        CompactionOperationCursor(CompactionController controller, Set<SSTableReader> actuallyCompact, Range<Token> tokenRange, int fullyExpiredSSTablesCount)
+        CompactionOperationCursor(CompactionController controller, Set<SSTableReader> actuallyCompact, int fullyExpiredSSTablesCount)
         {
-            super(controller, actuallyCompact, tokenRange, fullyExpiredSSTablesCount);
+            super(controller, actuallyCompact, fullyExpiredSSTablesCount);
         }
 
         @Override
