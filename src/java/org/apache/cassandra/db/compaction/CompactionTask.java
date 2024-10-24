@@ -86,13 +86,23 @@ public class CompactionTask extends AbstractCompactionTask
                           boolean keepOriginals,
                           @Nullable CompactionStrategy strategy)
     {
+        this(realm, txn, gcBefore, keepOriginals, strategy, strategy);
+    }
+
+    public CompactionTask(CompactionRealm realm,
+                          ILifecycleTransaction txn,
+                          int gcBefore,
+                          boolean keepOriginals,
+                          @Nullable CompactionStrategy strategy,
+                          CompactionObserver observer)
+    {
         super(realm, txn);
         this.gcBefore = gcBefore;
         this.keepOriginals = keepOriginals;
         this.strategy = strategy;
 
-        if (strategy != null)
-            addObserver(strategy);
+        if (observer != null)
+            addObserver(observer);
 
         logger.debug("Created compaction task with id {} and strategy {}", txn.opId(), strategy);
     }
