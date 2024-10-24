@@ -63,7 +63,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  Set<SSTableReader> actuallyCompact,
                                  SharedCompactionProgress sharedProgress)
     {
-        super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy);
+        super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy, sharedProgress != null ? sharedProgress : strategy);
         this.controller = strategy.getController();
         this.shardManager = shardManager;
         assert (operationRange == null) == (actuallyCompact == null)

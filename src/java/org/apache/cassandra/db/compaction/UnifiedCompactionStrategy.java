@@ -389,7 +389,8 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // done: Is it okay to not rate control individual subtasks?
             //  -- No, top-level unaligned compaction can delay all.
             //  -- We can see accumulation of L0 tasks in fallout test.
-            // TODO: Check correctness of compaction reports (dips at end of size; remaining to compact cliffs).
+            // done: Check correctness of compaction reports (dips at end of size, remaining to compact cliffs, rate MB/s).
+            // TODO: Unit test shared statistics
             // TODO: Find a way to only run up to the limit subtasks for each level:
             //  -- Hold a buffer of tasks to execute for each level.
             //  -- On query, first produce buffered tasks; ignore levels where buffered tasks are enough to saturate
@@ -408,7 +409,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             //     keeping hold of 3 threads with only 1 executing.)
             //  -- Downside: can't take advantage of resources that freed up for the current tasks, next
             //     getNextBackgroundTasks would instead shedule others, also with limited resources.
-            // TODO: Check if compaction history can deal with id duplicates
             // TODO: Progress reports are incorrect for iterators
             // TODO: Maybe optimize scanners to not use index.
             tasks.addAll(createParallelCompactionTasks(transaction, gcBefore));
@@ -485,7 +485,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             return Collections.singletonList(createCompactionTask(transaction, gcBefore));
 
         CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
-        SharedCompactionProgress sharedProgress = new SharedCompactionProgress();
+        SharedCompactionProgress sharedProgress = new SharedCompactionProgress(this);
         List<CompactionTask> tasks = shardManager.splitSSTablesInShards(sstables,
                                                                         numShards,
                                                                         (rangeSSTables, range) ->

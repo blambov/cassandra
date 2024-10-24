@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -38,18 +39,23 @@ import org.apache.cassandra.schema.TableMetadata;
 /// Subtasks may start and register in any order. There may also be periods of time when all started tasks have
 /// completed but there are new ones to still initiate. Because of this all parameters returned by this progress may
 /// increase over time, including the total sizes and sstable lists.
-public class SharedCompactionProgress implements CompactionProgress
+public class SharedCompactionProgress implements CompactionProgress, CompactionObserver
 {
     final List<CompactionProgress> sources = new ArrayList<>();
     final AtomicInteger toComplete = new AtomicInteger(0);
+    final AtomicInteger toReportOnComplete = new AtomicInteger(0);
+    final AtomicBoolean onCompleteIsSuccess = new AtomicBoolean(true);
+    final CompactionObserver observer;
 
-    public SharedCompactionProgress()
+    public SharedCompactionProgress(CompactionObserver observer)
     {
+        this.observer = observer;
     }
 
     public void addExpectedSubtask()
     {
         toComplete.incrementAndGet();
+        toReportOnComplete.incrementAndGet();
     }
 
     public synchronized void registerSubtask(CompactionProgress progress)
@@ -302,5 +308,19 @@ public class SharedCompactionProgress implements CompactionProgress
                 merged[i] += histogram[i];
         }
         return merged;
+    }
+
+    @Override
+    public void onInProgress(CompactionProgress progress)
+    {
+        observer.onInProgress(this);
+    }
+
+    @Override
+    public void onCompleted(UUID id, boolean isSuccess)
+    {
+        onCompleteIsSuccess.compareAndSet(true, isSuccess); // acts like AND
+        if (toReportOnComplete.decrementAndGet() == 0)
+            observer.onCompleted(operationId(), onCompleteIsSuccess.get());
     }
 }
