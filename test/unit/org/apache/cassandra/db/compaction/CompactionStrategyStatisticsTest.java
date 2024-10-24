@@ -50,7 +50,6 @@ import org.mockito.Mockito;
 
 import static org.apache.cassandra.db.compaction.LeveledManifest.MAX_COMPACTING_L0;
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -106,6 +105,7 @@ public class CompactionStrategyStatisticsTest extends BaseCompactionStrategyTest
         when(controller.maxCompactionSpaceBytes()).thenReturn(Long.MAX_VALUE);
         when(controller.maxThroughput()).thenReturn(Double.MAX_VALUE);
         when(controller.random()).thenCallRealMethod();
+        when(controller.getNumShards(anyDouble())).thenReturn(2);
         // Calculate the minimum shard size such that the top bucket compactions won't be considered "oversized" and
         // all will be allowed to run. The calculation below assumes (1) that compactions are considered "oversized"
         // if they are more than 1/2 of the max shard size; (2) that mockSSTables uses 15% less than the max SSTable

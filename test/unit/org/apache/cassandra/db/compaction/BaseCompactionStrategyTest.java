@@ -278,6 +278,14 @@ public class BaseCompactionStrategyTest
     {
         DecoratedKey first = new BufferDecoratedKey(partitioner.getMinimumToken(), ByteBuffer.allocate(0));
         DecoratedKey last = new BufferDecoratedKey(partitioner.getMinimumToken(), ByteBuffer.allocate(0));
+        // TODO: This needs to change to use actually possible keys like this:
+//        final Token minimumToken = partitioner.getMinimumToken();
+//        final Token maximumToken = partitioner.getMaximumToken();
+//        DecoratedKey first = new BufferDecoratedKey(partitioner.split(minimumToken, maximumToken, 0.0001 + random.nextDouble() * 0.02),
+//                                                    ByteBuffer.allocate(0));
+//        DecoratedKey last = new BufferDecoratedKey(partitioner.split(minimumToken, maximumToken, 0.9999 - random.nextDouble() * 0.02),
+//                                                   ByteBuffer.allocate(0));
+        // This currently makes a lot of tests fail but they are likely not testing realistic inputs and need to be adjusted.
 
         List<SSTableReader> sstables = new ArrayList<>();
         for (int i = 0; i < numSSTables; i++)
