@@ -209,6 +209,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
 
         when(controller.getScalingParameter(anyInt())).thenAnswer(answer -> {
             int index = answer.getArgument(0);
@@ -324,6 +325,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(inclusionMethod);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
 
         when(controller.getScalingParameter(anyInt())).thenAnswer(answer -> {
             int index = answer.getArgument(0);
@@ -581,6 +583,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
 
         if (maxSSTablesToCompact >= numSSTables)
             when(controller.maxConcurrentCompactions()).thenReturn(levels * (W < 0 ? 1 : F)); // make sure the work is assigned to different levels
@@ -745,6 +748,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getReservedThreads()).thenReturn(Integer.MAX_VALUE);
         when(controller.getReservationsType()).thenReturn(Reservations.Type.PER_LEVEL);
         when(controller.overlapInclusionMethod()).thenReturn(Overlaps.InclusionMethod.SINGLE);
+        when(controller.parallelizeOutputShards()).thenReturn(false);   // We want to count compactions issued, not individual tasks
         // Calculate the minimum shard size such that the top bucket compactions won't be considered "oversized" and
         // all will be allowed to run. The calculation below assumes (1) that compactions are considered "oversized"
         // if they are more than 1/2 of the max shard size; (2) that mockSSTables uses 15% less than the max SSTable
@@ -1874,6 +1878,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.getSurvivalFactor(anyInt())).thenReturn(1.0);
         when(controller.getBaseSstableSize(anyInt())).thenReturn((double) (90 << 20));
         when(controller.overlapInclusionMethod()).thenReturn(overlapInclusionMethod);
+        when(controller.parallelizeOutputShards()).thenReturn(true);
         Random randomMock = Mockito.mock(Random.class);
         when(randomMock.nextInt(anyInt())).thenReturn(0);
         when(controller.random()).thenReturn(randomMock);
