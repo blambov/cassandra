@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -34,31 +33,25 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.TableMetadata;
 
 /// Shared compaction progress tracker. This combines the progress tracking of multiple compaction tasks into a single
-/// progress tracker.
+/// progress tracker, and of reporting completion of all tasks when all of them complete.
 ///
-/// Subtasks may start and register in any order. There may also be periods of time when all started tasks have
+/// Subtasks may start and add themselves in any order. There may also be periods of time when all started tasks have
 /// completed but there are new ones to still initiate. Because of this all parameters returned by this progress may
 /// increase over time, including the total sizes and sstable lists.
-public class SharedCompactionProgress implements CompactionProgress, CompactionObserver
+///
+/// To know how many subtasks to expect, this class's [#registerExpectedSubtask] method must be called once per subtask
+/// before any of them start.
+public class SharedCompactionProgress implements CompactionProgress
 {
     final List<CompactionProgress> sources = new ArrayList<>();
     final AtomicInteger toComplete = new AtomicInteger(0);
-    final AtomicInteger toReportOnComplete = new AtomicInteger(0);
-    final AtomicBoolean onCompleteIsSuccess = new AtomicBoolean(true);
-    final CompactionObserver observer;
 
-    public SharedCompactionProgress(CompactionObserver observer)
-    {
-        this.observer = observer;
-    }
-
-    public void addExpectedSubtask()
+    public void registerExpectedSubtask()
     {
         toComplete.incrementAndGet();
-        toReportOnComplete.incrementAndGet();
     }
 
-    public synchronized void registerSubtask(CompactionProgress progress)
+    public synchronized void addSubtask(CompactionProgress progress)
     {
         if (!sources.isEmpty())
             assert sources.get(0).operationId() == progress.operationId();
@@ -308,19 +301,5 @@ public class SharedCompactionProgress implements CompactionProgress, CompactionO
                 merged[i] += histogram[i];
         }
         return merged;
-    }
-
-    @Override
-    public void onInProgress(CompactionProgress progress)
-    {
-        observer.onInProgress(this);
-    }
-
-    @Override
-    public void onCompleted(UUID id, boolean isSuccess)
-    {
-        onCompleteIsSuccess.compareAndSet(true, isSuccess); // acts like AND
-        if (toReportOnComplete.decrementAndGet() == 0)
-            observer.onCompleted(operationId(), onCompleteIsSuccess.get());
     }
 }

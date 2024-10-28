@@ -353,7 +353,7 @@ public class CompactionTask extends AbstractCompactionTask
                 var sharedProgress = sharedProgress();
                 if (sharedProgress != null)
                 {
-                    sharedProgress.registerSubtask(this);
+                    sharedProgress.addSubtask(this);
                     progress = sharedProgress;
                 }
 

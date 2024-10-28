@@ -25,6 +25,7 @@ import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionRealm;
 import org.apache.cassandra.db.compaction.CompactionTask;
 import org.apache.cassandra.db.compaction.ShardManager;
+import org.apache.cassandra.db.compaction.SharedCompactionObserver;
 import org.apache.cassandra.db.compaction.SharedCompactionProgress;
 import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
 import org.apache.cassandra.db.compaction.writers.CompactionAwareWriter;
@@ -50,7 +51,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  int gcBefore,
                                  ShardManager shardManager)
     {
-        this(cfs, strategy, txn, gcBefore, shardManager, null, null, null);
+        this(cfs, strategy, txn, gcBefore, shardManager, null, null, null, null);
     }
 
 
@@ -61,18 +62,25 @@ public class UnifiedCompactionTask extends CompactionTask
                                  ShardManager shardManager,
                                  Range<Token> operationRange,
                                  Set<SSTableReader> actuallyCompact,
-                                 SharedCompactionProgress sharedProgress)
+                                 SharedCompactionProgress sharedProgress,
+                                 SharedCompactionObserver sharedObserver)
     {
-        super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy, sharedProgress != null ? sharedProgress : strategy);
+        super(cfs, txn, gcBefore, strategy.getController().getIgnoreOverlapsInExpirationCheck(), strategy, sharedObserver != null ? sharedObserver : strategy);
         this.controller = strategy.getController();
         this.shardManager = shardManager;
-        assert (operationRange == null) == (actuallyCompact == null)
-            : "operationRange and actuallyCompact must be both null or both non-null";
 
+        if (operationRange != null)
+        {
+            assert actuallyCompact != null : "Ranged tasks should use a set of sstables to compact";
+            assert sharedProgress != null : "Ranged tasks should use a shared progress object";
+            assert sharedObserver != null : "Ranged tasks should use a shared observer";
+        }
         this.operationRange = operationRange;
         this.sharedProgress = sharedProgress;
         if (sharedProgress != null)
-            sharedProgress.addExpectedSubtask();
+            sharedProgress.registerExpectedSubtask();
+        if (sharedObserver != null)
+            sharedObserver.registerExpectedSubtask();
         // To make sure actuallyCompact tracks any removals from txn.originals(), we intersect the given set with it.
         // This should not be entirely necessary (as shouldReduceScopeForSpace() is false for ranged tasks), but it
         // is cleaner to enforce inputSSTables()'s requirements.
