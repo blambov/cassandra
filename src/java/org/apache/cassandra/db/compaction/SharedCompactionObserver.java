@@ -34,11 +34,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /// if assertions are enabled.
 public class SharedCompactionObserver implements CompactionObserver
 {
-    final AtomicInteger toReportOnComplete = new AtomicInteger(0);
-    final AtomicBoolean onCompleteIsSuccess = new AtomicBoolean(true);
-    final AtomicReference<CompactionProgress> inProgressReported = new AtomicReference<>(null);
-    final AtomicReference<UUID> operationId = new AtomicReference<>(null);
-    final CompactionObserver observer;
+    private final AtomicInteger toReportOnComplete = new AtomicInteger(0);
+    private final AtomicBoolean onCompleteIsSuccess = new AtomicBoolean(true);
+    private final AtomicReference<CompactionProgress> inProgressReported = new AtomicReference<>(null);
+    private final AtomicReference<UUID> operationId = new AtomicReference<>(null);
+    private final CompactionObserver observer;
 
     public SharedCompactionObserver(CompactionObserver observer)
     {
@@ -70,6 +70,7 @@ public class SharedCompactionObserver implements CompactionObserver
         onCompleteIsSuccess.compareAndSet(true, isSuccess); // acts like AND
         if (toReportOnComplete.decrementAndGet() == 0)
             observer.onCompleted(id, onCompleteIsSuccess.get());
+        assert operationId.get() != null : "onCompleted called before onInProgress";
         assert operationId.get().equals(id)
             : "onComplete reported a different operation id, " + id + " vs " + operationId.get();
     }

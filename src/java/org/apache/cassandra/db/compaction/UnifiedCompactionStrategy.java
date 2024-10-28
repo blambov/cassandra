@@ -390,7 +390,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             //  -- No, top-level unaligned compaction can delay all.
             //  -- We can see accumulation of L0 pending tasks in fallout test.
             // done: Check correctness of compaction reports (dips at end of size, remaining to compact cliffs, rate MB/s).
-            // TODO: Unit test shared statistics
+            // done: Unit test shared statistics
             // TODO: Fix read throughput per thread in report (it's currently per pick/transaction); maybe add per-pick entry too?
             // TODO: Progress reports are incorrect for iterators
             // TODO: Set parallelize_output_shards to off by default, and only enable by default once subtasks item is done.

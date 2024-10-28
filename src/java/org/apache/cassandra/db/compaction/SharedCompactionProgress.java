@@ -43,8 +43,8 @@ import org.apache.cassandra.schema.TableMetadata;
 /// before any of them start.
 public class SharedCompactionProgress implements CompactionProgress
 {
-    final List<CompactionProgress> sources = new ArrayList<>();
-    final AtomicInteger toComplete = new AtomicInteger(0);
+    private final List<CompactionProgress> sources = new ArrayList<>();
+    private final AtomicInteger toComplete = new AtomicInteger(0);
 
     public void registerExpectedSubtask()
     {
