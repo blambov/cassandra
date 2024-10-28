@@ -391,9 +391,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             //  -- We can see accumulation of L0 pending tasks in fallout test.
             // done: Check correctness of compaction reports (dips at end of size, remaining to compact cliffs, rate MB/s).
             // done: Unit test shared statistics
-            // TODO: Fix read throughput per thread in report (it's currently per pick/transaction); maybe add per-pick entry too?
-            // TODO: Progress reports are incorrect for iterators
-            // TODO: Set parallelize_output_shards to off by default, and only enable by default once subtasks item is done.
+            // done: Set parallelize_output_shards to off by default, and only enable by default once subtasks item is done.
             // ---- CNDB-side work falls here.
             // TODO: Find a way to only run up to the limit subtasks for each level:
             // === Option1: Hold a buffer of tasks to execute for each level.
@@ -426,7 +424,9 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             // Leaning towards going with option 3.
             // ----
             // TODO: Separate ticket: Optimize scanners to not use index.
-            // TODO (maybe): Separate ticket: Early open support for parallelized compactions.
+            // TODO maybe: Progress reports are incorrect for iterators
+            // TODO maybe: Fix read throughput per thread in report (it's currently per pick/transaction); maybe add per-pick entry too?
+            // TODO maybe: Separate ticket: Early open support for parallelized compactions.
             tasks.addAll(createParallelCompactionTasks(transaction, gcBefore));
         }
         else
