@@ -375,60 +375,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     void createAndAddTasks(int gcBefore, LifecycleTransaction transaction, Collection<? super CompactionTask> tasks)
     {
         if (controller.parallelizeOutputShards())
-        {
-            // done: Orchestrate scheduling of potentially large number of subtasks.
-            // done: Make sure no signals are lost when scheduling individual subtasks (e.g. rejected execution).
-            // done: Disable early open for these.
-            // done: Apply the operation range.
-            // done: Adjust progress reports for cursors.
-            // post-first-version:
-            // done: Tests of PartialLifecycleTransaction, especially aborts
-            // done: Tests of createParallelCompactionTasks: no-sstable ranges, etc.
-            // done: Tests for SSTableReader.onDiskSizeForRanges,
-            // done: PARALLELIZE_OUTPUT_SHARDS and RESHARD_MAJOR_COMPACTIONS in compaction options?
-            // done: Is it okay to not rate control individual subtasks?
-            //  -- No, top-level unaligned compaction can delay all.
-            //  -- We can see accumulation of L0 pending tasks in fallout test.
-            // done: Check correctness of compaction reports (dips at end of size, remaining to compact cliffs, rate MB/s).
-            // done: Unit test shared statistics
-            // done: Set parallelize_output_shards to off by default, and only enable by default once subtasks item is done.
-            // ---- CNDB-side work falls here.
-            // TODO: Find a way to only run up to the limit subtasks for each level:
-            // === Option1: Hold a buffer of tasks to execute for each level.
-            //  -- On query, first produce buffered tasks; ignore levels where buffered tasks are enough to saturate
-            //     permitted count.
-            //  -- Parallelization must be taken into account in getSelected. If we can split a task and saturate
-            //     permitted, getSelected should not choose another one as well.
-            //  -- Must never lose buffered tasks. This is a serious problem for reload.
-            // === Option2: Assign permitted parallelism to each aggregate in getSelected from the number of available
-            //     threads.
-            //  -- Take into account possible parallelism (may be costly; store in aggregate?).
-            //  -- Only parallelize up to that number, adjust if parallelized lower.
-            //  -- Track this in the pending aggregates data.
-            //  -- Maybe prefer same-size tasks so that they complete nearly at the same time and don't hold reserved
-            //     threads. E.g. permitted 3 with 4 shards should prefer splitting in 1/2,1/2 and adjusting permitted
-            //     rather than split in 1/4,1/4,1/2 and have two threads complete much earlier with a pending aggregate
-            //     keeping hold of 3 threads with only 1 executing.)
-            //  -- Downside: can't take advantage of resources that freed up for the current tasks, next
-            //     getNextBackgroundTasks would instead shedule others, also with limited resources.
-            //  -- Downside: shard-aware splitting will break the "complete nearly at the same time" assumption.
-            // === Option3: Move thread allocation to BackgroundCompactionsRunner
-            //  -- It can keep lists of pending tasks per level combined for all tables.
-            //  -- It could distribute work among tables.
-            //  -- Per-level limitation is harder when the number of levels varies
-            //   - Can we come up with something that acts like the current code when only one table is being used?
-            //   - But little by little switches to acting like the current code for a different table when load moves?
-            //  -- No risk of losing tasks.
-            //  -- Can be ported over to OSS C*, replacing/simplifying or justifying the aggregates rewrite.
-            //  -- Separate, sizeable chunk of work.
-            // Leaning towards going with option 3.
-            // ----
-            // TODO: Separate ticket: Optimize scanners to not use index.
-            // TODO maybe: Progress reports are incorrect for iterators
-            // TODO maybe: Fix read throughput per thread in report (it's currently per pick/transaction); maybe add per-pick entry too?
-            // TODO maybe: Separate ticket: Early open support for parallelized compactions.
             tasks.addAll(createParallelCompactionTasks(transaction, gcBefore));
-        }
         else
             tasks.add(createCompactionTask(transaction, gcBefore));
     }
@@ -919,7 +866,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         return controller.getScalingParameter(index);
     }
 
-    @VisibleForTesting
     public Controller getController()
     {
         return controller;

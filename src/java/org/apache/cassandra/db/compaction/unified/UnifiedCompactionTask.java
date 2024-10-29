@@ -34,9 +34,6 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
-/**
- * The sole purpose of this class is to currently create a {@link ShardedCompactionWriter}.
- */
 public class UnifiedCompactionTask extends CompactionTask
 {
     private final ShardManager shardManager;
