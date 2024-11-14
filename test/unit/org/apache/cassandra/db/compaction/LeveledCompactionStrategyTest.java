@@ -593,7 +593,7 @@ public class LeveledCompactionStrategyTest
         {
             for (AbstractCompactionStrategy strategy : strategies)
             {
-                AbstractCompactionTask task = strategy.getNextBackgroundTask(0);
+                AbstractCompactionTask task = Iterables.getOnlyElement(strategy.getNextBackgroundTasks(0), null);
                 if (task != null)
                 {
                     try

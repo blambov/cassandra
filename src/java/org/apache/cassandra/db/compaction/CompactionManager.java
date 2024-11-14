@@ -376,16 +376,31 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                 }
 
                 CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
-                AbstractCompactionTask task = strategy.getNextBackgroundTask(getDefaultGcBefore(cfs, FBUtilities.nowInSeconds()));
-                if (task == null)
+                Collection<AbstractCompactionTask> tasks = strategy.getNextBackgroundTasks(getDefaultGcBefore(cfs, FBUtilities.nowInSeconds()));
+                if (tasks == null || tasks.isEmpty())
                 {
                     if (DatabaseDescriptor.automaticSSTableUpgrade())
                         ranCompaction = maybeRunUpgradeTask(strategy);
                 }
                 else
                 {
-                    task.execute(active);
-                    ranCompaction = true;
+                    AbstractCompactionTask lastTask = null;
+                    // Submit all but the last task for execution,
+                    for (AbstractCompactionTask task : tasks)
+                    {
+                        if (lastTask != null)
+                        {
+                            AbstractCompactionTask toRun = lastTask;
+                            executor.execute(() -> toRun.execute(active));
+                        }
+                        lastTask = task;
+                    }
+                    // and run the last task directly in this thread.
+                    if (lastTask != null)
+                    {
+                        lastTask.execute(active);
+                        ranCompaction = true;
+                    }
                 }
             }
             finally
@@ -721,7 +736,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                             }
                             catch (Throwable t)
                             {
-                                logger.warn(String.format("Unable to cancel %s from transaction %s", sstable, transaction.opId()), t);
+                                logger.warn(String.format("Unable to cancel %s from transaction %s", sstable, transaction.opIdString()), t);
                             }
                         }
                         else
@@ -1004,22 +1019,30 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
         return fullyContainedSSTables;
     }
 
-    public void performMaximal(final ColumnFamilyStore cfStore, boolean splitOutput)
+    public void performMaximal(final ColumnFamilyStore cfStore)
     {
-        FBUtilities.waitOnFutures(submitMaximal(cfStore, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()), splitOutput));
+        performMaximal(cfStore, false, 0);
     }
 
-    public List<Future<?>> submitMaximal(final ColumnFamilyStore cfStore, final long gcBefore, boolean splitOutput)
+    public void performMaximal(final ColumnFamilyStore cfStore, boolean splitOutput, int permittedParallelism)
     {
-            return submitMaximal(cfStore, gcBefore, splitOutput, OperationType.MAJOR_COMPACTION);
+        FBUtilities.waitOnFutures(submitMaximal(cfStore, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()), splitOutput, permittedParallelism));
     }
 
-    public List<Future<?>> submitMaximal(final ColumnFamilyStore cfStore, final long gcBefore, boolean splitOutput, OperationType operationType)
+    public List<Future<?>> submitMaximal(final ColumnFamilyStore cfStore, final long gcBefore, boolean splitOutput, int permittedParallelism)
     {
+            return submitMaximal(cfStore, gcBefore, splitOutput, permittedParallelism, OperationType.MAJOR_COMPACTION);
+    }
+
+    public List<Future<?>> submitMaximal(final ColumnFamilyStore cfStore, final long gcBefore, boolean splitOutput, int permittedParallelism, OperationType operationType)
+    {
+        if (permittedParallelism <= 0)
+            permittedParallelism = getCoreCompactorThreads() / 2;
+
         // here we compute the task off the compaction executor, so having that present doesn't
         // confuse runWithCompactionsDisabled -- i.e., we don't want to deadlock ourselves, waiting
         // for ourselves to finish/acknowledge cancellation before continuing.
-        CompactionTasks tasks = cfStore.getCompactionStrategyManager().getMaximalTasks(gcBefore, splitOutput, operationType);
+        CompactionTasks tasks = cfStore.getCompactionStrategyManager().getMaximalTasks(gcBefore, splitOutput, permittedParallelism, operationType);
 
         if (tasks.isEmpty())
             return Collections.emptyList();

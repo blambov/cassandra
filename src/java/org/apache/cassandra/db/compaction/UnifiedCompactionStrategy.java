@@ -31,9 +31,11 @@ import java.util.regex.Pattern;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
+import org.apache.cassandra.db.lifecycle.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,8 +46,6 @@ import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.db.compaction.unified.ShardedMultiWriter;
 import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
-import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -139,15 +139,20 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     public static String printScalingParameter(int w)
     {
         if (w < 0)
-            return "L" + Integer.toString(2 - w);
+            return 'L' + Integer.toString(2 - w);
         else if (w > 0)
-            return "T" + Integer.toString(w + 2);
+            return 'T' + Integer.toString(w + 2);
         else
             return "N";
     }
 
+    private TimeUUID nextTimeUUID()
+    {
+        return TimeUUID.Generator.nextTimeUUID().withSequence(0);
+    }
+
     @Override
-    public synchronized Collection<AbstractCompactionTask> getMaximalTask(long gcBefore, boolean splitOutput)
+    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput, int permittedParallelism)
     {
         maybeUpdateShardManager();
         // The tasks are split by repair status and disk, as well as in non-overlapping sections to enable some
@@ -155,31 +160,59 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         // split across shards according to its density. Depending on the parallelism, the operation may require up to
         // 100% extra space to complete.
         List<AbstractCompactionTask> tasks = new ArrayList<>();
-        List<Set<SSTableReader>> nonOverlapping = splitInNonOverlappingSets(filterSuspectSSTables(getSSTables()));
-        for (Set<SSTableReader> set : nonOverlapping)
-        {
-            LifecycleTransaction txn = cfs.getTracker().tryModify(set, OperationType.COMPACTION);
-            if (txn != null)
-                tasks.add(createCompactionTask(txn, gcBefore));
+        if (permittedParallelism <= 0)
+            permittedParallelism = Integer.MAX_VALUE;
+
+        try {
+            // If possible, we want to issue separate compactions for non-overlapping sets of sstables, to allow
+            // for smaller extra space requirements. However, if the sharding configuration has changed, a major
+            // compaction should combine non-overlapping sets if they are split on a boundary that is no longer
+            // in effect.
+            List<SSTableReader> sstables = getSuitableSSTables();
+            if (sstables.isEmpty())
+                return Collections.emptyList();
+
+            // Select desired splitting of the sstables. If we are resharding, according to the sharding boundaries
+            // suitable for the size of the data. Otherwise, start with the overlap groups.
+            final ShardManager shardManager = getShardManager();
+            List<Set<SSTableReader>> groups =
+                    shardManager.splitSSTablesInShards(sstables,
+                            controller.getNumShards(shardManager.calculateCombinedDensity(sstables)),
+                            (sstableShard, shardRange) -> Sets.newHashSet(sstableShard));
+
+            // Now combine all of these groups that share an sstable so that we have valid independent transactions.
+            groups = combineSetsWithCommonElement(groups);
+
+            for (Collection<SSTableReader> set : groups)
+            {
+                LifecycleTransaction txn = cfs.getTracker().tryModify(set, OperationType.COMPACTION, nextTimeUUID());
+                // Further split each of these into up to permittedParallelism tasks to run in parallel.
+                if (txn != null)
+                    tasks.addAll(createCompactionTasks(gcBefore, txn));
+                // we ignore splitOutput (always split according to the strategy's sharding) and do not need isMaximal
+            }
+
+            return CompositeCompactionTask.applyParallelismLimit(tasks, permittedParallelism);
         }
-        return tasks;
+        catch (Throwable t)
+        {
+            for (AbstractCompactionTask task : tasks)
+                task.rejected();
+            throw t;
+        }
     }
 
-    private static List<Set<SSTableReader>> splitInNonOverlappingSets(Collection<SSTableReader> sstables)
+    /**
+     * Transform a list to transitively combine adjacent sets that have a common element, resulting in disjoint sets.
+     */
+    private static <T> List<Set<T>> combineSetsWithCommonElement(List<? extends Set<T>> overlapSets)
     {
-        List<Set<SSTableReader>> overlapSets = Overlaps.constructOverlapSets(new ArrayList<>(sstables),
-                                                                             UnifiedCompactionStrategy::startsAfter,
-                                                                             SSTableReader.firstKeyComparator,
-                                                                             SSTableReader.lastKeyComparator);
-        if (overlapSets.isEmpty())
-            return overlapSets;
-
-        Set<SSTableReader> group = overlapSets.get(0);
-        List<Set<SSTableReader>> groups = new ArrayList<>();
+        Set<T> group = overlapSets.get(0);
+        List<Set<T>> groups = new ArrayList<>();
         for (int i = 1; i < overlapSets.size(); ++i)
         {
-            Set<SSTableReader> current = overlapSets.get(i);
-            if (Sets.intersection(current, group).isEmpty())
+            Set<T> current = overlapSets.get(i);
+            if (Collections.disjoint(current, group))
             {
                 groups.add(group);
                 group = current;
@@ -198,7 +231,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     {
         assert !sstables.isEmpty(); // checked for by CM.submitUserDefined
 
-        LifecycleTransaction transaction = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION);
+        LifecycleTransaction transaction = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION, nextTimeUUID());
         if (transaction == null)
         {
             logger.trace("Unable to mark {} for compaction; probably a background compaction got to it first.  You can disable background compactions temporarily if this is a problem", sstables);
@@ -209,37 +242,37 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     }
 
     /**
-     * Returns a compaction task to run next.
-     *
-     * This method is synchronized because task creation is significantly more expensive in UCS; the strategy is
+     * Returns a collections of compaction tasks.
+     * <p>
+     * This method is synchornized because task creation is significantly more expensive in UCS; the strategy is
      * stateless, therefore it has to compute the shard/bucket structure on each call.
      *
      * @param gcBefore throw away tombstones older than this
+     * @return collection of AbstractCompactionTask, which could be either a CompactionTask or an UnifiedCompactionTask
      */
     @Override
-    public synchronized UnifiedCompactionTask getNextBackgroundTask(long gcBefore)
+    public synchronized Collection<AbstractCompactionTask> getNextBackgroundTasks(long gcBefore)
     {
         while (true)
         {
             CompactionPick pick = getNextCompactionPick(gcBefore);
             if (pick == null)
-                return null;
-            UnifiedCompactionTask task = createCompactionTask(pick, gcBefore);
-            if (task != null)
-                return task;
+                return Collections.emptyList();
+            Collection<AbstractCompactionTask> tasks = createCompactionTasks(pick, gcBefore);
+            if (tasks != null)
+                return tasks;
         }
     }
 
-    private UnifiedCompactionTask createCompactionTask(CompactionPick pick, long gcBefore)
+    private Collection<AbstractCompactionTask> createCompactionTasks(CompactionPick pick, long gcBefore)
     {
         Preconditions.checkNotNull(pick);
         Preconditions.checkArgument(!pick.isEmpty());
 
-        LifecycleTransaction transaction = cfs.getTracker().tryModify(pick,
-                                                                      OperationType.COMPACTION);
+        LifecycleTransaction transaction = cfs.getTracker().tryModify(pick, OperationType.COMPACTION, nextTimeUUID());
         if (transaction != null)
         {
-            return createCompactionTask(transaction, gcBefore);
+            return createCompactionTasks(gcBefore, transaction);
         }
         else
         {
@@ -284,6 +317,15 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
                                       boundaries);
     }
 
+    @VisibleForTesting
+    List<AbstractCompactionTask> createCompactionTasks(long gcBefore, LifecycleTransaction transaction)
+    {
+        if (controller.parallelizeOutputShards())
+            return createParallelCompactionTasks(transaction, gcBefore);
+        else
+            return ImmutableList.of(createCompactionTask(transaction, gcBefore));
+    }
+
     /**
      * Create the task that in turns creates the sstable writer used for compaction.
      *
@@ -292,6 +334,42 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     private UnifiedCompactionTask createCompactionTask(LifecycleTransaction transaction, long gcBefore)
     {
         return new UnifiedCompactionTask(cfs, this, transaction, gcBefore, getShardManager());
+    }
+
+    private List<AbstractCompactionTask> createParallelCompactionTasks(LifecycleTransaction transaction, long gcBefore)
+    {
+        Collection<SSTableReader> sstables = transaction.originals();
+        ShardManager shardManager = getShardManager();
+        CompositeLifecycleTransaction compositeTransaction = new CompositeLifecycleTransaction(transaction);
+
+        double density = shardManager.calculateCombinedDensity(sstables);
+        int numShards = controller.getNumShards(density * shardManager.shardSetCoverage());
+        if (numShards <= 1)
+            return Collections.singletonList(createCompactionTask(transaction, gcBefore));
+        List<AbstractCompactionTask> tasks = shardManager.splitSSTablesInShards(
+                sstables,
+                numShards,
+                (rangeSSTables, range) ->
+                        new UnifiedCompactionTask(cfs,
+                                this,
+                                new PartialLifecycleTransaction(compositeTransaction),
+                                gcBefore,
+                                shardManager,
+                                range,
+                                rangeSSTables)
+        );
+        compositeTransaction.completeInitialization();
+
+        if (tasks.isEmpty())
+            transaction.close(); // this should not be reachable normally, close the transaction for safety
+
+        if (tasks.size() == 1) // if there's just one range, make it a non-ranged task (to apply early open etc.)
+        {
+            assert ((CompactionTask) tasks.get(0)).inputSSTables().equals(sstables);
+            return Collections.singletonList(createCompactionTask(transaction, gcBefore));
+        }
+        else
+            return tasks;
     }
 
     private void maybeUpdateShardManager()
@@ -358,7 +436,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             lastExpiredCheck = ts;
             expired = CompactionController.getFullyExpiredSSTables(cfs,
                                                                    suitable,
-                                                                   cfs.getOverlappingLiveSSTables(suitable),
+                                                                   cfs::getOverlappingLiveSSTables,
                                                                    gcBefore,
                                                                    controller.getIgnoreOverlapsInExpirationCheck());
             if (logger.isTraceEnabled() && !expired.isEmpty())
@@ -452,7 +530,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
      * new compactions, and by external tools to analyze the strategy decisions.
      *
      * @param sstables a collection of the sstables to be assigned to levels
-     * @param compactionFilter a filter to exclude CompactionSSTables,
+     * @param compactionFilter a filter to exclude SSTableReaders,
      *                         e.g., {@link #isSuitableForCompaction}
      *
      * @return a list of the levels in the compaction hierarchy
@@ -510,6 +588,11 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         }
 
         return levels;
+    }
+
+    List<SSTableReader> getSuitableSSTables()
+    {
+        return getCompactableSSTables(cfs.getLiveSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction);
     }
 
     private List<SSTableReader> getCompactableSSTables(Collection<SSTableReader> sstables,

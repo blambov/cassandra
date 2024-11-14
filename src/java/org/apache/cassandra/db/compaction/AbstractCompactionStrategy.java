@@ -92,7 +92,7 @@ public abstract class AbstractCompactionStrategy
     private final Directories directories;
 
     /**
-     * pause/resume/getNextBackgroundTask must synchronize.  This guarantees that after pause completes,
+     * pause/resume/getNextBackgroundTasks must synchronize.  This guarantees that after pause completes,
      * no new tasks will be generated; or put another way, pause can't run until in-progress tasks are
      * done being created.
      *
@@ -180,17 +180,17 @@ public abstract class AbstractCompactionStrategy
      *
      * Is responsible for marking its sstables as compaction-pending.
      */
-    public abstract AbstractCompactionTask getNextBackgroundTask(final long gcBefore);
+    public abstract Collection<AbstractCompactionTask> getNextBackgroundTasks(final long gcBefore);
 
     /**
-     * @param gcBefore throw away tombstones older than this
-     *
+     * @param gcBefore             throw away tombstones older than this
+     * @param permittedParallelism the maximum number of threads that can be used for the major compaction
      * @return a compaction task that should be run to compact this columnfamilystore
      * as much as possible.  Null if nothing to do.
-     *
+     * <p>
      * Is responsible for marking its sstables as compaction-pending.
      */
-    public abstract Collection<AbstractCompactionTask> getMaximalTask(final long gcBefore, boolean splitOutput);
+    public abstract Collection<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput, int permittedParallelism);
 
     /**
      * @param sstables SSTables to compact. Must be marked as compacting.
@@ -418,7 +418,7 @@ public abstract class AbstractCompactionStrategy
             // there is no overlap, tombstones are safely droppable
             return true;
         }
-        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore).size() > 0)
+        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), s -> overlaps, gcBefore).size() > 0)
         {
             return true;
         }
