@@ -1,4 +1,5 @@
 5.1
+ * Parallelized UCS compactions (CASSANDRA-18802)
  * Fix RequestFailureReason constants codes (CASSANDRA-20126)
  * Introduce SSTableSimpleScanner for compaction (CASSANDRA-20092)
  * Include column drop timestamp in alter table transformation (CASSANDRA-18961)

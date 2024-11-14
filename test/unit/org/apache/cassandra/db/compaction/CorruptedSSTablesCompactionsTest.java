@@ -23,34 +23,45 @@ package org.apache.cassandra.db.compaction;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Random;
+import java.util.Set;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.ChunkCache;
-import org.apache.cassandra.config.*;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.RowUpdateBuilder;
+import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
 import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.schema.*;
+import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.Throwables;
 
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class CorruptedSSTablesCompactionsTest
@@ -63,6 +74,7 @@ public class CorruptedSSTablesCompactionsTest
     private static final String STANDARD_STCS = "Standard_STCS";
     private static final String STANDARD_LCS = "Standard_LCS";
     private static final String STANDARD_UCS = "Standard_UCS";
+    private static final String STANDARD_UCS_PARALLEL = "Standard_UCS_Parallel";
     private static int maxValueSize;
 
     @After
@@ -77,6 +89,9 @@ public class CorruptedSSTablesCompactionsTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
+        DatabaseDescriptor.daemonInitialization(); // because of all the static initialization in CFS
+        DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
+
         long seed = nanoTime();
 
         //long seed = 754271160974509L; // CASSANDRA-9530: use this seed to reproduce compaction failures if reading empty rows
@@ -91,7 +106,8 @@ public class CorruptedSSTablesCompactionsTest
                                     KeyspaceParams.simple(1),
                                     makeTable(STANDARD_STCS).compaction(CompactionParams.stcs(Collections.emptyMap())),
                                     makeTable(STANDARD_LCS).compaction(CompactionParams.lcs(Collections.emptyMap())),
-                                    makeTable(STANDARD_UCS).compaction(CompactionParams.ucs(Collections.emptyMap())));
+                                    makeTable(STANDARD_UCS).compaction(CompactionParams.ucs(Collections.emptyMap())),
+                                    makeTable(STANDARD_UCS_PARALLEL).compaction(CompactionParams.ucs(new HashMap<>(ImmutableMap.of("min_sstable_size", "1KiB")))));
 
         maxValueSize = DatabaseDescriptor.getMaxValueSize();
         DatabaseDescriptor.setMaxValueSize(1024 * 1024);
@@ -138,6 +154,12 @@ public class CorruptedSSTablesCompactionsTest
     public void testCorruptedSSTablesWithUnifiedCompactionStrategy() throws Exception
     {
         testCorruptedSSTables(STANDARD_UCS);
+    }
+
+    @Test
+    public void testCorruptedSSTablesWithUnifiedCompactionStrategyParallelized() throws Exception
+    {
+        testCorruptedSSTables(STANDARD_UCS_PARALLEL);
     }
 
 
@@ -231,12 +253,18 @@ public class CorruptedSSTablesCompactionsTest
             {
                 // This is the expected path. The SSTable should be marked corrupted, and retrying the compaction
                 // should move on to the next corruption.
-                Throwables.assertAnyCause(e, CorruptSSTableException.class);
+                Throwables.assertAnyCause(e, CorruptSSTableException.class, PartialLifecycleTransaction.AbortedException.class);
                 failures++;
             }
         }
 
         cfs.truncateBlocking();
-        assertEquals(SSTABLES_TO_CORRUPT, failures);
+        if (tableName != STANDARD_UCS_PARALLEL)
+            assertEquals(SSTABLES_TO_CORRUPT, failures);
+        else
+        {
+            // Since we proceed in parallel, we can mark more than one SSTable as corrupted in an iteration.
+            assertTrue(failures > 0 && failures <= SSTABLES_TO_CORRUPT);
+        }
     }
 }
