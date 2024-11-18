@@ -47,7 +47,6 @@ public class Upgrader
     private final File directory;
 
     private final CompactionController controller;
-    private final CompactionStrategyManager strategyManager;
     private final long estimatedRows;
 
     private final OutputHandler outputHandler;
@@ -63,9 +62,8 @@ public class Upgrader
 
         this.controller = new UpgradeController(cfs);
 
-        this.strategyManager = cfs.getCompactionStrategyManager();
         long estimatedTotalKeys = Math.max(cfs.metadata().params.minIndexInterval, SSTableReader.getApproximateKeyCount(Collections.singletonList(this.sstable)));
-        long estimatedSSTables = Math.max(1, SSTableReader.getTotalBytes(Collections.singletonList(this.sstable)) / strategyManager.getMaxSSTableBytes());
+        long estimatedSSTables = Math.max(1, SSTableReader.getTotalBytes(Collections.singletonList(this.sstable)) / cfs.getCompactionStrategyManager().getMaxSSTableBytes());
         this.estimatedRows = (long) Math.ceil((double) estimatedTotalKeys / estimatedSSTables);
     }
 
@@ -93,7 +91,7 @@ public class Upgrader
         outputHandler.output("Upgrading " + sstable);
         long nowInSec = FBUtilities.nowInSeconds();
         try (SSTableRewriter writer = SSTableRewriter.construct(cfs, transaction, keepOriginals, CompactionTask.getMaxDataAge(transaction.originals()));
-             AbstractCompactionStrategy.ScannerList scanners = strategyManager.getScanners(transaction.originals());
+             ScannerList scanners = ScannerFactory.DEFAULT.getScanners(transaction.originals());
              CompactionIterator iter = new CompactionIterator(transaction.opType(), scanners.scanners, controller, nowInSec, nextTimeUUID()))
         {
             writer.switchWriter(createCompactionWriter(sstable.getSSTableMetadata()));

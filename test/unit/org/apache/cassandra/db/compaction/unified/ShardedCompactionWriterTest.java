@@ -30,6 +30,8 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.compaction.ScannerFactory;
+import org.apache.cassandra.db.compaction.ScannerList;
 import org.apache.cassandra.db.compaction.ShardManager;
 import org.apache.cassandra.db.compaction.ShardManagerDiskAware;
 import org.apache.cassandra.db.compaction.ShardManagerNoDisks;
