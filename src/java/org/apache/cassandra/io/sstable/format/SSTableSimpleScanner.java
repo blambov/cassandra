@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.util.RandomAccessReader;
@@ -54,6 +56,7 @@ implements ISSTableScanner
     long currentStartPosition;
 
     SSTableIdentityIterator currentIterator;
+    DecoratedKey lastKey;
 
     public SSTableSimpleScanner(SSTableReader sstable,
                                 Collection<PartitionPositionBounds> boundsList)
@@ -68,6 +71,7 @@ implements ISSTableScanner
         this.currentStartPosition = 0;
         this.bytesScannedInPreviousRanges = 0;
         this.currentIterator = null;
+        this.lastKey = null;
     }
 
     public void close()
@@ -154,6 +158,16 @@ implements ISSTableScanner
             throw new NoSuchElementException();
 
         currentIterator = SSTableIdentityIterator.create(sstable, dfile, false);
+        DecoratedKey currentKey = currentIterator.partitionKey();
+        if (lastKey != null && lastKey.compareTo(currentKey) >= 0)
+        {
+            sstable.markSuspect();
+            throw new CorruptSSTableException(new IllegalStateException(String.format("Invalid key order: current %s <= previous %s",
+                                                                                      currentKey,
+                                                                                      lastKey)),
+                                              sstable.getFilename());
+        }
+        lastKey = currentKey;
         return currentIterator;
     }
 
