@@ -42,21 +42,22 @@ import static org.apache.cassandra.io.sstable.format.SSTableReader.PartitionPosi
 public class SSTableSimpleScanner
 implements ISSTableScanner
 {
-    final AtomicBoolean isClosed = new AtomicBoolean(false);
-    final RandomAccessReader dfile;
-    final SSTableReader sstable;
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    private final RandomAccessReader dfile;
+    private final SSTableReader sstable;
 
-    final Iterator<PartitionPositionBounds> rangeIterator;
+    private final Iterator<PartitionPositionBounds> rangeIterator;
 
-    long bytesScannedInPreviousRanges;
+    private long bytesScannedInPreviousRanges;
 
-    long sizeInBytes;
+    private final long sizeInBytes;
+    private final long compressedSizeInBytes;
 
-    long currentEndPosition;
-    long currentStartPosition;
+    private long currentEndPosition;
+    private long currentStartPosition;
 
-    SSTableIdentityIterator currentIterator;
-    DecoratedKey lastKey;
+    private SSTableIdentityIterator currentIterator;
+    private DecoratedKey lastKey;
 
     public SSTableSimpleScanner(SSTableReader sstable,
                                 Collection<PartitionPositionBounds> boundsList)
@@ -66,6 +67,7 @@ implements ISSTableScanner
         this.dfile = sstable.openDataReader();
         this.sstable = sstable;
         this.sizeInBytes = boundsList.stream().mapToLong(ppb -> ppb.upperPosition - ppb.lowerPosition).sum();
+        this.compressedSizeInBytes = sstable.compression ? sstable.onDiskSizeForPartitionPositions(boundsList) : sizeInBytes;
         this.rangeIterator = boundsList.iterator();
         this.currentEndPosition = 0;
         this.currentStartPosition = 0;
@@ -95,8 +97,7 @@ implements ISSTableScanner
 
     public long getCompressedLengthInBytes()
     {
-        // This is an approximation to avoid spending the time to accurately calculate the compressed size.
-        return (long) (sstable.getCompressionRatio() * sizeInBytes);
+        return compressedSizeInBytes;
     }
 
     @Override
