@@ -61,7 +61,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public void update(SSTableReader reader, boolean original)
     {
-        throwIfAborted();
+        throwIfCompositeAborted();
         if (original)
             throw earlyOpenUnsupported();
 
@@ -73,7 +73,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public void update(Collection<SSTableReader> readers, boolean original)
     {
-        throwIfAborted();
+        throwIfCompositeAborted();
         if (original)
             throw earlyOpenUnsupported();
 
@@ -85,7 +85,10 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public SSTableReader current(SSTableReader reader)
     {
-        return mainTransaction.current(reader);
+        synchronized (mainTransaction)
+        {
+            return mainTransaction.current(reader);
+        }
     }
 
     public void obsolete(SSTableReader reader)
@@ -137,7 +140,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
         return null;
     }
 
-    private void throwIfAborted()
+    private void throwIfCompositeAborted()
     {
         if (composite.wasAborted())
             throw new AbortedException("Transaction aborted, likely by another partial operation.");
@@ -148,7 +151,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
         if (committedOrAborted.get())
             throw new IllegalStateException("Partial transaction already committed or aborted.");
 
-        throwIfAborted();
+        throwIfCompositeAborted();
         // nothing else to do, the composite transaction will perform the preparation when all parts are done
     }
 
@@ -160,7 +163,7 @@ public class PartialLifecycleTransaction implements ILifecycleTransaction
 
     public void trackNew(SSTable table)
     {
-        throwIfAborted();
+        throwIfCompositeAborted();
         synchronized (mainTransaction)
         {
             mainTransaction.trackNew(table);
