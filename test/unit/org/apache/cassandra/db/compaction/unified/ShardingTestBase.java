@@ -93,10 +93,14 @@ public class ShardingTestBase extends CQLTester
         System.out.println("Total on disk length: " + FBUtilities.prettyPrintMemory(totalOnDiskLength));
         System.out.println("Total BF size: " + FBUtilities.prettyPrintMemory(totalBFSize));
         System.out.println("Total key count: " + FBUtilities.prettyPrintDecimal(totalKeyCount, "", ""));
-        var filter = FilterFactory.getFilter(totalKeyCount, 0.01);
-        System.out.println("Optimal total BF size: " + FBUtilities.prettyPrintMemory(filter.serializedSize(false)));
-        filter = FilterFactory.getFilter(totalKeyCount / numShards, 0.01);
-        System.out.println("Sharded optimal total BF size: " + FBUtilities.prettyPrintMemory(filter.serializedSize(false) * numShards));
+        try (var filter = FilterFactory.getFilter(totalKeyCount, 0.01))
+        {
+            System.out.println("Optimal total BF size: " + FBUtilities.prettyPrintMemory(filter.serializedSize(false)));
+        }
+        try (var filter = FilterFactory.getFilter(totalKeyCount / numShards, 0.01))
+        {
+            System.out.println("Sharded optimal total BF size: " + FBUtilities.prettyPrintMemory(filter.serializedSize(false) * numShards));
+        }
 
         cfs.getLiveSSTables().forEach(s -> System.out.println("SSTable: " + s.toString() + " covers " + s.getFirst() + " to " + s.getLast()));
 
