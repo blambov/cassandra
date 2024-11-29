@@ -53,14 +53,17 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Meter;
 import net.openhft.chronicle.core.util.ThrowingSupplier;
 import org.apache.cassandra.cache.AutoSavingCache;
 import org.apache.cassandra.concurrent.ExecutorFactory;
+import org.apache.cassandra.concurrent.ImmediateExecutor;
 import org.apache.cassandra.concurrent.WrappedExecutorPlus;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -108,6 +111,8 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.ownership.DataPlacement;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.MBeanWrapper;
@@ -115,10 +120,10 @@ import org.apache.cassandra.utils.OutputHandler;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.WrappedRunnable;
-import org.apache.cassandra.tcm.ClusterMetadata;
-import org.apache.cassandra.tcm.ownership.DataPlacement;
+import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
+import org.apache.cassandra.utils.concurrent.Promise;
 import org.apache.cassandra.utils.concurrent.Refs;
 
 import static java.util.Collections.singleton;
@@ -268,9 +273,9 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                      cfs.getCompactionStrategyManager().getName());
 
         List<Future<?>> futures = new ArrayList<>(1);
-        Future<?> fut = executor.submitIfRunning(new BackgroundCompactionCandidate(cfs), "background task");
-        if (!fut.isCancelled())
-            futures.add(fut);
+        Promise<Void> promise = new AsyncPromise<>();
+        if (!executor.submitIfRunning(new BackgroundCompactionCandidate(cfs, promise), "background task").isCancelled())
+            futures.add(promise);
         else
             compactingCF.remove(cfs);
         return futures;
@@ -356,16 +361,29 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     class BackgroundCompactionCandidate implements Runnable
     {
         private final ColumnFamilyStore cfs;
+        private final Promise<Void> toSignalWhenDone;
 
-        BackgroundCompactionCandidate(ColumnFamilyStore cfs)
+        BackgroundCompactionCandidate(ColumnFamilyStore cfs, Promise<Void> toSignalWhenDone)
         {
             compactingCF.add(cfs);
             this.cfs = cfs;
+            this.toSignalWhenDone = toSignalWhenDone;
+        }
+
+        private void complete(boolean submitNew)
+        {
+            compactingCF.remove(cfs);
+            toSignalWhenDone.setSuccess(null);
+            if (submitNew)
+                submitBackground(cfs);
         }
 
         public void run()
         {
             boolean ranCompaction = false;
+            boolean async = false;
+            Throwable error = null;
+            Collection<AbstractCompactionTask> tasks = null;
             try
             {
                 logger.trace("Checking {}.{}", cfs.getKeyspaceName(), cfs.name);
@@ -376,39 +394,65 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                 }
 
                 CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
-                Collection<AbstractCompactionTask> tasks = strategy.getNextBackgroundTasks(getDefaultGcBefore(cfs, FBUtilities.nowInSeconds()));
+                tasks = strategy.getNextBackgroundTasks(getDefaultGcBefore(cfs, FBUtilities.nowInSeconds()));
                 if (tasks == null || tasks.isEmpty())
                 {
                     if (DatabaseDescriptor.automaticSSTableUpgrade())
                         ranCompaction = maybeRunUpgradeTask(strategy);
                 }
-                else
+                else if (tasks.size() == 1)
                 {
-                    AbstractCompactionTask lastTask = null;
-                    // Submit all but the last task for execution,
+                    // If just one task, run it directly on this thread
                     for (AbstractCompactionTask task : tasks)
-                    {
-                        if (lastTask != null)
-                        {
-                            AbstractCompactionTask toRun = lastTask;
-                            executor.execute(() -> toRun.execute(active));
-                        }
-                        lastTask = task;
-                    }
-                    // and run the last task directly in this thread.
-                    if (lastTask != null)
-                    {
-                        lastTask.execute(active);
-                        ranCompaction = true;
-                    }
+                        task.execute(active);
+                    ranCompaction = true;
                 }
+                else
+                    async = true;
+                // else (more than 1 task) we need to do this separately
+            }
+            catch (Throwable t)
+            {
+                error = t;
+            }
+
+            if (!async)
+                complete(ranCompaction && error == null);
+            else    // async
+                processTasksAsync(tasks);
+        }
+
+        private void processTasksAsync(Collection<AbstractCompactionTask> tasks)
+        {
+            assert tasks != null;
+
+            List<Future<?>> futures = new ArrayList<>();
+            AbstractCompactionTask lastTask = null;
+            // Submit all but the last task for execution,
+            for (AbstractCompactionTask task : tasks)
+            {
+                if (lastTask != null)
+                {
+                    AbstractCompactionTask toRun = lastTask;
+                    futures.add(executor.submitIfRunning(() -> toRun.execute(active), "parallel background task"));
+                }
+                lastTask = task;
+            }
+            // and run the last task directly in this thread.
+
+            // We should only signal overall completion when all tasks are done
+            Promise<Void> signal = new AsyncPromise<>();
+            futures.add(signal);
+            Futures.whenAllComplete(futures).run(() -> complete(true), ImmediateExecutor.INSTANCE);
+
+            try
+            {
+                lastTask.execute(active);
             }
             finally
             {
-                compactingCF.remove(cfs);
+                signal.setSuccess(null);
             }
-            if (ranCompaction) // only submit background if we actually ran a compaction - otherwise we end up in an infinite loop submitting noop background tasks
-                submitBackground(cfs);
         }
 
         boolean maybeRunUpgradeTask(CompactionStrategyManager strategy)
@@ -438,7 +482,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     @VisibleForTesting
     public BackgroundCompactionCandidate getBackgroundCompactionCandidate(ColumnFamilyStore cfs)
     {
-        return new BackgroundCompactionCandidate(cfs);
+        return new BackgroundCompactionCandidate(cfs, new AsyncPromise<>());
     }
 
     /**

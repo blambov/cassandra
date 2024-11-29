@@ -38,7 +38,6 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.TimeUUID;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
@@ -126,8 +125,6 @@ public class BackgroundCompactionTrackingTest extends CQLTester
             long uncompressedSize = newSSTables.stream().mapToLong(SSTableReader::uncompressedLength).sum();
 
             cfs.enableAutoCompaction(true); // since the trigger is hit, this initiates an L0 compaction
-            while (CompactionManager.instance.hasOngoingOrPendingTasks()) // the above does not wait for all tasks!
-                FBUtilities.sleepQuietly(100);
             cfs.disableAutoCompaction();
 
             // Check that the background compactions state is correct during the compaction
