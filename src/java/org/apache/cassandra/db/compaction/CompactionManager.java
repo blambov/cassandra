@@ -1133,6 +1133,8 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             Future<?> fut = executor.submitIfRunning(runnable, "maximal task");
             if (!fut.isCancelled())
                 futures.add(fut);
+            else
+                task.rejected();
         }
         if (nonEmptyTasks > 1)
             logger.info("Major compaction will not result in a single sstable - repaired and unrepaired data is kept separate and compaction runs per data_file_directory.");

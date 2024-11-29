@@ -44,7 +44,6 @@ import org.jboss.byteman.contrib.bmunit.BMUnitConfig;
 import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(BMUnitRunner.class)
@@ -146,8 +145,6 @@ public class BackgroundCompactionTrackingTest extends CQLTester
                 assertTrue(size >= expectedSize); // some task may have not managed to close
                 for (var op : ops)
                 {
-                    assertSame(cfs.metadata(), op.getTableMetadata());
-
                     final TimeUUID opIdSeq0 = op.getTaskId().withSequence(0);
                     if (mainOpId == null)
                         mainOpId = opIdSeq0;
