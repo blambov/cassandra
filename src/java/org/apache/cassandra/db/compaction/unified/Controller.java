@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.FBUtilities;
@@ -702,7 +703,7 @@ public class Controller
 
     public int maxConcurrentCompactions()
     {
-        return DatabaseDescriptor.getConcurrentCompactors();
+        return CompactionManager.instance.getMaximumCompactorThreads();
     }
 
     public int maxSSTablesToCompact()
