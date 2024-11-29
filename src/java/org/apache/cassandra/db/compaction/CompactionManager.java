@@ -53,7 +53,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
@@ -63,7 +62,6 @@ import com.codahale.metrics.Meter;
 import net.openhft.chronicle.core.util.ThrowingSupplier;
 import org.apache.cassandra.cache.AutoSavingCache;
 import org.apache.cassandra.concurrent.ExecutorFactory;
-import org.apache.cassandra.concurrent.ImmediateExecutor;
 import org.apache.cassandra.concurrent.WrappedExecutorPlus;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -370,14 +368,6 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             this.toSignalWhenDone = toSignalWhenDone;
         }
 
-        private void complete(boolean submitNew)
-        {
-            compactingCF.remove(cfs);
-            toSignalWhenDone.setSuccess(null);
-            if (submitNew)
-                submitBackground(cfs);
-        }
-
         public void run()
         {
             boolean ranCompaction = false;
@@ -409,7 +399,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                 }
                 else
                     async = true;
-                // else (more than 1 task) we need to do this separately
+                // else (more than 1 task) we need to do this outside the catch and complete block
             }
             catch (Throwable t)
             {
@@ -426,7 +416,9 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
         {
             assert tasks != null;
 
-            List<Future<?>> futures = new ArrayList<>();
+            // We should only signal overall completion when all tasks are done
+            AtomicInteger toComplete = new AtomicInteger(tasks.size());
+
             AbstractCompactionTask lastTask = null;
             // Submit all but the last task for execution,
             for (AbstractCompactionTask task : tasks)
@@ -434,25 +426,56 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                 if (lastTask != null)
                 {
                     AbstractCompactionTask toRun = lastTask;
-                    futures.add(executor.submitIfRunning(() -> toRun.execute(active), "parallel background task"));
+                    try
+                    {
+                        executor.submit(() -> runTask(toRun, toComplete));
+                    }
+                    catch (RejectedExecutionException e)
+                    {
+                        logger.debug("Failed to submit background compaction task: {}", e.getMessage());
+                        rejectTask(toRun, toComplete);
+                    }
                 }
                 lastTask = task;
             }
+
             // and run the last task directly in this thread.
+            assert lastTask != null;
+            runTask(lastTask, toComplete);
+        }
 
-            // We should only signal overall completion when all tasks are done
-            Promise<Void> signal = new AsyncPromise<>();
-            futures.add(signal);
-            Futures.whenAllComplete(futures).run(() -> complete(true), ImmediateExecutor.INSTANCE);
-
+        private void runTask(AbstractCompactionTask task, AtomicInteger toComplete)
+        {
             try
             {
-                lastTask.execute(active);
+                task.execute(active);
             }
             finally
             {
-                signal.setSuccess(null);
+                if (toComplete.decrementAndGet() == 0)
+                    complete(true);
             }
+        }
+
+        private void rejectTask(AbstractCompactionTask task, AtomicInteger toComplete)
+        {
+            try
+            {
+                task.rejected();
+            }
+            finally
+            {
+                if (toComplete.decrementAndGet() == 0)
+                    complete(true);
+            }
+        }
+
+        private void complete(boolean submitNew)
+        {
+            compactingCF.remove(cfs);
+            toSignalWhenDone.setSuccess(null);
+            if (submitNew)
+                submitBackground(cfs);
         }
 
         boolean maybeRunUpgradeTask(CompactionStrategyManager strategy)
