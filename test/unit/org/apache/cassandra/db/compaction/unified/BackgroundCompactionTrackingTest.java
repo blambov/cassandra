@@ -136,10 +136,7 @@ public class BackgroundCompactionTrackingTest extends CQLTester
             {
                 BitSet seqs = new BitSet(shards);
                 int expectedSize = tasks - i;
-                List<CompactionInfo> ops = operations.get(i)
-                                                     .stream()
-                                                     .filter(op -> op.getTableMetadata() == cfs.metadata())
-                                                     .collect(Collectors.toList());
+                final List<CompactionInfo> ops = getCompactionOps(i, cfs);
                 final int size = ops.size();
                 int finished = tasks - size;
                 assertTrue(size >= expectedSize); // some task may have not managed to close
@@ -167,8 +164,17 @@ public class BackgroundCompactionTrackingTest extends CQLTester
             operations.clear();
             getStats();
             printStats();
-            assertEquals(0, operations.get(0).size());
+            final List<CompactionInfo> ops = getCompactionOps(0, cfs);
+            assertEquals(0, ops.size());
         }
+    }
+
+    private static List<CompactionInfo> getCompactionOps(int i, ColumnFamilyStore cfs)
+    {
+        return operations.get(i)
+                         .stream()
+                         .filter(op -> op.getTableMetadata() == cfs.metadata())
+                         .collect(Collectors.toList());
     }
 
     private void printStats()
