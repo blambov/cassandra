@@ -761,7 +761,8 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
     /**
      * Determine the data positions in this SSTable that cover the given bounds.
      *
-     * @return An [offset,end) pair that cover the given bounds in the datafile for this SSTable.
+     * @return An [offset,end) pair that cover the given bounds in the datafile for this SSTable, or null if the range
+     *         is not covered by the sstable or is empty.
      */
     public PartitionPositionBounds getPositionsForBounds(AbstractBounds<PartitionPosition> bounds)
     {
@@ -776,17 +777,15 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
         if (right < 0) // right is beyond end
             right = uncompressedLength();   // this should also be correct for EARLY readers
 
-        if (left >= right)
-        {
-            // empty range
+        if (left >= right) // empty range
             return null;
-        }
 
         return new PartitionPositionBounds(left, right);
     }
 
     /**
-     * Return a (offset, end] pair that covers the whole file.
+     * Return an [offset,end) pair that covers the whole file. This could be null if the sstable's moved start has
+     * made the sstable effectively empty.
      */
     public PartitionPositionBounds getPositionsForFullRange()
     {
@@ -801,7 +800,12 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
     }
 
     /**
-     * Calculate a total on-disk (compressed) size for the given partition positions.
+     * Calculate a total on-disk (compressed) size for the given partition positions. For uncompressed files this is
+     * equal to the sum of the size of the covered ranges. For compressed files this is the sum of the size of the
+     * chunks that contain the requested ranges and may be significantly bigger than the size of the requested ranges.
+     *
+     * @param positionBounds a list of [offset,end) pairs that specify the relevant sections of the data file; this must
+     *                       be non-overlapping and in ascending order.
      */
     public long onDiskSizeForPartitionPositions(Collection<PartitionPositionBounds> positionBounds)
     {
@@ -1023,7 +1027,11 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
      */
     public ISSTableScanner getScanner()
     {
-        return new SSTableSimpleScanner(this, Collections.singletonList(getPositionsForFullRange()));
+        PartitionPositionBounds fullRange = getPositionsForFullRange();
+        if (fullRange != null)
+            return new SSTableSimpleScanner(this, Collections.singletonList(fullRange));
+        else
+            return new SSTableSimpleScanner(this, Collections.emptyList());
     }
 
     /**
