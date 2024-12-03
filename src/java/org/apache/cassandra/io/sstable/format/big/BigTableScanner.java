@@ -18,6 +18,8 @@
 package org.apache.cassandra.io.sstable.format.big;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.Iterator;
 
 import com.google.common.collect.Iterators;
 
@@ -28,6 +30,8 @@ import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTable;
@@ -46,20 +50,37 @@ public class BigTableScanner extends SSTableScanner<BigTableReader, RowIndexEntr
 
     private final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
 
+    // Full scan of the sstables
+    public static ISSTableScanner getScanner(BigTableReader sstable)
+    {
+        return getScanner(sstable, Iterators.singletonIterator(fullRange(sstable)));
+    }
+
     public static ISSTableScanner getScanner(BigTableReader sstable,
                                              ColumnFilter columns,
                                              DataRange dataRange,
                                              SSTableReadsListener listener)
     {
-        return new BigTableScanner(sstable, columns, dataRange, listener);
+        return new BigTableScanner(sstable, columns, dataRange, makeBounds(sstable, dataRange).iterator(), listener);
+    }
+
+    public static ISSTableScanner getScanner(BigTableReader sstable, Collection<Range<Token>> tokenRanges)
+    {
+        return getScanner(sstable, makeBounds(sstable, tokenRanges).iterator());
+    }
+
+    public static ISSTableScanner getScanner(BigTableReader sstable, Iterator<AbstractBounds<PartitionPosition>> rangeIterator)
+    {
+        return new BigTableScanner(sstable, ColumnFilter.all(sstable.metadata()), null, rangeIterator, SSTableReadsListener.NOOP_LISTENER);
     }
 
     private BigTableScanner(BigTableReader sstable,
                             ColumnFilter columns,
                             DataRange dataRange,
+                            Iterator<AbstractBounds<PartitionPosition>> rangeIterator,
                             SSTableReadsListener listener)
     {
-        super(sstable, columns, dataRange, Iterators.singletonIterator(dataRange.keyRange()), listener);
+        super(sstable, columns, dataRange, rangeIterator, listener);
         this.ifile = sstable.openIndexReader();
         this.rowIndexEntrySerializer = new RowIndexEntry.Serializer(sstable.descriptor.version, sstable.header, sstable.owner().map(SSTable.Owner::getMetrics).orElse(null));
     }
