@@ -821,7 +821,9 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
             long lastEnd = 0;
             for (PartitionPositionBounds position : positionBounds)
             {
-                long upperChunkEnd = compressionMetadata.chunkFor(position.upperPosition).chunkEnd();
+                // The end of the chunk that contains the last required byte from the range.
+                long upperChunkEnd = compressionMetadata.chunkFor(position.upperPosition - 1).chunkEnd();
+                // The start of the chunk that contains the first required byte from the range.
                 long lowerChunkStart = compressionMetadata.chunkFor(position.lowerPosition).offset;
                 if (lowerChunkStart < lastEnd)  // if regions include the same chunk, count it only once
                     lowerChunkStart = lastEnd;

@@ -208,7 +208,11 @@ public class SSTableReaderTest
         assertEquals(sstable.onDiskLength(),
                      onDiskSizeForRanges(sstable, Collections.singleton(new Range<>(t(cut(k0(0), 1)), t0(count - 1)))));
         assertEquals(sstable.onDiskLength(),
-                     onDiskSizeForRanges(sstable, Collections.singleton(new Range<>(sstable.getPartitioner().getMinimumToken(), sstable.getPartitioner().getMinimumToken()))));
+                     onDiskSizeForRanges(sstable, Collections.singleton(new Range<>(sstable.getPartitioner().getMinimumToken(),
+                                                                                    sstable.getPartitioner().getMinimumToken()))));
+        assertEquals(sstable.onDiskLength(),
+                     onDiskSizeForRanges(sstable, Collections.singleton(new Range<>(sstable.getPartitioner().getMinimumToken(),
+                                                                                    sstable.getLast().getToken()))));
 
         // Split at exact match
         assertEquals(sstable.onDiskLength(),
@@ -220,12 +224,13 @@ public class SSTableReaderTest
                      onDiskSizeForRanges(sstable, ImmutableList.of(new Range<>(t(cut(k0(0), 1)), t(cut(k0(600), 2))),
                                                                    new Range<>(t(cut(k0(600), 1)), t0(count - 1)))));
 
+        // Size one row
+        double oneRowSize = sstable.uncompressedLength() * 1.0 / count;
+        System.out.println("One row size: " + oneRowSize);
+
         if (!sstable.compression)
         {
             double delta = 0.9;
-            // Size one row
-            double oneRowSize = sstable.onDiskLength() * 1.0 / count;
-            System.out.println("One row size: " + oneRowSize);
 
             // Ranges are end-inclusive, indexes are adjusted by one here to account for that.
             assertEquals((52 - 38),
@@ -305,6 +310,41 @@ public class SSTableReaderTest
         }
     }
 
+
+    @Test
+    public void testOnDiskSizeCompressedBoundaries()
+    {
+        ColumnFamilyStore store = discardSSTables(KEYSPACE1, CF_COMPRESSED);
+        partitioner = store.getPartitioner();
+        int count = 1000;
+        // Use a longish string to let a key align with a chunk boundary
+        ByteBuffer dataBuf = ByteBufferUtil.bytes(String.format("%43d", 123));
+
+        // insert data and compact to a single sstable
+        for (int j = 0; j < count; j++)
+        {
+            new RowUpdateBuilder(store.metadata(), 15000, k0(j))
+            .clustering("0")
+            .add("val", dataBuf)
+            .build()
+            .applyUnsafe();
+        }
+        store.forceBlockingFlush(UNIT_TESTS);
+        store.forceMajorCompaction();
+
+        SSTableReader sstable = store.getLiveSSTables().iterator().next();
+
+        int chunkLength = sstable.getCompressionMetadata().chunkLength();
+        System.out.println("Chunk length: " + chunkLength);
+        int[] alignedKeys = IntStream.range(0, count).filter(i -> (sstable.getPosition(dk0(i), SSTableReader.Operator.EQ) & (chunkLength - 1)) == 0).toArray();
+        assertTrue("Test needs an aligned key, try changing the length of dataBuf", alignedKeys.length > 1);
+        for (int k : alignedKeys)
+            assertEquals("Coverage must not include chunk starting at end position",
+                         sstable.getCompressionMetadata().chunkFor(sstable.getPosition(dk0(k), SSTableReader.Operator.EQ)).offset,
+                         onDiskSizeForRanges(sstable, Collections.singleton(new Range<>(partitioner.getMinimumToken(), t0(k - 1)))));   // inclusive end
+    }
+
+
     long onDiskSizeForRanges(SSTableReader sstable, Collection<Range<Token>> ranges)
     {
         return sstable.onDiskSizeForPartitionPositions(sstable.getPositionsForRanges(ranges));
@@ -323,6 +363,11 @@ public class SSTableReaderTest
     private Token t0(int k)
     {
         return t(k0(k));
+    }
+
+    private DecoratedKey dk0(int k)
+    {
+        return partitioner.decorateKey(ByteBufferUtil.bytes(k0(k)));
     }
 
     private String cut(String s, int n)
