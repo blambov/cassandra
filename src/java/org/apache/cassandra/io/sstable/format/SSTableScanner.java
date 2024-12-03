@@ -18,7 +18,6 @@
 package org.apache.cassandra.io.sstable.format;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -26,11 +25,9 @@ import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.LazilyInitializedUnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.io.sstable.AbstractRowIndexEntry;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
@@ -48,8 +45,6 @@ implements ISSTableScanner
     protected final RandomAccessReader dfile;
     protected final S sstable;
 
-    protected final Iterator<AbstractBounds<PartitionPosition>> rangeIterator;
-
     protected final ColumnFilter columns;
     protected final DataRange dataRange;
     private final SSTableReadsListener listener;
@@ -62,7 +57,6 @@ implements ISSTableScanner
     protected SSTableScanner(S sstable,
                              ColumnFilter columns,
                              DataRange dataRange,
-                             Iterator<AbstractBounds<PartitionPosition>> rangeIterator,
                              SSTableReadsListener listener)
     {
         assert sstable != null;
@@ -71,7 +65,6 @@ implements ISSTableScanner
         this.sstable = sstable;
         this.columns = columns;
         this.dataRange = dataRange;
-        this.rangeIterator = rangeIterator;
         this.listener = listener;
     }
 

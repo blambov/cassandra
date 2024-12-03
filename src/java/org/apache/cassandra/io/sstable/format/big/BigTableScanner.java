@@ -19,8 +19,6 @@ package org.apache.cassandra.io.sstable.format.big;
 
 import java.io.IOException;
 
-import com.google.common.collect.Iterators;
-
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -59,9 +57,10 @@ public class BigTableScanner extends SSTableScanner<BigTableReader, RowIndexEntr
                             DataRange dataRange,
                             SSTableReadsListener listener)
     {
-        super(sstable, columns, dataRange, Iterators.singletonIterator(dataRange.keyRange()), listener);
+        super(sstable, columns, dataRange, listener);
         this.ifile = sstable.openIndexReader();
         this.rowIndexEntrySerializer = new RowIndexEntry.Serializer(sstable.descriptor.version, sstable.header, sstable.owner().map(SSTable.Owner::getMetrics).orElse(null));
+        this.currentRange = null;
     }
 
     private void seekToCurrentRangeStart()
@@ -115,25 +114,24 @@ public class BigTableScanner extends SSTableScanner<BigTableReader, RowIndexEntr
         {
             if (nextEntry == null)
             {
-                do
-                {
-                    if (startScan != -1)
-                        bytesScanned += dfile.getFilePointer() - startScan;
+                if (startScan != -1)
+                    bytesScanned += dfile.getFilePointer() - startScan;
 
-                    // we're starting the first range or we just passed the end of the previous range
-                    if (!rangeIterator.hasNext())
-                        return false;
+                // we're starting the range
+                if (currentRange != null)
+                    return false;
 
-                    currentRange = rangeIterator.next();
-                    seekToCurrentRangeStart();
-                    startScan = dfile.getFilePointer();
+                currentRange = dataRange.keyRange();
+                seekToCurrentRangeStart();
+                startScan = dfile.getFilePointer();
 
-                    if (ifile.isEOF())
-                        return false;
+                if (ifile.isEOF())
+                    return false;
 
-                    currentKey = sstable.decorateKey(ByteBufferUtil.readWithShortLength(ifile));
-                    currentEntry = rowIndexEntrySerializer.deserialize(ifile);
-                } while (!currentRange.contains(currentKey));
+                currentKey = sstable.decorateKey(ByteBufferUtil.readWithShortLength(ifile));
+                currentEntry = rowIndexEntrySerializer.deserialize(ifile);
+                if (!currentRange.contains(currentKey))
+                    return false;
             }
             else
             {

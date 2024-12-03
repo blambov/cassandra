@@ -20,8 +20,6 @@ package org.apache.cassandra.io.sstable.format.bti;
 import java.io.Closeable;
 import java.io.IOException;
 
-import com.google.common.collect.Iterators;
-
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
@@ -46,7 +44,7 @@ public class BtiTableScanner extends SSTableScanner<BtiTableReader, TrieIndexEnt
                             DataRange dataRange,
                             SSTableReadsListener listener)
     {
-        super(sstable, columns, dataRange, Iterators.singletonIterator(dataRange.keyRange()), listener);
+        super(sstable, columns, dataRange, listener);
     }
 
     protected void doClose() throws IOException
@@ -67,29 +65,21 @@ public class BtiTableScanner extends SSTableScanner<BtiTableReader, TrieIndexEnt
         @Override
         protected boolean prepareToIterateRow() throws IOException
         {
-            while (true)
+            if (startScan != -1)
+                bytesScanned += getCurrentPosition() - startScan;
+
+            if (iterator == null)
+                iterator = sstable.coveredKeysIterator(dataRange.keyRange());
+
+            currentEntry = iterator.entry();
+            currentKey = iterator.decoratedKey();
+            if (currentEntry != null)
             {
-                if (startScan != -1)
-                    bytesScanned += getCurrentPosition() - startScan;
-
-                if (iterator != null)
-                {
-                    currentEntry = iterator.entry();
-                    currentKey = iterator.decoratedKey();
-                    if (currentEntry != null)
-                    {
-                        iterator.advance();
-                        return true;
-                    }
-                    iterator.close();
-                    iterator = null;
-                }
-
-                // try next range
-                if (!rangeIterator.hasNext())
-                    return false;
-                iterator = sstable.coveredKeysIterator(rangeIterator.next());
+                iterator.advance();
+                return true;
             }
+            else
+                return false;
         }
 
         @Override
