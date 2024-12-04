@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -360,6 +361,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     {
         private final ColumnFamilyStore cfs;
         private final Promise<Void> toSignalWhenDone;
+        private final AtomicReference<Throwable> asyncErrors = new AtomicReference<>(null);
 
         BackgroundCompactionCandidate(ColumnFamilyStore cfs, Promise<Void> toSignalWhenDone)
         {
@@ -407,7 +409,10 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             }
 
             if (!async)
-                complete(ranCompaction && error == null);
+            {
+                complete(ranCompaction, error);
+                Throwables.maybeFail(error);
+            }
             else    // async
                 processTasksAsync(tasks);
         }
@@ -450,10 +455,14 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             {
                 task.execute(active);
             }
+            catch (Throwable t)
+            {
+                addAsyncError(t);
+            }
             finally
             {
                 if (toComplete.decrementAndGet() == 0)
-                    complete(true);
+                    complete(true, asyncErrors.get());
             }
         }
 
@@ -462,20 +471,44 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             try
             {
                 task.rejected();
+                throw new RuntimeException("Failed to submit background compaction task");
+            }
+            catch (Throwable t) // make sure we catch exceptions thrown by task.rejected() as well
+            {
+                addAsyncError(t);
             }
             finally
             {
                 if (toComplete.decrementAndGet() == 0)
-                    complete(true);
+                    complete(false, asyncErrors.get());
             }
         }
 
-        private void complete(boolean submitNew)
+        private void complete(boolean submitNew, Throwable error)
         {
             compactingCF.remove(cfs);
-            toSignalWhenDone.setSuccess(null);
-            if (submitNew)
-                submitBackground(cfs);
+            if (error == null)
+            {
+                toSignalWhenDone.setSuccess(null);
+                if (submitNew)
+                    submitBackground(cfs);
+            }
+            else
+                toSignalWhenDone.setFailure(error);
+        }
+
+        private void addAsyncError(Throwable t)
+        {
+            asyncErrors.accumulateAndGet(t, (a, b) ->
+            {
+                if (a == null)
+                    return b;
+                else
+                {
+                    a.addSuppressed(b);
+                    return a;
+                }
+            });
         }
 
         boolean maybeRunUpgradeTask(CompactionStrategyManager strategy)
