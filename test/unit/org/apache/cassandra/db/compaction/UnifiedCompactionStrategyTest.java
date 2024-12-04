@@ -847,6 +847,7 @@ public class UnifiedCompactionStrategyTest
         when(controller.parallelizeOutputShards()).thenReturn(parallelize);
         when(controller.maxConcurrentCompactions()).thenReturn(1000);
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(cfs, new HashMap<>(), controller);
+        strategy.addSSTables(allSSTables);
 
         Collection<AbstractCompactionTask> limitedParallelismTasks = strategy.getMaximalTasks(0, false, parallelismLimit);
         Collection<AbstractCompactionTask> allTasks = (parallelismLimit > 0)
