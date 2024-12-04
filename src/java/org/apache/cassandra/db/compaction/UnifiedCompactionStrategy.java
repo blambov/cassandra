@@ -592,7 +592,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     List<SSTableReader> getSuitableSSTables()
     {
-        return getCompactableSSTables(cfs.getLiveSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction);
+        return getCompactableSSTables(getSSTables(), UnifiedCompactionStrategy::isSuitableForCompaction);
     }
 
     private List<SSTableReader> getCompactableSSTables(Collection<SSTableReader> sstables,
