@@ -100,6 +100,7 @@ public class LeveledCompactionTask extends CompactionTask
                             largestL0SSTable.onDiskLength(),
                             transaction.opId());
                 transaction.cancel(largestL0SSTable);
+                nonExpiredSSTables.remove(largestL0SSTable);
                 return true;
             }
         }
