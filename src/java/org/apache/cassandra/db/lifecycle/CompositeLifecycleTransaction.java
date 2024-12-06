@@ -85,9 +85,8 @@ public class CompositeLifecycleTransaction
     {
         partsCount = partsToCommitOrAbort.get();
         initializationComplete = true;
-        // TODO: Switch to trace before merging.
-        if (logger.isDebugEnabled())
-            logger.debug("Composite transaction {} initialized with {} parts.", mainTransaction.opIdString(), partsCount);
+        if (logger.isTraceEnabled())
+            logger.trace("Composite transaction {} initialized with {} parts.", mainTransaction.opIdString(), partsCount);
     }
 
     /// Get the number of parts in the composite transaction. 0 if the transaction is not yet initialized.
@@ -136,9 +135,8 @@ public class CompositeLifecycleTransaction
         {
             if (wasAborted)
             {
-                // TODO: Switch to trace before merging.
-                if (logger.isDebugEnabled())
-                    logger.debug("Composite transaction {} with {} parts aborted.",
+                if (logger.isTraceEnabled())
+                    logger.trace("Composite transaction {} with {} parts aborted.",
                                  mainTransaction.opIdString(),
                                  partsCount);
 
@@ -146,9 +144,8 @@ public class CompositeLifecycleTransaction
             }
             else
             {
-                // TODO: Switch to trace before merging.
-                if (logger.isDebugEnabled())
-                    logger.debug("Composite transaction {} with {} parts completed{}.",
+                if (logger.isTraceEnabled())
+                    logger.trace("Composite transaction {} with {} parts completed{}.",
                                  mainTransaction.opIdString(),
                                  partsCount,
                                  obsoleteOriginalsRequested ? " with obsoletion" : "");
