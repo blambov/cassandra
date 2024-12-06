@@ -1136,8 +1136,10 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
 
     public List<Future<?>> submitMaximal(final ColumnFamilyStore cfStore, final long gcBefore, boolean splitOutput, int permittedParallelism, OperationType operationType)
     {
-        if (permittedParallelism <= 0)
+        if (permittedParallelism < 0)
             permittedParallelism = getCoreCompactorThreads() / 2;
+        else if (permittedParallelism == 0)
+            permittedParallelism = Integer.MAX_VALUE;
 
         // here we compute the task off the compaction executor, so having that present doesn't
         // confuse runWithCompactionsDisabled -- i.e., we don't want to deadlock ourselves, waiting

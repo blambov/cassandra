@@ -182,13 +182,12 @@ public abstract class AbstractCompactionStrategy implements ScannerFactory
 
     /**
      * @param gcBefore             throw away tombstones older than this
-     * @param permittedParallelism the maximum number of threads that can be used for the major compaction
      * @return a compaction task that should be run to compact this columnfamilystore
      * as much as possible.  Null if nothing to do.
      * <p>
      * Is responsible for marking its sstables as compaction-pending.
      */
-    public abstract Collection<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput, int permittedParallelism);
+    public abstract Collection<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput);
 
     /**
      * @param sstables SSTables to compact. Must be marked as compacting.

@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
-import org.apache.cassandra.db.lifecycle.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +45,10 @@ import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.db.compaction.unified.ShardedMultiWriter;
 import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
+import org.apache.cassandra.db.lifecycle.CompositeLifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
+import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -152,7 +155,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
-    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput, int permittedParallelism)
+    public synchronized List<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput)
     {
         maybeUpdateShardManager();
         // The tasks are split by repair status and disk, as well as in non-overlapping sections to enable some
@@ -160,8 +163,6 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         // split across shards according to its density. Depending on the parallelism, the operation may require up to
         // 100% extra space to complete.
         List<AbstractCompactionTask> tasks = new ArrayList<>();
-        if (permittedParallelism <= 0)
-            permittedParallelism = Integer.MAX_VALUE;
 
         try {
             // If possible, we want to issue separate compactions for non-overlapping sets of sstables, to allow
@@ -186,13 +187,13 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             for (Collection<SSTableReader> set : groups)
             {
                 LifecycleTransaction txn = cfs.getTracker().tryModify(set, OperationType.COMPACTION, nextTimeUUID());
-                // Further split each of these into up to permittedParallelism tasks to run in parallel.
+                // The tasks may be further split by output shard to increase the parallelism.
                 if (txn != null)
                     tasks.addAll(createCompactionTasks(gcBefore, txn));
                 // we ignore splitOutput (always split according to the strategy's sharding) and do not need isMaximal
             }
 
-            return CompositeCompactionTask.applyParallelismLimit(tasks, permittedParallelism);
+            return tasks;
         }
         catch (Throwable t)
         {

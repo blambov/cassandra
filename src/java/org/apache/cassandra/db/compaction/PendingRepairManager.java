@@ -388,7 +388,7 @@ class PendingRepairManager
         return get(sessionID).getNextBackgroundTasks(gcBefore);
     }
 
-    synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput, int permittedParallelism)
+    synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput)
     {
         if (strategies.isEmpty())
             return null;
@@ -402,7 +402,7 @@ class PendingRepairManager
             }
             else
             {
-                Collection<AbstractCompactionTask> tasks = entry.getValue().getMaximalTasks(gcBefore, splitOutput, permittedParallelism);
+                Collection<AbstractCompactionTask> tasks = entry.getValue().getMaximalTasks(gcBefore, splitOutput);
                 if (tasks != null)
                     maximalTasks.addAll(tasks);
             }

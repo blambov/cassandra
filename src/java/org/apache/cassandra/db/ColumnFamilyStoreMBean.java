@@ -55,7 +55,9 @@ public interface ColumnFamilyStoreMBean
     /**
      * force a major compaction of this column family
      *
-     * @param permittedParallelism the maximum number of compaction threads that can be used by the operation
+     * @param permittedParallelism The maximum number of compaction threads that can be used by the operation.
+     *                             If 0, the operation can use all available threads.
+     *                             If <0, the default parallelism will be used.
      */
     public void forceMajorCompaction(int permittedParallelism) throws ExecutionException, InterruptedException;
 

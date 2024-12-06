@@ -379,7 +379,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
-    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput, int permittedParallelism)
+    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput)
     {
         Iterable<SSTableReader> filteredSSTables = filterSuspectSSTables(sstables);
         if (Iterables.isEmpty(filteredSSTables))

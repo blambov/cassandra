@@ -19,16 +19,19 @@
 package org.apache.cassandra.db.compaction;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.collect.Iterables;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
-import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
-import org.apache.cassandra.dht.*;
-import org.apache.cassandra.utils.concurrent.Transactional;
 import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.junit.Assert;
 import org.junit.Before;
@@ -44,15 +47,24 @@ import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.DiskBoundaries;
 import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.db.compaction.unified.UnifiedCompactionTask;
+import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.PartialLifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Splitter;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Overlaps;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.concurrent.Transactional;
 import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -849,12 +861,8 @@ public class UnifiedCompactionStrategyTest
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(cfs, new HashMap<>(), controller);
         strategy.addSSTables(allSSTables);
 
-        Collection<AbstractCompactionTask> limitedParallelismTasks = strategy.getMaximalTasks(0, false, parallelismLimit);
-        Collection<AbstractCompactionTask> allTasks = (parallelismLimit > 0)
-                ? limitedParallelismTasks.stream().flatMap(t -> t instanceof CompositeCompactionTask
-                ? ((CompositeCompactionTask) t).tasks.stream()
-                : Stream.of(t)).collect(Collectors.toList())
-                : limitedParallelismTasks;
+        List<AbstractCompactionTask> allTasks = strategy.getMaximalTasks(0, false);
+        List<AbstractCompactionTask> limitedParallelismTasks = CompositeCompactionTask.applyParallelismLimit(allTasks, parallelismLimit);
         assertEquals(expectedTaskCount, allTasks.size());
         for (AbstractCompactionTask task : allTasks)
         {
