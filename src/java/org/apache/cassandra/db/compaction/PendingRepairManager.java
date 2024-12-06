@@ -520,10 +520,9 @@ class PendingRepairManager
             }
         }
 
-        protected int executeInternal(ActiveCompactionsTracker activeCompactions)
+        protected void executeInternal(ActiveCompactionsTracker activeCompactions)
         {
             run();
-            return transaction.originals().size();
         }
     }
 

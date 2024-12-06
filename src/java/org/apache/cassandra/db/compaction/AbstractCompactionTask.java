@@ -103,11 +103,11 @@ public abstract class AbstractCompactionTask extends WrappedRunnable
     /**
      * executes the task and unmarks sstables compacting
      */
-    public int execute(ActiveCompactionsTracker activeCompactions)
+    public void execute(ActiveCompactionsTracker activeCompactions)
     {
         try
         {
-            return executeInternal(activeCompactions);
+            executeInternal(activeCompactions);
         }
         catch(FSDiskFullWriteError e)
         {
@@ -131,7 +131,7 @@ public abstract class AbstractCompactionTask extends WrappedRunnable
         cleanup();
     }
 
-    protected abstract int executeInternal(ActiveCompactionsTracker activeCompactions);
+    protected abstract void executeInternal(ActiveCompactionsTracker activeCompactions);
 
     public AbstractCompactionTask setUserDefined(boolean isUserDefined)
     {

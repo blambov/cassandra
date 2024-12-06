@@ -18,13 +18,13 @@
 
 package org.apache.cassandra.db.compaction;
 
-import com.google.common.annotations.VisibleForTesting;
-import org.apache.cassandra.utils.Throwables;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+
+import com.google.common.annotations.VisibleForTesting;
+
+import org.apache.cassandra.utils.Throwables;
 
 /// A composition of several compaction tasks into one. This is used to limit the parallelism of some compaction tasks
 /// that split into a large number of parallelizable tasks but should not be allowed to take all compaction executor
@@ -49,12 +49,10 @@ public class CompositeCompactionTask extends AbstractCompactionTask
     }
 
     @Override
-    protected int executeInternal(ActiveCompactionsTracker tracker)
+    protected void executeInternal(ActiveCompactionsTracker tracker)
     {
-        AtomicInteger sum = new AtomicInteger(0);
         // Run all tasks in sequence, regardless if any of them fail.
-        Throwables.perform(tasks.stream().map(x -> () -> sum.addAndGet(x.execute(tracker))));
-        return sum.get();
+        Throwables.perform(tasks.stream().map(x -> () -> x.execute(tracker)));
     }
 
     @Override

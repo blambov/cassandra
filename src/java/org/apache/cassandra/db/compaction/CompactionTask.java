@@ -84,11 +84,10 @@ public class CompactionTask extends AbstractCompactionTask
         return totalBytesCompacted += bytesCompacted;
     }
 
-    protected int executeInternal(ActiveCompactionsTracker activeCompactions)
+    protected void executeInternal(ActiveCompactionsTracker activeCompactions)
     {
         this.activeCompactions = activeCompactions == null ? ActiveCompactionsTracker.NOOP : activeCompactions;
         run();
-        return inputSSTables().size();
     }
 
     public boolean reduceScopeForLimitedSpace(Set<SSTableReader> nonExpiredSSTables, long expectedSize)
