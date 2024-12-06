@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
@@ -66,15 +67,20 @@ public class CompactionTask extends AbstractCompactionTask
     private ActiveCompactionsTracker activeCompactions;
     protected final ScannerFactory scannerFactory;
 
-    public CompactionTask(ColumnFamilyStore cfs, AbstractCompactionStrategy strategy, ILifecycleTransaction txn, long gcBefore)
+    public CompactionTask(ColumnFamilyStore cfs, ILifecycleTransaction txn, long gcBefore)
     {
-        this(cfs, strategy, txn, gcBefore, false);
+        this(cfs, ScannerFactory.DEFAULT, txn, gcBefore, false);
     }
 
-    public CompactionTask(ColumnFamilyStore cfs, AbstractCompactionStrategy strategy, ILifecycleTransaction txn, long gcBefore, boolean keepOriginals)
+    public CompactionTask(ColumnFamilyStore cfs, ScannerFactory scannerFactory, ILifecycleTransaction txn, long gcBefore)
+    {
+        this(cfs, scannerFactory, txn, gcBefore, false);
+    }
+
+    public CompactionTask(ColumnFamilyStore cfs, ScannerFactory scannerFactory, ILifecycleTransaction txn, long gcBefore, boolean keepOriginals)
     {
         super(cfs, txn);
-        this.scannerFactory = strategy != null ? strategy : ScannerFactory.DEFAULT;
+        this.scannerFactory = Preconditions.checkNotNull(scannerFactory);
         this.gcBefore = gcBefore;
         this.keepOriginals = keepOriginals;
     }

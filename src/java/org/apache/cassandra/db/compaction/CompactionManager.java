@@ -858,7 +858,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             public void execute(LifecycleTransaction txn) throws IOException
             {
                 logger.debug("Garbage collecting {}", txn.originals());
-                CompactionTask task = new CompactionTask(cfStore, null, txn, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()))
+                CompactionTask task = new CompactionTask(cfStore, txn, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()))
                 {
                     @Override
                     protected CompactionController getCompactionController(Set<SSTableReader> toCompact)

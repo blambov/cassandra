@@ -88,7 +88,7 @@ public class CompactionTaskTest
         try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION))
         {
             id = txn.opId();
-            CompactionTask task = new CompactionTask(cfs, null, txn, 0);
+            CompactionTask task = new CompactionTask(cfs, txn, 0);
             task.execute(CompactionManager.instance.active);
         }
 
@@ -121,7 +121,7 @@ public class CompactionTaskTest
 
         LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION);
         Assert.assertNotNull(txn);
-        CompactionTask task = new CompactionTask(cfs, null, txn, 0);
+        CompactionTask task = new CompactionTask(cfs, txn, 0);
         Assert.assertNotNull(task);
         cfs.getCompactionStrategyManager().pause();
         try
@@ -179,7 +179,7 @@ public class CompactionTaskTest
             {
                 txn = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION);
                 Assert.assertNotNull(txn);
-                CompactionTask task = new CompactionTask(cfs, null, txn, 0);
+                CompactionTask task = new CompactionTask(cfs, txn, 0);
                 Assert.fail("Expected IllegalArgumentException");
             }
             catch (IllegalArgumentException e)
@@ -214,7 +214,7 @@ public class CompactionTaskTest
         try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.COMPACTION, sstables))
         {
             Assert.assertEquals(4, txn.tracker().getView().liveSSTables().size());
-            CompactionTask task = new CompactionTask(cfs, null, txn, 1000);
+            CompactionTask task = new CompactionTask(cfs, txn, 1000);
             task.execute(null);
 
             // Check that new SSTable was not released

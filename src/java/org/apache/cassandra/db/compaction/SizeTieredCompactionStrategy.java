@@ -197,7 +197,7 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
 
             ILifecycleTransaction transaction = cfs.getTracker().tryModify(hottestBucket, OperationType.COMPACTION);
             if (transaction != null)
-                return Collections.singletonList(new CompactionTask(cfs, this, transaction, gcBefore));
+                return Collections.singletonList(new CompactionTask(cfs, scannerFactory(), transaction, gcBefore));
             previousCandidate = hottestBucket;
         }
     }
@@ -211,8 +211,8 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
         if (txn == null)
             return null;
         if (splitOutput)
-            return Arrays.<AbstractCompactionTask>asList(new SplittingCompactionTask(cfs, this, txn, gcBefore));
-        return Arrays.<AbstractCompactionTask>asList(new CompactionTask(cfs, this, txn, gcBefore));
+            return Arrays.<AbstractCompactionTask>asList(new SplittingCompactionTask(cfs, scannerFactory(), txn, gcBefore));
+        return Arrays.<AbstractCompactionTask>asList(new CompactionTask(cfs, scannerFactory(), txn, gcBefore));
     }
 
     public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, final long gcBefore)
@@ -226,7 +226,7 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
             return null;
         }
 
-        return new CompactionTask(cfs, this, transaction, gcBefore).setUserDefined(true);
+        return new CompactionTask(cfs, scannerFactory(), transaction, gcBefore).setUserDefined(true);
     }
 
     public int getEstimatedRemainingTasks()
@@ -347,9 +347,9 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
 
     private static class SplittingCompactionTask extends CompactionTask
     {
-        public SplittingCompactionTask(ColumnFamilyStore cfs, AbstractCompactionStrategy strategy, ILifecycleTransaction txn, long gcBefore)
+        public SplittingCompactionTask(ColumnFamilyStore cfs, ScannerFactory scannerFactory, ILifecycleTransaction txn, long gcBefore)
         {
-            super(cfs, strategy, txn, gcBefore);
+            super(cfs, scannerFactory, txn, gcBefore);
         }
 
         @Override
