@@ -178,7 +178,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy implem
         }
     }
 
-    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput)
+    public synchronized List<AbstractCompactionTask> getMaximalTasks(long gcBefore, boolean splitOutput)
     {
         Iterable<SSTableReader> sstables = manifest.getSSTables();
 

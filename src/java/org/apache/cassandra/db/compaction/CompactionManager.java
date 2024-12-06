@@ -400,8 +400,10 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
                     ranCompaction = true;
                 }
                 else
+                {
+                    // more than 1 task: we need to do this outside the catch and complete block
                     async = true;
-                // else (more than 1 task) we need to do this outside the catch and complete block
+                }
             }
             catch (Throwable t)
             {

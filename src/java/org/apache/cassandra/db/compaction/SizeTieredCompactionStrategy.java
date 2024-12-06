@@ -202,7 +202,7 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
         }
     }
 
-    public synchronized Collection<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput)
+    public synchronized List<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput)
     {
         Iterable<SSTableReader> filteredSSTables = filterSuspectSSTables(sstables);
         if (Iterables.isEmpty(filteredSSTables))

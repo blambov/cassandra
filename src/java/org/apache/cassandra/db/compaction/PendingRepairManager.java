@@ -348,13 +348,11 @@ class PendingRepairManager
 
     synchronized Collection<AbstractCompactionTask> getNextRepairFinishedTasks()
     {
-        List<AbstractCompactionTask> tasks = null;
+        List<AbstractCompactionTask> tasks = new ArrayList<>();
         for (TimeUUID sessionID : strategies.keySet())
         {
             if (canCleanup(sessionID))
             {
-                if (tasks == null)
-                    tasks = new ArrayList<>();
                 tasks.add(getRepairFinishedCompactionTask(sessionID));
             }
         }

@@ -151,6 +151,11 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
 
     private TimeUUID nextTimeUUID()
     {
+        // Make a time-UUID with sequence 0. The reason to do this is to accommodate parallelized compactions:
+        // - Sequence 0 (visible as -8000- in the UUID string) denotes single-task (i.e. non-parallelized) compactions.
+        // - Sequence >0 (-800n-) denotes the individual task's index of a parallelized compaction.
+        // - Parallelized compactions use sequence 0 as the transaction id, and sequences from 1 to the number of tasks
+        //   for the ids of individual tasks.
         return TimeUUID.Generator.nextTimeUUID().withSequence(0);
     }
 

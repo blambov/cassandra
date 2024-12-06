@@ -182,7 +182,7 @@ public class CompactionTask extends AbstractCompactionTask
             TimeUUID taskId = transaction.opId();
             // select SSTables to compact based on available disk space.
             final boolean hasExpirations = !fullyExpiredSSTables.isEmpty();
-            if (shouldReduceScopeForSpace() && !buildCompactionCandidatesForAvailableDiskSpace(actuallyCompact, hasExpirations, taskId)
+            if ((shouldReduceScopeForSpace() && !buildCompactionCandidatesForAvailableDiskSpace(actuallyCompact, hasExpirations, taskId))
                 || hasExpirations)
             {
                 // The set of sstables has changed (one or more were excluded due to limited available disk space).
@@ -454,9 +454,15 @@ public class CompactionTask extends AbstractCompactionTask
                 // we end up here if we can't take any more sstables out of the compaction.
                 // usually means we've run out of disk space
 
-                // but we can still compact expired SSTables
+                // but we can still remove expired SSTables
                 if (partialCompactionsAcceptable() && containsExpired)
+                {
+                    for (SSTableReader rdr : nonExpiredSSTables)
+                        transaction.cancel(rdr);
+                    nonExpiredSSTables.clear();
+                    assert transaction.originals().size() > 0;
                     break;
+                }
 
                 String msg = String.format("Not enough space for compaction (%s) of %s.%s, estimated sstables = %d, expected write size = %d",
                                            taskId,

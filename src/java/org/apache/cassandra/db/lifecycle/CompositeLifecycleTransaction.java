@@ -55,6 +55,13 @@ public class CompositeLifecycleTransaction
     private volatile boolean initializationComplete;
     private volatile int partsCount = 0;
 
+    /// Create a composite transaction wrapper over the given transaction. After construction, the individual parts of
+    /// the operation must be registered using [#register] and the composite sealed by calling [#completeInitialization].
+    /// The composite will then track the state of the parts and commit after all of them have committed (respectively
+    /// abort if one aborts but only after waiting for all the other tasks to complete, successfully or not).
+    ///
+    /// To make it easy to recognize the parts of a composite transaction, the given transaction should have an id with
+    /// sequence number 0, and partial transactions should use the id that [#register] returns.
     public CompositeLifecycleTransaction(LifecycleTransaction mainTransaction)
     {
         this.mainTransaction = mainTransaction;

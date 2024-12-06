@@ -299,7 +299,10 @@ public class TimeUUID implements Serializable, Comparable<TimeUUID>
     }
 
     /**
-     * Returns a new TimeUUID with the same timestamp as this one, but with the provided sequence value.
+     * Returns a new TimeUUID with the same data as this one, but with the provided sequence value.
+     *
+     * <b>Warning:</b> the uniqueness of the returned TimeUUID is not guaranteed by this method. Caller must ensure that
+     * the sequence numbers in use are distinct.
      */
     public TimeUUID withSequence(long sequence)
     {

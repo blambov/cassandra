@@ -174,7 +174,7 @@ public abstract class AbstractCompactionStrategy
     /**
      * @param gcBefore throw away tombstones older than this
      *
-     * @return the next background/minor compaction task to run; null if nothing to do.
+     * @return the next background/minor compaction tasks to run; an empty collection if nothing to do.
      *
      * Is responsible for marking its sstables as compaction-pending.
      */
@@ -182,12 +182,14 @@ public abstract class AbstractCompactionStrategy
 
     /**
      * @param gcBefore             throw away tombstones older than this
-     * @return a compaction task that should be run to compact this columnfamilystore
-     * as much as possible.  Null if nothing to do.
+     * @return A list of compaction tasks that should be run to compact this columnfamilystore
+     *         as much as possible. Empty if nothing to do.
+     *         Order matters if a parallelism limit is applied, as the tasks are run in way that parallelizes ones that
+     *         are close together in the list.
      * <p>
      * Is responsible for marking its sstables as compaction-pending.
      */
-    public abstract Collection<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput);
+    public abstract List<AbstractCompactionTask> getMaximalTasks(final long gcBefore, boolean splitOutput);
 
     /**
      * @param sstables SSTables to compact. Must be marked as compacting.

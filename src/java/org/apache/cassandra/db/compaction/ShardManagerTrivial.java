@@ -65,6 +65,7 @@ public class ShardManagerTrivial implements ShardManager
         return totalSize;
     }
 
+    @Override
     public <T> List<T> splitSSTablesInShards(Collection<SSTableReader> sstables,
                                              int numShardsForDensity,
                                              BiFunction<Collection<SSTableReader>, Range<Token>, T> maker)
