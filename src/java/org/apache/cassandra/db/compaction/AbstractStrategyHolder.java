@@ -21,7 +21,6 @@ package org.apache.cassandra.db.compaction;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -32,11 +31,8 @@ import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
@@ -187,8 +183,6 @@ public abstract class AbstractStrategyHolder
     public abstract void removeSSTables(GroupedSSTableContainer sstables);
 
     public abstract void replaceSSTables(GroupedSSTableContainer removed, GroupedSSTableContainer added);
-
-    public abstract List<ISSTableScanner> getScanners(GroupedSSTableContainer sstables, Collection<Range<Token>> ranges);
 
 
     public abstract SSTableMultiWriter createSSTableMultiWriter(Descriptor descriptor,

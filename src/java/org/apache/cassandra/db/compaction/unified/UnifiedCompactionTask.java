@@ -61,7 +61,7 @@ public class UnifiedCompactionTask extends CompactionTask
                                  Range<Token> operationRange,
                                  Collection<SSTableReader> actuallyCompact)
     {
-        super(cfs, txn, gcBefore);
+        super(cfs, strategy.scannerFactory(), txn, gcBefore);
         this.controller = strategy.getController();
         this.shardManager = shardManager;
 

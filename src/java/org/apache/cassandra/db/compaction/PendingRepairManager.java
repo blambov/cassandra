@@ -38,9 +38,6 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.repair.consistent.admin.CleanupSummary;
 import org.apache.cassandra.schema.CompactionParams;
@@ -424,36 +421,6 @@ class PendingRepairManager
     boolean canCleanup(TimeUUID sessionID)
     {
         return !ActiveRepairService.instance().consistent.local.isSessionInProgress(sessionID);
-    }
-
-    synchronized Set<ISSTableScanner> getScanners(Collection<SSTableReader> sstables, Collection<Range<Token>> ranges)
-    {
-        if (sstables.isEmpty())
-        {
-            return Collections.emptySet();
-        }
-
-        Map<TimeUUID, Set<SSTableReader>> sessionSSTables = new HashMap<>();
-        for (SSTableReader sstable : sstables)
-        {
-            TimeUUID sessionID = sstable.getSSTableMetadata().pendingRepair;
-            checkPendingID(sessionID);
-            sessionSSTables.computeIfAbsent(sessionID, k -> new HashSet<>()).add(sstable);
-        }
-
-        Set<ISSTableScanner> scanners = new HashSet<>(sessionSSTables.size());
-        try
-        {
-            for (Map.Entry<TimeUUID, Set<SSTableReader>> entry : sessionSSTables.entrySet())
-            {
-                scanners.addAll(getOrCreate(entry.getKey()).getScanners(entry.getValue(), ranges).scanners);
-            }
-        }
-        catch (Throwable t)
-        {
-            ISSTableScanner.closeAllAndPropagate(scanners, t);
-        }
-        return scanners;
     }
 
     public boolean hasStrategy(AbstractCompactionStrategy strategy)
