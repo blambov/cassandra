@@ -193,7 +193,7 @@ public class LongLeveledCompactionStrategyTest
                     }
                 }
 
-                try (ScannerList scannerList = lcs.getScanners(Lists.newArrayList(allSSTables)))
+                try (AbstractCompactionStrategy.ScannerList scannerList = lcs.getScanners(Lists.newArrayList(allSSTables)))
                 {
                     //Verify that leveled scanners will always iterate in ascending order (CASSANDRA-9935)
                     for (ISSTableScanner scanner : scannerList.scanners)

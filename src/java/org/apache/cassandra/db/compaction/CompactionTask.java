@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.RateLimiter;
@@ -64,17 +65,15 @@ public class CompactionTask extends AbstractCompactionTask
     protected final boolean keepOriginals;
     protected static long totalBytesCompacted = 0;
     private ActiveCompactionsTracker activeCompactions;
-    protected final ScannerFactory scannerFactory;
 
-    public CompactionTask(ColumnFamilyStore cfs, AbstractCompactionStrategy strategy, ILifecycleTransaction txn, long gcBefore)
+    public CompactionTask(ColumnFamilyStore cfs, ILifecycleTransaction txn, long gcBefore)
     {
-        this(cfs, strategy, txn, gcBefore, false);
+        this(cfs, txn, gcBefore, false);
     }
 
-    public CompactionTask(ColumnFamilyStore cfs, AbstractCompactionStrategy strategy, ILifecycleTransaction txn, long gcBefore, boolean keepOriginals)
+    public CompactionTask(ColumnFamilyStore cfs, ILifecycleTransaction txn, long gcBefore, boolean keepOriginals)
     {
         super(cfs, txn);
-        this.scannerFactory = strategy != null ? strategy : ScannerFactory.DEFAULT;
         this.gcBefore = gcBefore;
         this.keepOriginals = keepOriginals;
     }
@@ -153,6 +152,10 @@ public class CompactionTask extends AbstractCompactionTask
         if (inputSSTables().isEmpty())
             return;
 
+        // Note that the current compaction strategy, is not necessarily the one this task was created under.
+        // This should be harmless; see comments to CFS.maybeReloadCompactionStrategy.
+        CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
+
         if (DatabaseDescriptor.isSnapshotBeforeCompaction())
         {
             Instant creationTime = now();
@@ -223,9 +226,12 @@ public class CompactionTask extends AbstractCompactionTask
             long[] mergedRowCounts;
             long totalSourceCQLRows;
 
+            Range<Token> tokenRange = tokenRange();
+            List<Range<Token>> rangeList = tokenRange != null ? ImmutableList.of(tokenRange) : null;
+
             long nowInSec = FBUtilities.nowInSeconds();
             try (Refs<SSTableReader> refs = Refs.ref(actuallyCompact);
-                 ScannerList scanners = scannerFactory.getScanners(actuallyCompact, tokenRange());
+                 AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(actuallyCompact, rangeList);
                  CompactionIterator ci = new CompactionIterator(compactionType, scanners.scanners, controller, nowInSec, taskId))
             {
                 long lastCheckObsoletion = start;

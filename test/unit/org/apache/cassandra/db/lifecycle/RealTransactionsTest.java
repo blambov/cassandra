@@ -26,8 +26,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.Assert;
 import org.apache.cassandra.ServerTestUtils;
-import org.apache.cassandra.db.compaction.ScannerFactory;
-import org.apache.cassandra.db.compaction.ScannerList;
 import org.apache.cassandra.io.util.File;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -36,6 +34,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SerializationHeader;
+import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.compaction.CompactionController;
 import org.apache.cassandra.db.compaction.CompactionIterator;
 import org.apache.cassandra.db.compaction.OperationType;
@@ -154,7 +153,7 @@ public class RealTransactionsTest extends SchemaLoader
         try (CompactionController controller = new CompactionController(cfs, txn.originals(), cfs.gcBefore(FBUtilities.nowInSeconds())))
         {
             try (SSTableRewriter rewriter = SSTableRewriter.constructKeepingOriginals(txn, false, 1000);
-                 ScannerList scanners = ScannerFactory.DEFAULT.getScanners(txn.originals());
+                 AbstractCompactionStrategy.ScannerList scanners = cfs.getCompactionStrategyManager().getScanners(txn.originals());
                  CompactionIterator ci = new CompactionIterator(txn.opType(), scanners.scanners, controller, nowInSec, txn.opId())
             )
             {

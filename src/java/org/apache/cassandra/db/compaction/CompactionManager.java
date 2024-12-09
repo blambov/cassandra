@@ -860,7 +860,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             public void execute(LifecycleTransaction txn) throws IOException
             {
                 logger.debug("Garbage collecting {}", txn.originals());
-                CompactionTask task = new CompactionTask(cfStore, null, txn, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()))
+                CompactionTask task = new CompactionTask(cfStore, txn, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()))
                 {
                     @Override
                     protected CompactionController getCompactionController(Set<SSTableReader> toCompact)
@@ -1934,12 +1934,13 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
             public void close() {}
         }
 
+        CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
         try (SharedTxn sharedTxn = new SharedTxn(txn);
              SSTableRewriter fullWriter = SSTableRewriter.constructWithoutEarlyOpening(sharedTxn, false, groupMaxDataAge);
              SSTableRewriter transWriter = SSTableRewriter.constructWithoutEarlyOpening(sharedTxn, false, groupMaxDataAge);
              SSTableRewriter unrepairedWriter = SSTableRewriter.constructWithoutEarlyOpening(sharedTxn, false, groupMaxDataAge);
 
-             ScannerList scanners = ScannerFactory.DEFAULT.getScanners(txn.originals());
+             AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(txn.originals());
              CompactionController controller = new CompactionController(cfs, sstableAsSet, getDefaultGcBefore(cfs, nowInSec));
              CompactionIterator ci = getAntiCompactionIterator(scanners.scanners, controller, nowInSec, nextTimeUUID(), active, isCancelled))
         {

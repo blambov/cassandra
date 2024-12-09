@@ -923,7 +923,7 @@ public class LeveledCompactionStrategyTest
         try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.COMPACTION, Iterables.concat(l0sstables, l1sstables)))
         {
             Set<SSTableReader> nonExpired = new HashSet<>(Sets.difference(txn.originals(), Collections.emptySet()));
-            CompactionTask task = new LeveledCompactionTask(cfs, null, txn, 1, 0, 1024*1024, false);
+            CompactionTask task = new LeveledCompactionTask(cfs, txn, 1, 0, 1024*1024, false);
             SSTableReader lastRemoved = null;
             boolean removed = true;
             for (int i = 0; i < l0sstables.size(); i++)
@@ -967,7 +967,7 @@ public class LeveledCompactionStrategyTest
 
         try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.COMPACTION, l0sstables))
         {
-            CompactionTask task = new LeveledCompactionTask(cfs, null, txn, 0, 0, 1024*1024, false);
+            CompactionTask task = new LeveledCompactionTask(cfs, txn, 0, 0, 1024*1024, false);
 
             SSTableReader lastRemoved = null;
             boolean removed = true;
@@ -1018,7 +1018,7 @@ public class LeveledCompactionStrategyTest
         }
         try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.COMPACTION, sstables))
         {
-            CompactionTask task = new LeveledCompactionTask(cfs, null, txn, 0, 0, 1024 * 1024, false);
+            CompactionTask task = new LeveledCompactionTask(cfs, txn, 0, 0, 1024 * 1024, false);
             assertFalse(task.reduceScopeForLimitedSpace(Sets.newHashSet(sstables), 0));
             assertEquals(Sets.newHashSet(sstables), txn.originals());
         }

@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +57,11 @@ import org.apache.cassandra.db.compaction.PendingRepairManager.CleanupTask;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableFormat.Components;
@@ -956,6 +960,61 @@ public class CompactionStrategyManager implements INotificationConsumer
         {
             writeLock.unlock();
         }
+    }
+
+    /**
+     * Create ISSTableScanners from the given sstables
+     *
+     * Delegates the call to the compaction strategies to allow LCS to create a scanner
+     * @param sstables
+     * @param ranges
+     * @return
+     */
+    public AbstractCompactionStrategy.ScannerList maybeGetScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
+    {
+        maybeReloadDiskBoundaries();
+        List<ISSTableScanner> scanners = new ArrayList<>(sstables.size());
+        readLock.lock();
+        try
+        {
+            List<GroupedSSTableContainer> sstableGroups = groupSSTables(sstables);
+
+            for (int i = 0; i < holders.size(); i++)
+            {
+                AbstractStrategyHolder holder = holders.get(i);
+                GroupedSSTableContainer group = sstableGroups.get(i);
+                scanners.addAll(holder.getScanners(group, ranges));
+            }
+        }
+        catch (PendingRepairManager.IllegalSSTableArgumentException e)
+        {
+            ISSTableScanner.closeAllAndPropagate(scanners, new ConcurrentModificationException(e));
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+        return new AbstractCompactionStrategy.ScannerList(scanners);
+    }
+
+    public AbstractCompactionStrategy.ScannerList getScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
+    {
+        while (true)
+        {
+            try
+            {
+                return maybeGetScanners(sstables, ranges);
+            }
+            catch (ConcurrentModificationException e)
+            {
+                logger.debug("SSTable repairedAt/pendingRepaired values changed while getting scanners");
+            }
+        }
+    }
+
+    public AbstractCompactionStrategy.ScannerList getScanners(Collection<SSTableReader> sstables)
+    {
+        return getScanners(sstables, null);
     }
 
     public Collection<Collection<SSTableReader>> groupSSTablesForAntiCompaction(Collection<SSTableReader> sstablesToGroup)

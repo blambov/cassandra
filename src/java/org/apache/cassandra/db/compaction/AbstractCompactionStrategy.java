@@ -43,9 +43,11 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.SimpleSSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.TimeUUID;
@@ -60,7 +62,7 @@ import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
  *    i/o done by compaction, and merging done at read time.
  *  - perform a full (maximum possible) compaction if requested by the user
  */
-public abstract class AbstractCompactionStrategy implements ScannerFactory
+public abstract class AbstractCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractCompactionStrategy.class);
 
@@ -204,7 +206,7 @@ public abstract class AbstractCompactionStrategy implements ScannerFactory
 
     public AbstractCompactionTask getCompactionTask(LifecycleTransaction txn, final long gcBefore, long maxSSTableBytes)
     {
-        return new CompactionTask(cfs, this, txn, gcBefore);
+        return new CompactionTask(cfs, txn, gcBefore);
     }
 
     /**
@@ -243,9 +245,29 @@ public abstract class AbstractCompactionStrategy implements ScannerFactory
     }
 
 
+    public ScannerList getScanners(Collection<SSTableReader> sstables, Range<Token> range)
+    {
+        return range == null ? getScanners(sstables, (Collection<Range<Token>>)null) : getScanners(sstables, Collections.singleton(range));
+    }
+    /**
+     * Returns a list of KeyScanners given sstables and a range on which to scan.
+     * The default implementation simply grab one SSTableScanner per-sstable, but overriding this method
+     * allow for a more memory efficient solution if we know the sstable don't overlap (see
+     * LeveledCompactionStrategy for instance).
+     */
     public ScannerList getScanners(Collection<SSTableReader> sstables, Collection<Range<Token>> ranges)
     {
-        return ScannerFactory.DEFAULT.getScanners(sstables, ranges);
+        ArrayList<ISSTableScanner> scanners = new ArrayList<>();
+        try
+        {
+            for (SSTableReader sstable : sstables)
+                scanners.add(sstable.getScanner(ranges));
+        }
+        catch (Throwable t)
+        {
+            ISSTableScanner.closeAllAndPropagate(scanners, t);
+        }
+        return new ScannerList(scanners);
     }
 
     public String getName()
@@ -308,6 +330,56 @@ public abstract class AbstractCompactionStrategy implements ScannerFactory
      */
     public void metadataChanged(StatsMetadata oldMetadata, SSTableReader sstable)
     {
+    }
+
+    public static class ScannerList implements AutoCloseable
+    {
+        public final List<ISSTableScanner> scanners;
+        public ScannerList(List<ISSTableScanner> scanners)
+        {
+            this.scanners = scanners;
+        }
+
+        public long getTotalBytesScanned()
+        {
+            long bytesScanned = 0L;
+            for (int i=0, isize=scanners.size(); i<isize; i++)
+                bytesScanned += scanners.get(i).getBytesScanned();
+
+            return bytesScanned;
+        }
+
+        public long getTotalCompressedSize()
+        {
+            long compressedSize = 0;
+            for (int i=0, isize=scanners.size(); i<isize; i++)
+                compressedSize += scanners.get(i).getCompressedLengthInBytes();
+
+            return compressedSize;
+        }
+
+        public double getCompressionRatio()
+        {
+            double compressed = 0.0;
+            double uncompressed = 0.0;
+
+            for (int i=0, isize=scanners.size(); i<isize; i++)
+            {
+                ISSTableScanner scanner = scanners.get(i);
+                compressed += scanner.getCompressedLengthInBytes();
+                uncompressed += scanner.getLengthInBytes();
+            }
+
+            if (compressed == uncompressed || uncompressed == 0)
+                return MetadataCollector.NO_COMPRESSION_RATIO;
+
+            return compressed / uncompressed;
+        }
+
+        public void close()
+        {
+            ISSTableScanner.closeAllAndPropagate(scanners, null);
+        }
     }
 
     public ScannerList getScanners(Collection<SSTableReader> toCompact)

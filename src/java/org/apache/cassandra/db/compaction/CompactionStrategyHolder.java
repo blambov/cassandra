@@ -30,8 +30,11 @@ import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.commitlog.IntervalSet;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
@@ -183,6 +186,20 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
     public AbstractCompactionStrategy first()
     {
         return strategies.get(0);
+    }
+
+    @Override
+    public List<ISSTableScanner> getScanners(GroupedSSTableContainer sstables, Collection<Range<Token>> ranges)
+    {
+        List<ISSTableScanner> scanners = new ArrayList<>(strategies.size());
+        for (int i = 0; i < strategies.size(); i++)
+        {
+            if (sstables.isGroupEmpty(i))
+                continue;
+
+            scanners.addAll(strategies.get(i).getScanners(sstables.getGroup(i), ranges).scanners);
+        }
+        return scanners;
     }
 
     Collection<Collection<SSTableReader>> groupForAnticompaction(Iterable<SSTableReader> sstables)
