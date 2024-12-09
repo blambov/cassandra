@@ -44,7 +44,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.TOLERATE_SSTABLE_SIZE;
 
-public class LeveledCompactionStrategy extends AbstractCompactionStrategy implements ScannerFactory
+public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(LeveledCompactionStrategy.class);
     private static final String SSTABLE_SIZE_OPTION = "sstable_size_in_mb";
@@ -167,7 +167,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy implem
             {
                 AbstractCompactionTask newTask;
                 if (!singleSSTableUplevel || op == OperationType.TOMBSTONE_COMPACTION || txn.originals().size() > 1)
-                    newTask = new LeveledCompactionTask(cfs, scannerFactory(), txn, candidate.level, gcBefore, candidate.maxSSTableBytes, false);
+                    newTask = new LeveledCompactionTask(cfs, this, txn, candidate.level, gcBefore, candidate.maxSSTableBytes, false);
                 else
                     newTask = new SingleSSTableLCSTask(cfs, txn, candidate.level);
 
@@ -294,13 +294,6 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy implem
         return levelFanoutSize;
     }
 
-    @Override
-    public ScannerFactory scannerFactory()
-    {
-        return this;
-    }
-
-    @Override
     public ScannerList getScanners(Collection<SSTableReader> sstables, Collection<Range<Token>> ranges)
     {
         Set<SSTableReader>[] sstablesPerLevel = manifest.getSStablesPerLevelSnapshot();

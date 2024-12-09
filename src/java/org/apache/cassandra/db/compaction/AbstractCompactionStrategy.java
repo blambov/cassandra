@@ -60,7 +60,7 @@ import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
  *    i/o done by compaction, and merging done at read time.
  *  - perform a full (maximum possible) compaction if requested by the user
  */
-public abstract class AbstractCompactionStrategy
+public abstract class AbstractCompactionStrategy implements ScannerFactory
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractCompactionStrategy.class);
 
@@ -204,7 +204,7 @@ public abstract class AbstractCompactionStrategy
 
     public AbstractCompactionTask getCompactionTask(LifecycleTransaction txn, final long gcBefore, long maxSSTableBytes)
     {
-        return new CompactionTask(cfs, scannerFactory(), txn, gcBefore);
+        return new CompactionTask(cfs, this, txn, gcBefore);
     }
 
     /**
@@ -242,9 +242,10 @@ public abstract class AbstractCompactionStrategy
         return filtered;
     }
 
-    public ScannerFactory scannerFactory()
+
+    public ScannerList getScanners(Collection<SSTableReader> sstables, Collection<Range<Token>> ranges)
     {
-        return ScannerFactory.DEFAULT;
+        return ScannerFactory.DEFAULT.getScanners(sstables, ranges);
     }
 
     public String getName()
@@ -307,6 +308,11 @@ public abstract class AbstractCompactionStrategy
      */
     public void metadataChanged(StatsMetadata oldMetadata, SSTableReader sstable)
     {
+    }
+
+    public ScannerList getScanners(Collection<SSTableReader> toCompact)
+    {
+        return getScanners(toCompact, (Collection<Range<Token>>)null);
     }
 
     /**
