@@ -36,8 +36,8 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.byteComparableVersion;
-import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.generateKeys;
+import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 
 public class InMemoryTrieThreadedTest
 {
@@ -47,11 +47,6 @@ public class InMemoryTrieThreadedTest
     private static final int READERS = 8;
     private static final int WALKERS = 2;
     private static final Random rand = new Random();
-
-    static
-    {
-        InMemoryTrieTestBase.prefixFree = true;
-    }
 
     /**
      * Force copy every modified cell below the partition/enumeration level. Provides atomicity of mutations within the
@@ -72,13 +67,13 @@ public class InMemoryTrieThreadedTest
 
     static Value value(ByteComparable b, ByteComparable cprefix, ByteComparable c, int add, int seqId)
     {
-        return new Value(b.byteComparableAsString(byteComparableVersion),
-                         (cprefix != null ? cprefix.byteComparableAsString(byteComparableVersion) : "") + c.byteComparableAsString(byteComparableVersion), add, seqId);
+        return new Value(b.byteComparableAsString(VERSION),
+                         (cprefix != null ? cprefix.byteComparableAsString(VERSION) : "") + c.byteComparableAsString(VERSION), add, seqId);
     }
 
     static String value(ByteComparable b)
     {
-        return b.byteComparableAsString(byteComparableVersion);
+        return b.byteComparableAsString(VERSION);
     }
 
     @Test
@@ -86,7 +81,7 @@ public class InMemoryTrieThreadedTest
     {
         OpOrder readOrder = new OpOrder();
         ByteComparable[] src = generateKeys(rand, COUNT + OTHERS);
-        InMemoryTrie<String> trie = InMemoryTrie.longLived(byteComparableVersion, readOrder);
+        InMemoryTrie<String> trie = InMemoryTrie.longLived(VERSION, readOrder);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<>();
         AtomicBoolean writeCompleted = new AtomicBoolean(false);
@@ -105,7 +100,7 @@ public class InMemoryTrieThreadedTest
                             for (Map.Entry<ByteComparable, String> en : trie.entrySet())
                             {
                                 String v = value(en.getKey());
-                                Assert.assertEquals(en.getKey().byteComparableAsString(byteComparableVersion), v, en.getValue());
+                                Assert.assertEquals(en.getKey().byteComparableAsString(VERSION), v, en.getValue());
                                 ++count;
                             }
                         }
@@ -366,7 +361,7 @@ public class InMemoryTrieThreadedTest
 
         OpOrder readOrder = new OpOrder();
 //        InMemoryTrie<Content> trie = new InMemoryTrie<>(new MemtableAllocationStrategy.NoReuseStrategy(BufferType.OFF_HEAP));
-        InMemoryTrie<Content> trie = InMemoryTrie.longLived(byteComparableVersion, readOrder);
+        InMemoryTrie<Content> trie = InMemoryTrie.longLived(VERSION, readOrder);
         ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
         List<Thread> threads = new ArrayList<Thread>();
         AtomicBoolean writeCompleted = new AtomicBoolean(false);
@@ -420,13 +415,13 @@ public class InMemoryTrieThreadedTest
                             try (OpOrder.Group group = readOrder.start())
                             {
                                 entries = trie.tailTrie(key).entrySet();
-                                checkEntries(" in tail " + key.byteComparableAsString(byteComparableVersion), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                                checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
                             }
 
                             try (OpOrder.Group group = readOrder.start())
                             {
                                 entries = trie.subtrie(key, nextBranch(key)).entrySet();
-                                checkEntries(" in branch " + key.byteComparableAsString(byteComparableVersion), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
+                                checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
                             }
                         }
                     }
@@ -466,7 +461,7 @@ public class InMemoryTrieThreadedTest
                     for (int i = 0; i < COUNT; i += PER_MUTATION)
                     {
                         ByteComparable b = pkeys[(i / PER_MUTATION) % pkeys.length];
-                        Metadata partitionMarker = new Metadata(b.byteComparableAsString(byteComparableVersion));
+                        Metadata partitionMarker = new Metadata(b.byteComparableAsString(VERSION));
                         ByteComparable cprefix = null;
                         if (r.nextBoolean())
                             cprefix = ckeys[i]; // Also test branching point below the partition level
@@ -476,7 +471,7 @@ public class InMemoryTrieThreadedTest
                         {
 
                             ByteComparable k = ckeys[i + j];
-                            Trie<Content> row = Trie.singleton(k, byteComparableVersion,
+                            Trie<Content> row = Trie.singleton(k, VERSION,
                                                                value(b, cprefix, k,
                                                                      j == 0 ? -PER_MUTATION + 1 : 1,
                                                                      (i / PER_MUTATION / pkeys.length) * PER_MUTATION + j));
@@ -549,7 +544,7 @@ public class InMemoryTrieThreadedTest
 
     static <T> Trie<T> withRootMetadata(Trie<T> wrapped, T metadata)
     {
-        return wrapped.mergeWith(Trie.singleton(ByteComparable.EMPTY, byteComparableVersion, metadata), Trie.throwingResolver());
+        return wrapped.mergeWith(Trie.singleton(ByteComparable.EMPTY, VERSION, metadata), Trie.throwingResolver());
     }
 
     public void checkEntries(String location,
@@ -567,7 +562,7 @@ public class InMemoryTrieThreadedTest
         int updateCount = 0;
         for (var en : entries)
         {
-            String path = en.getKey().byteComparableAsString(byteComparableVersion);
+            String path = en.getKey().byteComparableAsString(VERSION);
             if (en.getValue().isPartition())
             {
                 Metadata m = (Metadata) en.getValue();
