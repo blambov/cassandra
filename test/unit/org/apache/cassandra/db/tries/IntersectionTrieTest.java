@@ -348,7 +348,7 @@ public class IntersectionTrieTest
         {
             List<Trie<Integer>> inputs = ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
                                                           fromList(4, 6, 7, 9, 10, 11, 12, 13));
-            testIntersections(dir -> new CollectionMergeCursor<>(RESOLVER, dir, inputs, Trie::cursor));
+            testIntersections(dir -> new CollectionMergeCursor.Plain<>(RESOLVER, dir, inputs, Trie::cursor));
         }
     }
 

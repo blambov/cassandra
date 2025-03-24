@@ -25,9 +25,9 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 class SingletonCursor<T> implements Cursor<T>
 {
     private final Direction direction;
-    private ByteSource src;
-    private final ByteComparable.Version byteComparableVersion;
-    private final T value;
+    ByteSource src;
+    final ByteComparable.Version byteComparableVersion;
+    final T value;
     private int currentDepth = 0;
     private int currentTransition = -1;
     private int nextTransition;
@@ -136,5 +136,30 @@ class SingletonCursor<T> implements Cursor<T>
         ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
 
         return new SingletonCursor(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+    }
+
+    static class Range<M extends RangeMarker<M>> extends SingletonCursor<M> implements RangeCursor<M>
+    {
+        Range(Direction direction, ByteSource key, ByteComparable.Version version, M value)
+        {
+            super(direction, key, version, value);
+        }
+
+        @Override
+        public M coveringState()
+        {
+            // Since the singleton is only active at a single point, we only return a value for the exact position.
+            return null;
+        }
+
+        @Override
+        public Range<M> tailCursor(Direction direction)
+        {
+            if (!(src instanceof ByteSource.Duplicatable))
+                src = ByteSource.duplicatable(src);
+            ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
+
+            return new Range<>(direction, duplicatableSource.duplicate(), byteComparableVersion, value);
+        }
     }
 }

@@ -230,23 +230,26 @@ public interface VerificationCursor
         }
     }
 
-    class TrieSet extends Plain<TrieSetCursor.RangeState, TrieSetCursor> implements TrieSetCursor
-    {
-        boolean currentPrecedingIncluded;
-        boolean nextPrecedingIncluded;
 
-        TrieSet(TrieSetCursor source)
+    abstract class WithRanges<M extends RangeMarker<M>, C extends RangeCursor<M>>
+    extends Plain<M, C>
+    implements RangeCursor<M>
+    {
+        M currentCoveringState = null;
+        M nextCoveringState = null;
+
+        WithRanges(C source)
         {
             this(source, 0, 0, INITIAL_TRANSITION);
         }
 
-        TrieSet(TrieSetCursor source, int minDepth, int expectedDepth, int expectedTransition)
+        WithRanges(C source, int minDepth, int expectedDepth, int expectedTransition)
         {
             super(source, minDepth, expectedDepth, expectedTransition);
             // start state can be non-null for sets
-            currentPrecedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(currentPrecedingIncluded, "Covering state for trie sets must not be null");
-            nextPrecedingIncluded = source.content() != null ? source.content().precedingIncluded(direction.opposite()) : currentPrecedingIncluded;
+            currentCoveringState = source.coveringState();
+            Preconditions.checkNotNull(currentCoveringState, "Covering state for trie sets must not be null");
+            nextCoveringState = source.content() != null ? source.content().asCoveringState(direction.opposite()) : currentCoveringState;
         }
 
         void verifyEndState()
@@ -255,28 +258,16 @@ public interface VerificationCursor
         }
 
         @Override
-        public TrieSetCursor.RangeState state()
-        {
-            return Preconditions.checkNotNull(source.state());
-        }
-
-        @Override
-        public TrieSet tailCursor(Direction direction)
-        {
-            return new TrieSet(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
-        }
-
-        @Override
         public int advance()
         {
-            currentPrecedingIncluded = nextPrecedingIncluded;
+            currentCoveringState = nextCoveringState;
             return verifyState(super.advance());
         }
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
-            currentPrecedingIncluded = nextPrecedingIncluded;
+            currentCoveringState = nextCoveringState;
             return verifyState(super.advanceMultiple(receiver));
         }
 
@@ -287,34 +278,40 @@ public interface VerificationCursor
         }
 
         @Override
-        public boolean precedingIncluded()
+        public M coveringState()
         {
-            Preconditions.checkState(currentPrecedingIncluded == source.precedingIncluded(),
+            Preconditions.checkState(currentCoveringState == source.coveringState(),
                                      "Covering state changed without advance: %s -> %s. %s",
-                                     currentPrecedingIncluded, source.precedingIncluded(),
-                                     currentPrecedingIncluded == source.precedingIncluded()
+                                     currentCoveringState, source.coveringState(),
+                                     agree(currentCoveringState, source.coveringState())
                                      ? "The values are equal but different object. This is not permitted for performance reasons."
                                      : "");
             // == above is correct, we do not want covering state to be recreated unless some change happened to the cursor
-            return currentPrecedingIncluded;
+            return currentCoveringState;
+        }
+
+        boolean agree(M left, M right)
+        {
+            return left == right;
         }
 
         private int verifyState(int depth)
         {
-            boolean precedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(precedingIncluded, "Covering state for trie sets must not be null");
-            Preconditions.checkState(currentPrecedingIncluded == precedingIncluded,
+            M coveringState = source.coveringState();
+            Preconditions.checkNotNull(coveringState, "Covering state for trie sets must not be null");
+            boolean equal = agree(currentCoveringState, coveringState);
+            Preconditions.checkState(equal,
                                      "Unexpected change to covering state: %s -> %s",
-                                     currentPrecedingIncluded, precedingIncluded);
-            currentPrecedingIncluded = precedingIncluded;
+                                     currentCoveringState, coveringState);
+            currentCoveringState = coveringState;
 
-            RangeState content = source.content();
+            M content = source.content();
             if (content != null)
             {
-                Preconditions.checkState(currentPrecedingIncluded == content.precedingIncluded(direction),
+                Preconditions.checkState(agree(currentCoveringState, content.asCoveringState(direction)),
                                          "Range end %s does not close covering state %s",
-                                         content.precedingIncluded(direction), currentPrecedingIncluded);
-                nextPrecedingIncluded = content.precedingIncluded(direction.opposite());
+                                         content.asCoveringState(direction), currentCoveringState);
+                nextCoveringState = content.asCoveringState(direction.opposite());
             }
 
             if (depth < 0)
@@ -325,10 +322,66 @@ public interface VerificationCursor
         private int verifySkipState(int depth)
         {
             // The covering state information is invalidated by a skip.
-            currentPrecedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(currentPrecedingIncluded, "Covering state for trie sets must not be null");
-            nextPrecedingIncluded = currentPrecedingIncluded;
+            currentCoveringState = source.coveringState();
+            Preconditions.checkNotNull(currentCoveringState, "Covering state for trie sets must not be null");
+            nextCoveringState = currentCoveringState;
             return verifyState(depth);
+        }
+
+        public abstract WithRanges<M, C> tailCursor(Direction direction);
+    }
+
+    class Range<M extends RangeMarker<M>> extends WithRanges<M, RangeCursor<M>> implements RangeCursor<M>
+    {
+        Range(RangeCursor<M> source)
+        {
+            this(source, 0, 0, INITIAL_TRANSITION);
+        }
+
+        Range(RangeCursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        @Override
+        public Range<M> tailCursor(Direction direction)
+        {
+            return new Range<>(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
+        }
+    }
+
+    class TrieSet extends WithRanges<TrieSetCursor.RangeState, TrieSetCursor> implements TrieSetCursor
+    {
+        TrieSet(TrieSetCursor source)
+        {
+            this(source, 0, 0, INITIAL_TRANSITION);
+            // start state can be non-null for sets
+            currentCoveringState = source.coveringState();
+            nextCoveringState = source.content() != null ? source.content().asCoveringState(direction.opposite()) : currentCoveringState;
+        }
+
+        TrieSet(TrieSetCursor source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        @Override
+        void verifyEndState()
+        {
+            // end state can be non-null for sets
+        }
+
+
+        @Override
+        public RangeState state()
+        {
+            return Preconditions.checkNotNull(source.state());
+        }
+
+        @Override
+        public TrieSet tailCursor(Direction direction)
+        {
+            return new TrieSet(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 }
