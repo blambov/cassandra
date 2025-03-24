@@ -25,9 +25,9 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 class SingletonCursor<T> implements Cursor<T>
 {
     private final Direction direction;
-    private ByteSource src;
-    private final ByteComparable.Version byteComparableVersion;
-    private final T value;
+    ByteSource src;
+    final ByteComparable.Version byteComparableVersion;
+    final T value;
     private int currentDepth = 0;
     private int currentTransition = -1;
     private int nextTransition;
@@ -129,12 +129,42 @@ class SingletonCursor<T> implements Cursor<T>
     }
 
     @Override
-    public SingletonCursor tailCursor(Direction dir)
+    public SingletonCursor<T> tailCursor(Direction dir)
     {
         if (!(src instanceof ByteSource.Duplicatable))
             src = ByteSource.duplicatable(src);
         ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
 
-        return new SingletonCursor(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+        return new SingletonCursor<>(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+    }
+
+    static class Range<S extends RangeState<S>> extends SingletonCursor<S> implements RangeCursor<S>
+    {
+        public Range(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, S value)
+        {
+            super(direction, src, byteComparableVersion, value);
+        }
+
+        @Override
+        public S precedingState()
+        {
+            return null;
+        }
+
+        @Override
+        public S state()
+        {
+            return content();
+        }
+
+        @Override
+        public Range<S> tailCursor(Direction dir)
+        {
+            if (!(src instanceof ByteSource.Duplicatable))
+                src = ByteSource.duplicatable(src);
+            ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
+
+            return new Range<>(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+        }
     }
 }
