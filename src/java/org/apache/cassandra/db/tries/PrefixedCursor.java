@@ -22,20 +22,20 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 /// Prefixed cursor. Prepends the given prefix to all keys of the supplied cursor.
-class PrefixedCursor<T> implements Cursor<T>
+abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
 {
-    final Cursor<T> tail;
+    final C tail;
     ByteSource prefixBytes;
     int nextPrefixByte;
     int incomingTransition;
     int depthOfPrefix;
 
-    PrefixedCursor(ByteComparable prefix, Cursor<T> tail)
+    PrefixedCursor(ByteComparable prefix, C tail)
     {
         this(prefix.asComparableBytes(tail.byteComparableVersion()), tail);
     }
 
-    PrefixedCursor(ByteSource prefix, Cursor<T> tail)
+    PrefixedCursor(ByteSource prefix, C tail)
     {
         this.tail = tail;
         prefixBytes = prefix;
@@ -91,6 +91,10 @@ class PrefixedCursor<T> implements Cursor<T>
         if (prefixDone())
             return completeAdvanceInTail(tail.advanceMultiple(receiver));
 
+        incomingTransition = nextPrefixByte;
+        nextPrefixByte = prefixBytes.next();
+        ++depthOfPrefix;
+
         while (!prefixDone())
         {
             receiver.addPathByte(incomingTransition);
@@ -139,19 +143,69 @@ class PrefixedCursor<T> implements Cursor<T>
         return prefixDone() ? tail.content() : null;
     }
 
-    @Override
-    public Cursor<T> tailCursor(Direction direction)
+    static class Plain<T> extends PrefixedCursor<T, Cursor<T>> implements Cursor<T>
     {
-        if (prefixDone())
-            return tail.tailCursor(direction);
-        else
+        Plain(ByteComparable prefix, Cursor<T> tail)
         {
-            assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-            if (!(prefixBytes instanceof ByteSource.Duplicatable))
-                prefixBytes = ByteSource.duplicatable(prefixBytes);
-            ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
+            super(prefix, tail);
+        }
 
-            return new PrefixedCursor<>(duplicatableSource.duplicate(), tail.tailCursor(direction));
+        Plain(ByteSource prefix, Cursor<T> source)
+        {
+            super(prefix, source);
+        }
+
+        @Override
+        public Cursor<T> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return tail.tailCursor(direction);
+            else
+            {
+                assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
+                if (!(prefixBytes instanceof ByteSource.Duplicatable))
+                    prefixBytes = ByteSource.duplicatable(prefixBytes);
+                ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
+
+                return new Plain<>(duplicatableSource.duplicate(), tail.tailCursor(direction));
+            }
+        }
+    }
+
+    static class Range<S extends RangeState<S>> extends PrefixedCursor<S, RangeCursor<S>> implements RangeCursor<S>
+    {
+        Range(ByteComparable prefix, RangeCursor<S> tail)
+        {
+            super(prefix, tail);
+        }
+
+        Range(ByteSource prefix, RangeCursor<S> source)
+        {
+            super(prefix, source);
+        }
+
+        @Override
+        public S state()
+        {
+            if (prefixDone() && tail.depth() >= 0)
+                return tail.state();
+            return null;
+        }
+
+        @Override
+        public RangeCursor<S> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return tail.tailCursor(direction);
+            else
+            {
+                assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
+                if (!(prefixBytes instanceof ByteSource.Duplicatable))
+                    prefixBytes = ByteSource.duplicatable(prefixBytes);
+                ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
+
+                return new Range<>(duplicatableSource.duplicate(), tail.tailCursor(direction));
+            }
         }
     }
 }
