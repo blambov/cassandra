@@ -181,10 +181,10 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public M coveringState()
+        public M state()
         {
             if (prefixDone() && tail.depth() >= 0)
-                return tail.coveringState();
+                return tail.state();
             return null;
         }
 

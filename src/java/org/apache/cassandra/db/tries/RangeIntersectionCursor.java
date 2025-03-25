@@ -20,98 +20,29 @@ package org.apache.cassandra.db.tries;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>, Z extends RangeMarker<Z>> implements RangeCursor<Z>
+class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M>
 {
-    interface IntersectionController<C extends RangeMarker<C>, D extends RangeMarker<D>, Z extends RangeMarker<Z>>
-    {
-        Z combineState(C lState, D rState);
-
-        default boolean includeLesserLeft(RangeCursor<C> cursor)
-        {
-            C lState = cursor.coveringState();
-            return lState != null ? lState.precedingIncluded(cursor.direction()) : false;
-        }
-
-        default boolean includeLesserRight(RangeCursor<D> cursor)
-        {
-            D rState = cursor.coveringState();
-            return rState != null ? rState.precedingIncluded(cursor.direction()) : false;
-        }
-
-        default Z combineCoveringState(RangeCursor<C> lCursor, RangeCursor<D> rCursor)
-        {
-            return combineState(lCursor.coveringState(), rCursor.coveringState());
-        }
-
-        default Z combineContent(RangeCursor<C> lCursor, RangeCursor<D> rCursor)
-        {
-            C lContent = lCursor.content();
-            D rContent = rCursor.content();
-            if (lContent == null && rContent == null)
-                return null;
-            if (lContent != null && rContent != null)
-                return toContent(combineState(lContent, rContent));
-
-            if (lContent == null)
-                lContent = lCursor.coveringState();
-            else if (rContent == null)
-                rContent = rCursor.coveringState();
-
-            return toContent(combineState(lContent, rContent));
-        }
-
-        default Z combineContentLeftAhead(RangeCursor<C> lCursor, RangeCursor<D> rCursor)
-        {
-            D rContent = rCursor.content();
-            if (rContent == null)
-                return null;
-            C lContent = lCursor.coveringState();
-
-            return toContent(combineState(lContent, rContent));
-        }
-
-
-        default Z combineContentRightAhead(RangeCursor<C> lCursor, RangeCursor<D> rCursor)
-        {
-            C lContent = lCursor.content();
-            if (lContent == null)
-                return null;
-            D rContent = rCursor.coveringState();
-
-            return toContent(combineState(lContent, rContent));
-        }
-
-        private Z toContent(Z content)
-        {
-            return content != null ? content.toContent() : null;
-        }
-    }
-
     enum State
     {
         MATCHING,
-        C1_AHEAD,
-        C2_AHEAD;
+        SET_AHEAD,
+        SOURCE_AHEAD;
     }
 
     final Direction direction;
-    final IntersectionController<C, D, Z> controller;
-    final RangeCursor<C> c1;
-    final RangeCursor<D> c2;
+    final RangeCursor<M> src;
+    final TrieSetCursor set;
     int currentDepth;
     int currentTransition;
-    Z currentCoveringState;
-    boolean currentCoversingStateSet;
-    Z currentContent;
+    M currentState;
     State state;
 
-    public RangeIntersectionCursor(IntersectionController<C, D, Z> controller, RangeCursor<C> c1, RangeCursor<D> c2)
+    public RangeIntersectionCursor(RangeCursor<M> src, TrieSetCursor set)
     {
-        this.direction = c1.direction();
-        this.controller = controller;
-        this.c1 = c1;
-        this.c2 = c2;
-        matchingPosition(c1.depth(), c1.incomingTransition());
+        this.direction = src.direction();
+        this.set = set;
+        this.src = src;
+        matchingPosition(set.depth(), set.incomingTransition());
     }
 
     @Override
@@ -135,24 +66,13 @@ class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>
     @Override
     public ByteComparable.Version byteComparableVersion()
     {
-        return c1.byteComparableVersion();
+        return set.byteComparableVersion();
     }
 
     @Override
-    public Z coveringState()
+    public M state()
     {
-        if (!currentCoversingStateSet)
-        {
-            currentCoveringState = controller.combineCoveringState(c1, c2);
-            currentCoversingStateSet = true;
-        }
-        return currentCoveringState;
-    }
-
-    @Override
-    public Z content()
-    {
-        return currentContent;
+        return currentState;
     }
 
     @Override
@@ -162,16 +82,16 @@ class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>
         {
             case MATCHING:
             {
-                int ldepth = c1.advance();
-                if (controller.includeLesserLeft(c1))
-                    return advanceWithLeftAhead(c2.advance());
+                int ldepth = set.advance();
+                if (set.precedingIncluded())
+                    return advanceWithSetAhead(src.advance());
                 else
-                    return advanceRightToIntersection(ldepth);
+                    return advanceSourceToIntersection(ldepth);
             }
-            case C1_AHEAD:
-                return advanceWithLeftAhead(c2.advance());
-            case C2_AHEAD:
-                return advanceWithRightAhead(c1.advance());
+            case SET_AHEAD:
+                return advanceWithSetAhead(src.advance());
+            case SOURCE_AHEAD:
+                return advanceWithSourceAhead(set.advance());
             default:
                 throw new AssertionError();
         }
@@ -184,21 +104,21 @@ class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>
         {
             case MATCHING:
                 return skipBoth(skipDepth, skipTransition);
-            case C1_AHEAD:
+            case SET_AHEAD:
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
-                int leftDepth = c1.depth();
-                if (leftDepth < skipDepth || leftDepth == skipDepth && direction.ge(c1.incomingTransition(), skipTransition))
-                    return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
+                int leftDepth = set.depth();
+                if (leftDepth < skipDepth || leftDepth == skipDepth && direction.ge(set.incomingTransition(), skipTransition))
+                    return advanceWithSetAhead(src.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
             }
-            case C2_AHEAD:
+            case SOURCE_AHEAD:
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
-                int rightDepth = c2.depth();
-                if (rightDepth < skipDepth || rightDepth == skipDepth && direction.ge(c2.incomingTransition(), skipTransition))
-                    return advanceWithRightAhead(c1.skipTo(skipDepth, skipTransition));
+                int rightDepth = src.depth();
+                if (rightDepth < skipDepth || rightDepth == skipDepth && direction.ge(src.incomingTransition(), skipTransition))
+                    return advanceWithSourceAhead(set.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
             }
@@ -209,11 +129,11 @@ class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>
 
     private int skipBoth(int skipDepth, int skipTransition)
     {
-        int ldepth = c1.skipTo(skipDepth, skipTransition);
-        if (controller.includeLesserLeft(c1))
-            return advanceWithLeftAhead(c2.skipTo(skipDepth, skipTransition));
+        int ldepth = set.skipTo(skipDepth, skipTransition);
+        if (set.precedingIncluded())
+            return advanceWithSetAhead(src.skipTo(skipDepth, skipTransition));
         else
-            return advanceRightToIntersection(ldepth);
+            return advanceSourceToIntersection(ldepth);
     }
 
     @Override
@@ -224,148 +144,153 @@ class RangeIntersectionCursor<C extends RangeMarker<C>, D extends RangeMarker<D>
             case MATCHING:
             {
                 // Cannot do multi-advance when cursors are at the same position. Applying advance().
-                int ldepth = c1.advance();
-                if (controller.includeLesserLeft(c1))
-                    return advanceWithLeftAhead(c2.advance());
+                int ldepth = set.advance();
+                if (set.precedingIncluded())
+                    return advanceWithSetAhead(src.advance());
                 else
-                    return advanceRightToIntersection(ldepth);
+                    return advanceSourceToIntersection(ldepth);
             }
-            case C1_AHEAD:
-                return advanceWithLeftAhead(c2.advanceMultiple(receiver));
-            case C2_AHEAD:
-                return advanceWithRightAhead(c1.advanceMultiple(receiver));
+            case SET_AHEAD:
+                return advanceWithSetAhead(src.advanceMultiple(receiver));
+            case SOURCE_AHEAD:
+                return advanceWithSourceAhead(set.advanceMultiple(receiver));
             default:
                 throw new AssertionError();
         }
     }
 
-    private int advanceWithLeftAhead(int rightDepth)
+    private int advanceWithSetAhead(int rightDepth)
     {
-        int rightTransition = c2.incomingTransition();
-        int leftDepth = c1.depth();
-        int leftTransition = c1.incomingTransition();
+        int rightTransition = src.incomingTransition();
+        int leftDepth = set.depth();
+        int leftTransition = set.incomingTransition();
         if (rightDepth > leftDepth)
-            return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+            return coveredAreaWithSetAhead(rightDepth, rightTransition);
         if (rightDepth == leftDepth)
         {
             if (direction.lt(rightTransition, leftTransition))
-                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+                return coveredAreaWithSetAhead(rightDepth, rightTransition);
             if (rightTransition == leftTransition)
                 return matchingPosition(rightDepth, rightTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (controller.includeLesserRight(c2))
-            return coveredAreaWithRightAhead(leftDepth, leftTransition);
+        if (src.precedingState() != null)
+            return coveredAreaWithSourceAhead(leftDepth, leftTransition);
         else
-            return advanceLeftToIntersection(rightDepth);
+            return advanceSetToIntersection(rightDepth);
     }
 
-    private int advanceWithRightAhead(int leftDepth)
+    private int advanceWithSourceAhead(int leftDepth)
     {
-        int leftTransition = c1.incomingTransition();
-        int rightDepth = c2.depth();
-        int rightTransition = c2.incomingTransition();
+        int leftTransition = set.incomingTransition();
+        int rightDepth = src.depth();
+        int rightTransition = src.incomingTransition();
         if (leftDepth > rightDepth)
-            return coveredAreaWithRightAhead(leftDepth, leftTransition);
+            return coveredAreaWithSourceAhead(leftDepth, leftTransition);
         if (leftDepth == rightDepth)
         {
             if (direction.lt(leftTransition, rightTransition))
-                return coveredAreaWithRightAhead(leftDepth, leftTransition);
+                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
             if (leftTransition == rightTransition)
                 return matchingPosition(leftDepth, leftTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (controller.includeLesserLeft(c1))
-            return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+        if (set.precedingIncluded())
+            return coveredAreaWithSetAhead(rightDepth, rightTransition);
         else
-            return advanceRightToIntersection(leftDepth);
+            return advanceSourceToIntersection(leftDepth);
     }
 
-    private int advanceRightToIntersection(int leftDepth)
+    private int advanceSourceToIntersection(int leftDepth)
     {
-        int leftTransition = c1.incomingTransition();
+        int leftTransition = set.incomingTransition();
         while (true)
         {
-            // Left is ahead of right, but outside the covered area. Skip right to left's position.
-            int rightDepth = c2.skipTo(leftDepth, leftTransition);
-            int rightTransition = c2.incomingTransition();
+            // Set is ahead of right, but outside the covered area. Skip right to left's position.
+            int rightDepth = src.skipTo(leftDepth, leftTransition);
+            int rightTransition = src.incomingTransition();
             if (rightDepth == leftDepth && rightTransition == leftTransition)
                 return matchingPosition(leftDepth, leftTransition);
-            if (controller.includeLesserRight(c2))
-                return coveredAreaWithRightAhead(leftDepth, leftTransition);
+            if (src.precedingState() != null)
+                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
 
-            // Right is ahead of left, but outside the covered area. Skip left to right's position.
-            leftDepth = c1.skipTo(rightDepth, rightTransition);
-            leftTransition = c1.incomingTransition();
+            // Source is ahead of left, but outside the covered area. Skip left to right's position.
+            leftDepth = set.skipTo(rightDepth, rightTransition);
+            leftTransition = set.incomingTransition();
             if (leftDepth == rightDepth && leftTransition == rightTransition)
                 return matchingPosition(rightDepth, rightTransition);
-            if (controller.includeLesserLeft(c1))
-                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+            if (set.precedingIncluded())
+                return coveredAreaWithSetAhead(rightDepth, rightTransition);
         }
     }
 
-    private int advanceLeftToIntersection(int rightDepth)
+    private int advanceSetToIntersection(int rightDepth)
     {
-        int rightTransition = c2.incomingTransition();
+        int rightTransition = src.incomingTransition();
         while (true)
         {
-            // Right is ahead of left, but outside the covered area. Skip left to right's position.
-            int leftDepth = c1.skipTo(rightDepth, rightTransition);
-            int leftTransition = c1.incomingTransition();
+            // Source is ahead of left, but outside the covered area. Skip left to right's position.
+            int leftDepth = set.skipTo(rightDepth, rightTransition);
+            int leftTransition = set.incomingTransition();
             if (leftDepth == rightDepth && leftTransition == rightTransition)
                 return matchingPosition(rightDepth, rightTransition);
-            if (controller.includeLesserLeft(c1))
-                return coveredAreaWithLeftAhead(rightDepth, rightTransition);
+            if (set.precedingIncluded())
+                return coveredAreaWithSetAhead(rightDepth, rightTransition);
 
-            // Left is ahead of right, but outside the covered area. Skip right to left's position.
-            rightDepth = c2.skipTo(leftDepth, leftTransition);
-            rightTransition = c2.incomingTransition();
+            // Set is ahead of right, but outside the covered area. Skip right to left's position.
+            rightDepth = src.skipTo(leftDepth, leftTransition);
+            rightTransition = src.incomingTransition();
             if (rightDepth == leftDepth && rightTransition == leftTransition)
                 return matchingPosition(leftDepth, leftTransition);
-            if (controller.includeLesserRight(c2))
-                return coveredAreaWithRightAhead(leftDepth, leftTransition);
+            if (src.precedingState() != null)
+                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
         }
     }
 
-    private int coveredAreaWithLeftAhead(int depth, int transition)
+    private int coveredAreaWithSetAhead(int depth, int transition)
     {
-        return setState(State.C1_AHEAD, depth, transition, controller.combineContentLeftAhead(c1, c2));
+        return setState(State.SET_AHEAD, depth, transition, src.state());
     }
 
-    private int coveredAreaWithRightAhead(int depth, int transition)
+    private int coveredAreaWithSourceAhead(int depth, int transition)
     {
-        return setState(State.C2_AHEAD, depth, transition, controller.combineContentRightAhead(c1, c2));
+        return setState(State.SOURCE_AHEAD, depth, transition, restrict(src.precedingState(), set.state()));
     }
 
     private int matchingPosition(int depth, int transition)
     {
-        return setState(State.MATCHING, depth, transition, controller.combineContent(c1, c2));
+        return setState(State.MATCHING, depth, transition, restrict(src.state(), set.state()));
     }
 
-    private int setState(State state, int depth, int transition, Z content)
+    private M restrict(M srcState, TrieSetCursor.RangeState setState)
+    {
+        if (srcState == null)
+            return null;
+        return srcState.restrict(setState.applicableBefore, setState.applicableAfter);
+    }
+
+    private int setState(State state, int depth, int transition, M cursorState)
     {
         this.state = state;
         this.currentDepth = depth;
         this.currentTransition = transition;
-        this.currentContent = content;
-        this.currentCoversingStateSet = false;
-        this.currentCoveringState = null;
+        this.currentState = cursorState;
         return depth;
     }
 
     @Override
-    public RangeCursor<Z> tailCursor(Direction direction)
+    public RangeCursor<M> tailCursor(Direction direction)
     {
         switch (state)
         {
             case MATCHING:
-                return new RangeIntersectionCursor<>(controller, c1.tailCursor(direction), c2.tailCursor(direction));
-            case C1_AHEAD:
-                return new RangeIntersectionCursor<>(controller, c1.coveringStateCursor(direction), c2.tailCursor(direction));
-            case C2_AHEAD:
-                return new RangeIntersectionCursor<>(controller, c1.tailCursor(direction), c2.coveringStateCursor(direction));
+                return new RangeIntersectionCursor<>(src.tailCursor(direction), set.tailCursor(direction));
+            case SET_AHEAD:
+                return src.tailCursor(direction);
+            case SOURCE_AHEAD:
+                return new RangeIntersectionCursor<>(src.precedingStateCursor(direction), set.tailCursor(direction));
             default:
                 throw new AssertionError();
         }

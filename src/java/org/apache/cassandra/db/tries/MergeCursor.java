@@ -29,18 +29,21 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// Crucial for the efficiency of this is the fact that when they are advanced like this, we can compare cursors'
 /// positions by their `depth` descending and then `incomingTransition` ascending.
 /// See [Trie.md](./Trie.md) for further details.
-abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T2>> implements Cursor<T>
+abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 {
     final Direction direction;
-    final C1 c1;
-    final C2 c2;
+    final Trie.MergeResolver<T> resolver;
+
+    final C c1;
+    final C c2;
 
     boolean atC1;
     boolean atC2;
 
-    MergeCursor(C1 c1, C2 c2)
+    MergeCursor(Trie.MergeResolver<T> resolver, C c1, C c2)
     {
         this.direction = c1.direction();
+        this.resolver = resolver;
         this.c1 = c1;
         this.c2 = c2;
         assert c1.depth() == 0;
@@ -136,14 +139,12 @@ abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T
         return c1.byteComparableVersion();
     }
 
-    static abstract class WithContent<T, C extends Cursor<T>> extends MergeCursor<T, T, C, T, C>
+    /// Merge implementation for [Trie]
+    static class Plain<T> extends MergeCursor<T, Cursor<T>>
     {
-        final Trie.MergeResolver<T> resolver;
-
-        WithContent(Trie.MergeResolver<T> resolver, C c1, C c2)
+        Plain(Trie.MergeResolver<T> resolver, Cursor<T> c1, Cursor<T> c2)
         {
-            super(c1, c2);
-            this.resolver = resolver;
+            super(resolver, c1, c2);
         }
 
         @Override
@@ -157,16 +158,6 @@ abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T
                 return mc;
             else
                 return resolver.resolve(nc, mc);
-        }
-    }
-
-
-    /// Merge implementation for [Trie]
-    static class Plain<T> extends WithContent<T, Cursor<T>>
-    {
-        Plain(Trie.MergeResolver<T> resolver, Cursor<T> c1, Cursor<T> c2)
-        {
-            super(resolver, c1, c2);
         }
 
         @Override
@@ -184,10 +175,10 @@ abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T
     }
 
     /// Merge implementation for [RangeTrie]
-    static class Range<M extends RangeMarker<M>> extends WithContent<M, RangeCursor<M>> implements RangeCursor<M>
+    static class Range<M extends RangeMarker<M>> extends MergeCursor<M, RangeCursor<M>> implements RangeCursor<M>
     {
-        private M coveringState;
-        boolean coveringStateSet;
+        private M state;
+        boolean stateCollected;
 
         Range(Trie.MergeResolver<M> resolver, RangeCursor<M> c1, RangeCursor<M> c2)
         {
@@ -195,67 +186,41 @@ abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T
         }
 
         @Override
-        public M coveringState()
+        public M state()
         {
-            if (!coveringStateSet)
+            if (!stateCollected)
             {
-                M state1 = c1.coveringState();
-                M state2 = c2.coveringState();
+                M state1 = c1.state();
+                M state2 = c2.state();
                 if (state1 == null)
                     return state2;
                 if (state2 == null)
                     return state1;
-                coveringState = resolver.resolve(state1, state2);
-                coveringStateSet = true;
+                state = resolver.resolve(state1, state2);
+                stateCollected = true;
             }
-            return coveringState;
+            return state;
         }
 
         @Override
         public int advance()
         {
-            coveringStateSet = false;
+            stateCollected = false;
             return super.advance();
         }
 
         @Override
         public int skipTo(int depth, int incomingTransition)
         {
-            coveringStateSet = false;
+            stateCollected = false;
             return super.skipTo(depth, incomingTransition);
         }
 
         @Override
         public int advanceMultiple(Cursor.TransitionsReceiver receiver)
         {
-            coveringStateSet = false;
+            stateCollected = false;
             return super.advanceMultiple(receiver);
-        }
-
-        @Override
-        public M content()
-        {
-            M content1 = atC1 ? c1.content() : null;
-            M content2 = atC2 ? c2.content() : null;
-            if (content1 == null && content2 == null)
-                return null;
-            if (content1 != null && content2 != null)
-                return toContent(resolver.resolve(content1, content2));
-
-            // Exactly one is non-null; must apply the state of the other
-            if (content1 == null)
-            {
-                content1 = c1.coveringState();
-                if (content1 == null)
-                    return content2;
-            } else // content2 == null
-            {
-                content2 = c2.coveringState();
-                if (content2 == null)
-                    return content1;
-            }
-
-            return toContent(resolver.resolve(content1, content2));
         }
 
         @Override
@@ -264,85 +229,11 @@ abstract class MergeCursor<T, T1, C1 extends Cursor<T1>, T2, C2 extends Cursor<T
             if (atC1 && atC2)
                 return new Range<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
             else if (atC1)
-                return new Range<>(resolver, c1.tailCursor(direction), c2.coveringStateCursor(direction));
+                return new Range<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
             else if (atC2)
-                return new Range<>(resolver, c1.coveringStateCursor(direction), c2.tailCursor(direction));
+                return new Range<>(resolver, c1.precedingStateCursor(direction), c2.tailCursor(direction));
             else
                 throw new AssertionError();
-        }
-
-        private M toContent(M content)
-        {
-            return content != null ? content.toContent() : null;
-        }
-    }
-
-    static class RangeOnTrie<M extends RangeMarker<M>, T> extends MergeCursor<T, M, RangeCursor<M>, T, Cursor<T>>
-    {
-        final BiFunction<M, T, T> resolver;
-
-        RangeOnTrie(BiFunction<M, T, T> resolver, RangeCursor<M> c1, Cursor<T> c2)
-        {
-            super(c1, c2);
-            this.resolver = resolver;
-        }
-
-        @Override
-        public int advance()
-        {
-            return maybeSkipC1(super.advance());
-        }
-
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            return maybeSkipC1(super.skipTo(skipDepth, skipTransition));
-        }
-
-        @Override
-        public int advanceMultiple(Cursor.TransitionsReceiver receiver)
-        {
-            return maybeSkipC1(super.advanceMultiple(receiver));
-        }
-
-        int maybeSkipC1(int depth)
-        {
-            if (atC2)
-                return depth;
-            assert atC1;
-            final int c2depth = c2.depth();
-            return checkOrder(c1.skipTo(c2depth, c2.incomingTransition()), c2depth);
-        }
-        // TODO: This can be simplified a lot (atC2 is always true)
-
-        @Override
-        public T content()
-        {
-            if (!atC2)
-                return null;
-            T content = c2.content();
-            if (content == null)
-                return null;
-
-            M applicableRange = atC1 ? c1.content() : null;
-            if (applicableRange == null)
-            {
-                applicableRange = c1.coveringState();
-                if (applicableRange == null)
-                    return content;
-            }
-
-            return resolver.apply(applicableRange, content);
-        }
-
-        @Override
-        public Cursor<T> tailCursor(Direction direction)
-        {
-            assert atC2;
-            if (atC1)
-                return new RangeOnTrie(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
-            else
-                return c2.tailCursor(direction);
         }
     }
 }

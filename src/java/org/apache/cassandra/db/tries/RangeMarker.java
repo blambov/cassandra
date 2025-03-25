@@ -18,15 +18,22 @@
 
 package org.apache.cassandra.db.tries;
 
+/// A range marker interface used for range tries.
+///
+/// Range tries require information about the coverage of ranges for positions before and after any prefix of a range.
+/// To make this work, they use range markers, which basically combine information about three things:
+/// - Whether this is the precise boundary point, and if so, what must be reported as `content()` for that point.
+/// - Whether there is a range that applies to positions to the left of this point, and what that range is.
+/// - Whether there is a range that applies to positions to the right of this point, and what that range it.
 interface RangeMarker<M extends RangeMarker<M>>
 {
+    /// Called to convert this to a reportable state. Normally, if a range marker is not a boundary point, it does not
+    /// need to be reported as content, and this method will return null.
     M toContent();
-    M asCoveringState(Direction direction);
-    M asReportablePoint(boolean applicableBefore, boolean applicableAfter);
+    /// Returns the range that applies to the positions preceding this marker in the given iteration order.
+    M precedingState(Direction direction);
 
-    boolean precedingIncluded(Direction direction);
-    default boolean agreesWith(M other)
-    {
-        return equals(other);
-    }
+    /// Returns an intersected version of this marker, which may drop parts of the marker that are not covered by the
+    /// intersecting range.
+    M restrict(boolean applicableBefore, boolean applicableAfter);
 }

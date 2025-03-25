@@ -146,10 +146,10 @@ class SingletonCursor<T> implements Cursor<T>
         }
 
         @Override
-        public M coveringState()
+        public M state()
         {
             // Since the singleton is only active at a single point, we only return a value for the exact position.
-            return null;
+            return content();
         }
 
         @Override

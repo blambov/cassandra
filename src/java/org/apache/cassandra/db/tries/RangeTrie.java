@@ -19,9 +19,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.function.BiFunction;
-import java.util.function.Predicate;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCursor<M>, RangeTrie<M>>
@@ -42,12 +40,7 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
     @Override
     default RangeTrie<M> intersect(TrieSet set)
     {
-        return intersect(set, RangeCursor.rangeAndSetIntersectionController());
-    }
-
-    default RangeTrie<M> intersect(TrieSet set, RangeIntersectionCursor.IntersectionController<TrieSetCursor.RangeState, M, M> controller)
-    {
-        return dir -> new RangeIntersectionCursor<>(controller, set.cursor(dir), cursor(dir));
+        return dir -> new RangeIntersectionCursor(cursor(dir), set.cursor(dir));
     }
 
     /// Constructs a view of the merge of this trie with the given one. The view is live, i.e. any write to any of the
@@ -85,14 +78,6 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
         }
     }
 
-    /// Applies these ranges to a given trie. The meaning of the application is defined by the given mapper:
-    /// whenever the trie's content falls under a range, the mapper is called to return the content that should be
-    /// presented.
-    default <T> Trie<T> applyTo(Trie<T> source, BiFunction<M, T, T> mapper)
-    {
-        return dir -> new MergeCursor.RangeOnTrie<>(mapper, cursor(dir), source.cursor(dir));
-    }
-
     @SuppressWarnings("unchecked")
     static <M extends RangeMarker<M>> RangeTrie<M> empty(ByteComparable.Version version)
     {
@@ -112,7 +97,7 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
         if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
             return c::tailCursor;
         else
-            return c::coveringStateCursor;
+            return c::precedingStateCursor;
     }
 
     RangeCursor<M> makeCursor(Direction direction);

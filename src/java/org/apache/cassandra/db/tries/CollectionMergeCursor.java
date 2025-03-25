@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// A merged view of multiple tries.
@@ -329,13 +328,6 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         return head.byteComparableVersion();
     }
 
-
-    @Override
-    public T content()
-    {
-        return maybeCollectContent();
-    }
-
     T maybeCollectContent()
     {
         if (!contentCollected)
@@ -372,12 +364,14 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         return toReturn;
     }
 
-    private void collectContent(C item, int index)
+    void collectContent(C item, int index)
     {
-        T itemContent = item.content();
+        T itemContent = getContent(item);
         if (itemContent != null)
             contents.add(itemContent);
     }
+
+    abstract T getContent(C item);
 
     /// Compare the positions of two cursors. One is before the other when
     /// - its depth is greater, or
@@ -404,6 +398,18 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         }
 
         @Override
+        public T content()
+        {
+            return maybeCollectContent();
+        }
+
+        @Override
+        T getContent(Cursor<T> item)
+        {
+            return item.content();
+        }
+
+        @Override
         public Cursor<T> tailCursor(Direction dir)
         {
             if (!branchHasMultipleSources())
@@ -427,62 +433,44 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
             super(resolver, direction, inputs, extractor);
         }
 
-        static <M extends RangeMarker<M>> M getState(RangeCursor<M> item)
+        @Override
+        public M state()
         {
-            M itemState = item.content();
-            if (itemState == null)
-                itemState = item.coveringState();
-            return itemState;
+            return maybeCollectContent();
         }
 
         @Override
         M collectContent()
         {
-            applyToAllOnHeap(Range::collectState);
-            M headState = getState(head);
-            if (headState != null)
-                contents.add(headState);
-
+            applyToAllOnHeap(CollectionMergeCursor::collectContent);
+            collectContent(head, -1);
             return resolveContent();
         }
 
-        private static <M extends RangeMarker<M>, C extends RangeCursor<M>>
-        void collectState(CollectionMergeCursor self, RangeCursor<M> item, int index)
-        {
-            M itemState = equalCursor(item, self.head) ? getState(item) : item.coveringState();
-            if (itemState != null)
-                self.contents.add(itemState);
-        }
-
         @Override
-        public M coveringState()
+        M getContent(RangeCursor<M> item)
         {
-            final M state = maybeCollectContent();
-            return state != null ? state.asCoveringState(direction) : null;
-        }
-
-        @Override
-        public M content()
-        {
-            final M state = maybeCollectContent();
-            return state != null ? state.toContent() : null;
+            return equalCursor(item, head) ? item.state() : item.precedingState();
         }
 
         @Override
         public RangeCursor<M> tailCursor(Direction direction)
         {
-            if (!branchHasMultipleSources())
-                return head.tailCursor(direction);
-
             List<RangeCursor<M>> inputs = new ArrayList<>(heap.length);
             inputs.add(head);
             applyToAllOnHeap((self, cursor, index) ->
                              {
                                  if (equalCursor(head, cursor))
                                      inputs.add(cursor);
-                                 else if (cursor.coveringState() != null)
-                                     inputs.add(cursor.coveringStateCursor(direction));
+                                 else if (cursor.precedingState() != null)
+                                     inputs.add(cursor.precedingStateCursor(direction));
                              });
+
+            if (inputs.size() == 1)
+            {
+                assert head == inputs.get(0);
+                return head.tailCursor(direction);
+            }
 
             return new Range<>(resolver, direction, inputs, RangeCursor::tailCursor);
         }

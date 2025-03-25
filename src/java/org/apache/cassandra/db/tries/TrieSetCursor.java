@@ -23,12 +23,12 @@ package org.apache.cassandra.db.tries;
 /// In addition to the functionality of normal trie cursors, set cursors also produce a [#state] that describes the
 /// coverage of trie sections to the left, right and below the cursor position. This is necessary to be able to identify
 /// coverage after a [#skipTo] operation, where the set cursor jumps to a position beyond the requested one.
-interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
+interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
 {
     /// This type describes the state at a given cursor position. It describes the coverage of the positions before and
     /// after the current in forward order, whether the node is boundary (and thus applies to this point and all its
     /// descendants) and also describes the type of boundary (e.g. start/end).
-    enum RangeState implements RangeMarker<RangeState>
+    enum RangeState
     {
         // Note: the states must be ordered so that
         //   `values()[applicableBefore * 1 + applicableAfter * 2 + applicableAtPoint * 4]`
@@ -87,17 +87,6 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
             return asContent;
         }
 
-        /// Converts to the "covering state", i.e. the state that applies to positions and branches before the current
-        /// but after any previous position of this cursor in iteration order, i.e. the state that would apply after a
-        /// [#skipTo] advanced the set cursor beyond the requested position.
-        ///
-        /// As these positions are either inside a fully covered range or fully outside the set, the returned state
-        /// is either `END_START_PREFIX` (fully inside the set) or `START_END_PREFIX` (fully outside the set).
-        public RangeState asCoveringState(Direction direction)
-        {
-            return direction.select(applicableBefore, applicableAfter) ? END_START_PREFIX : START_END_PREFIX;
-        }
-
         /// Return an "intersection" state for the combination of two states, i.e. the ranges covered by both states.
         public RangeState intersect(RangeState other)
         {
@@ -121,32 +110,10 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         {
             return values()[(applicableBefore ? 1 : 0) + (applicableAfter ? 2 : 0) + (applicableAtPoint ? 4 : 0)];
         }
-
-        @Override
-        public RangeState asReportablePoint(boolean includeBefore, boolean includeAfter)
-        {
-            int ord = (includeBefore ? 1 : 0) | (includeAfter ? 2 : 0) | 4;
-            ord &= ordinal();
-            return (ord & 4) != 0 ? values()[ord] : null;
-        }
     }
 
     /// The range state of the trie cursor at this point.
-    /// The following hold:
-    /// ```
-    ///   state() == content() != null ? content() : coveringState()
-    ///   content() == state().toContent()
-    ///   coveringState() == state().asCoveringState(direction())
-    /// ```
     RangeState state();
-
-    /// Covering state, i.e. the set state that applies to branches before the current position in iteration order,
-    /// but after any earlier position of this cursor, including any position requested by a [#skipTo] call, where this
-    /// cursor advanced beyond that position.
-    default RangeState coveringState()
-    {
-        return state().asCoveringState(direction());
-    }
 
     /// Returns whether the set includes the positions before the current in iteration order, but after any earlier
     /// position of this cursor, including any position requested by a [#skipTo] call, where this cursor advanced beyond
