@@ -252,11 +252,12 @@ Instead, our trie sets (defined in `TrieSet/TrieSetCursor`) implement sets of ra
 each range and their prefixes. This makes it possible to identify fully contained regions of the set and proceed inside
 such regions without touching the set cursor.
 
-To make it possible and efficient to skip in a set, trie set cursors specify a "state" as the content at any position
-they list and also implement a `coveringState` method, which produces a state that applies to positions preceding the
-set cursor's, but after any other positions listed by it. As `skipTo` will always advance exactly to the requested
-position, or to the nearest one following it, we know that if the set cursor skips over the requested position, the
-state that applies to that position is the covering state.
+Trie set cursors specify a "state" at any position they list. This state includes information about the inclusion of trie
+branches before, after and below the listed position. When we are applying a set to a trie (i.e. intersecting the trie
+with it), we would walk the two cursors in parallel. If the set moves ahead, we use the state to determine whether the
+position of the trie cursor is covered by the set. Similarly, when a `skipTo` is performed on the set, the same state
+flags can tell us if the set covers the position we attempted to skip to, when the set cursor does not have an exact
+match and skips over the requested position.
 
 ## Trie set content
 
@@ -269,9 +270,9 @@ a ->
   d ->
     e -> END
 ```
-where `START` is a state marking a left boundary, and `END` marks a right boundary. To be able to easily say that e.g. `aa`
-is not covered by the set, but `ac` is, nodes on the prefix path also keep track of a richer state that also provide
-information on the coverage on both sides of the position.
+where `START` is a state marking a left boundary, and `END` marks a right boundary. To be able to easily say that e.g.
+`aa` is not covered by the set, but `ac` is, nodes on the prefix path also keep track of a richer state that also
+provide information on the coverage on both sides of the position.
 
 The full state trie for the above example is
 ```
@@ -281,11 +282,11 @@ a -> START_END_PREFIX
   d -> END_PREFIX
     e -> END
 ```
-The "prefix" states are not reported by `content()`, but they are used to determine `coveringState()`. `START_PREFIX`
-denotes a prefix of a left boundary, and thus positions before it are not covered by the set, but positions after it
-are. Similarly, `END_PREFIX` is a prefix of a right boundary, which has the opposite coverage on the two sides.
-`START_END_PREFIX` is a prefix of both a left and a right boundary (or more generally a boundary of some number of pairs
-of left and right boundaries), and thus neither side of that prefix belongs to the covered set.
+The "prefix" states are not reported by `content()`, but they are used to determine the inclusion of preceding positions
+in the set. `START_PREFIX` denotes a prefix of a left boundary, and thus positions before it are not covered by the set,
+but positions after it are. Similarly, `END_PREFIX` is a prefix of a right boundary, which has the opposite coverage on
+the two sides. `START_END_PREFIX` is a prefix of both a left and a right boundary (or more generally a boundary of some
+number of pairs of left and right boundaries), and thus neither side of that prefix belongs to the covered set.
 
 There are several additional states that the sets can list:
 - `POINT` is a position that is both the start and end boundary of a range. This is a singleton branch covered by the
@@ -337,7 +338,7 @@ Additionally, if we are to exclude some prefixes or descendants, so that e.g. `[
 a contiguous range, which would also introduce unacceptable complexity.
 
 The above is only a material limitation when the keys allow prefixes. If the keys we work with are prefix-free and can
-present positions before and after any valid key (which our byte-comparable translation does provide), we can still
+present positions before and after any valid key (both provided by our byte-comparable translation), we can still
 correctly define ranges between any two keys, with the posibility of inclusive or exclusive boundaries as needed.
 
 As we also would also like to retrieve metadata on the paths leading to queried keys (e.g. a partition marker and stats

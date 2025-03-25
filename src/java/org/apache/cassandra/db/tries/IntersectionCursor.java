@@ -161,12 +161,12 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
 
     private int matchingPosition(int depth)
     {
-        // If we are matching a bound of the set, include all its children by using a set-ahead state, ensuring that the
-        // set will only be advanced once the source ascends to its depth again.
-        if (set.content() == null)
-            state = State.MATCHING;
-        else
+        // If we are matching a boundary of the set, include all its children by using a set-ahead state, ensuring that
+        // the set will only be advanced once the source ascends to its depth again.
+        if (set.branchIncluded())
             state = State.SET_AHEAD;
+        else
+            state = State.MATCHING;
         return depth;
     }
 

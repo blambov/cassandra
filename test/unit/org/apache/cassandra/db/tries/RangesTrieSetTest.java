@@ -18,16 +18,14 @@
 
 package org.apache.cassandra.db.tries;
 
+import org.junit.Test;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.TreeSet;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -174,8 +172,6 @@ public class RangesTrieSetTest
 
             for (Direction dir : Direction.values())
             {
-//                if (!dir.isForward())
-//                    continue;
                 System.out.println("Tail for " + prefix.byteComparableAsString(VERSION) + " " + dir);
                 TrieSet tail = tailTrie(set, prefix, dir);
                 assertNotNull(tail);
@@ -218,16 +214,9 @@ public class RangesTrieSetTest
                     int effectiveIndexFwd = terminator <= ByteSource.TERMINATOR ? bi : ei;
                     int effectiveIndexRev = terminator >= ByteSource.TERMINATOR ? ei : bi;
                     boolean isExact = next == ByteSource.END_OF_STREAM;
-                    TrieSetCursor.RangeState state = isExact ? cursor.state() : cursor.coveringState();
-                    assertEquals(msg + "covering FWD", (effectiveIndexFwd & 1) != 0 ? TrieSetCursor.RangeState.END_START_PREFIX : TrieSetCursor.RangeState.START_END_PREFIX, state.asCoveringState(Direction.FORWARD));
-                    assertEquals(msg + "covering REV", (effectiveIndexRev & 1) != 0 ? TrieSetCursor.RangeState.END_START_PREFIX : TrieSetCursor.RangeState.START_END_PREFIX, state.asCoveringState(Direction.REVERSE));
-                    // The above also verifies that covering states' applicableBefore and applicableAfter are the same.
-                    if (isExact)
-                    {
-                        assertNotNull(msg + "content", state.asContent);
-                        Assert.assertEquals(msg + "preceding FWD", state.asCoveringState(Direction.FORWARD).applicableBefore, state.precedingIncluded(Direction.FORWARD));
-                        Assert.assertEquals(msg + "preceding REV", state.asCoveringState(Direction.REVERSE).applicableAfter, state.precedingIncluded(Direction.REVERSE));
-                    }
+                    TrieSetCursor.RangeState state = isExact ? cursor.state() : (cursor.state().precedingIncluded(direction) ? TrieSetCursor.RangeState.END_START_PREFIX : TrieSetCursor.RangeState.START_END_PREFIX);
+                    assertEquals(msg + "covering FWD", (effectiveIndexFwd & 1) != 0, state.precedingIncluded(Direction.FORWARD));
+                    assertEquals(msg + "covering REV", (effectiveIndexRev & 1) != 0, state.precedingIncluded(Direction.REVERSE));
                 }
         }
     }

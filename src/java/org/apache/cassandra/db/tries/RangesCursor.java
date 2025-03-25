@@ -72,7 +72,7 @@ class RangesCursor implements TrieSetCursor
     int currentDepth;
     /// The current incoming transition.
     int currentTransition;
-    /// Current range state, returned by [#state] and converted to covering state by [#coveringState].
+    /// Current range state, returned by [#state].
     RangeState currentState;
 
     public RangesCursor(Direction direction, ByteComparable.Version byteComparableVersion, ByteComparable... boundaries)
@@ -300,8 +300,8 @@ class RangesCursor implements TrieSetCursor
     private static RangesCursor boundaryMatchingCursor(RangesCursor copyFrom, Direction newDirection)
     {
         // There are no further ranges to follow. The current state is the only thing we need to present, but
-        // we need to make sure we present the right covering state after advancing over the current state.
-        // Prepare a combination of current and completed index that produces excluded or included coveringState
+        // we need to make sure we present the right final state after advancing over the current state.
+        // Prepare a combination of current and completed index that produces true or false precedingIncluded() result
         // on the exhausted() call.
         final RangeState state = copyFrom.currentState;
         // This gives us the included/excluded state after the current position.

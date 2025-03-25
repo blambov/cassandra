@@ -20,14 +20,14 @@ package org.apache.cassandra.db.tries;
 
 /// The implementation of a [TrieSet].
 ///
-/// In addition to the functionality of normal trie cursors, set cursors also produce a [#coveringState] that describes
-/// the coverage of trie sections _before_ the cursor position. This is necessary to be able to identify coverage after
-/// a [#skipTo] operation, where the set cursor jumps to a position beyond the requested one.
+/// In addition to the functionality of normal trie cursors, set cursors also produce a [#state] that describes the
+/// coverage of trie sections to the left, right and below the cursor position. This is necessary to be able to identify
+/// coverage after a [#skipTo] operation, where the set cursor jumps to a position beyond the requested one.
 interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
 {
     /// This type describes the state at a given cursor position. It describes the coverage of the positions before and
-    /// after the current in forward order, and for boundary points also describes the type of boundary
-    /// (e.g. start/end).
+    /// after the current in forward order, whether the node is boundary (and thus applies to this point and all its
+    /// descendants) and also describes the type of boundary (e.g. start/end).
     enum RangeState
     {
         // Note: the states must be ordered so that
@@ -63,11 +63,11 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
         /// (e.g. for dumping to text).
         final RangeState asContent;
 
-        RangeState(boolean applicableBefore, boolean applicableAfter, boolean reportAsContent)
+        RangeState(boolean applicableBefore, boolean applicableAfter, boolean applicableAtPoint)
         {
             this.applicableBefore = applicableBefore;
             this.applicableAfter = applicableAfter;
-            this.asContent = reportAsContent ? this : null;
+            this.asContent = applicableAtPoint ? this : null;
         }
 
         /// Whether the positions preceding the current in iteration order are included in the set.
@@ -79,17 +79,6 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
         public RangeState toContent()
         {
             return asContent;
-        }
-
-        /// Converts to the "covering state", i.e. the state that applies to positions and branches before the current
-        /// but after any previous position of this cursor in iteration order, i.e. the state that would apply after a
-        /// [#skipTo] advanced the set cursor beyond the requested position.
-        ///
-        /// As these positions are either inside a fully covered range or fully outside the set, the returned state
-        /// is either `END_START_PREFIX` (fully inside the set) or `START_END_PREFIX` (fully outside the set).
-        public RangeState asCoveringState(Direction direction)
-        {
-            return direction.select(applicableBefore, applicableAfter) ? END_START_PREFIX : START_END_PREFIX;
         }
 
         /// Return an "intersection" state for the combination of two states, i.e. the ranges covered by both states.
@@ -110,28 +99,21 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
         }
     }
 
-    /// Combined state. The following hold:
-    /// ```
-    ///   state() == content() != null ? content() : coveringState()
-    ///   content() == state().toContent()
-    ///   coveringState() == state().asCoveringState(direction())
-    /// ```
+    /// The range state of the trie cursor at this point.
     RangeState state();
 
-    /// Covering state, i.e. the set state that applies to branches before the current position in iteration order,
-    /// but after any earlier position of this cursor, including any position requested by a [#skipTo] call, where this
-    /// cursor advanced beyond that position.
-    default RangeState coveringState()
-    {
-        return state().asCoveringState(direction());
-    }
-
-    /// Returns whether the set applies to the positions before the current in iteration order, but after any earlier
-    /// position of this cursor, including any position requested by a [#skipTo] call, where this
-    /// cursor advanced beyond that position.
+    /// Returns whether the set includes the positions before the current in iteration order, but after any earlier
+    /// position of this cursor, including any position requested by a [#skipTo] call, where this cursor advanced beyond
+    /// that position.
     default boolean precedingIncluded()
     {
         return state().precedingIncluded(direction());
+    }
+
+    /// Returns whether the set fully includes all descendants of the current position. This is true for all boundary points.
+    default boolean branchIncluded()
+    {
+        return state().asContent != null;
     }
 
     @Override
