@@ -59,7 +59,7 @@ public class TrieSetNegatedCursor implements TrieSetCursor
     @Override
     public TrieSetCursor.RangeState state()
     {
-        return TrieSetCursor.RangeState.values()[source.state().ordinal() ^ 3];
+        return source.state().weakNegation();
     }
 
     @Override

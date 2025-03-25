@@ -249,12 +249,12 @@ public class RangesTrieSetTest
             return TrieSetCursor.RangeState.values()[(appliesBefore ? 1 : 0) | (appliesAfter ? 2 : 0) | (exact ? 4 : 0)];
         }
 
-        static PointState covered()
+        static PointState fullRange()
         {
             PointState state = new PointState();
             state.firstIndex = 1;
             state.lastIndex = 2;
-            state.exact = true;
+            state.exact = false;
             return state;
         }
     }
@@ -276,7 +276,7 @@ public class RangesTrieSetTest
             }
         }
         if (expectations.isEmpty())
-            expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.covered());
+            expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.fullRange());
         return expectations.entrySet()
                            .stream()
                            .collect(() -> new TreeMap(FORWARD_COMPARATOR),

@@ -114,7 +114,9 @@ class RangesCursor implements TrieSetCursor
         currentDepth = 0;
         currentTransition = -1;
         completedIdx = direction.select(length - 1, first);
-        skipCompletedAndSelectContained(currentIdx < length ? nexts[currentIdx] : ByteSource.END_OF_STREAM,
+        // If this cursor is already exhausted (i.e. it is a [null, null] range), use 0 as next character to not report
+        // a boundary at the root.
+        skipCompletedAndSelectContained(direction.le(currentIdx, completedIdx) ? nexts[currentIdx] : 0,
                                         completedIdx);
     }
 

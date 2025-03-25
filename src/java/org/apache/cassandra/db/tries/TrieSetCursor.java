@@ -76,6 +76,12 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
             return direction.select(applicableBefore, applicableAfter);
         }
 
+        /// Whether the descendant branch is fully included in the set.
+        public boolean branchIncluded()
+        {
+            return asContent != null;
+        }
+
         public RangeState toContent()
         {
             return asContent;
@@ -91,6 +97,13 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
         public RangeState union(RangeState other)
         {
             return values()[ordinal() | other.ordinal()];
+        }
+
+        /// Return the "weakly negated" state, i.e. the state that corresponds to flipped areas of coverage to the left
+        /// and right, and the boundary points. See [TrieSet#weakNegation] for more details.
+        public RangeState weakNegation()
+        {
+            return values()[ordinal() ^ 3];
         }
 
         public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter, boolean applicableAtPoint)
