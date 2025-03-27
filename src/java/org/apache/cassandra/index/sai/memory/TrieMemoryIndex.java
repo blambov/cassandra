@@ -129,9 +129,9 @@ public class TrieMemoryIndex extends MemoryIndex
     private static class PkWithTerm implements Accountable
     {
         private final PrimaryKey pk;
-        private final ByteComparable term;
+        private final ByteComparable.Preencoded term;
 
-        private PkWithTerm(PrimaryKey pk, ByteComparable term)
+        private PkWithTerm(PrimaryKey pk, ByteComparable.Preencoded term)
         {
             this.pk = pk;
             this.term = term;
@@ -143,13 +143,13 @@ public class TrieMemoryIndex extends MemoryIndex
             return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER +
                    2L * RamUsageEstimator.NUM_BYTES_OBJECT_REF +
                    pk.ramBytesUsed() +
-                   ByteComparable.length(term, TypeUtil.BYTE_COMPARABLE_VERSION);
+                   ByteComparable.length(term, term.encodingVersion());
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hash(pk, ByteComparable.length(term, TypeUtil.BYTE_COMPARABLE_VERSION));
+            return Objects.hash(pk, ByteComparable.length(term, term.encodingVersion()));
         }
 
         @Override
@@ -158,7 +158,7 @@ public class TrieMemoryIndex extends MemoryIndex
             if (o == null || getClass() != o.getClass()) return false;
             PkWithTerm that = (PkWithTerm) o;
             return Objects.equals(pk, that.pk)
-                   && ByteComparable.compare(term, that.term, TypeUtil.BYTE_COMPARABLE_VERSION) == 0;
+                   && ByteComparable.compare(term, that.term) == 0;
         }
     }
 
@@ -182,7 +182,7 @@ public class TrieMemoryIndex extends MemoryIndex
             {
                 AtomicLong heapReclaimed = new AtomicLong();
                 // we're overwriting an existing cell, clear out the old term counts
-                for (Map.Entry<ByteComparable, PrimaryKeys> entry : data.entrySet())
+                for (Map.Entry<ByteComparable.Preencoded, PrimaryKeys> entry : data.entrySet())
                 {
                     var termInTrie = entry.getKey();
                     entry.getValue().forEach(pkInTrie -> {
@@ -219,7 +219,7 @@ public class TrieMemoryIndex extends MemoryIndex
                             return result;
 
                         // Then update term frequency
-                        var pkbc = new PkWithTerm(update, encodedTerm);
+                        var pkbc = new PkWithTerm(update, encodedTerm.preencode(data.byteComparableVersion()));
                         termFrequencies.compute(pkbc, (k, oldValue) -> {
                             if (oldValue == null) {
                                 // New key added, track heap allocation
