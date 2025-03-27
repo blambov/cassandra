@@ -140,8 +140,8 @@ public class TrieMemoryIndex extends MemoryIndex
         @Override
         public long ramBytesUsed()
         {
-            return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + 
-                   2L * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 
+            return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER +
+                   2L * RamUsageEstimator.NUM_BYTES_OBJECT_REF +
                    pk.ramBytesUsed() +
                    ByteComparable.length(term, TypeUtil.BYTE_COMPARABLE_VERSION);
         }
@@ -222,7 +222,7 @@ public class TrieMemoryIndex extends MemoryIndex
                         var pkbc = new PkWithTerm(update, encodedTerm);
                         termFrequencies.compute(pkbc, (k, oldValue) -> {
                             if (oldValue == null) {
-                                // New key added, track heap allocation 
+                                // New key added, track heap allocation
                                 onHeapAllocationsTracker.accept(RamUsageEstimator.HASHTABLE_RAM_BYTES_PER_ENTRY + k.ramBytesUsed() + Integer.BYTES);
                                 return 1;
                             }
@@ -257,9 +257,9 @@ public class TrieMemoryIndex extends MemoryIndex
     }
 
     @Override
-    public Iterator<Pair<ByteComparable, List<PkWithFrequency>>> iterator()
+    public Iterator<Pair<ByteComparable.Preencoded, List<PkWithFrequency>>> iterator()
     {
-        Iterator<Map.Entry<ByteComparable, PrimaryKeys>> iterator = data.entrySet().iterator();
+        Iterator<Map.Entry<ByteComparable.Preencoded, PrimaryKeys>> iterator = data.entrySet().iterator();
         return new Iterator<>()
         {
             @Override
@@ -269,9 +269,9 @@ public class TrieMemoryIndex extends MemoryIndex
             }
 
             @Override
-            public Pair<ByteComparable, List<PkWithFrequency>> next()
+            public Pair<ByteComparable.Preencoded, List<PkWithFrequency>> next()
             {
-                Map.Entry<ByteComparable, PrimaryKeys> entry = iterator.next();
+                Map.Entry<ByteComparable.Preencoded, PrimaryKeys> entry = iterator.next();
                 var pairs = new ArrayList<PkWithFrequency>(entry.getValue().size());
                 for (PrimaryKey pk : entry.getValue().keys())
                 {
@@ -339,7 +339,8 @@ public class TrieMemoryIndex extends MemoryIndex
                 // Before version DB, we encoded composite types using a non order-preserving function. In order to
                 // perform a range query on a map, we use the bounds to get all entries for a given map key and then
                 // only keep the map entries that satisfy the expression.
-                byte[] key = ByteSourceInverse.readBytes(entry.getKey().asComparableBytes(TypeUtil.BYTE_COMPARABLE_VERSION));
+                assert entry.getKey().encodingVersion() == TypeUtil.BYTE_COMPARABLE_VERSION || Version.latest() == Version.AA;
+                byte[] key = ByteSourceInverse.readBytes(entry.getKey().getPreencodedBytes());
                 if (expression.isSatisfiedBy(ByteBuffer.wrap(key)))
                     mergingIteratorBuilder.add(entry.getValue());
             });
@@ -773,11 +774,11 @@ public class TrieMemoryIndex extends MemoryIndex
      */
     private class AllTermsIterator extends AbstractIterator<PrimaryKeyWithSortKey>
     {
-        private final Iterator<Map.Entry<ByteComparable, PrimaryKeys>> iterator;
+        private final Iterator<Map.Entry<ByteComparable.Preencoded, PrimaryKeys>> iterator;
         private Iterator<PrimaryKey> primaryKeysIterator = CloseableIterator.emptyIterator();
-        private ByteComparable byteComparableTerm = null;
+        private ByteComparable.Preencoded byteComparableTerm = null;
 
-        public AllTermsIterator(Iterator<Map.Entry<ByteComparable, PrimaryKeys>> iterator)
+        public AllTermsIterator(Iterator<Map.Entry<ByteComparable.Preencoded, PrimaryKeys>> iterator)
         {
             this.iterator = iterator;
         }
