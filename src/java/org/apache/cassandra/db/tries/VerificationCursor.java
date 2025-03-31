@@ -22,6 +22,7 @@ import java.util.Arrays;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Objects;
 import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -400,7 +401,7 @@ public interface VerificationCursor
 
         boolean agree(M left, M right)
         {
-            return left == right;
+            return Objects.equals(left, right);
         }
 
         private int verifyState(int depth)
