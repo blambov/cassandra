@@ -288,17 +288,17 @@ public abstract class InMemoryReadTrie<T>
      Reading node content
      */
 
-    boolean isNull(int node)
+    static boolean isNull(int node)
     {
         return node == NONE;
     }
 
-    boolean isLeaf(int node)
+    static boolean isLeaf(int node)
     {
         return node < NONE;
     }
 
-    boolean isNullOrLeaf(int node)
+    static boolean isNullOrLeaf(int node)
     {
         return node <= NONE;
     }
@@ -440,7 +440,7 @@ public abstract class InMemoryReadTrie<T>
     {
         UnsafeBuffer chunk = getBuffer(node);
         int inChunkNode = inBufferOffset(node);
-        int data = chunk.getShortVolatile(node + SPARSE_ORDER_OFFSET) & 0xFFFF;
+        int data = chunk.getShortVolatile(inChunkNode + SPARSE_ORDER_OFFSET) & 0xFFFF;
         int index;
         int transition;
         do
@@ -1298,7 +1298,7 @@ public abstract class InMemoryReadTrie<T>
             {
                 case SPARSE_OFFSET:
                 {
-                    builder.append("Sparse: ");
+                    builder.append("Sparse (Order " + Integer.toString(getUnsignedShortVolatile(node + SPARSE_ORDER_OFFSET), 6) + "): ");
                     for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
                     {
                         int child = getIntVolatile(node + SPARSE_CHILDREN_OFFSET + i * 4);

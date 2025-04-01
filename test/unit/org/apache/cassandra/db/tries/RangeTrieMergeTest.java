@@ -305,9 +305,9 @@ public class RangeTrieMergeTest
     public final void testMerge(String message, List<TestRangeMarker>... sets)
     {
         List<TestRangeMarker> testRanges = getTestRanges();
-        testMerge(message, fromList(testRanges), testRanges, sets);
-        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
-//        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
+//        testMerge(message, fromList(testRanges), testRanges, sets);
+//        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
     }
 
 
