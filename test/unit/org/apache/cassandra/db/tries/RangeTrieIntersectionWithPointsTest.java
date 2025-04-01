@@ -55,17 +55,17 @@ public class RangeTrieIntersectionWithPointsTest
 
     private TestRangeMarker from(int where, int value)
     {
-        return new TestRangeMarker(of(where), -1, value, value);
+        return new TestRangeMarker(of(where), -1, value, value, true);
     }
 
     private TestRangeMarker to(int where, int value)
     {
-        return new TestRangeMarker(of(where), value, -1, -1);
+        return new TestRangeMarker(of(where), value, -1, -1, true);
     }
 
     private TestRangeMarker change(int where, int from, int to)
     {
-        return new TestRangeMarker(of(where), from, to, to);
+        return new TestRangeMarker(of(where), from, to, to, true);
     }
 
     private TestRangeMarker point(int where, int value)
@@ -75,7 +75,7 @@ public class RangeTrieIntersectionWithPointsTest
 
     private TestRangeMarker pointInside(int where, int value, int active)
     {
-        return new TestRangeMarker(of(where), active, value, active);
+        return new TestRangeMarker(of(where), active, value, active, true);
     }
 
     private ByteComparable[] array(ByteComparable... data)
@@ -88,12 +88,12 @@ public class RangeTrieIntersectionWithPointsTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-//            testIntersection("no intersection");
-//
-//            testIntersection("all",
-//                             array(null, null));
-//            testIntersection("fully covered range",
-//                             array(of(20), of(25)));
+            testIntersection("no intersection");
+
+            testIntersection("all",
+                             array(null, null));
+            testIntersection("fully covered range",
+                             array(of(20), of(25)));
             testIntersection("fully covered range",
                              array(of(25), of(33)));
             testIntersection("matching range",
@@ -369,18 +369,18 @@ public class RangeTrieIntersectionWithPointsTest
                 if (cmp == 0)
                 {
                     if ((rangeIndex & 1) != 0)
-                        maybeAdd(result, marker.restrict(true, false));
+                        maybeAdd(result, marker.restrict(true, false, true));
                     else
-                        maybeAdd(result, marker.restrict(false, true));
+                        maybeAdd(result, marker.restrict(false, true, true));
                     nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
                     break;
                 }
                 else if (active >= 0) // cmp > 0, must covert active to marker
                 {
                     if ((rangeIndex & 1) != 0)
-                        result.add(new TestRangeMarker(nextRange, active, -1, -1));
+                        result.add(new TestRangeMarker(nextRange, active, -1, -1, true));
                     else
-                        result.add(new TestRangeMarker(nextRange, -1, active, active));
+                        result.add(new TestRangeMarker(nextRange, -1, active, active, true));
                 }
 
                 nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;

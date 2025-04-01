@@ -365,17 +365,6 @@ public abstract class InMemoryReadTrie<T>
             return NONE;
     }
 
-    T getFirstContent(int node)
-    {
-        T content = null;
-        while (!isNull(node) && (content = getNodeContent(node)) == null)
-            node = getNextChild(node, 0);
-
-        return content; // may be null
-    }
-
-
-
     protected int followContentTransition(int node)
     {
         if (isNullOrLeaf(node))
@@ -650,6 +639,11 @@ public abstract class InMemoryReadTrie<T>
         @Override
         public int advance()
         {
+            return doAdvance();
+        }
+
+        int doAdvance()
+        {
             if (isNullOrLeaf(currentNode))
                 return backtrack();
             else
@@ -661,7 +655,7 @@ public abstract class InMemoryReadTrie<T>
         {
             int node = currentNode;
             if (!isChainNode(node))
-                return advance();
+                return doAdvance();
 
             // Jump directly to the chain's child.
             UnsafeBuffer buffer = getBuffer(node);

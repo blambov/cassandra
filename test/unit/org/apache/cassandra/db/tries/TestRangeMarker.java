@@ -40,13 +40,13 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     final int at;
     final boolean isReportableState;
 
-    TestRangeMarker(ByteComparable position, int leftSide, int at, int rightSide)
+    TestRangeMarker(ByteComparable position, int leftSide, int at, int rightSide, boolean isReportableState)
     {
         this.position = position;
         this.leftSide = leftSide;
         this.rightSide = rightSide;
         this.at = at;
-        this.isReportableState = at != leftSide || leftSide != rightSide;
+        this.isReportableState = isReportableState;
     }
 
     static TestRangeMarker combine(TestRangeMarker m1, TestRangeMarker m2)
@@ -57,7 +57,8 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
 
-        return new TestRangeMarker(m2.position, newLeft, newAt, newRight);
+        return new TestRangeMarker(m2.position, newLeft, newAt, newRight,
+                                   (m1.isReportableState || m2.isReportableState) && (newLeft != newRight || newLeft != newAt));
     }
 
 
@@ -66,6 +67,7 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
         int newLeft = -1;
         int newAt = -1;
         int newRight = -1;
+        boolean isReportableState = false;
         ByteComparable position = null;
         for (TestRangeMarker marker : rangeMarkers)
         {
@@ -73,16 +75,18 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
             newAt = Math.max(newAt, marker.at);
             newRight = Math.max(newRight, marker.rightSide);
             position = marker.position;
+            isReportableState |= marker.isReportableState;
         }
         if (newLeft < 0 && newAt < 0 && newRight < 0)
             return null;
+        isReportableState &= newLeft != newRight || newLeft != newAt;
 
-        return new TestRangeMarker(position, newLeft, newAt, newRight);
+        return new TestRangeMarker(position, newLeft, newAt, newRight, isReportableState);
     }
 
     TestRangeMarker withPoint(int value)
     {
-        return new TestRangeMarker(position, leftSide, value, rightSide);
+        return new TestRangeMarker(position, leftSide, value, rightSide, isReportableState);
     }
 
 //    @Override
@@ -113,7 +117,8 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
         return (leftSide >= 0 ? leftSide + left : "") +
                '"' + toString(position) + '"' +
                (hasAt ? "=" + at : "") +
-               (rightSide >= 0 ? right + rightSide : "");
+               (rightSide >= 0 ? right + rightSide : "") +
+               (isReportableState ? "" : " not reportable");
     }
 
     @Override
@@ -125,24 +130,24 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     @Override
     public TestRangeMarker precedingState(Direction direction)
     {
-        if (!isReportableState)
+        if (leftSide == rightSide && leftSide == at && !isReportableState)
             return this;
         int applicable = direction.select(leftSide, rightSide);
         if (applicable < 0)
             return null;
-        return new TestRangeMarker(position, applicable, applicable, applicable);
+        return new TestRangeMarker(position, applicable, applicable, applicable, false);
     }
 
     @Override
-    public TestRangeMarker restrict(boolean applicableBefore, boolean applicableAfter)
+    public TestRangeMarker restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
     {
-        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)))
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)) && (!convertCoveringToReported || isReportableState))
             return this;
         int newAt = applicableAfter ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
         if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
-            return new TestRangeMarker(position, newLeft, newAt, newRight);
+            return new TestRangeMarker(position, newLeft, newAt, newRight, isReportableState || convertCoveringToReported);
         else
             return null;
     }
@@ -184,7 +189,7 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
 
     static TestRangeMarker remap(TestRangeMarker dm, ByteComparable newKey)
     {
-        return new TestRangeMarker(newKey, dm.leftSide, dm.at, dm.rightSide);
+        return new TestRangeMarker(newKey, dm.leftSide, dm.at, dm.rightSide, dm.isReportableState);
     }
 
     static InMemoryRangeTrie<TestRangeMarker> fromList(List<TestRangeMarker> list)

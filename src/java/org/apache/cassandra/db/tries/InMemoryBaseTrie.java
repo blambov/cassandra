@@ -865,7 +865,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     class ApplyState implements KeyProducer<T>
     {
         int[] data = new int[16 * 5];
-        int stackDepth = -1;
         int currentDepth = -1;
         int ascendLimit = -1;
 
@@ -873,11 +872,11 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// existingPostContentNode or a pointer to a prefix or leaf node whose child is `existingPostContentNode`.
         int existingFullNode()
         {
-            return data[stackDepth * 5 + 0];
+            return data[currentDepth * 5 + 0];
         }
         void setExistingFullNode(int value)
         {
-            data[stackDepth * 5 + 0] = value;
+            data[currentDepth * 5 + 0] = value;
         }
         int existingFullNodeAtDepth(int stackDepth)
         {
@@ -950,8 +949,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         ApplyState start()
         {
             int existingFullNode = root;
-            stackDepth = -1;
-            currentDepth = 0;
+            currentDepth = -1;
             ascendLimit = 0;
 
             descendInto(existingFullNode);
@@ -1004,7 +1002,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         void descend(int transition)
         {
             setTransition(transition);
-            ++currentDepth;
             int existingFullNode = getChild(existingFullNode(), transition);
 
             descendInto(existingFullNode);
@@ -1012,9 +1009,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         private void descendInto(int existingFullNode)
         {
-            ++stackDepth;
-            if (stackDepth * 5 >= data.length)
-                data = Arrays.copyOf(data, stackDepth * 5 * 2);
+            ++currentDepth;
+            if (currentDepth * 5 >= data.length)
+                data = Arrays.copyOf(data, currentDepth * 5 * 2);
             setExistingFullNode(existingFullNode);
 
             int existingContentId = NONE;
@@ -1077,7 +1074,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             // Assume any dead branch is deleted, thus: go upstack until first node for which we have a higher transition
             // and then repeatedly descend into first child until content.
-            int stackPos = stackDepth;
+            int stackPos = currentDepth;
             int node = NONE;
             setTransition(-1);      // In the node we have just descended to, start with its first child
             for (; stackPos >= 0 && node == NONE; --stackPos)
@@ -1206,8 +1203,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             int updatedFullNode = applyContent(currentDepth >= forcedCopyDepth);
             int existingFullNode = existingFullNode();
             --currentDepth;
-            --stackDepth;
-            assert stackDepth >= 0;
+            assert currentDepth >= 0;
 
             if (updatedFullNode != existingFullNode)
                 attachChild(transition(), updatedFullNode, currentDepth >= forcedCopyDepth);
@@ -1243,27 +1239,26 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         @Override
         public byte[] getBytes(Predicate<T> shouldStop)
         {
-            int arrSize = 0;
+            if (currentDepth == 0)
+                return new byte[0];
+
+            int arrSize = 1;
             int i;
-            for (i = stackDepth; i > 0; --i)
+            for (i = currentDepth - 1; i > 0; --i)
             {
                 int content = contentIdAtDepth(i);
                 if (!isNull(content) && shouldStop.test(InMemoryBaseTrie.this.getContent(content)))
                     break;
-                int trans = transitionAtDepth(i);
-                if (trans >= 0 && trans < 256)
-                    ++arrSize;
+                ++arrSize;
             }
-            ++arrSize;
             assert i > 0 || arrSize == currentDepth; // if the loop covers the whole stack, the array must cover the full depth
 
             byte[] data = new byte[arrSize];
             int pos = 0;
-            for (; i <= stackDepth; ++i)
+            for (; i < currentDepth; ++i)
             {
                 int trans = transitionAtDepth(i);
-                if (trans >= 0 && trans < 256)
-                    data[pos++] = (byte) trans;
+                data[pos++] = (byte) trans;
             }
             return data;
         }

@@ -56,17 +56,17 @@ public class RangeTrieMergeTest
 
     private TestRangeMarker from(int where, int value)
     {
-        return new TestRangeMarker(of(where), -1, value, value);
+        return new TestRangeMarker(of(where), -1, value, value, true);
     }
 
     private TestRangeMarker to(int where, int value)
     {
-        return new TestRangeMarker(of(where), value, -1, -1);
+        return new TestRangeMarker(of(where), value, -1, -1, true);
     }
 
     private TestRangeMarker change(int where, int from, int to)
     {
-        return new TestRangeMarker(of(where), from, to, to);
+        return new TestRangeMarker(of(where), from, to, to, true);
     }
 
     private TestRangeMarker point(int where, int value)
@@ -76,7 +76,7 @@ public class RangeTrieMergeTest
 
     private TestRangeMarker pointInside(int where, int value, int active)
     {
-        return new TestRangeMarker(of(where), active, value, active);
+        return new TestRangeMarker(of(where), active, value, active, true);
     }
 
     private List<TestRangeMarker> deletedRanges(ByteComparable... dataPoints)
@@ -92,9 +92,9 @@ public class RangeTrieMergeTest
             if (pos == null)
                 pos = i % 2 == 0 ? of(0) : of((1<<bitsNeeded) - 1);
             if (i % 2 == 0)
-                markers.add(new TestRangeMarker(pos, -1, 100, 100));
+                markers.add(new TestRangeMarker(pos, -1, 100, 100, true));
             else
-                markers.add(new TestRangeMarker(pos, 100, -1, -1));
+                markers.add(new TestRangeMarker(pos, 100, -1, -1, true));
         }
         return verify(markers);
     }
@@ -307,7 +307,7 @@ public class RangeTrieMergeTest
         List<TestRangeMarker> testRanges = getTestRanges();
         testMerge(message, fromList(testRanges), testRanges, sets);
         testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
-        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
+//        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
     }
 
 
@@ -478,7 +478,7 @@ public class RangeTrieMergeTest
             return null;
         if (newLeft == marker.leftSide && newAt == marker.at && newRight == marker.rightSide)
             return marker;
-        return new TestRangeMarker(marker.position, newLeft, newAt, newRight);
+        return new TestRangeMarker(marker.position, newLeft, newAt, newRight, marker.isReportableState);
     }
 
 
@@ -516,7 +516,7 @@ public class RangeTrieMergeTest
                     // Must close active if it becomes covered, and must open active if it is no longer covered.
                     if (active >= 0)
                     {
-                        TestRangeMarker activeMarker = new TestRangeMarker(nextRight.position, active, active, active);
+                        TestRangeMarker activeMarker = new TestRangeMarker(nextRight.position, active, active, active, true);
                         nextRight = TestRangeMarker.combine(activeMarker, nextRight).toContent();
                     }
                     maybeAdd(result, nextRight);

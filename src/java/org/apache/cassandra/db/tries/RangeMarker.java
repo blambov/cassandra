@@ -35,5 +35,7 @@ interface RangeMarker<M extends RangeMarker<M>>
 
     /// Returns an intersected version of this marker, which may drop parts of the marker that are not covered by the
     /// intersecting range.
-    M restrict(boolean applicableBefore, boolean applicableAfter);
+    /// If `convertCoveringToReported` is true, the restriction must also turn this marker as a reportable boundary
+    /// point even if it is not currently one.
+    M restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported);
 }

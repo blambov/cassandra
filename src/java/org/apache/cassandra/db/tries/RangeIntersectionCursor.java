@@ -107,8 +107,8 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             case SET_AHEAD:
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
-                int leftDepth = set.depth();
-                if (leftDepth < skipDepth || leftDepth == skipDepth && direction.ge(set.incomingTransition(), skipTransition))
+                int setDepth = set.depth();
+                if (setDepth < skipDepth || setDepth == skipDepth && direction.ge(set.incomingTransition(), skipTransition))
                     return advanceWithSetAhead(src.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
@@ -116,8 +116,8 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             case SOURCE_AHEAD:
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
-                int rightDepth = src.depth();
-                if (rightDepth < skipDepth || rightDepth == skipDepth && direction.ge(src.incomingTransition(), skipTransition))
+                int sourceDepth = src.depth();
+                if (sourceDepth < skipDepth || sourceDepth == skipDepth && direction.ge(src.incomingTransition(), skipTransition))
                     return advanceWithSourceAhead(set.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
@@ -159,93 +159,93 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
         }
     }
 
-    private int advanceWithSetAhead(int rightDepth)
+    private int advanceWithSetAhead(int sourceDepth)
     {
-        int rightTransition = src.incomingTransition();
-        int leftDepth = set.depth();
-        int leftTransition = set.incomingTransition();
-        if (rightDepth > leftDepth)
-            return coveredAreaWithSetAhead(rightDepth, rightTransition);
-        if (rightDepth == leftDepth)
+        int sourceTransition = src.incomingTransition();
+        int setDepth = set.depth();
+        int setTransition = set.incomingTransition();
+        if (sourceDepth > setDepth)
+            return coveredAreaWithSetAhead(sourceDepth, sourceTransition);
+        if (sourceDepth == setDepth)
         {
-            if (direction.lt(rightTransition, leftTransition))
-                return coveredAreaWithSetAhead(rightDepth, rightTransition);
-            if (rightTransition == leftTransition)
-                return matchingPosition(rightDepth, rightTransition);
+            if (direction.lt(sourceTransition, setTransition))
+                return coveredAreaWithSetAhead(sourceDepth, sourceTransition);
+            if (sourceTransition == setTransition)
+                return matchingPosition(sourceDepth, sourceTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
         if (src.precedingState() != null)
-            return coveredAreaWithSourceAhead(leftDepth, leftTransition);
+            return coveredAreaWithSourceAhead(setDepth, setTransition);
         else
-            return advanceSetToIntersection(rightDepth);
+            return advanceSetToIntersection(sourceDepth);
     }
 
-    private int advanceWithSourceAhead(int leftDepth)
+    private int advanceWithSourceAhead(int setDepth)
     {
-        int leftTransition = set.incomingTransition();
-        int rightDepth = src.depth();
-        int rightTransition = src.incomingTransition();
-        if (leftDepth > rightDepth)
-            return coveredAreaWithSourceAhead(leftDepth, leftTransition);
-        if (leftDepth == rightDepth)
+        int setTransition = set.incomingTransition();
+        int sourceDepth = src.depth();
+        int sourceTransition = src.incomingTransition();
+        if (setDepth > sourceDepth)
+            return coveredAreaWithSourceAhead(setDepth, setTransition);
+        if (setDepth == sourceDepth)
         {
-            if (direction.lt(leftTransition, rightTransition))
-                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
-            if (leftTransition == rightTransition)
-                return matchingPosition(leftDepth, leftTransition);
+            if (direction.lt(setTransition, sourceTransition))
+                return coveredAreaWithSourceAhead(setDepth, setTransition);
+            if (setTransition == sourceTransition)
+                return matchingPosition(setDepth, setTransition);
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
         if (set.precedingIncluded())
-            return coveredAreaWithSetAhead(rightDepth, rightTransition);
+            return coveredAreaWithSetAhead(sourceDepth, sourceTransition);
         else
-            return advanceSourceToIntersection(leftDepth);
+            return advanceSourceToIntersection(setDepth);
     }
 
-    private int advanceSourceToIntersection(int leftDepth)
+    private int advanceSourceToIntersection(int setDepth)
     {
-        int leftTransition = set.incomingTransition();
+        int setTransition = set.incomingTransition();
         while (true)
         {
-            // Set is ahead of right, but outside the covered area. Skip right to left's position.
-            int rightDepth = src.skipTo(leftDepth, leftTransition);
-            int rightTransition = src.incomingTransition();
-            if (rightDepth == leftDepth && rightTransition == leftTransition)
-                return matchingPosition(leftDepth, leftTransition);
+            // Set is ahead of source, but outside the covered area. Skip source to set's position.
+            int sourceDepth = src.skipTo(setDepth, setTransition);
+            int sourceTransition = src.incomingTransition();
+            if (sourceDepth == setDepth && sourceTransition == setTransition)
+                return matchingPosition(setDepth, setTransition);
             if (src.precedingState() != null)
-                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
+                return coveredAreaWithSourceAhead(setDepth, setTransition);
 
-            // Source is ahead of left, but outside the covered area. Skip left to right's position.
-            leftDepth = set.skipTo(rightDepth, rightTransition);
-            leftTransition = set.incomingTransition();
-            if (leftDepth == rightDepth && leftTransition == rightTransition)
-                return matchingPosition(rightDepth, rightTransition);
+            // Source is ahead of set, but outside the covered area. Skip set to source's position.
+            setDepth = set.skipTo(sourceDepth, sourceTransition);
+            setTransition = set.incomingTransition();
+            if (setDepth == sourceDepth && setTransition == sourceTransition)
+                return matchingPosition(sourceDepth, sourceTransition);
             if (set.precedingIncluded())
-                return coveredAreaWithSetAhead(rightDepth, rightTransition);
+                return coveredAreaWithSetAhead(sourceDepth, sourceTransition);
         }
     }
 
-    private int advanceSetToIntersection(int rightDepth)
+    private int advanceSetToIntersection(int sourceDepth)
     {
-        int rightTransition = src.incomingTransition();
+        int sourceTransition = src.incomingTransition();
         while (true)
         {
-            // Source is ahead of left, but outside the covered area. Skip left to right's position.
-            int leftDepth = set.skipTo(rightDepth, rightTransition);
-            int leftTransition = set.incomingTransition();
-            if (leftDepth == rightDepth && leftTransition == rightTransition)
-                return matchingPosition(rightDepth, rightTransition);
+            // Source is ahead of set, but outside the covered area. Skip set to source's position.
+            int setDepth = set.skipTo(sourceDepth, sourceTransition);
+            int setTransition = set.incomingTransition();
+            if (setDepth == sourceDepth && setTransition == sourceTransition)
+                return matchingPosition(sourceDepth, sourceTransition);
             if (set.precedingIncluded())
-                return coveredAreaWithSetAhead(rightDepth, rightTransition);
+                return coveredAreaWithSetAhead(sourceDepth, sourceTransition);
 
-            // Set is ahead of right, but outside the covered area. Skip right to left's position.
-            rightDepth = src.skipTo(leftDepth, leftTransition);
-            rightTransition = src.incomingTransition();
-            if (rightDepth == leftDepth && rightTransition == leftTransition)
-                return matchingPosition(leftDepth, leftTransition);
+            // Set is ahead of source, but outside the covered area. Skip source to set's position.
+            sourceDepth = src.skipTo(setDepth, setTransition);
+            sourceTransition = src.incomingTransition();
+            if (sourceDepth == setDepth && sourceTransition == setTransition)
+                return matchingPosition(setDepth, setTransition);
             if (src.precedingState() != null)
-                return coveredAreaWithSourceAhead(leftDepth, leftTransition);
+                return coveredAreaWithSourceAhead(setDepth, setTransition);
         }
     }
 
@@ -268,7 +268,8 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     {
         if (srcState == null)
             return null;
-        return srcState.restrict(setState.applicableBefore, setState.applicableAfter);
+        return srcState.restrict(setState.applicableBefore, setState.applicableAfter,
+                                 setState.branchIncluded() && setState != TrieSetCursor.RangeState.COVERED);
     }
 
     private int setState(State state, int depth, int transition, M cursorState)

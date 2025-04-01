@@ -53,17 +53,17 @@ public class RangeTrieIntersectionTest
 
     private TestRangeMarker from(int where, int value)
     {
-        return new TestRangeMarker(of(where), -1, value, value);
+        return new TestRangeMarker(of(where), -1, value, value, true);
     }
 
     private TestRangeMarker to(int where, int value)
     {
-        return new TestRangeMarker(of(where), value, -1, -1);
+        return new TestRangeMarker(of(where), value, -1, -1, true);
     }
 
     private TestRangeMarker change(int where, int from, int to)
     {
-        return new TestRangeMarker(of(where), from, to, to);
+        return new TestRangeMarker(of(where), from, to, to, true);
     }
 
     private TrieSet range(ByteComparable left, ByteComparable right)
@@ -224,6 +224,7 @@ public class RangeTrieIntersectionTest
 
     private void testIntersections(RangeTrie<TestRangeMarker> trie)
     {
+        System.out.println(trie.dump());
         testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
 
         TrieSet set1 = ranges(null, of(4), of(5), of(9), of(12), null);
@@ -251,6 +252,10 @@ public class RangeTrieIntersectionTest
                               .union(range(of(5), of(6)))
                               .union(range(of(7), of(8)))
                               .union(range(of(9), of(10)));
+
+        System.out.println("Set 0:\n" + set1.dump());
+        System.out.println("Set 1:\n" + set2.dump());
+        System.out.println("Set 2:\n" + set3.dump());
 
         testIntersections(trie, set1, set2, set3);
     }
@@ -303,7 +308,8 @@ public class RangeTrieIntersectionTest
             }
             catch (AssertionError e)
             {
-                System.out.println("\n" + trie.dump());
+                System.out.println("\nFORWARD:\n" + trie.dump());
+                System.out.println("\nREVERSE:\n" + trie.cursor(Direction.REVERSE).process(new TrieDumper<>(Object::toString)));
                 throw e;
             }
         }

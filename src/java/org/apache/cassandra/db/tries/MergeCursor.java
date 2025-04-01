@@ -190,8 +190,8 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         {
             if (!stateCollected)
             {
-                M state1 = c1.state();
-                M state2 = c2.state();
+                M state1 = atC1 ? c1.state() : c1.precedingState();
+                M state2 = atC2 ? c2.state() : c2.precedingState();
                 if (state1 == null)
                     return state2;
                 if (state2 == null)

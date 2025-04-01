@@ -98,14 +98,6 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
             return activeRange;
         }
 
-        @Override
-        public M precedingState()
-        {
-            if (!activeIsSet)
-                setActiveState();
-            return activeRange;
-        }
-
         private int updateActiveAndReturn(int depth)
         {
             if (depth < 0)
@@ -120,7 +112,7 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
             M content = content();
             if (content != null)
             {
-                activeRange = content.precedingState(direction);
+                activeRange = content;
                 prevContent = content;
                 activeIsSet = true;
             }
@@ -138,7 +130,7 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
         private void setActiveState()
         {
             assert content() == null;
-            M nearestContent = getFirstContent(currentFullNode);
+            M nearestContent = tailCursor(direction).advanceToContent(null);
             activeRange = nearestContent != null ? nearestContent.precedingState(direction) : null;
             prevContent = null;
             activeIsSet = true;
@@ -147,7 +139,7 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
         @Override
         public InMemoryRangeCursor tailCursor(Direction direction)
         {
-            InMemoryRangeCursor cursor = new InMemoryRangeCursor(direction, currentFullNode, -1, -1);
+            InMemoryRangeCursor cursor = new InMemoryRangeCursor(direction, currentFullNode, 0, -1);
             cursor.activeIsSet = false; // TODO: check this suffices
             return cursor;
         }
