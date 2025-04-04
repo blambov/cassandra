@@ -29,8 +29,10 @@ import java.util.TreeMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.*;
@@ -38,6 +40,12 @@ import static org.apache.cassandra.db.tries.MergeTrieTest.removeDuplicates;
 
 public class CollectionMergeTrieTest
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
     private static final int COUNT = 15000;
     private static final Random rand = new Random();
 

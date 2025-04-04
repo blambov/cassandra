@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -27,6 +28,8 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -38,6 +41,12 @@ import static org.junit.Assert.assertNotNull;
 
 public class RangesTrieSetTest
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
     static Trie<TrieSetCursor.RangeState> fullTrie(TrieSet s)
     {
         return dir -> new Cursor<>()

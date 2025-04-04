@@ -30,9 +30,11 @@ import java.util.stream.Collectors;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -47,6 +49,12 @@ import static org.junit.Assert.assertEquals;
 
 public class IntersectionTrieTest
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
     private static final int COUNT = 15000;
     Random rand = new Random();
     int seed = rand.nextInt();
