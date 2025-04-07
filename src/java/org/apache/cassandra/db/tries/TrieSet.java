@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 /// A trie that defines an infinite set of `ByteComparable`s. The convention of this package is that sets always
 /// include all boundaries, all prefixes that lead to a boundary, and all descendants of all boundaries. This is done
@@ -45,6 +46,29 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
     static TrieSet ranges(ByteComparable.Version version, ByteComparable... boundaries)
     {
         return dir -> new RangesCursor(dir, version, boundaries);
+    }
+
+    static TrieSet empty(ByteComparable.Version byteComparableVersion)
+    {
+        return dir -> TrieSetCursor.empty(dir, byteComparableVersion);
+    }
+
+    /// Returns true if the given key is contained in this set.
+    default boolean contains(ByteComparable key)
+    {
+        TrieSetCursor cursor = cursor(Direction.FORWARD);
+        final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
+        int next = bytes.next();
+        int depth = cursor.depth();
+        while (next != ByteSource.END_OF_STREAM)
+        {
+            if (cursor.branchIncluded())
+                return true; // The set covers a prefix of the key.
+            if (cursor.skipTo(++depth, next) != depth || cursor.incomingTransition() != next)
+                return cursor.state().precedingIncluded(Direction.FORWARD); // True if the key falls in a covered range.
+            next = bytes.next();
+        }
+        return true; // Key is a prefix of a boundary. These are treated as included.
     }
 
     default TrieSet union(TrieSet other)

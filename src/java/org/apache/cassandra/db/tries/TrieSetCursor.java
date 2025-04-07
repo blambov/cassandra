@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+
 /// The implementation of a [TrieSet].
 ///
 /// In addition to the functionality of normal trie cursors, set cursors also produce a [#state] that describes the
@@ -137,4 +139,38 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
 
     @Override
     TrieSetCursor tailCursor(Direction direction);
+
+    class Empty extends Cursor.Empty<RangeState> implements TrieSetCursor
+    {
+        final RangeState coveringState;
+
+        public Empty(RangeState coveringState, ByteComparable.Version version, Direction direction)
+        {
+            super(direction, version);
+            this.coveringState = coveringState;
+        }
+
+        @Override
+        public RangeState state()
+        {
+            return coveringState;
+        }
+
+        @Override
+        public RangeState content()
+        {
+            return null;
+        }
+
+        @Override
+        public TrieSetCursor tailCursor(Direction direction)
+        {
+            return new TrieSetCursor.Empty(coveringState, byteComparableVersion(), direction);
+        }
+    }
+
+    static TrieSetCursor empty(Direction direction, ByteComparable.Version version)
+    {
+        return new Empty(RangeState.START_END_PREFIX, version, direction);
+    }
 }

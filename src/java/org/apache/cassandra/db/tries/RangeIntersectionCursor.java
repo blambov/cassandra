@@ -105,6 +105,33 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     }
 
     @Override
+    public int advanceMultiple(Cursor.TransitionsReceiver receiver)
+    {
+        switch(state)
+        {
+            case MATCHING:
+            {
+                // Cannot do multi-advance when cursors are at the same position. Applying advance().
+                int ldepth = set.advance();
+                if (set.precedingIncluded())
+                    return advanceWithSetAhead(src.advance());
+                else
+                    return advanceSourceToIntersection(ldepth);
+            }
+            case SET_AHEAD:
+                return advanceWithSetAhead(src.advanceMultiple(receiver));
+            case SET_COVERED_BRANCH:
+                return advanceWithSetCovering(src.advanceMultiple(receiver));
+            case SOURCE_AHEAD:
+                return advanceWithSourceAhead(set.advanceMultiple(receiver));
+            case SOURCE_COVERED_BRANCH:
+                return advanceWithSourceCovering(set.advanceMultiple(receiver));
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
         switch(state)
@@ -159,33 +186,6 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             return advanceWithSetAhead(src.skipTo(skipDepth, skipTransition));
         else
             return advanceSourceToIntersection(ldepth);
-    }
-
-    @Override
-    public int advanceMultiple(Cursor.TransitionsReceiver receiver)
-    {
-        switch(state)
-        {
-            case MATCHING:
-            {
-                // Cannot do multi-advance when cursors are at the same position. Applying advance().
-                int ldepth = set.advance();
-                if (set.precedingIncluded())
-                    return advanceWithSetAhead(src.advance());
-                else
-                    return advanceSourceToIntersection(ldepth);
-            }
-            case SET_AHEAD:
-                return advanceWithSetAhead(src.advanceMultiple(receiver));
-            case SET_COVERED_BRANCH:
-                return advanceWithSetCovering(src.advanceMultiple(receiver));
-            case SOURCE_AHEAD:
-                return advanceWithSourceAhead(set.advanceMultiple(receiver));
-            case SOURCE_COVERED_BRANCH:
-                return advanceWithSourceCovering(set.advanceMultiple(receiver));
-            default:
-                throw new AssertionError();
-        }
     }
 
     private int advanceWithSetAhead(int sourceDepth)

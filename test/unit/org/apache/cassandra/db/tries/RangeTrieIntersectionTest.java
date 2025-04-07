@@ -398,8 +398,6 @@ public class RangeTrieIntersectionTest
 
     private void verifyEqualRangeTries(RangeTrie<TestRangeMarker> trie, RangeTrie<TestRangeMarker> expected)
     {
-        System.out.println("Expected:\n" + expected.dump(TestRangeMarker::toStringNoPosition));
-        System.out.println("Actual:\n" + trie.dump(TestRangeMarker::toStringNoPosition));
         assertMapEquals(Iterables.transform(trie.entrySet(Direction.FORWARD),
                                             en -> remap(en)),
                         expected.entrySet(Direction.FORWARD),

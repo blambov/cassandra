@@ -74,11 +74,7 @@ public class TrieSetNegatedCursor implements TrieSetCursor
         return source.skipTo(skipDepth, skipTransition);
     }
 
-    @Override
-    public int advanceMultiple(Cursor.TransitionsReceiver receiver)
-    {
-        return source.advanceMultiple(receiver);
-    }
+    // Sets don't implement advanceMultiple as they are only meant to limit data tries.
 
     @Override
     public TrieSetCursor tailCursor(Direction direction)

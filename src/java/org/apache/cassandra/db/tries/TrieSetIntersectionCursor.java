@@ -27,7 +27,9 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
     {
         MATCHING,
         C1_AHEAD,
-        C2_AHEAD;
+        C1_COVERED_BRANCH,
+        C2_AHEAD,
+        C2_COVERED_BRANCH;
 
         State swap()
         {
@@ -36,6 +38,19 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
                 case C1_AHEAD:
                     return C2_AHEAD;
                 case C2_AHEAD:
+                    return C1_AHEAD;
+                default:
+                    throw new AssertionError();
+            }
+        }
+
+        State swapAndConvertCoveringToAhead()
+        {
+            switch(this)
+            {
+                case C1_COVERED_BRANCH:
+                    return C2_AHEAD;
+                case C2_COVERED_BRANCH:
                     return C1_AHEAD;
                 default:
                     throw new AssertionError();
@@ -110,60 +125,19 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
             }
             case C1_AHEAD:
                 return advanceWithSetAhead(c2.advance(), c2, c1, state);
+            case C1_COVERED_BRANCH:
+                return advanceWithSetCovering(c2.advance(), c2, c1, state);
             case C2_AHEAD:
                 return advanceWithSetAhead(c1.advance(), c1, c2, state);
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    @Override
-    public int skipTo(int skipDepth, int skipTransition)
-    {
-        switch(state)
-        {
-            case MATCHING:
-            {
-                int ldepth = c1.skipTo(skipDepth, skipTransition);
-                if (precedingInSet(c1))
-                    return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, State.C1_AHEAD);
-                else
-                    return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
-            }
-            case C1_AHEAD:
-                return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, state);
-            case C2_AHEAD:
-                return advanceWithSetAhead(c1.skipTo(skipDepth, skipTransition), c1, c2, state);
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    @Override
-    public int advanceMultiple(Cursor.TransitionsReceiver receiver)
-    {
-        switch(state)
-        {
-            case MATCHING:
-            {
-                // Cannot do multi-advance when cursors are at the same position. Applying advance().
-                int ldepth = c1.advance();
-                if (precedingInSet(c1))
-                    return advanceWithSetAhead(c2.advance(), c2, c1, State.C1_AHEAD);
-                else
-                    return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
-            }
-            case C1_AHEAD:
-                return advanceWithSetAhead(c2.advanceMultiple(receiver), c2, c1, state);
-            case C2_AHEAD:
-                return advanceWithSetAhead(c1.advanceMultiple(receiver), c1, c2, state);
+            case C2_COVERED_BRANCH:
+                return advanceWithSetCovering(c1.advance(), c1, c2, state);
             default:
                 throw new AssertionError();
         }
     }
 
     /// Called to check the state and carry out any necessary advances in the case when the `ahead` cursor was known to
-    /// be ahead (and covering) before an operation was carried out to advance the `advancing` cursor.
+    /// be ahead before an operation was carried out to advance the `advancing` cursor.
     private int advanceWithSetAhead(int advDepth, TrieSetCursor advancing, TrieSetCursor ahead, State state)
     {
         int aheadDepth = ahead.depth();
@@ -184,6 +158,74 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
             return coveredAreaWithSetAhead(aheadDepth, aheadTransition, ahead, state.swap());
         else
             return advanceToIntersection(advDepth, advancing, ahead, state.swap());
+    }
+
+    /// Called to check the state and carry out any necessary advances in the case when the `ahead` cursor was known to
+    /// be covering the other branch before an operation was carried out to advance the `advancing` cursor.
+    private int advanceWithSetCovering(int advDepth, TrieSetCursor advancing, TrieSetCursor ahead, State state)
+    {
+        int aheadDepth = ahead.depth();
+        if (advDepth > aheadDepth)
+            return coveredAreaWithSetAhead(advDepth, advancing.incomingTransition(), advancing, state);
+
+        // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
+        if (advancing.precedingIncluded())
+        {
+            return coveredAreaWithSetAhead(ahead.advance(), ahead.incomingTransition(), ahead, state.swapAndConvertCoveringToAhead());
+        }
+        else
+            return advanceToIntersection(advDepth, advancing, ahead, state.swapAndConvertCoveringToAhead());
+    }
+
+    // Sets don't implement advanceMultiple as they are only meant to limit data tries.
+
+    @Override
+    public int skipTo(int skipDepth, int skipTransition)
+    {
+        switch(state)
+        {
+            case MATCHING:
+                return skipBoth(skipDepth, skipTransition);
+            case C1_AHEAD:
+                return skipWithSetAhead(skipDepth, skipTransition, c1, c2);
+            case C1_COVERED_BRANCH:
+                return skipWithSetCovering(skipDepth, skipTransition, c1, c2);
+            case C2_AHEAD:
+                return skipWithSetAhead(skipDepth, skipTransition, c2, c1);
+            case C2_COVERED_BRANCH:
+                return skipWithSetCovering(skipDepth, skipTransition, c2, c1);
+            default:
+                throw new AssertionError();
+        }
+    }
+
+    private int skipBoth(int skipDepth, int skipTransition)
+    {
+        int ldepth = c1.skipTo(skipDepth, skipTransition);
+        if (precedingInSet(c1))
+            return advanceWithSetAhead(c2.skipTo(skipDepth, skipTransition), c2, c1, State.C1_AHEAD);
+        else
+            return advanceToIntersection(ldepth, c1, c2, State.C1_AHEAD);
+    }
+
+    private int skipWithSetAhead(int skipDepth, int skipTransition, TrieSetCursor ahead, TrieSetCursor other)
+    {
+        // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+        int aheadDepth = ahead.depth();
+        if (aheadDepth < skipDepth || aheadDepth == skipDepth && direction.ge(ahead.incomingTransition(), skipTransition))
+            return advanceWithSetAhead(other.skipTo(skipDepth, skipTransition), other, ahead, state);
+        // otherwise we must perform a full advance
+        return skipBoth(skipDepth, skipTransition);
+    }
+
+    private int skipWithSetCovering(int skipDepth, int skipTransition, TrieSetCursor ahead, TrieSetCursor other)
+    {
+        // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+        int aheadDepth = ahead.depth();
+        if (aheadDepth < skipDepth)
+            return advanceWithSetCovering(other.skipTo(skipDepth, skipTransition), other, ahead, state);
+        // otherwise we must perform a full advance
+        return skipBoth(skipDepth, skipTransition);
     }
 
     /// Called to advance both cursors to an intersection. When called, the `ahead` cursor is known to be ahead of the
@@ -234,10 +276,12 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
         {
             // If one of the sets has this as a "branch included" position, setting it as ahead makes sure that
             // we return the other's content until it ascends above the current position.
+            // Note that because we don't allow intersections to result in boundaries that are prefixes of other
+            // boundaries, when the covered set returns above this point it can't have `precedingIncluded()` true.
             if (c1state.branchIncluded())
-                state = State.C1_AHEAD;
+                state = State.C1_COVERED_BRANCH;
             else
-                state = State.C2_AHEAD;
+                state = State.C2_COVERED_BRANCH;
         }
         else
             state = State.MATCHING;
@@ -257,8 +301,10 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
             case MATCHING:
                 return new TrieSetIntersectionCursor(c1.tailCursor(direction), c2.tailCursor(direction));
             case C1_AHEAD:
+            case C1_COVERED_BRANCH:
                 return c2.tailCursor(direction);
             case C2_AHEAD:
+            case C2_COVERED_BRANCH:
                 return c1.tailCursor(direction);
             default:
                 throw new AssertionError();

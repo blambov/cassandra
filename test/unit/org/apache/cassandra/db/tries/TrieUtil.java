@@ -368,6 +368,8 @@ public class TrieUtil
 
     static TrieSet directRanges(String... ranges)
     {
+        if (ranges.length == 0)
+            return TrieSet.empty(VERSION);
         return TrieSet.ranges(VERSION, Arrays.stream(ranges)
                                              .map(r -> directComparable(r))
                                              .toArray(ByteComparable[]::new));
