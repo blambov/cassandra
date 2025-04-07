@@ -224,16 +224,28 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
 
     private int matchingPosition(int depth, int transition)
     {
-        state = State.MATCHING;
+
         currentDepth = depth;
         currentTransition = transition;
-        currentRangeState = combineState(c1.state(), c2.state());
+        final RangeState c1state = c1.state();
+        final RangeState c2state = c2.state();
+        currentRangeState = combineState(c1state, c2state);
+        if (c1state.branchIncluded() != c2state.branchIncluded())
+        {
+            // If one of the sets has this as a "branch included" position, setting it as ahead makes sure that
+            // we return the other's content until it ascends above the current position.
+            if (c1state.branchIncluded())
+                state = State.C1_AHEAD;
+            else
+                state = State.C2_AHEAD;
+        }
+        else
+            state = State.MATCHING;
         return depth;
     }
 
     TrieSetCursor.RangeState combineState(TrieSetCursor.RangeState cl, TrieSetCursor.RangeState cr)
     {
-        assert cl.branchIncluded() == cr.branchIncluded() : "Intersection results in a prefix range";
         return cl.intersect(cr);
     }
 

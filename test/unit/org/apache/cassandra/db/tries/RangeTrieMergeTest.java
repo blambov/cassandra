@@ -361,7 +361,7 @@ public class RangeTrieMergeTest
         try
         {
             InMemoryRangeTrie<TestRangeMarker> dupe = InMemoryRangeTrie.shortLived(TrieUtil.VERSION);
-            dupe.apply(trie, this::upsertMarkers);
+            dupe.apply(trie, this::upsertMarkers, x -> false);
             return dupe;
         }
         catch (TrieSpaceExhaustedException e)
@@ -400,7 +400,7 @@ public class RangeTrieMergeTest
                     List<TestRangeMarker> ranges = sets[toRemove];
                     System.out.println("Adding:  " + ranges);
                     InMemoryRangeTrie<TestRangeMarker> dupe = duplicateTrie(trie);
-                    dupe.apply(fromList(ranges), this::upsertMarkers);
+                    dupe.apply(fromList(ranges), this::upsertMarkers, x -> false);
                     testMergeToInMemoryTrie(message + " " + toRemove,
                                             dupe,
                                             mergeLists(merged, ranges),

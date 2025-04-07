@@ -32,6 +32,8 @@ interface RangeMarker<M extends RangeMarker<M>>
     M toContent();
     /// Returns the range that applies to the positions preceding this marker in the given iteration order.
     M precedingState(Direction direction);
+    /// Returns the range that fully applies to the branch containing this marker.
+    M branchState();
 
     /// Returns an intersected version of this marker, which may drop parts of the marker that are not covered by the
     /// intersecting range.

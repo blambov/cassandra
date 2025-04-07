@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -355,6 +356,21 @@ public class TrieUtil
                 bytes[p++] = (byte) r2.nextInt(256);
         }
         return v -> ByteSource.withTerminator(terminator, ByteSource.of(bytes, v));
+    }
+
+    static Trie<String> directTrie(String... points) throws TrieSpaceExhaustedException
+    {
+        InMemoryTrie<String> trie = InMemoryTrie.shortLived(VERSION);
+        for (String s : points)
+            trie.putRecursive(directComparable(s), s, (ex, n) -> n);
+        return trie;
+    }
+
+    static TrieSet directRanges(String... ranges)
+    {
+        return TrieSet.ranges(VERSION, Arrays.stream(ranges)
+                                             .map(r -> directComparable(r))
+                                             .toArray(ByteComparable[]::new));
     }
 
     static class SwappedLastByte implements ByteSource

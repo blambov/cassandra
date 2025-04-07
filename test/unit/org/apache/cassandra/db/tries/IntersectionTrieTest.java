@@ -514,4 +514,44 @@ public class IntersectionTrieTest
             throw new AssertionError(e);
         }
     }
+
+    @Test
+    public void testReturnsContentOnPrefix() throws TrieSpaceExhaustedException
+    {
+        TrieSet set = TrieSet.singleton(VERSION, TrieUtil.directComparable("abc"));
+        Trie<String> trie = TrieUtil.directTrie("a", "aa", "ab", "abc", "cd");
+        Trie<String> expected = TrieUtil.directTrie("a", "ab", "abc");
+        assertMapEquals(expected.entrySet(Direction.FORWARD), trie.intersect(set).entrySet(Direction.FORWARD), TrieUtil.FORWARD_COMPARATOR);
+        assertMapEquals(expected.entrySet(Direction.REVERSE), trie.intersect(set).entrySet(Direction.REVERSE), TrieUtil.REVERSE_COMPARATOR);
+        assertEquals(expected.process(Direction.FORWARD, new TrieDumper<>(Object::toString)), trie.intersect(set).dump());
+    }
+
+    @Test
+    public void testReturnsBranchContents() throws TrieSpaceExhaustedException
+    {
+        TrieSet set = TrieSet.singleton(VERSION, TrieUtil.directComparable("abc"));
+        Trie<String> trie = TrieUtil.directTrie("aaa", "abc", "abce", "abcfff", "bcd");
+        Trie<String> expected = TrieUtil.directTrie("abc", "abce", "abcfff");
+        assertMapEquals(expected.entrySet(Direction.FORWARD), trie.intersect(set).entrySet(Direction.FORWARD), TrieUtil.FORWARD_COMPARATOR);
+        assertMapEquals(expected.entrySet(Direction.REVERSE), trie.intersect(set).entrySet(Direction.REVERSE), TrieUtil.REVERSE_COMPARATOR);
+        assertEquals(expected.process(Direction.FORWARD, new TrieDumper<>(Object::toString)), trie.intersect(set).dump());
+    }
+
+    @Test
+    public void testRangeUnderCoveredBranch() throws TrieSpaceExhaustedException
+    {
+        TrieSet set1 = TrieSet.singleton(VERSION, TrieUtil.directComparable("b"));
+        TrieSet set2 = TrieUtil.directRanges("aa", "ab", "bc", "bd", "ce", "cf");
+        TrieSet expected = TrieUtil.directRanges("bc", "bd");
+        assertEquals(expected.dump(), set1.intersection(set2).dump());
+    }
+
+    @Test
+    public void testRangeUnderCoveredRoot() throws TrieSpaceExhaustedException
+    {
+        TrieSet set1 = TrieSet.singleton(VERSION, ByteComparable.EMPTY);
+        TrieSet set2 = TrieUtil.directRanges("aa", "ab", "bc", "bd", "ce", "cf");
+        TrieSet expected = set2;
+        assertEquals(expected.dump(), set1.intersection(set2).dump());
+    }
 }

@@ -20,10 +20,12 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -121,6 +123,19 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
                (isReportableState ? "" : " not reportable");
     }
 
+    public String toStringNoPosition()
+    {
+        boolean hasAt = at >= 0 && at != leftSide && at != rightSide;
+        String left = leftSide != at ? "<" : "<=";
+        String right = rightSide != at ? "<" : "<=";
+
+        return (leftSide >= 0 ? leftSide + left : "") +
+               'X' +
+               (hasAt ? "=" + at : "") +
+               (rightSide >= 0 ? right + rightSide : "") +
+               (isReportableState ? "" : " not reportable");
+    }
+
     @Override
     public TestRangeMarker toContent()
     {
@@ -139,11 +154,21 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     }
 
     @Override
+    public TestRangeMarker branchState()
+    {
+        if (leftSide == rightSide && leftSide == at && !isReportableState)
+            return this;
+        if (!isReportableState || at < 0)
+            return null;
+        return new TestRangeMarker(position, at, at, at, false);
+    }
+
+    @Override
     public TestRangeMarker restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
     {
         if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)) && (!convertCoveringToReported || isReportableState))
             return this;
-        int newAt = applicableAfter ? at : -1;
+        int newAt = isReportableState || convertCoveringToReported ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
         if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
@@ -190,6 +215,11 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     static TestRangeMarker remap(TestRangeMarker dm, ByteComparable newKey)
     {
         return new TestRangeMarker(newKey, dm.leftSide, dm.at, dm.rightSide, dm.isReportableState);
+    }
+
+    static Map.Entry<ByteComparable, TestRangeMarker> remap(Map.Entry<ByteComparable, TestRangeMarker> entry)
+    {
+        return Maps.immutableEntry(entry.getKey(), remap(entry.getValue(), entry.getKey()));
     }
 
     static InMemoryRangeTrie<TestRangeMarker> fromList(List<TestRangeMarker> list)

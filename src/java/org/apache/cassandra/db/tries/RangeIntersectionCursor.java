@@ -26,7 +26,9 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     {
         MATCHING,
         SET_AHEAD,
-        SOURCE_AHEAD;
+        SET_COVERED_BRANCH,
+        SOURCE_AHEAD,
+        SOURCE_COVERED_BRANCH;
     }
 
     final Direction direction;
@@ -35,6 +37,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     int currentDepth;
     int currentTransition;
     M currentState;
+    M sourceAheadCoveringState;
     State state;
 
     public RangeIntersectionCursor(RangeCursor<M> src, TrieSetCursor set)
@@ -90,8 +93,12 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             }
             case SET_AHEAD:
                 return advanceWithSetAhead(src.advance());
+            case SET_COVERED_BRANCH:
+                return advanceWithSetCovering(src.advance());
             case SOURCE_AHEAD:
                 return advanceWithSourceAhead(set.advance());
+            case SOURCE_COVERED_BRANCH:
+                return advanceWithSourceCovering(set.advance());
             default:
                 throw new AssertionError();
         }
@@ -113,12 +120,30 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
             }
+            case SET_COVERED_BRANCH:
+            {
+                // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+                int setDepth = set.depth();
+                if (setDepth < skipDepth)
+                    return advanceWithSetCovering(src.skipTo(skipDepth, skipTransition));
+                // otherwise we must perform a full advance
+                return skipBoth(skipDepth, skipTransition);
+            }
             case SOURCE_AHEAD:
             {
                 // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
                 int sourceDepth = src.depth();
                 if (sourceDepth < skipDepth || sourceDepth == skipDepth && direction.ge(src.incomingTransition(), skipTransition))
                     return advanceWithSourceAhead(set.skipTo(skipDepth, skipTransition));
+                // otherwise we must perform a full advance
+                return skipBoth(skipDepth, skipTransition);
+            }
+            case SOURCE_COVERED_BRANCH:
+            {
+                // if the cursor ahead is at the skip point or beyond, we can advance the other cursor to the skip point
+                int sourceDepth = src.depth();
+                if (sourceDepth < skipDepth)
+                    return advanceWithSourceCovering(set.skipTo(skipDepth, skipTransition));
                 // otherwise we must perform a full advance
                 return skipBoth(skipDepth, skipTransition);
             }
@@ -152,8 +177,12 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             }
             case SET_AHEAD:
                 return advanceWithSetAhead(src.advanceMultiple(receiver));
+            case SET_COVERED_BRANCH:
+                return advanceWithSetCovering(src.advanceMultiple(receiver));
             case SOURCE_AHEAD:
                 return advanceWithSourceAhead(set.advanceMultiple(receiver));
+            case SOURCE_COVERED_BRANCH:
+                return advanceWithSourceCovering(set.advanceMultiple(receiver));
             default:
                 throw new AssertionError();
         }
@@ -175,8 +204,21 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
         }
 
         // Advancing cursor moved beyond the ahead cursor. Check if roles have reversed.
-        if (src.precedingState() != null)
+        if (applicableSourcePrecedingState())
             return coveredAreaWithSourceAhead(setDepth, setTransition);
+        else
+            return advanceSetToIntersection(sourceDepth);
+    }
+
+    private int advanceWithSetCovering(int sourceDepth)
+    {
+        int sourceTransition = src.incomingTransition();
+        int setDepth = set.depth();
+        if (sourceDepth > setDepth)
+            return coveredAreaWithSetCovering(sourceDepth, sourceTransition);
+
+        if (applicableSourcePrecedingState())
+            return advanceWithSourceAhead(set.advance()); // We need to advance the set from the covering position.
         else
             return advanceSetToIntersection(sourceDepth);
     }
@@ -203,6 +245,19 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             return advanceSourceToIntersection(setDepth);
     }
 
+    private int advanceWithSourceCovering(int setDepth)
+    {
+        int setTransition = set.incomingTransition();
+        int sourceDepth = src.depth();
+        if (setDepth > sourceDepth)
+            return coveredAreaWithSourceCovering(setDepth, setTransition);
+
+        if (set.precedingIncluded())
+            return advanceWithSetAhead(src.advance()); // We need to advance the source from the covering position.
+        else
+            return advanceSourceToIntersection(setDepth);
+    }
+
     private int advanceSourceToIntersection(int setDepth)
     {
         int setTransition = set.incomingTransition();
@@ -213,7 +268,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             int sourceTransition = src.incomingTransition();
             if (sourceDepth == setDepth && sourceTransition == setTransition)
                 return matchingPosition(setDepth, setTransition);
-            if (src.precedingState() != null)
+            if (applicableSourcePrecedingState())
                 return coveredAreaWithSourceAhead(setDepth, setTransition);
 
             // Source is ahead of set, but outside the covered area. Skip set to source's position.
@@ -244,9 +299,18 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             sourceTransition = src.incomingTransition();
             if (sourceDepth == setDepth && sourceTransition == setTransition)
                 return matchingPosition(setDepth, setTransition);
-            if (src.precedingState() != null)
+            if (applicableSourcePrecedingState())
                 return coveredAreaWithSourceAhead(setDepth, setTransition);
         }
+    }
+
+    private boolean applicableSourcePrecedingState()
+    {
+        final M precedingState = src.precedingState();
+        if (precedingState == null)
+            return false;
+        sourceAheadCoveringState = precedingState;
+        return true;
     }
 
     private int coveredAreaWithSetAhead(int depth, int transition)
@@ -254,14 +318,49 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
         return setState(State.SET_AHEAD, depth, transition, src.state());
     }
 
+    private int coveredAreaWithSetCovering(int depth, int transition)
+    {
+        return setState(State.SET_COVERED_BRANCH, depth, transition, src.state());
+    }
+
     private int coveredAreaWithSourceAhead(int depth, int transition)
     {
-        return setState(State.SOURCE_AHEAD, depth, transition, restrict(src.precedingState(), set.state()));
+        return setState(State.SOURCE_AHEAD, depth, transition, restrict(sourceAheadCoveringState, set.state()));
+    }
+
+    private int coveredAreaWithSourceCovering(int depth, int transition)
+    {
+        return setState(State.SOURCE_COVERED_BRANCH, depth, transition, restrict(sourceAheadCoveringState, set.state()));
     }
 
     private int matchingPosition(int depth, int transition)
     {
-        return setState(State.MATCHING, depth, transition, restrict(src.state(), set.state()));
+        final M srcState = src.state();
+        final TrieSetCursor.RangeState setState = set.state();
+        boolean setBoundary = setState.branchIncluded();
+        boolean srcBoundary = srcState != null && srcState.toContent() != null;
+        if (srcBoundary == setBoundary)
+            return setState(State.MATCHING, depth, transition, restrict(srcState, setState));
+
+        if (srcBoundary)
+        {
+            // source is a boundary position, set is not, and may descend below this point
+            assert setState.precedingIncluded(Direction.FORWARD) == setState.precedingIncluded(Direction.REVERSE)
+               : "Intersection results in prefix restriction";
+            sourceAheadCoveringState = srcState.branchState();
+            // Note: It is tempting to advance the source and use SOURCE_AHEAD, but when we leave this branch we need to
+            // switch the covering state from branchState to the next precedingState, which may be different.
+            return setState(State.SOURCE_COVERED_BRANCH, depth, transition, restrict(sourceAheadCoveringState, setState));
+        }
+        else
+        {
+            // set is a boundary position, src is not, and may descend below this point
+            assert srcState == null || srcState.precedingState(Direction.FORWARD) == srcState.precedingState(Direction.REVERSE)
+                : "Intersection results in prefix restriction";
+            // Note: It is tempting to advance the set and use SET_AHEAD, but when we leave this branch we may no longer
+            // be inside the set (this will be the case if precedingIncluded(REVERSE) is not true).
+            return setState(State.SET_COVERED_BRANCH, depth, transition, restrict(srcState, setState));
+        }
     }
 
     private M restrict(M srcState, TrieSetCursor.RangeState setState)
@@ -289,9 +388,12 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             case MATCHING:
                 return new RangeIntersectionCursor<>(src.tailCursor(direction), set.tailCursor(direction));
             case SET_AHEAD:
+            case SET_COVERED_BRANCH:
                 return src.tailCursor(direction);
             case SOURCE_AHEAD:
                 return new RangeIntersectionCursor<>(src.precedingStateCursor(direction), set.tailCursor(direction));
+            case SOURCE_COVERED_BRANCH:
+                return new RangeIntersectionCursor<>(src.branchStateCursor(direction), set.tailCursor(direction));
             default:
                 throw new AssertionError();
         }

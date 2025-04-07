@@ -115,10 +115,10 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     {
         try
         {
-            Mutation<T, U> m = new Mutation<>(transformer,
-                                              needsForcedCopy,
-                                              mutation.cursor(Direction.FORWARD),
-                                              applyState.start());
+            Mutation<T, U, Cursor<U>> m = new Mutation<>(transformer,
+                                                         needsForcedCopy,
+                                                         mutation.cursor(Direction.FORWARD),
+                                                         applyState.start());
             m.apply();
             m.complete();
             completeMutation();

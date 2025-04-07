@@ -1033,6 +1033,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             data[currentDepth * 5 + 1] = value;
         }
+        int existingPostContentNodeAtDepth(int stackDepth)
+        {
+            return data[stackDepth * 5 + 1];
+        }
 
         /// The updated node, i.e. the node to which the relevant modifications are being applied. This will change as
         /// children are processed and attached to the node. After all children have been processed, this will contain
@@ -1193,7 +1197,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             {
                 releaseContent(contentId);
                 setContentId(NONE);
-                // TODO: Delete on the way up, possible downgrades?
             }
             else if (content == InMemoryBaseTrie.this.getContent(contentId))
             {
@@ -1218,10 +1221,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             int node = NONE;
             setTransition(-1);      // In the node we have just descended to, start with its first child
             for (; stackPos >= 0 && node == NONE; --stackPos)
-            {
-                // TODO: accelerate this, especially going through prefix nodes
-                node = getNextChild(existingFullNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
-            }
+                node = getNextChild(existingPostContentNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
 
             while (node != NONE)
             {
@@ -1491,17 +1491,17 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         T content();
     }
 
-    static class Mutation<T, U> implements NodeFeatures<U>
+    static class Mutation<T, U, C extends Cursor<U>> implements NodeFeatures<U>
     {
         final UpsertTransformerWithKeyProducer<T, U> transformer;
         final Predicate<NodeFeatures<U>> needsForcedCopy;
-        final Cursor<U> mutationCursor;
+        final C mutationCursor;
         final InMemoryBaseTrie<T>.ApplyState state;
         int forcedCopyDepth;
 
         Mutation(UpsertTransformerWithKeyProducer<T, U> transformer,
                  Predicate<NodeFeatures<U>> needsForcedCopy,
-                 Cursor<U> mutationCursor,
+                 C mutationCursor,
                  InMemoryBaseTrie<T>.ApplyState state)
         {
             assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
@@ -1510,6 +1510,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             this.needsForcedCopy = needsForcedCopy;
             this.mutationCursor = mutationCursor;
             this.state = state;
+            this.forcedCopyDepth = Integer.MAX_VALUE;
         }
 
         void apply() throws TrieSpaceExhaustedException

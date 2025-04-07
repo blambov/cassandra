@@ -68,12 +68,12 @@ public class RangeTrieIntersectionWithPointsTest
 
     private TestRangeMarker to(int where, int value)
     {
-        return new TestRangeMarker(of(where), value, -1, -1, true);
+        return new TestRangeMarker(of(where), value, value, -1, true);
     }
 
-    private TestRangeMarker change(int where, int from, int to)
+    private TestRangeMarker change(int where, int from, int at, int to)
     {
-        return new TestRangeMarker(of(where), from, to, to, true);
+        return new TestRangeMarker(of(where), from, at, to, true);
     }
 
     private TestRangeMarker point(int where, int value)
@@ -215,7 +215,7 @@ public class RangeTrieIntersectionWithPointsTest
     {
         return asList(point(17, 20),
                       from(21, 10), pointInside(22, 21, 10), to(24, 10),
-                      from(26, 11), change(28, 11, 12).withPoint(22), to(30, 12), 
+                      from(26, 11), change(28, 11, 12,12).withPoint(22), to(30, 12),
                       from(33, 13).withPoint(23), to(34, 13),
                       from(36, 14), to(38, 14).withPoint(24));
     }
@@ -386,7 +386,7 @@ public class RangeTrieIntersectionWithPointsTest
                 else if (active >= 0) // cmp > 0, must covert active to marker
                 {
                     if ((rangeIndex & 1) != 0)
-                        result.add(new TestRangeMarker(nextRange, active, -1, -1, true));
+                        result.add(new TestRangeMarker(nextRange, active, active, -1, true));
                     else
                         result.add(new TestRangeMarker(nextRange, -1, active, active, true));
                 }

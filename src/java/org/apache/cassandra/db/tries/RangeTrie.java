@@ -19,7 +19,9 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.function.BiFunction;
+
+import com.google.common.base.Preconditions;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCursor<M>, RangeTrie<M>>
@@ -29,12 +31,22 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
         return cursor(direction).process(walker);
     }
 
-    /**
-     * Returns a singleton trie mapping the given byte path to content.
-     */
-    static <T extends RangeMarker<T>> RangeTrie<T> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
+    /// Returns a singleton range trie covering the given branch.
+    static <M extends RangeMarker<M>> RangeTrie<M> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, M v)
     {
+        Preconditions.checkArgument(v.toContent() == v);
+//        Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
+//        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
         return dir -> new SingletonCursor.Range<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
+    }
+
+    /// Returns a range trie covering a single range.
+    static <M extends RangeMarker<M>> RangeTrie<M> range(ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, M v)
+    {
+//        Preconditions.checkArgument(v.toContent() == v);
+//        Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
+//        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
+        return singleton(ByteComparable.EMPTY, byteComparableVersion, v).intersect(TrieSet.range(byteComparableVersion, left, right));
     }
 
     @Override

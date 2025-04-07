@@ -32,7 +32,7 @@ interface RangeCursor<M extends RangeMarker<M>> extends Cursor<M>
     /// null. This is the range that is active at (i.e. covers) a position that was skipped to, when the range trie
     /// jumps past the requested position or does not have content.
     /// Cannot be a reportable range (i.e. `precedingState().toContent()` must be null) and must be return itself
-    /// for its `precedingState` in both directions.
+    /// for its `precedingState` in both directions and `branchState`.
     /// Note that this may also be non-null when the cursor is in an exhausted state, as well as immediately
     /// after cursor construction, signifying, respectively, right and left unbounded ranges.
     default M precedingState()
@@ -42,6 +42,22 @@ interface RangeCursor<M extends RangeMarker<M>> extends Cursor<M>
             return null;
         return state.precedingState(direction());
     }
+
+    /// Returns a range that applies to all positions below this branch, including this position if `content()` is
+    /// null. This is the range that is active at (i.e. covers) a position that was skipped to, when the range trie
+    /// jumps past the requested position or does not have content.
+    /// Cannot be a reportable range (i.e. `precedingState().toContent()` must be null) and must be return itself
+    /// for its `precedingState` in both directions and `branchState`.
+    /// Note that this may also be non-null immediately after cursor construction, signifying a range that covers the
+    /// whole space (used e.g. by [RangeTrie#range]).
+    default M branchState()
+    {
+        final M state = state();
+        if (state == null)
+            return null;
+        return state.branchState();
+    }
+
 
     /// Content is only returned for positions where the ranges change.
     /// Note that if `content()` is non-null, `precedingState()` does not apply to this exact position.
@@ -62,6 +78,13 @@ interface RangeCursor<M extends RangeMarker<M>> extends Cursor<M>
     default RangeCursor<M> precedingStateCursor(Direction direction)
     {
         return new Empty<>(precedingState(), byteComparableVersion(), direction);
+    }
+
+    /// Corresponding method to tailCursor above applicable when this cursor is covering an included branch.
+    /// Returns a full-range cursor returning precedingState().
+    default RangeCursor<M> branchStateCursor(Direction direction)
+    {
+        return new Empty<>(branchState(), byteComparableVersion(), direction);
     }
 
     class Empty<M extends RangeMarker<M>> extends Cursor.Empty<M> implements RangeCursor<M>
