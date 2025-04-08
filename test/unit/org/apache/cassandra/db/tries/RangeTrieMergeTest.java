@@ -313,8 +313,8 @@ public class RangeTrieMergeTest
     public final void testMerge(String message, List<TestRangeMarker>... sets)
     {
         List<TestRangeMarker> testRanges = getTestRanges();
-//        testMerge(message, fromList(testRanges), testRanges, sets);
-//        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMerge(message, fromList(testRanges), testRanges, sets);
+        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
         testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
     }
 
@@ -548,5 +548,20 @@ public class RangeTrieMergeTest
         if (value == null)
             return;
         list.add(value);
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testRangeUnderCoveredBranchPoint()
+    {
+        String[] ranges1 = {"bb", "bb"};
+        String[] ranges2 = {"aa", "ab", "bbc", "bbd", "bbfff", "bbfff", "bce", "bcf", "ce", "cf"};
+        // It is in theory possible to define this, because "bb" introduces a deletion in both forward and reverse
+        // direction. Other variations, as the ones tested by RangeTrieIntersectionTest are also possible.
+        // We don't currently handle this, however, but we should identify it and throw an exception.
+        var list = toList(RangeTrie.merge(List.of(TrieUtil.directRangeTrie(1, ranges1),
+                                                  TrieUtil.directRangeTrie(2, ranges2)),
+                                          TestRangeMarker::combineCollection),
+                          Direction.FORWARD);
+        System.out.println(list);
     }
 }

@@ -38,6 +38,7 @@ import java.util.stream.IntStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.collect.HashMultiset;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
@@ -48,6 +49,7 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
+import static org.apache.cassandra.db.tries.TestRangeMarker.remap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -378,6 +380,55 @@ public class TrieUtil
         return TrieSet.ranges(VERSION, Arrays.stream(ranges)
                                              .map(r -> directComparable(r))
                                              .toArray(ByteComparable[]::new));
+    }
+
+    static RangeTrie<TestRangeMarker> directRangeTrie(String... keys)
+    {
+        return directRangeTrie(1, keys);
+    }
+
+    static RangeTrie<TestRangeMarker> directRangeTrie(int value, String... keys)
+    {
+        if (keys.length == 0)
+            return RangeTrie.empty(VERSION);
+        if (keys.length == 2 && Objects.equal(keys[0], keys[1]))
+        {
+            // special case to make a singleton trie
+            ByteComparable bc = directComparable(keys[0]);
+            return RangeTrie.singleton(bc, VERSION, new TestRangeMarker(bc, -1, value, -1, true));
+        }
+
+        try
+        {
+            InMemoryRangeTrie<TestRangeMarker> trie = InMemoryRangeTrie.shortLived(VERSION);
+            boolean left = true;
+            for (String s : keys)
+            {
+                trie.putRecursive(directComparable(s),
+                                  new TestRangeMarker(directComparable(s), left ? -1 : value, value, left ? value : -1, true),
+                                  (e, n) -> e != null ? e.restrict(n.leftSide >= 0, n.rightSide >= 0, n.isReportableState) : n);
+                left = !left;
+            }
+            return trie;
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new AssertionError(e); // we are not inserting that much data
+        }
+    }
+
+    static void verifyEqualRangeTries(RangeTrie<TestRangeMarker> trie, RangeTrie<TestRangeMarker> expected)
+    {
+//        System.out.println("Trie:\n" + trie.dump(TestRangeMarker::toStringNoPosition));
+//        System.out.println("Expected:\n" + expected.cursor(Direction.FORWARD).process(new TrieDumper<>(TestRangeMarker::toStringNoPosition)));
+        assertMapEquals(Iterables.transform(trie.entrySet(Direction.FORWARD),
+                                            en -> remap(en)),
+                        expected.entrySet(Direction.FORWARD),
+                        FORWARD_COMPARATOR);
+        assertMapEquals(Iterables.transform(trie.entrySet(Direction.REVERSE),
+                                            en -> remap(en)),
+                        expected.entrySet(Direction.REVERSE),
+                        REVERSE_COMPARATOR);
     }
 
     static class SwappedLastByte implements ByteSource
