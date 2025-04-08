@@ -370,6 +370,11 @@ public class TrieUtil
     {
         if (ranges.length == 0)
             return TrieSet.empty(VERSION);
+
+        // to test singleton too, special case two equal boundaries
+        if (ranges.length == 2 && Objects.equal(ranges[0], ranges[1]))
+            return TrieSet.singleton(VERSION, directComparable(ranges[0]));
+
         return TrieSet.ranges(VERSION, Arrays.stream(ranges)
                                              .map(r -> directComparable(r))
                                              .toArray(ByteComparable[]::new));

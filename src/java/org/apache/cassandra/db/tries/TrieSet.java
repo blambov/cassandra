@@ -53,8 +53,30 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
         return dir -> TrieSetCursor.empty(dir, byteComparableVersion);
     }
 
-    /// Returns true if the given key is contained in this set.
-    default boolean contains(ByteComparable key)
+    /// Returns true if the given key is strictly contained in this set, i.e. it falls inside a covered range or branch.
+    /// This excludes prefixes of set boundaries.
+    default boolean strictlyContains(ByteComparable key)
+    {
+        return contains(key) == ContainsResult.CONTAINED;
+    }
+
+    /// Returns true if the given key is weaky contained in this set, i.e. it falls inside a covered range or branch, or
+    /// is a prefix of a set boundary.
+    default boolean weaklyContains(ByteComparable key)
+    {
+        return contains(key) != ContainsResult.NOT_CONTAINED;
+    }
+
+    enum ContainsResult
+    {
+        CONTAINED,
+        PREFIX,
+        NOT_CONTAINED
+    }
+
+    /// Returns whether the given key is contained in this set. Returns CONTAINED if it falls inside a covered range or
+    /// branch, PREFIX if it is a prefix of a set boundary, and NOT_CONTAINED if it is not contained in the set at all.
+    default ContainsResult contains(ByteComparable key)
     {
         TrieSetCursor cursor = cursor(Direction.FORWARD);
         final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
@@ -63,12 +85,13 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
         while (next != ByteSource.END_OF_STREAM)
         {
             if (cursor.branchIncluded())
-                return true; // The set covers a prefix of the key.
+                return ContainsResult.CONTAINED; // The set covers a prefix of the key.
             if (cursor.skipTo(++depth, next) != depth || cursor.incomingTransition() != next)
-                return cursor.state().precedingIncluded(Direction.FORWARD); // True if the key falls in a covered range.
+                return cursor.state().precedingIncluded(Direction.FORWARD) ? ContainsResult.CONTAINED
+                                                                           : ContainsResult.NOT_CONTAINED;
             next = bytes.next();
         }
-        return true; // Key is a prefix of a boundary. These are treated as included.
+        return cursor.branchIncluded() ? ContainsResult.CONTAINED : ContainsResult.PREFIX;
     }
 
     default TrieSet union(TrieSet other)

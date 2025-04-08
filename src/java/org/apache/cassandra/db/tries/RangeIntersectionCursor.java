@@ -345,8 +345,6 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
         if (srcBoundary)
         {
             // source is a boundary position, set is not, and may descend below this point
-            assert setState.precedingIncluded(Direction.FORWARD) == setState.precedingIncluded(Direction.REVERSE)
-               : "Intersection results in prefix restriction";
             sourceAheadCoveringState = srcState.branchState();
             // Note: It is tempting to advance the source and use SOURCE_AHEAD, but when we leave this branch we need to
             // switch the covering state from branchState to the next precedingState, which may be different.
@@ -355,11 +353,10 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
         else
         {
             // set is a boundary position, src is not, and may descend below this point
-            assert srcState == null || srcState.precedingState(Direction.FORWARD) == srcState.precedingState(Direction.REVERSE)
-                : "Intersection results in prefix restriction";
             // Note: It is tempting to advance the set and use SET_AHEAD, but when we leave this branch we may no longer
             // be inside the set (this will be the case if precedingIncluded(REVERSE) is not true).
-            return setState(State.SET_COVERED_BRANCH, depth, transition, restrict(srcState, setState));
+            // Since the branch is fully covered, there is no need to restrict the source state.
+            return setState(State.SET_COVERED_BRANCH, depth, transition, srcState);
         }
     }
 
@@ -367,8 +364,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     {
         if (srcState == null)
             return null;
-        return srcState.restrict(setState.applicableBefore, setState.applicableAfter,
-                                 setState.branchIncluded() && setState != TrieSetCursor.RangeState.COVERED);
+        return srcState.restrict(setState.applicableBefore, setState.applicableAfter, setState.branchIncluded());
     }
 
     private int setState(State state, int depth, int transition, M cursorState)

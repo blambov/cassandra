@@ -208,8 +208,14 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     static List<TestRangeMarker> toList(RangeTrie<TestRangeMarker> trie, Direction direction)
     {
         return Streams.stream(trie.entryIterator(direction))
+                      .filter(en -> en.getValue().isEffective())
                       .map(en -> remap(en.getValue(), en.getKey()))
                       .collect(Collectors.toList());
+    }
+
+    private boolean isEffective()
+    {
+        return (leftSide >= 0 || rightSide >= 0 || at >= 0) && (leftSide != rightSide || leftSide != at);
     }
 
     static TestRangeMarker remap(TestRangeMarker dm, ByteComparable newKey)

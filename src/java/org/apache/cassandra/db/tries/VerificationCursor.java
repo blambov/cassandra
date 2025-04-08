@@ -348,6 +348,12 @@ public interface VerificationCursor
             nextPrecedingIncluded = currentPrecedingIncluded;
             return verifyState(depth);
         }
+
+        @Override
+        public String toString()
+        {
+            return super.toString() + " state " + state();
+        }
     }
 
     class Range<M extends RangeMarker<M>>

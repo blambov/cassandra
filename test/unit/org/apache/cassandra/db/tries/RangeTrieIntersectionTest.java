@@ -21,6 +21,7 @@ package org.apache.cassandra.db.tries;
 import java.util.Arrays;
 import java.util.List;
 
+import com.google.common.base.Objects;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import org.junit.BeforeClass;
@@ -365,39 +366,208 @@ public class RangeTrieIntersectionTest
     }
 
     @Test
-    public void testIntersectWithCoveredBranch() throws TrieSpaceExhaustedException
+    public void testSkipToWhenSetIsAhead()
     {
-        TrieSet set = TrieUtil.directRanges("aaa", "aaq", "abc", "abd", "abfff", "abfff", "cde", "cde");
-        RangeTrie<TestRangeMarker> trie = directRangeTrie("ab", "ab");
-        RangeTrie<TestRangeMarker> expected = directRangeTrie("abc", "abd", "abfff", "abfff");
-        verifyEqualRangeTries(trie.intersect(set), expected);
+        String[] ranges1 = {"aaa", "ddd"};
+        String[] ranges2 = {"bbb", "eee"};
+        String[] ixranges = {"bbb", "ddd"};
+        String[] points = {"___", "aaa", "bbb", "ccc", "ddd", "eee"};
+        testIntersectionSkipTo(ranges1, ranges2, ixranges, points);
     }
 
     @Test
-    public void testIntersectWithBranchCoveringSet() throws TrieSpaceExhaustedException
+    public void testSkipToWhenSetIsCovering()
     {
-        TrieSet set = TrieSet.singleton(VERSION, TrieUtil.directComparable("abc"));
-        RangeTrie<TestRangeMarker> trie = directRangeTrie("aaa", "aba", "abcd", "abce", "abcfff", "abcfff", "bcd", "ccc");
-        RangeTrie<TestRangeMarker> expected = directRangeTrie("abcd", "abce", "abcfff", "abcfff");
-        verifyEqualRangeTries(trie.intersect(set), expected);
+        String[] ranges1 = {"a", "a", "bbb", "bdd"};
+        String[] ranges2 = {"aaa", "acc", "b", "b"};
+        String[] ixranges = {"aaa", "acc", "bbb", "bdd"};
+        String[] points = {"___", "a__", "aaa", "abb", "acc", "add", "baa", "bbb", "bcc", "bdd", "bee", "eee"};
+        testIntersectionSkipTo(ranges1, ranges2, ixranges, points);
     }
 
-    private static RangeTrie<TestRangeMarker> directRangeTrie(String... keys) throws TrieSpaceExhaustedException
+    @Test
+    public void testRangeUnderCoveredBranchPoint()
     {
-        InMemoryRangeTrie<TestRangeMarker> trie = InMemoryRangeTrie.shortLived(VERSION);
-        boolean left = true;
-        for (String s : keys)
+        String[] ranges1 = {"bb", "bb"};
+        String[] ranges2 = {"aa", "ab", "bbc", "bbd", "bbfff", "bbfff", "bce", "bcf", "ce", "cf"};
+        String[] expected2 = {"bbc", "bbd", "bbfff", "bbfff"};
+        String[] ranges3 = {"bbff", "bbff"};
+        String[] expected3 = {"bbfff", "bbfff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredRoot()
+    {
+        String[] ranges1 = {"", ""};
+        String[] ranges2 = {"aa", "ab", "bc", "be", "bfff", "bfff", "ce", "cf"};
+        String[] expected2 = ranges2;
+        String[] ranges3 = {"bdff", "bdff", "cdff", "cdff"};
+        String[] expected3 = {"bdff", "bdff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredTwice()
+    {
+        String[] ranges1 = {"", ""};
+        String[] ranges2 = {"aa", "ab", "bc", "be", "bfff", "bfff", "ce", "cf"};
+        String[] expected2 = ranges2;
+        String[] ranges3 = {"bcff", "bcff", "beff", "beff"};
+        String[] expected3 = ranges3;
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredBranchRight()
+    {
+        String[] ranges1 = {"_", "_", "abba", "abe", "d", "d"};
+        String[] ranges2 = {"aaa", "aab", "abc", "abd", "abef", "abeg", "abehhh", "abehhh", "ce", "cf"};
+        String[] expected2 = {"abc", "abd", "abef", "abeg", "abehhh", "abehhh"};
+        String[] ranges3 = {"abehh", "abehh"};
+        String[] expected3 = {"abehhh", "abehhh"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredBranchLeft()
+    {
+        String[] ranges1 = {"_", "_", "abba", "abe", "d", "d"};
+        String[] ranges2 = {"aaa", "aab", "abbac", "abbad", "abbafff", "abbafff", "abc", "abd", "ce", "cf"};
+        String[] expected2 = {"abbac", "abbad", "abbafff", "abbafff", "abc", "abd"};
+        String[] ranges3 = {"abbaff", "abbaff"};
+        String[] expected3 = {"abbafff", "abbafff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testLeftsAtDifferentDepth()
+    {
+        String[] ranges1 = {"ab", "ace"};
+        String[] ranges2 = {"abba", "ae"};
+        String[] expected2 = {"abba", "ace"};
+        String[] ranges3 = {"abbaff", "abbaff"};
+        String[] expected3 = {"abbaff", "abbaff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRightsAtDifferentDepth()
+    {
+        String[] ranges1 = {"ab", "affe"};
+        String[] ranges2 = {"acd", "af"};
+        String[] expected2 = {"acd", "affe"};
+        String[] ranges3 = {"addaff", "addaff"};
+        String[] expected3 = {"addaff", "addaff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    private void testDirectIntersections(String[] ranges1, String[] ranges2, String[] expected2, String[] ranges3, String[] expected3)
+    {
+        testDirectIntersectionsRangeSet(ranges1, ranges2, expected2, ranges3, expected3);
+        testDirectIntersectionsRangeSet(ranges2, ranges1, expected2, ranges3, expected3);
+    }
+
+    private void testDirectIntersectionsRangeSet(String[] ranges1, String[] ranges2, String[] expected2, String[] ranges3, String[] expected3)
+    {
+        RangeTrie<TestRangeMarker> set1 = directRangeTrie(ranges1);
+        TrieSet set2 = TrieUtil.directRanges(ranges2);
+        RangeTrie<TestRangeMarker> expected = directRangeTrie(expected2);
+        verifyEqualRangeTries(set1.intersect(set2), expected);
+        String[] allpoints = Arrays.asList(ranges1, ranges2, expected2, ranges3, expected3)
+                                   .stream()
+                                   .flatMap(Arrays::stream)
+                                   .distinct()
+                                   .toArray(String[]::new);
+        verifyIntersectionContainsCorrectness(allpoints, set1, set2);
+        // check skipTo in a covered branch
+        TrieSet set3 = TrieUtil.directRanges(ranges3);
+        expected = directRangeTrie(expected3);
+        verifyEqualRangeTries(set1.intersect(set2).intersect(set3), expected);
+        verifyEqualRangeTries(set1.intersect(set3.intersection(set2)), expected);
+        verifyIntersectionContainsCorrectness(allpoints, set1.intersect(set2), set3);
+        verifyIntersectionContainsCorrectness(allpoints, set1, set3.intersection(set2));
+    }
+
+    private void testIntersectionSkipTo(String[] ranges1, String[] ranges2, String[] ixranges, String[] points)
+    {
+        testIntersectionSkipToRangeSet(ranges1, ranges2, ixranges, points);
+        testIntersectionSkipToRangeSet(ranges2, ranges1, ixranges, points);
+    }
+
+    private void testIntersectionSkipToRangeSet(String[] ranges1, String[] ranges2, String[] ixranges, String[] points)
+    {
+        RangeTrie<TestRangeMarker> set1 = directRangeTrie(ranges1);
+        TrieSet set2 = TrieUtil.directRanges(ranges2);
+        RangeTrie<TestRangeMarker> ix = directRangeTrie(ixranges);
+        verifyEqualRangeTries(set1.intersect(set2), ix);
+
+        verifyIntersectionContainsCorrectness(points, set1, set2);
+
+        for (int i = 1; i < 1 << points.length; i++) // at least one set bit
         {
-            trie.putRecursive(TrieUtil.directComparable(s),
-                              new TestRangeMarker(TrieUtil.directComparable(s), left ? -1 : 1, 1, left ? 1 : -1, true),
-                              (e, n) -> e != null ? e.restrict(n.leftSide >= 0, n.rightSide >= 0, n.isReportableState) : n);
-            left = !left;
+            String[] ranges = new String[Integer.bitCount(i) * 2];
+            int p = 0;
+            for (int j = 0; j < points.length; j++)
+            {
+                if ((i & (1 << j)) != 0)
+                {
+                    ranges[p++] = points[j];
+                    ranges[p++] = points[j];
+                }
+            }
+            System.out.println(Arrays.toString(ranges));
+            TrieSet set3 = TrieUtil.directRanges(ranges);
+            RangeTrie<TestRangeMarker> expected = directRangeTrie(Arrays.stream(ranges).filter(x -> ix.applicableRange(TrieUtil.directComparable(x)) != null).toArray(String[]::new));
+            verifyEqualRangeTries(set1.intersect(set2).intersect(set3), expected);
+            verifyEqualRangeTries(set1.intersect(set3.intersection(set2)), expected);
         }
-        return trie;
+    }
+
+    private static void verifyIntersectionContainsCorrectness(String[] points, RangeTrie<TestRangeMarker> trie, TrieSet set)
+    {
+        RangeTrie<TestRangeMarker> ix = trie.intersect(set);
+        for (String s : points)
+        {
+            ByteComparable bc = TrieUtil.directComparable(s);
+            assertEquals(s, set.strictlyContains(bc) ? trie.applicableRange(bc) != null : false, ix.applicableRange(bc) != null);
+        }
+    }
+
+    private static RangeTrie<TestRangeMarker> directRangeTrie(String... keys)
+    {
+        if (keys.length == 0)
+            return RangeTrie.empty(VERSION);
+        if (keys.length == 2 && Objects.equal(keys[0], keys[1]))
+        {
+            // special case to make a singleton trie
+            ByteComparable bc = TrieUtil.directComparable(keys[0]);
+            return RangeTrie.singleton(bc, VERSION, new TestRangeMarker(bc, -1, 1, -1, true));
+        }
+
+        try
+        {
+            InMemoryRangeTrie<TestRangeMarker> trie = InMemoryRangeTrie.shortLived(VERSION);
+            boolean left = true;
+            for (String s : keys)
+            {
+                trie.putRecursive(TrieUtil.directComparable(s),
+                                  new TestRangeMarker(TrieUtil.directComparable(s), left ? -1 : 1, 1, left ? 1 : -1, true),
+                                  (e, n) -> e != null ? e.restrict(n.leftSide >= 0, n.rightSide >= 0, n.isReportableState) : n);
+                left = !left;
+            }
+            return trie;
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new AssertionError(e); // we are not inserting that much data
+        }
     }
 
     private void verifyEqualRangeTries(RangeTrie<TestRangeMarker> trie, RangeTrie<TestRangeMarker> expected)
     {
+        System.out.println("Trie:\n" + trie.dump(TestRangeMarker::toStringNoPosition));
+        System.out.println("Expected:\n" + expected.cursor(Direction.FORWARD).process(new TrieDumper<>(TestRangeMarker::toStringNoPosition)));
         assertMapEquals(Iterables.transform(trie.entrySet(Direction.FORWARD),
                                             en -> remap(en)),
                         expected.entrySet(Direction.FORWARD),
@@ -406,8 +576,5 @@ public class RangeTrieIntersectionTest
                                             en -> remap(en)),
                         expected.entrySet(Direction.REVERSE),
                         TrieUtil.REVERSE_COMPARATOR);
-        // do not use the in-memory trie extensions to dump
-        assertEquals(expected.process(Direction.FORWARD, new TrieDumper<>(TestRangeMarker::toStringNoPosition)),
-                     trie.dump(TestRangeMarker::toStringNoPosition));
     }
 }

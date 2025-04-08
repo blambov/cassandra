@@ -539,149 +539,121 @@ public class IntersectionTrieTest
     }
 
     @Test
-    public void testSkipToWhenSetIsAhead() throws TrieSpaceExhaustedException
+    public void testSkipToWhenSetIsAhead()
     {
-        TrieSet set1 = TrieUtil.directRanges("aaa", "ddd");
-        TrieSet set2 = TrieUtil.directRanges("bbb", "eee");
-        TrieSet ix = TrieUtil.directRanges("bbb", "ddd");
-        verifyEqualTrieSets(set1.intersection(set2), ix);
-
+        String[] ranges1 = {"aaa", "ddd"};
+        String[] ranges2 = {"bbb", "eee"};
+        String[] ixranges = {"bbb", "ddd"};
         String[] points = {"___", "aaa", "bbb", "ccc", "ddd", "eee"};
-        verifyIntersectionContainsCorrectness(points, set1, set2);
-
-        for (int i = 1; i < 1<<points.length; i++) // at least one set bit
-        {
-            String[] ranges = new String[Integer.bitCount(i) * 2];
-            int p = 0;
-            for (int j = 0; j < points.length; j++)
-            {
-                if ((i & (1 << j)) != 0)
-                {
-                    ranges[p++] = points[j];
-                    ranges[p++] = points[j];
-                }
-            }
-            System.out.println(Arrays.toString(ranges));
-            TrieSet set3 = TrieUtil.directRanges(ranges);
-            TrieSet expected = TrieUtil.directRanges(Arrays.stream(ranges).filter(x -> ix.contains(TrieUtil.directComparable(x))).toArray(String[]::new));
-            verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-            verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-        }
+        testIntersectionSkipTo(ranges1, ranges2, ixranges, points);
     }
 
     @Test
-    public void testSkipToWhenSetIsCovering() throws TrieSpaceExhaustedException
+    public void testSkipToWhenSetIsCovering()
     {
-        TrieSet set1 = TrieUtil.directRanges("a", "a", "bbb", "bdd");
-        TrieSet set2 = TrieUtil.directRanges("aaa", "acc", "b", "b");
-        TrieSet ix = TrieUtil.directRanges("aaa", "acc", "bbb", "bdd");
-        verifyEqualTrieSets(set1.intersection(set2), ix);
-
+        String[] ranges1 = {"a", "a", "bbb", "bdd"};
+        String[] ranges2 = {"aaa", "acc", "b", "b"};
+        String[] ixranges = {"aaa", "acc", "bbb", "bdd"};
         String[] points = {"___", "a__", "aaa", "abb", "acc", "add", "baa", "bbb", "bcc", "bdd", "bee", "eee"};
-        verifyIntersectionContainsCorrectness(points, set1, set2);
-
-        for (int i = 1; i < 1<<points.length; i++) // at least one set bit
-        {
-            String[] ranges = new String[Integer.bitCount(i) * 2];
-            int p = 0;
-            for (int j = 0; j < points.length; j++)
-            {
-                if ((i & (1 << j)) != 0)
-                {
-                    ranges[p++] = points[j];
-                    ranges[p++] = points[j];
-                }
-            }
-            System.out.println(Arrays.toString(ranges));
-            TrieSet set3 = TrieUtil.directRanges(ranges);
-            TrieSet expected = TrieUtil.directRanges(Arrays.stream(ranges).filter(x -> ix.contains(TrieUtil.directComparable(x))).toArray(String[]::new));
-            verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-            verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-        }
-    }
-
-    private static void verifyIntersectionContainsCorrectness(String[] points, TrieSet set1, TrieSet set2)
-    {
-        TrieSet ix = set1.intersection(set2);
-        for (String s : points)
-        {
-            ByteComparable bc = TrieUtil.directComparable(s);
-            assertEquals(s, set1.contains(bc) && set2.contains(bc), ix.contains(bc));
-        }
+        testIntersectionSkipTo(ranges1, ranges2, ixranges, points);
     }
 
     @Test
-    public void testRangeUnderCoveredBranchPoint() throws TrieSpaceExhaustedException
+    public void testRangeUnderCoveredBranchPoint()
     {
-        TrieSet set1 = TrieSet.singleton(VERSION, TrieUtil.directComparable("bb"));
-        TrieSet set2 = TrieUtil.directRanges("aa", "ab", "bbc", "bbd", "bbfff", "bbfff", "bce", "bcf", "ce", "cf");
-        TrieSet expected = TrieUtil.directRanges("bbc", "bbd", "bbfff", "bbfff");
+        String[] ranges1 = {"bb", "bb"};
+        String[] ranges2 = {"aa", "ab", "bbc", "bbd", "bbfff", "bbfff", "bce", "bcf", "ce", "cf"};
+        String[] expected2 = {"bbc", "bbd", "bbfff", "bbfff"};
+        String[] ranges3 = {"bbff", "bbff"};
+        String[] expected3 = {"bbfff", "bbfff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredRoot()
+    {
+        String[] ranges1 = {"", ""};
+        String[] ranges2 = {"aa", "ab", "bc", "be", "bfff", "bfff", "ce", "cf"};
+        String[] expected2 = ranges2;
+        String[] ranges3 = {"bdff", "bdff", "cdff", "cdff"};
+        String[] expected3 = {"bdff", "bdff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredTwice()
+    {
+        String[] ranges1 = {"", ""};
+        String[] ranges2 = {"aa", "ab", "bc", "be", "bfff", "bfff", "ce", "cf"};
+        String[] expected2 = ranges2;
+        String[] ranges3 = {"bcff", "bcff", "beff", "beff"};
+        String[] expected3 = ranges3;
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredBranchRight()
+    {
+        String[] ranges1 = {"_", "_", "abba", "abe", "d", "d"};
+        String[] ranges2 = {"aaa", "aab", "abc", "abd", "abef", "abeg", "abehhh", "abehhh", "ce", "cf"};
+        String[] expected2 = {"abc", "abd", "abef", "abeg", "abehhh", "abehhh"};
+        String[] ranges3 = {"abehh", "abehh"};
+        String[] expected3 = {"abehhh", "abehhh"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRangeUnderCoveredBranchLeft()
+    {
+        String[] ranges1 = {"_", "_", "abba", "abe", "d", "d"};
+        String[] ranges2 = {"aaa", "aab", "abbac", "abbad", "abbafff", "abbafff", "abc", "abd", "ce", "cf"};
+        String[] expected2 = {"abbac", "abbad", "abbafff", "abbafff", "abc", "abd"};
+        String[] ranges3 = {"abbaff", "abbaff"};
+        String[] expected3 = {"abbafff", "abbafff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testLeftsAtDifferentDepth()
+    {
+        String[] ranges1 = {"ab", "ace"};
+        String[] ranges2 = {"abba", "ae"};
+        String[] expected2 = {"abba", "ace"};
+        String[] ranges3 = {"abbaff", "abbaff"};
+        String[] expected3 = {"abbaff", "abbaff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    @Test
+    public void testRightsAtDifferentDepth()
+    {
+        String[] ranges1 = {"ab", "affe"};
+        String[] ranges2 = {"acd", "af"};
+        String[] expected2 = {"acd", "affe"};
+        String[] ranges3 = {"addaff", "addaff"};
+        String[] expected3 = {"addaff", "addaff"};
+        testDirectIntersections(ranges1, ranges2, expected2, ranges3, expected3);
+    }
+
+    private void testDirectIntersections(String[] ranges1, String[] ranges2, String[] expected2, String[] ranges3, String[] expected3)
+    {
+        TrieSet set1 = TrieUtil.directRanges(ranges1);
+        TrieSet set2 = TrieUtil.directRanges(ranges2);
+        TrieSet expected = TrieUtil.directRanges(expected2);
         verifyEqualTrieSets(set1.intersection(set2), expected);
-        TrieSet set3 = TrieUtil.directRanges("bbff", "bbff"); // check skipTo in a covered branch
-        expected = TrieUtil.directRanges("bbfff", "bbfff");
+        String[] allpoints = Arrays.asList(ranges1, ranges2, expected2, ranges3, expected3)
+                                   .stream()
+                                   .flatMap(Arrays::stream)
+                                   .distinct()
+                                   .toArray(String[]::new);
+        verifyIntersectionContainsCorrectness(allpoints, set1, set2);
+        // check skipTo in a covered branch
+        TrieSet set3 = TrieUtil.directRanges(ranges3);
+        expected = TrieUtil.directRanges(expected3);
         verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
         verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-    }
-
-    @Test
-    public void testRangeUnderCoveredRoot() throws TrieSpaceExhaustedException
-    {
-        TrieSet set1 = TrieSet.singleton(VERSION, ByteComparable.EMPTY);
-        TrieSet set2 = TrieUtil.directRanges("aa", "ab", "bc", "bd", "bfff", "bfff", "ce", "cf");
-        TrieSet expected = set2;
-        verifyEqualTrieSets(set1.intersection(set2), expected);
-    }
-
-    @Test
-    public void testRangeUnderCoveredBranchRight() throws TrieSpaceExhaustedException
-    {
-        TrieSet set1 = TrieUtil.directRanges("_", "_", "abba", "abe", "d", "d");
-        TrieSet set2 = TrieUtil.directRanges("aaa", "aab", "abc", "abd", "abef", "abeg", "abehhh", "abehhh", "ce", "cf");
-        TrieSet expected = TrieUtil.directRanges("abc", "abd", "abef", "abeg", "abehhh", "abehhh");
-        verifyEqualTrieSets(set1.intersection(set2), expected);
-        TrieSet set3 = TrieUtil.directRanges("abehh", "abehh"); // check skipTo in a covered branch
-        expected = TrieUtil.directRanges("abehhh", "abehhh");
-        verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-        verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-    }
-
-    @Test
-    public void testRangeUnderCoveredBranchLeft() throws TrieSpaceExhaustedException
-    {
-        TrieSet set1 = TrieUtil.directRanges("_", "_", "abba", "abe", "d", "d");
-        TrieSet set2 = TrieUtil.directRanges("aaa", "aab", "abbac", "abbad", "abbafff", "abbafff", "abc", "abd", "ce", "cf");
-        TrieSet expected = TrieUtil.directRanges("abbac", "abbad", "abbafff", "abbafff", "abc", "abd");
-        verifyEqualTrieSets(set1.intersection(set2), expected);
-        TrieSet set3 = TrieUtil.directRanges("abbaff", "abbaff"); // check skipTo in a covered branch
-        expected = TrieUtil.directRanges("abbafff", "abbafff");
-        verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-        verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-    }
-
-    @Test
-    public void testLeftsAtDifferentDepth() throws TrieSpaceExhaustedException
-    {
-        TrieSet set1 = TrieUtil.directRanges("ab", "ace");
-        TrieSet set2 = TrieUtil.directRanges("abba", "ae");
-        TrieSet expected = TrieUtil.directRanges("abba", "ace");
-        verifyEqualTrieSets(set1.intersection(set2), expected);
-        TrieSet set3 = TrieUtil.directRanges("abbaff", "abbaff"); // check skipTo in a covered branch
-        expected = TrieUtil.directRanges("abbaff", "abbaff");
-        verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-        verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
-    }
-
-    @Test
-    public void testRightsAtDifferentDepth() throws TrieSpaceExhaustedException
-    {
-        TrieSet set1 = TrieUtil.directRanges("ab", "affe");
-        TrieSet set2 = TrieUtil.directRanges("acd", "af");
-        TrieSet expected = TrieUtil.directRanges("acd", "affe");
-        verifyEqualTrieSets(set1.intersection(set2), expected);
-        TrieSet set3 = TrieUtil.directRanges("addaff", "addaff"); // check skipTo in a covered branch
-        expected = TrieUtil.directRanges("addaff", "addaff");
-        verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
-        verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
+        verifyIntersectionContainsCorrectness(allpoints, set1.intersection(set2), set3);
+        verifyIntersectionContainsCorrectness(allpoints, set3.intersection(set2), set1);
     }
 
     private void verifyEqualTrieSets(TrieSet set, TrieSet expectedSet)
@@ -694,5 +666,44 @@ public class IntersectionTrieTest
         assertMapEquals(trie.entrySet(Direction.REVERSE),
                         expected.entrySet(Direction.REVERSE),
                         TrieUtil.REVERSE_COMPARATOR);
+    }
+
+    private void testIntersectionSkipTo(String[] ranges1, String[] ranges2, String[] ixranges, String[] points)
+    {
+        TrieSet set1 = TrieUtil.directRanges(ranges1);
+        TrieSet set2 = TrieUtil.directRanges(ranges2);
+        TrieSet ix = TrieUtil.directRanges(ixranges);
+        verifyEqualTrieSets(set1.intersection(set2), ix);
+
+        verifyIntersectionContainsCorrectness(points, set1, set2);
+
+        for (int i = 1; i < 1 << points.length; i++) // at least one set bit
+        {
+            String[] ranges = new String[Integer.bitCount(i) * 2];
+            int p = 0;
+            for (int j = 0; j < points.length; j++)
+            {
+                if ((i & (1 << j)) != 0)
+                {
+                    ranges[p++] = points[j];
+                    ranges[p++] = points[j];
+                }
+            }
+            System.out.println(Arrays.toString(ranges));
+            TrieSet set3 = TrieUtil.directRanges(ranges);
+            TrieSet expected = TrieUtil.directRanges(Arrays.stream(ranges).filter(x -> ix.strictlyContains(TrieUtil.directComparable(x))).toArray(String[]::new));
+            verifyEqualTrieSets(set1.intersection(set2).intersection(set3), expected);
+            verifyEqualTrieSets(set3.intersection(set2).intersection(set1), expected);
+        }
+    }
+
+    private static void verifyIntersectionContainsCorrectness(String[] points, TrieSet set1, TrieSet set2)
+    {
+        TrieSet ix = set1.intersection(set2);
+        for (String s : points)
+        {
+            ByteComparable bc = TrieUtil.directComparable(s);
+            assertEquals(s, set1.strictlyContains(bc) && set2.strictlyContains(bc), ix.strictlyContains(bc));
+        }
     }
 }

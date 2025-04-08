@@ -23,6 +23,7 @@ import java.util.Iterator;
 import com.google.common.base.Preconditions;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCursor<M>, RangeTrie<M>>
 {
@@ -35,18 +36,32 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
     static <M extends RangeMarker<M>> RangeTrie<M> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, M v)
     {
         Preconditions.checkArgument(v.toContent() == v);
-//        Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
-//        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
         return dir -> new SingletonCursor.Range<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
     }
 
     /// Returns a range trie covering a single range.
     static <M extends RangeMarker<M>> RangeTrie<M> range(ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, M v)
     {
-//        Preconditions.checkArgument(v.toContent() == v);
-//        Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
-//        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
         return singleton(ByteComparable.EMPTY, byteComparableVersion, v).intersect(TrieSet.range(byteComparableVersion, left, right));
+    }
+
+    /// Returns the state that applies to the given key. This is either the precise content at the given position, or
+    /// the range that covers it (i.e. the branchState at a prefix, or the precedingState of the next marker).
+    default M applicableRange(ByteComparable key)
+    {
+        RangeCursor<M> cursor = cursor(Direction.FORWARD);
+        final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
+        int next = bytes.next();
+        int depth = cursor.depth();
+        while (next != ByteSource.END_OF_STREAM)
+        {
+            if (cursor.branchState() != null)
+                return cursor.branchState(); // The range covers a prefix of the key.
+            if (cursor.skipTo(++depth, next) != depth || cursor.incomingTransition() != next)
+                return cursor.precedingState(); // The key falls in a covered range.
+            next = bytes.next();
+        }
+        return cursor.content(); // The exact content at the key's position.
     }
 
     @Override
