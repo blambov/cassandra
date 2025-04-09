@@ -23,24 +23,26 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 
-public class InMemoryTrieThreadedTest extends ThreadedTestBase<String, InMemoryTrie<String>>
+public class InMemoryRangeTrieThreadedTest extends ThreadedTestBase<TestRangeMarker, InMemoryRangeTrie<TestRangeMarker>>
 {
     @Override
-    String value(ByteComparable b)
+    TestRangeMarker value(ByteComparable b)
     {
-        return b.byteComparableAsString(VERSION);
-    }
-
-
-    @Override
-    InMemoryTrie<String> makeTrie(OpOrder readOrder)
-    {
-        return InMemoryTrie.longLived(VERSION, readOrder);
+        return new TestRangeMarker(b, -1, 1, 1, true);
     }
 
     @Override
-    void add(InMemoryTrie<String> trie, ByteComparable b, String v, int iteration) throws TrieSpaceExhaustedException
+    InMemoryRangeTrie<TestRangeMarker> makeTrie(OpOrder readOrder)
     {
-        trie.putSingleton(b, v, (x, y) -> y, iteration % 2 != 0);
+        return InMemoryRangeTrie.longLived(VERSION, readOrder);
+    }
+
+    @Override
+    void add(InMemoryRangeTrie<TestRangeMarker> trie, ByteComparable b, TestRangeMarker v, int iteration) throws TrieSpaceExhaustedException
+    {
+        if (iteration % 2 == 0)
+            trie.putRecursive(b, v, (x, y) -> y);
+        else
+            trie.apply(RangeTrie.singleton(b, VERSION, v), (x, y) -> y, x -> false);
     }
 }

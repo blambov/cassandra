@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.IntFunction;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// A merged view of multiple tries.
@@ -93,13 +95,13 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     /// The collected content.
     T collectedContent;
 
-    public <I> CollectionMergeCursor(Trie.CollectionMergeResolver<T> resolver, Direction direction, Collection<I> inputs, BiFunction<I, Direction, C> extractor)
+    public <I> CollectionMergeCursor(Trie.CollectionMergeResolver<T> resolver, Direction direction, Collection<I> inputs, IntFunction<C[]> cursorArrayConstructor, BiFunction<I, Direction, C> extractor)
     {
         this.resolver = resolver;
         this.direction = direction;
         int count = inputs.size();
         // Get cursors for all inputs. Put one of them in head and the rest in the heap.
-        heap = (C[]) new Cursor[count - 1];
+        heap = cursorArrayConstructor.apply(count - 1);
         contents = new ArrayList<>(count);
         int i = -1;
         for (I src : inputs)
@@ -394,7 +396,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     {
         public <I> Plain(Trie.CollectionMergeResolver<T> resolver, Direction direction, Collection<I> inputs, BiFunction<I, Direction, Cursor<T>> extractor)
         {
-            super(resolver, direction, inputs, extractor);
+            super(resolver, direction, inputs, Cursor[]::new, extractor);
         }
 
         @Override
@@ -430,7 +432,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                   Collection<I> inputs,
                   BiFunction<I, Direction, RangeCursor<M>> extractor)
         {
-            super(resolver, direction, inputs, extractor);
+            super(resolver, direction, inputs, RangeCursor[]::new, extractor);
         }
 
         @Override

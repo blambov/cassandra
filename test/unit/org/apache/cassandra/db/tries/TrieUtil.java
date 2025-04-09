@@ -360,6 +360,11 @@ public class TrieUtil
         return v -> ByteSource.withTerminator(terminator, ByteSource.of(bytes, v));
     }
 
+    public static <T> Trie<T> withRootMetadata(Trie<T> wrapped, T metadata)
+    {
+        return wrapped.mergeWith(Trie.singleton(ByteComparable.EMPTY, VERSION, metadata), Trie.throwingResolver());
+    }
+
     static Trie<String> directTrie(String... points) throws TrieSpaceExhaustedException
     {
         InMemoryTrie<String> trie = InMemoryTrie.shortLived(VERSION);

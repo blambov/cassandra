@@ -17,23 +17,13 @@
  */
 package org.apache.cassandra.db.tries;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Predicate;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicates;
 
-import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.github.jamm.MemoryLayoutSpecification;
 
 /// In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
 ///
@@ -67,9 +57,6 @@ import org.github.jamm.MemoryLayoutSpecification;
 ///     Because it uses 32-bit pointers in byte buffers, this trie has a fixed size limit of 2GB.
 public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 {
-    // See the trie format description in InMemoryReadTrie.
-
-
     InMemoryTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
         super(byteComparableVersion, bufferType, lifetime, opOrder);
