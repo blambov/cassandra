@@ -994,6 +994,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         return updatePrefixNodeChild(existingPreContentNode, updatedPostContentNode, forcedCopy);
     }
 
+    enum AdvanceResult
+    {
+        FOUND,
+        POSITION_LIMIT,
+        ASCEND_LIMIT
+    };
+
     final ApplyState applyState = new ApplyState();
 
     /// Represents the state for an [#apply] operation. Contains a stack of all nodes we descended through
@@ -1116,7 +1123,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             return false;
         }
 
-        boolean advanceToNextExistingOr(int depth, int transition, int forcedCopyDepth) throws TrieSpaceExhaustedException
+        /// Returns true if further existing children have been found before the given seek position.
+        /// The `depth` and `transition` parameters specify the limit position. `ascendLimit` specified the minimum
+        /// depth we are allowed to ascend to.
+        /// If there is an existing position before these limits, the state will be positioned on it, and true will be
+        /// returned.
+        /// If not, the result is false
+        AdvanceResult advanceToNextExistingOr(int depth, int transition, int ascendLimit, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
@@ -1126,20 +1139,18 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                 if (currentDepth + 1 == depth && nextTransition >= transition)
                 {
                     descend(transition);
-                    return true;
+                    return AdvanceResult.POSITION_LIMIT;
                 }
                 if (nextTransition <= 0xFF)
                 {
                     descend(nextTransition);
-                    return false;
+                    return AdvanceResult.FOUND;
                 }
                 if (currentDepth <= ascendLimit)
-                    break;
+                    return AdvanceResult.ASCEND_LIMIT;
 
                 attachAndMoveToParentState(forcedCopyDepth);
             }
-            assert depth == -1;
-            return true;
         }
 
         /// Descend to a child node. Prepares a new entry in the stack for the node.
@@ -1213,15 +1224,24 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
         }
 
-        T getNearestContent()
+        T getNearestParentContent()
+        {
+            for (int stackPos = currentDepth; stackPos >= 0; --stackPos)
+            {
+                // contentId in the stack is affected by this mutation. Instead of using that, check the existing full node's content.
+                int node = existingFullNodeAtDepth(stackPos);
+                T content = InMemoryBaseTrie.this.getNodeContent(node);
+                if (content != null)
+                    return content;
+            }
+            return null;
+        }
+
+        T getNearestChildContent()
         {
             // Assume any dead branch is deleted, thus: go upstack until first node for which we have a higher transition
             // and then repeatedly descend into first child until content.
-            int stackPos = currentDepth;
-            int node = NONE;
-            setTransition(-1);      // In the node we have just descended to, start with its first child
-            for (; stackPos >= 0 && node == NONE; --stackPos)
-                node = getNextChild(existingPostContentNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
+            int node = applyState.existingFullNode();
 
             while (node != NONE)
             {
@@ -1406,6 +1426,19 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         public ByteComparable.Version byteComparableVersion()
         {
             return byteComparableVersion;
+        }
+
+        public String toString()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.append('@');
+            for (int i = 0; i < currentDepth; ++i)
+                sb.append(String.format("%02x", transitionAtDepth(i)));
+
+            sb.append(" existingPostContentNode=").append(existingPostContentNode());
+            sb.append(" updatedPostContentNode=").append(updatedPostContentNode());
+            sb.append(" contentId=").append(contentId());
+            return sb.toString();
         }
     }
 

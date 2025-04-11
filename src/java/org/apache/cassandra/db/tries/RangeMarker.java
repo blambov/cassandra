@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.Objects;
+
 /// A range marker interface used for range tries.
 ///
 /// Range tries require information about the coverage of ranges for positions before and after any prefix of a range.
@@ -34,6 +36,12 @@ interface RangeMarker<M extends RangeMarker<M>>
     M precedingState(Direction direction);
     /// Returns the range that fully applies to the branch containing this marker.
     M branchState();
+
+    /// If true, this state has a separate state for the covered branch from the preceding state in the given direction.
+    default boolean hasSeparateBranchState(Direction direction)
+    {
+        return !Objects.equals(branchState(), precedingState(direction));
+    }
 
     /// Returns an intersected version of this marker, which may drop parts of the marker that are not covered by the
     /// intersecting range.

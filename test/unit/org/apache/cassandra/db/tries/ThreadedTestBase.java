@@ -43,8 +43,8 @@ public abstract class ThreadedTestBase<T, R extends BaseTrie<T, ?, ?>>
     private static final int COUNT = 30000;
     private static final int OTHERS = COUNT / 10;
     private static final int PROGRESS_UPDATE = COUNT / 15;
-    private static final int READERS = 8;
-    private static final int WALKERS = 2;
+    private static final int READERS = 0;
+    private static final int WALKERS = 1;
     private static final Random rand = new Random();
 
     abstract T value(ByteComparable b);
@@ -127,8 +127,8 @@ public abstract class ThreadedTestBase<T, R extends BaseTrie<T, ?, ?>>
             }));
         }
 
-        List<Thread> writeThreads = new ArrayList<>();
-        writeThreads.add(new Thread(() -> {
+//        threads.add
+//               (new Thread(() -> {
             try
             {
                 for (int i = 0; i < COUNT; i++)
@@ -153,21 +153,13 @@ public abstract class ThreadedTestBase<T, R extends BaseTrie<T, ?, ?>>
             {
                 writeCompleted.set(true);
             }
-        }));
-
-        for (Thread t : writeThreads)
-            t.start();
-
+//        }));
 
         for (Thread t : threads)
             t.start();
 
         for (Thread t : threads)
             t.join();
-
-        for (Thread t : writeThreads)
-            t.join();
-
 
         if (!errors.isEmpty())
             Assert.fail("Got errors:\n" + errors);

@@ -18,6 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
+import org.junit.BeforeClass;
+
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
@@ -25,6 +28,13 @@ import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 
 public class InMemoryRangeTrieThreadedTest extends ThreadedTestBase<TestRangeMarker, InMemoryRangeTrie<TestRangeMarker>>
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
+
     @Override
     TestRangeMarker value(ByteComparable b)
     {
@@ -43,6 +53,6 @@ public class InMemoryRangeTrieThreadedTest extends ThreadedTestBase<TestRangeMar
         if (iteration % 2 == 0)
             trie.putRecursive(b, v, (x, y) -> y);
         else
-            trie.apply(RangeTrie.singleton(b, VERSION, v), (x, y) -> y, x -> false);
+            trie.apply(RangeTrie.singleton(b, VERSION, v), (x, y) -> y, x -> true);
     }
 }

@@ -356,13 +356,31 @@ public interface VerificationCursor
         }
     }
 
+    static class BranchStateStack<M extends RangeMarker<M>>
+    {
+        final int depth;
+        final M branchState;
+        final M currentPrecedingState;
+        final BranchStateStack<M> next;
+
+        public BranchStateStack(int depth, M branchState, M currentPrecedingState, BranchStateStack<M> next)
+        {
+            this.depth = depth;
+            this.branchState = branchState;
+            this.currentPrecedingState = currentPrecedingState;
+            this.next = next;
+        }
+    }
+
     class Range<M extends RangeMarker<M>>
     extends Plain<M, RangeCursor<M>>
     implements RangeCursor<M>
     {
         M currentPrecedingState = null;
+        M branchState = null;
         M nextPrecedingState = null;
-        int maxNextDepth = Integer.MAX_VALUE;
+        int prevDepth = -1;
+        BranchStateStack<M> branchStateStack = null;
 
         Range(RangeCursor<M> source)
         {
@@ -385,29 +403,28 @@ public interface VerificationCursor
         @Override
         public int advance()
         {
-            currentPrecedingState = nextPrecedingState;
-            checkIfDescentShouldBeForbidden();
-            return verifyState(super.advance());
+            prepareAdvance();
+            return verifyState(super.advance(), false);
         }
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
+            prepareAdvance();
+            return verifyState(super.advanceMultiple(receiver), false);
+        }
+
+        private void prepareAdvance()
+        {
             currentPrecedingState = nextPrecedingState;
-            checkIfDescentShouldBeForbidden();
-            return verifyState(super.advanceMultiple(receiver));
+            prevDepth = returnedDepth;
         }
 
         @Override
         public int skipTo(int skipDepth, int skipTransition)
         {
-            checkIfDescentShouldBeForbidden();
-            return verifySkipState(super.skipTo(skipDepth, skipTransition));
-        }
-
-        private void checkIfDescentShouldBeForbidden()
-        {
-            maxNextDepth = source.content() != null ? source.depth() : Integer.MAX_VALUE;
+            prepareAdvance();
+            return verifyState(super.skipTo(skipDepth, skipTransition), true);
         }
 
         @Override
@@ -438,16 +455,21 @@ public interface VerificationCursor
             return Objects.equals(left, right);
         }
 
-        private int verifyState(int depth)
+        private int verifyState(int depth, boolean isSkip)
         {
+            applyBranchState(depth, !isSkip);
+
             M precedingState = source.precedingState();
-            boolean equal = agree(currentPrecedingState, precedingState);
-            Preconditions.checkState(equal,
-                                     "Unexpected change to covering state: %s -> %s\n%s",
-                                     currentPrecedingState, precedingState, this);
-            Preconditions.checkState(depth <= maxNextDepth,
-                                     "Cursor descended after reporting an included branch\n%s",
-                                     this);
+            if (!isSkip)
+            {
+                boolean equal = agree(currentPrecedingState, precedingState);
+                Preconditions.checkState(equal,
+                                         "Unexpected change to covering state: %s -> %s\n%s",
+                                         currentPrecedingState, precedingState, this);
+            }
+            else
+                nextPrecedingState = precedingState;
+
             currentPrecedingState = precedingState;
 
             M content = source.content();
@@ -457,11 +479,47 @@ public interface VerificationCursor
                                          "Range end %s does not close covering state %s\n%s",
                                          content.precedingState(direction), currentPrecedingState, this);
                 nextPrecedingState = content.precedingState(direction.opposite());
+                branchState = content.branchState();
             }
+            else
+                branchState = null;
 
             if (depth < 0)
                 verifyEndState();
             return depth;
+        }
+
+        private void applyBranchState(int depth, boolean verifyAscendingState)
+        {
+            if (branchState != null && depth >= prevDepth + 1)
+            {
+                // We descended inside a branch that has a branch-covering state.
+                pushBranchState(branchState, nextPrecedingState, prevDepth);
+                nextPrecedingState = currentPrecedingState = branchState;
+            }
+            else if (depth < prevDepth)
+            {
+                while (branchStateStack != null && depth <= branchStateStack.depth)
+                    nextPrecedingState = currentPrecedingState = popBranchState(currentPrecedingState, verifyAscendingState);
+            }
+        }
+
+        void pushBranchState(M branchState, M currentPrecedingState, int depth)
+        {
+            branchStateStack = new BranchStateStack<>(depth, branchState, currentPrecedingState, branchStateStack);
+        }
+
+        M popBranchState(M currentPrecedingState, boolean verifyAscendingState)
+        {
+            BranchStateStack<M> stackTop = branchStateStack;
+            branchStateStack = stackTop.next;
+            if (verifyAscendingState)
+            {
+                Preconditions.checkState(stackTop.branchState.equals(currentPrecedingState),
+                                         "Covering state %s must match branch state %s when ascending out of branch\n%s",
+                                         currentPrecedingState, stackTop.branchState, this);
+            }
+            return stackTop.currentPrecedingState;
         }
 
         private int verifySkipState(int depth)
@@ -469,7 +527,7 @@ public interface VerificationCursor
             // The covering state information is invalidated by a skip.
             currentPrecedingState = source.precedingState();
             nextPrecedingState = currentPrecedingState;
-            return verifyState(depth);
+            return verifyState(depth, true);
         }
 
         @Override

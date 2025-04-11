@@ -401,6 +401,8 @@ public class RangesTrieSetTest
         check("aaa", "aab", "aba", "aca", "acb", "ada", "adba", "adba", "baa", "bba", "bbb", "bbc", "bcc", "bcd");
     }
 
+    // TODO: Implement and test the "ab", "abba", "abbc", "ab" case (ab covered except for abba-abbc)
+
     @Test
     public void testRangeStateFromProperties()
     {

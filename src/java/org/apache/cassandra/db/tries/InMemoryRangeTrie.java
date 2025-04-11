@@ -62,6 +62,8 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
         boolean activeIsSet;
         M activeRange;  // only non-null if activeIsSet
         M prevContent;  // can only be non-null if activeIsSet
+        int prevDepth;
+        int coveredBranchDepth;
 
         InMemoryRangeCursor(Direction direction, int root, int depth, int incomingTransition)
         {
@@ -69,17 +71,21 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
             activeIsSet = true;
             activeRange = null;
             prevContent = null;
+            prevDepth = Integer.MIN_VALUE;
+            coveredBranchDepth = Integer.MIN_VALUE;
         }
 
         @Override
         public int advance()
         {
+            prevDepth = depth;
             return updateActiveAndReturn(super.advance());
         }
 
         @Override
         public int advanceMultiple(TransitionsReceiver receiver)
         {
+            prevDepth = depth;
             return updateActiveAndReturn(super.advanceMultiple(receiver));
         }
 
@@ -89,6 +95,8 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
             activeIsSet = false;    // since we are skipping, we have no idea where we will end up
             activeRange = null;
             prevContent = null;
+            prevDepth = Integer.MIN_VALUE;
+            // TODO: We need to not redo finding child if we are doing multiple skipTos in a row.
             return updateActiveAndReturn(super.skipTo(skipDepth, skipTransition));
         }
 
@@ -118,13 +126,35 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
                 prevContent = content;
                 activeIsSet = true;
             }
-            else if (prevContent != null)
+            else
             {
-                // If the previous state was exact, its right side is what we now have.
-                activeRange = prevContent.precedingState(direction.opposite());
-                prevContent = null;
-                assert activeIsSet;
+                if (depth < coveredBranchDepth)
+                {
+                    // We are ascending through a covered branch. We need to switch to that node's following state.
+                    // We don't currently store that content anywhere so we need to rebuild the active state when we
+                    // are asked.
+                    // TODO: Check if it's a better idea to keep a stack of the active state to switch to.
+                    activeIsSet = false;
+                    coveredBranchDepth = Integer.MIN_VALUE;
+                }
+                else if (prevContent != null)
+                {
+                    if (depth == prevDepth + 1)
+                    {
+                        activeRange = prevContent.branchState();
+                        prevContent = null;
+                        coveredBranchDepth = prevDepth;
+                    }
+                    else
+                    {
+                        // If the previous state was exact, its right side is what we now have.
+                        activeRange = prevContent.precedingState(direction.opposite());
+                        prevContent = null;
+                        assert activeIsSet;
+                    }
+                }
             }
+
             // otherwise the active state is either not set or still valid.
             return depth;
         }
@@ -133,6 +163,10 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
         {
             assert content() == null;
             M nearestContent = getNearestContent();
+            // Note: the nearest content may change between the time we fetch it and when we reach that node, e.g.
+            // if someone deletes ab-cd where there existed an abc-acd deletion, and we fetched the latter while at "a".
+            // This, though, should only be possible of the preceding state of the nearest content is null
+            // (or the same parent's if we permit nested deletions).
             activeRange = nearestContent != null ? nearestContent.precedingState(direction) : null;
             prevContent = null;
             activeIsSet = true;
@@ -162,6 +196,12 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
         }
     }
 
+    // Range tries have the possibility of "spooky action at a distance", i.e. be suddenly covered by a new range
+    // deletion, effectively changing the current active range.
+    // To avoid this causing problems, forced copying must always be done on the entirety of any deleted range.
+    // FIXME: how do we enforce this? E.g. if have data for the branch at bc and a cursor is in that branch, a
+    // deletion of aaaa-c should force copy the root to avoid affecting bc.
+    // In this case "a" has a state with precedingAffected(REVERSE), thus we must force copy its parent.
     static class Mutation<M extends RangeMarker<M>, U extends RangeMarker<U>> extends InMemoryBaseTrie.Mutation<M, U, RangeCursor<U>>
     {
         Mutation(UpsertTransformerWithKeyProducer<M, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, InMemoryRangeTrie<M>.ApplyState state)
@@ -202,27 +242,41 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
                 U content = mutationCursor.content();
+
+                // Keep the mutation cursor advanced to be able to know if it descends.
+                mutationCursor.advance();
+
                 if (content != null)
                 {
-                    final M existingCoveringState = getExistingCoveringState();
+                    final M existingCoveringState = getExistingCoveringState(); // TODO: Maybe track instead of looking up here? (Note: needs a stack)
                     applyContent(existingCoveringState, content);
-                    U mutationCoveringState = content.precedingState(Direction.REVERSE);
+
+                    // If branch and following state differ, we need to process them separately.
+                    // - We need to pre-advance the mutation cursor to check if it descends.
+                    // - It may also be the case that we have different branch and following.
+
+                    // We now need to check:
+                    // - If this introduces a new branch deletion.
+                    // - If the mutation cursor descends into the branch.
+
                     // Several cases:
-                    // - New deletion is point deletion: Apply it and move on to next mutation branch.
+                    // - New deletion is point deletion.
                     // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
                     //   parallel to apply deletion and adjust on any change.
                     // - New deletion starts range and existing beats it: We still have to walk both tries in parallel,
                     //   because existing deletion may end before the newly introduced one, and we want to apply that when
                     //   it does.
-                    if (mutationCoveringState != null)
-                    {
-                        boolean done = applyDeletionRange(rightSideAsCovering(existingCoveringState), mutationCoveringState);
-                        if (done)
-                            break;
-                    }
+
+                    if (content.hasSeparateBranchState(Direction.REVERSE))
+                        applyDeletionRange(branchAsCovering(existingCoveringState), content.branchState(), depth);
+
+                    U mutationFollowingState = content.precedingState(Direction.REVERSE);
+                    if (mutationFollowingState != null)
+                        applyDeletionRange(rightSideAsCovering(existingCoveringState), mutationFollowingState, state.ascendLimit);
                 }
 
-                depth = mutationCursor.advance();
+                depth = mutationCursor.depth();
+
                 // Descend but do not modify anything yet.
                 if (state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
                     break;
@@ -231,27 +285,20 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
             state.setAscendLimit(prevAscendDepth);
         }
 
-        boolean applyDeletionRange(M existingCoveringState,
-                                   U mutationCoveringState)
+        void applyDeletionRange(M existingCoveringState,
+                                U mutationCoveringState,
+                                int ascendLimit)
         throws TrieSpaceExhaustedException
         {
-            boolean atMutation = true;
             int depth = mutationCursor.depth();
             int transition = mutationCursor.incomingTransition();
             // We are walking both tries in parallel.
             while (true)
             {
-                if (atMutation)
-                {
-                    depth = mutationCursor.advance();
-                    transition = mutationCursor.incomingTransition();
-
-                    if (depth <= forcedCopyDepth)
-                        forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
-                }
-                atMutation = state.advanceToNextExistingOr(depth, transition, forcedCopyDepth);
-                if (atMutation && depth == -1)
-                    return true;
+                AdvanceResult advanceResult = state.advanceToNextExistingOr(depth, transition, ascendLimit, forcedCopyDepth);
+                if (advanceResult == AdvanceResult.ASCEND_LIMIT)
+                    return;
+                boolean atMutation = advanceResult == AdvanceResult.POSITION_LIMIT;
 
                 M existingContent = state.getContent();
                 U mutationContent = atMutation ? mutationCursor.content() : null;
@@ -264,13 +311,29 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
                     applyContent(existingContent, mutationContent);
                     mutationCoveringState = mutationContent.precedingState(Direction.REVERSE);
                     existingCoveringState = rightSideAsCovering(existingContent);
-                    if (mutationCoveringState == null)
-                    {
-                        assert atMutation; // mutation covering state can only change when mutation content is present
-                        return false; // mutation deletion range was closed, we can continue normal mutation cursor iteration
-                    }
                 }
+
+                if (atMutation)
+                {
+                    depth = mutationCursor.advance();
+                    transition = mutationCursor.incomingTransition();
+
+                    if (depth <= forcedCopyDepth)
+                        forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
+
+                    if (mutationCoveringState == null)
+                        return; // mutation deletion range was closed, we can continue normal mutation cursor iteration
+                }
+                else
+                    assert mutationCoveringState != null; // mutation covering state can only change when mutation content is present
             }
+        }
+
+        static <M extends RangeMarker<M>> M branchAsCovering(M rangeMarker)
+        {
+            if (rangeMarker == null)
+                return null;
+            return rangeMarker.branchState();
         }
 
         static <M extends RangeMarker<M>> M rightSideAsCovering(M rangeMarker)
@@ -282,15 +345,24 @@ public class InMemoryRangeTrie<M extends RangeMarker<M>> extends InMemoryBaseTri
 
         M getExistingCoveringState()
         {
+            // If the current node has content, use it.
             M existingCoveringState = state.getContent();
-            if (existingCoveringState == null)
-            {
-                existingCoveringState = state.getNearestContent();    // without advancing, just get
-                if (existingCoveringState != null)
-                    existingCoveringState = existingCoveringState.precedingState(Direction.FORWARD);
-            }
-            return existingCoveringState;
+            if (existingCoveringState != null)
+                return existingCoveringState;
+
+            // Otherwise, we must have a descendant that will have the active state as its preceding.
+            existingCoveringState = state.getNearestChildContent();
+            if (existingCoveringState != null)
+                return existingCoveringState.precedingState(Direction.FORWARD);
+
+            // Otherwise, check if we are in a covered branch.
+            existingCoveringState = state.getNearestParentContent();
+            if (existingCoveringState != null)
+                return existingCoveringState.branchState();
+
+            return null;
         }
+
     }
 
 
