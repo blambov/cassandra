@@ -18,9 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -28,6 +25,9 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -117,10 +117,20 @@ public class RangesTrieSetTest
     void check(String... boundariesAsStrings)
     {
         ByteComparable[] boundaries = new ByteComparable[boundariesAsStrings.length];
+        ByteComparable[] directBoundaries = new ByteComparable[boundariesAsStrings.length];
+        boolean hasCoveredBranch = false;
         for (int i = 0; i < boundariesAsStrings.length; ++i)
+        {
             boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.comparable(boundariesAsStrings[i]) : null;
-        check(boundaries);
+            directBoundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
+            if (i > 0 && boundariesAsStrings[i] != null && boundariesAsStrings[i - 1] != null && boundariesAsStrings[i].compareTo(boundariesAsStrings[i - 1]) < 0)
+                hasCoveredBranch = true;
+        }
+        check(directBoundaries);
 
+        if (hasCoveredBranch)
+            return; // Covered branches repeat prefixes to enable sensible reverse iteration.
+        check(boundaries);
         verifySkipTo(boundariesAsStrings, TrieSet.ranges(VERSION, boundaries));
         verifyTails(boundaries, TrieSet.ranges(VERSION, boundaries));
     }
@@ -396,12 +406,40 @@ public class RangesTrieSetTest
     }
 
     @Test
+    public void testCoveredBranch()
+    {
+        check("a", "abc", "acd", "a");
+    }
+
+    @Test
+    public void testExcludedBranch()
+    {
+        check("_", "a", "abc", "acd", "a", "b");
+    }
+
+    @Test
+    public void testCoveredBranchRight()
+    {
+        check("_", "abc", "acd", "a");
+    }
+
+    @Test
+    public void testCoveredBranchLeft()
+    {
+        check("_", "abc", "acd", "a");
+    }
+
+    @Test
+    public void testNestedBranch()
+    {
+        check("a", "aaa", "aaabc", "aaacd", "aaa", "a");
+    }
+
+    @Test
     public void testLong()
     {
         check("aaa", "aab", "aba", "aca", "acb", "ada", "adba", "adba", "baa", "bba", "bbb", "bbc", "bcc", "bcd");
     }
-
-    // TODO: Implement and test the "ab", "abba", "abbc", "ab" case (ab covered except for abba-abbc)
 
     @Test
     public void testRangeStateFromProperties()

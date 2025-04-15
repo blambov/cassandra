@@ -176,6 +176,9 @@ class RangesCursor implements TrieSetCursor
     @Override
     public int advance()
     {
+        while (direction.le(currentIdx, completedIdx) && nexts[currentIdx] == ByteSource.END_OF_STREAM)
+            currentIdx += direction.increase;
+
         if (direction.gt(currentIdx, completedIdx))
             return exhausted();
 
@@ -208,11 +211,11 @@ class RangesCursor implements TrieSetCursor
         if (next == ByteSource.END_OF_STREAM)
         {
             containedSelection |= 4; // exact match, point and children included; reportable node
-            while (direction.le(currentIdx, endIdx))
+            do
             {
-                assert nexts[currentIdx] == ByteSource.END_OF_STREAM : "Prefixes are not allowed in trie ranges.";
                 currentIdx += direction.increase;
             }
+            while (direction.le(currentIdx, endIdx) && nexts[currentIdx] == ByteSource.END_OF_STREAM);
         }
         currentState = RangeState.values()[containedSelection];
         return currentDepth;
