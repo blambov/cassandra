@@ -25,12 +25,12 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// In addition to the functionality of normal trie cursors, set cursors also produce a [#state] that describes the
 /// coverage of trie sections to the left, right and below the cursor position. This is necessary to be able to identify
 /// coverage after a [#skipTo] operation, where the set cursor jumps to a position beyond the requested one.
-interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
+interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 {
     /// This type describes the state at a given cursor position. It describes the coverage of the positions before and
     /// after the current in forward order, whether the node is boundary (and thus applies to this point and all its
     /// descendants) and also describes the type of boundary (e.g. start/end).
-    enum RangeState
+    enum RangeState implements RangeMarker<RangeState>
     {
         // Note: the states must be ordered so that
         //   `values()[applicableBefore * 1 + applicableAfter * 2 + applicableAtPoint * 4]`
@@ -111,6 +111,25 @@ interface TrieSetCursor extends Cursor<TrieSetCursor.RangeState>
         public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter, boolean applicableAtPoint)
         {
             return values()[(applicableBefore ? 1 : 0) + (applicableAfter ? 2 : 0) + (applicableAtPoint ? 4 : 0)];
+        }
+
+        @Override
+        public RangeState precedingState(Direction direction)
+        {
+            return precedingIncluded(direction) ? END_START_PREFIX : START_END_PREFIX;
+        }
+
+        @Override
+        public RangeState branchState()
+        {
+            return branchIncluded() ? END_START_PREFIX : START_END_PREFIX;
+        }
+
+        @Override
+        public RangeState restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+        {
+            return fromProperties(applicableBefore && this.applicableBefore, applicableAfter && this.applicableAfter,
+                                  branchIncluded() || convertCoveringToReported ? true : false);
         }
     }
 

@@ -132,7 +132,7 @@ public interface RangeTrie<M extends RangeMarker<M>> extends BaseTrie<M, RangeCu
     @Override
     default RangeCursor<M> cursor(Direction direction)
     {
-        return Trie.DEBUG ? new VerificationCursor.Range<>(makeCursor(direction), 0, 0, -1)
+        return Trie.DEBUG ? new VerificationCursor.Range<>(makeCursor(direction))
                           : makeCursor(direction);
     }
 }

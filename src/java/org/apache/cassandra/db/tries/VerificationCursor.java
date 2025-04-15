@@ -234,129 +234,7 @@ public interface VerificationCursor
     }
 
 
-    class TrieSet extends Plain<TrieSetCursor.RangeState, TrieSetCursor> implements TrieSetCursor
-    {
-        boolean currentPrecedingIncluded;
-        boolean nextPrecedingIncluded;
-        int maxNextDepth;
-
-        TrieSet(TrieSetCursor source)
-        {
-            this(source, 0, 0, INITIAL_TRANSITION);
-        }
-
-        TrieSet(TrieSetCursor source, int minDepth, int expectedDepth, int expectedTransition)
-        {
-            super(source, minDepth, expectedDepth, expectedTransition);
-            // start state can be non-null for sets
-            currentPrecedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(currentPrecedingIncluded, "Preceding state for trie sets must not be null\n%s", this);
-            nextPrecedingIncluded = source.content() != null ? source.content().precedingIncluded(direction.opposite()) : currentPrecedingIncluded;
-            maxNextDepth = Integer.MAX_VALUE;
-        }
-
-        void verifyEndState()
-        {
-            // end state can be non-null for sets
-        }
-
-        @Override
-        public TrieSetCursor.RangeState state()
-        {
-            return Preconditions.checkNotNull(source.state());
-        }
-
-        @Override
-        public TrieSet tailCursor(Direction direction)
-        {
-            return new TrieSet(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
-        }
-
-        @Override
-        public int advance()
-        {
-            currentPrecedingIncluded = nextPrecedingIncluded;
-            checkIfDescentShouldBeForbidden();
-            return verifyState(super.advance());
-        }
-
-        @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
-        {
-            currentPrecedingIncluded = nextPrecedingIncluded;
-            checkIfDescentShouldBeForbidden();
-            return verifyState(super.advanceMultiple(receiver));
-        }
-
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            checkIfDescentShouldBeForbidden();
-            return verifySkipState(super.skipTo(skipDepth, skipTransition));
-        }
-
-        private void checkIfDescentShouldBeForbidden()
-        {
-            maxNextDepth = source.state().branchIncluded() ? source.depth() : Integer.MAX_VALUE;
-        }
-
-        @Override
-        public boolean precedingIncluded()
-        {
-            Preconditions.checkState(currentPrecedingIncluded == source.precedingIncluded(),
-                                     "Preceding state changed without advance: %s -> %s. %s\n%s",
-                                     currentPrecedingIncluded, source.precedingIncluded(),
-                                     currentPrecedingIncluded == source.precedingIncluded()
-                                     ? "The values are equal but different object. This is not permitted for performance reasons."
-                                     : "",
-                                     this);
-            // == above is correct, we do not want covering state to be recreated unless some change happened to the cursor
-            return currentPrecedingIncluded;
-        }
-
-        private int verifyState(int depth)
-        {
-            boolean precedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(precedingIncluded, "Preceding state for trie sets must not be null");
-            Preconditions.checkState(currentPrecedingIncluded == precedingIncluded,
-                                     "Unexpected change to covering state: %s -> %s\n%s",
-                                     currentPrecedingIncluded, precedingIncluded, this);
-            currentPrecedingIncluded = precedingIncluded;
-            Preconditions.checkState(depth <= maxNextDepth,
-                                     "Cursor descended after reporting an included branch\n%s",
-                                     this);
-
-            RangeState content = source.content();
-            if (content != null)
-            {
-                Preconditions.checkState(currentPrecedingIncluded == content.precedingIncluded(direction),
-                                         "Range end %s does not close covering state %s",
-                                         content.precedingIncluded(direction), currentPrecedingIncluded);
-                nextPrecedingIncluded = content.precedingIncluded(direction.opposite());
-            }
-
-            if (depth < 0)
-                verifyEndState();
-            return depth;
-        }
-
-        private int verifySkipState(int depth)
-        {
-            // The covering state information is invalidated by a skip.
-            currentPrecedingIncluded = source.precedingIncluded();
-            Preconditions.checkNotNull(currentPrecedingIncluded, "Preceding state for trie sets must not be null\n%s", this);
-            nextPrecedingIncluded = currentPrecedingIncluded;
-            return verifyState(depth);
-        }
-
-        @Override
-        public String toString()
-        {
-            return super.toString() + " state " + state();
-        }
-    }
-
-    static class BranchStateStack<M extends RangeMarker<M>>
+    static class BranchStateStack<M>
     {
         final int depth;
         final M branchState;
@@ -372,8 +250,8 @@ public interface VerificationCursor
         }
     }
 
-    class Range<M extends RangeMarker<M>>
-    extends Plain<M, RangeCursor<M>>
+    abstract class WithRanges<M extends RangeMarker<M>, C extends RangeCursor<M>>
+    extends Plain<M, C>
     implements RangeCursor<M>
     {
         M currentPrecedingState = null;
@@ -382,12 +260,12 @@ public interface VerificationCursor
         int prevDepth = -1;
         BranchStateStack<M> branchStateStack = null;
 
-        Range(RangeCursor<M> source)
+        WithRanges(C source)
         {
             this(source, 0, 0, INITIAL_TRANSITION);
         }
 
-        Range(RangeCursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
+        WithRanges(C source, int minDepth, int expectedDepth, int expectedTransition)
         {
             super(source, minDepth, expectedDepth, expectedTransition);
             // start state can be non-null for sets
@@ -531,15 +409,50 @@ public interface VerificationCursor
         }
 
         @Override
+        public String toString()
+        {
+            return super.toString() + " state " + state();
+        }
+
+        @Override
+        abstract public WithRanges<M, C> tailCursor(Direction direction);
+    }
+
+    class Range<M extends RangeMarker<M>> extends WithRanges<M, RangeCursor<M>> implements RangeCursor<M>
+    {
+        Range(RangeCursor<M> source)
+        {
+            super(source);
+        }
+
+        Range(RangeCursor<M> source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
+
+        @Override
         public Range<M> tailCursor(Direction direction)
         {
             return new Range<>(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
+    }
+
+    class TrieSet extends WithRanges<TrieSetCursor.RangeState, TrieSetCursor> implements TrieSetCursor
+    {
+        TrieSet(TrieSetCursor source)
+        {
+            super(source);
+        }
+
+        TrieSet(TrieSetCursor source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+        }
 
         @Override
-        public String toString()
+        public TrieSet tailCursor(Direction direction)
         {
-            return super.toString() + " state " + state();
+            return new TrieSet(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
 }
