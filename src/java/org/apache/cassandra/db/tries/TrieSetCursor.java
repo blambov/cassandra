@@ -37,39 +37,53 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         // produces a state with the requested flags
 
         /// The cursor is at a prefix of a contained range, and neither the branches to the left or right are contained.
-        START_END_PREFIX(false, false, false),
+        START_END_PREFIX(false, false, null),
         /// The cursor is positioned at a prefix of an end boundary, inside a covered range on the left.
-        END_PREFIX(true, false, false),
+        END_PREFIX(true, false, null),
         /// The cursor is positioned at a prefix of a start boundary. The branches to the right are covered.
-        START_PREFIX(false, true, false),
+        START_PREFIX(false, true, null),
         /// The cursor is positioned inside a covered range, on a prefix of an excluded sub-range.
-        END_START_PREFIX(true, true, false),
+        END_START_PREFIX(true, true, null),
         /// The cursor is positioned at a "point" boundary, i.e. only the descendants of the boundary are covered,
         /// branches to the left or right are not contained.
-        POINT(false, false, true),
+        POINT_EXCLUSIVE(false, false, false),
         /// The cursor is positioned at an end boundary. Branches to the left, as well as descendants of this point are
         /// covered by the set.
-        END(true, false, true),
+        END_EXCLUSIVE(true, false, false),
         /// The cursor is positioned at a start boundary. Branches to the right, as well as descendants of this point
         /// are covered by the set.
-        START(false, true, true),
+        START_EXCLUSIVE(false, true, false),
         /// The cursor is positioned at a non-effective boundary (an end boundary for the previous range, as well as
         /// a start for the next). Branches before, after and below this point is covered.
-        COVERED(true, true, true);
+        COVERED_EXCLUSIVE(true, true, false),
+        /// The cursor is positioned at a "point" boundary, i.e. only the descendants of the boundary are covered,
+        /// branches to the left or right are not contained.
+        POINT_INCLUSIVE(false, false, true),
+        /// The cursor is positioned at an end boundary. Branches to the left, as well as descendants of this point are
+        /// covered by the set.
+        END_INCLUSIVE(true, false, true),
+        /// The cursor is positioned at a start boundary. Branches to the right, as well as descendants of this point
+        /// are covered by the set.
+        START_INCLUSIVE(false, true, true),
+        /// The cursor is positioned at a non-effective boundary (an end boundary for the previous range, as well as
+        /// a start for the next). Branches before, after and below this point is covered.
+        COVERED_INCLUSIVE(true, true, true);
 
         /// Whether the set applied to positions before the cursor's in forward order.
         final boolean applicableBefore;
         /// Whether the set applied to positions after the cursor's in forward order.
         final boolean applicableAfter;
+        final Boolean branchCoverage;
         /// The state to report as content. This converts prefix states to null to report only the boundaries
         /// (e.g. for dumping to text).
         final RangeState asContent;
 
-        RangeState(boolean applicableBefore, boolean applicableAfter, boolean applicableAtPoint)
+        RangeState(boolean applicableBefore, boolean applicableAfter, Boolean branchCoverage)
         {
             this.applicableBefore = applicableBefore;
             this.applicableAfter = applicableAfter;
-            this.asContent = applicableAtPoint ? this : null;
+            this.branchCoverage = branchCoverage;
+            this.asContent = branchCoverage != null ? this : null;
         }
 
         /// Whether the positions preceding the current in iteration order are included in the set.
@@ -79,9 +93,9 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         }
 
         /// Whether the descendant branch is fully included in the set.
-        public boolean branchIncluded()
+        public Boolean branchIncluded()
         {
-            return asContent != null;
+            return branchCoverage;
         }
 
         public RangeState toContent()
@@ -89,28 +103,38 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
             return asContent;
         }
 
+        int branchCoverageAsInt()
+        {
+            return branchCoverage == null ? 0 : branchCoverage ? 2 : 1;
+        }
+
         /// Return an "intersection" state for the combination of two states, i.e. the ranges covered by both states.
         public RangeState intersect(RangeState other)
         {
-            return values()[ordinal() & other.ordinal()];
+            int branchCoverage = Math.min(branchCoverageAsInt(), other.branchCoverageAsInt());
+            return values()[(ordinal() & other.ordinal() & 3) | (branchCoverage << 2)];
         }
 
         /// Return a "union" state for the combination of two states, i.e. the ranges covered by at least one of the states.
         public RangeState union(RangeState other)
         {
-            return values()[ordinal() | other.ordinal()];
+            int branchCoverage = Math.max(branchCoverageAsInt(), other.branchCoverageAsInt());
+            return values()[(ordinal() | other.ordinal() & 3) | (branchCoverage << 2)];
         }
 
         /// Return the "weakly negated" state, i.e. the state that corresponds to flipped areas of coverage to the left
         /// and right, and the boundary points. See [TrieSet#weakNegation] for more details.
         public RangeState weakNegation()
         {
-            return values()[ordinal() ^ 3];
+            int branchCoverage = branchCoverageAsInt();
+            if (branchCoverage > 0)
+                branchCoverage = 3 - branchCoverage;
+            return values()[((ordinal() ^ 3) & 3) | (branchCoverage << 2)];
         }
 
-        public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter, boolean applicableAtPoint)
+        public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter, Boolean applicableAtPoint)
         {
-            return values()[(applicableBefore ? 1 : 0) + (applicableAfter ? 2 : 0) + (applicableAtPoint ? 4 : 0)];
+            return values()[(applicableBefore ? 1 : 0) + (applicableAfter ? 2 : 0) + (applicableAtPoint == null ? 0 : applicableAtPoint ? 8 : 4)];
         }
 
         @Override
@@ -122,14 +146,16 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public RangeState branchState()
         {
-            return branchIncluded() ? END_START_PREFIX : START_END_PREFIX;
+            if (branchCoverage == null)
+                return null;
+            return branchCoverage ? END_START_PREFIX : START_END_PREFIX;
         }
 
         @Override
-        public RangeState restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+        public RangeState restrict(boolean applicableBefore, boolean applicableAfter, Boolean boundaryAndBranchInclusion)
         {
-            return fromProperties(applicableBefore && this.applicableBefore, applicableAfter && this.applicableAfter,
-                                  branchIncluded() || convertCoveringToReported ? true : false);
+            int branchCoverage = Math.min(branchCoverageAsInt(), boundaryAndBranchInclusion == null ? 0 : boundaryAndBranchInclusion ? 2 : 1);
+            return values()[(applicableBefore && this.applicableBefore ? 1 : 0) + (applicableAfter && this.applicableAfter ? 2 : 0) + (branchCoverage << 2)];
         }
     }
 

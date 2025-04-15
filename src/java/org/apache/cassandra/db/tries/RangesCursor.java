@@ -210,12 +210,12 @@ class RangesCursor implements TrieSetCursor
         containedSelection |= ((direction.select(endIdx, currentIdx) & 1) ^ 1) << 1; // even end index means not valid after
         if (next == ByteSource.END_OF_STREAM)
         {
-            containedSelection |= 4; // exact match, point and children included; reportable node
             do
             {
                 currentIdx += direction.increase;
             }
             while (direction.le(currentIdx, endIdx) && nexts[currentIdx] == ByteSource.END_OF_STREAM);
+            containedSelection |= 8;//4 + ((direction.select(currentIdx, currentIdx ^ 1) & 1) << 2);
         }
         currentState = RangeState.values()[containedSelection];
         return currentDepth;

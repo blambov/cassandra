@@ -272,13 +272,13 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
         final RangeState c1state = c1.state();
         final RangeState c2state = c2.state();
         currentRangeState = combineState(c1state, c2state);
-        if (c1state.branchIncluded() != c2state.branchIncluded())
+        if ((c1state.branchIncluded() != null) != (c2state.branchIncluded() != null))
         {
             // If one of the sets has this as a "branch included" position, setting it as ahead makes sure that
             // we return the other's content until it ascends above the current position.
             // Note that because we don't allow intersections to result in boundaries that are prefixes of other
             // boundaries, when the covered set returns above this point it can't have `precedingIncluded()` true.
-            if (c1state.branchIncluded())
+            if (c1state.branchIncluded() != null)
                 state = State.C1_COVERED_BRANCH;
             else
                 state = State.C2_COVERED_BRANCH;
@@ -329,7 +329,6 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
         @Override
         TrieSetCursor.RangeState combineState(TrieSetCursor.RangeState cl, TrieSetCursor.RangeState cr)
         {
-            assert cl.branchIncluded() == cr.branchIncluded() : "Union results in a prefix range";
             return cl.union(cr);
         }
 

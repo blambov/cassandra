@@ -337,7 +337,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     {
         final M srcState = src.state();
         final TrieSetCursor.RangeState setState = set.state();
-        boolean setBoundary = setState.branchIncluded();
+        boolean setBoundary = setState.branchIncluded() != null;
         boolean srcBoundary = srcState != null && srcState.toContent() != null;
         if (srcBoundary == setBoundary)
             return setState(State.MATCHING, depth, transition, restrict(srcState, setState));
@@ -356,7 +356,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
             // Note: It is tempting to advance the set and use SET_AHEAD, but when we leave this branch we may no longer
             // be inside the set (this will be the case if precedingIncluded(REVERSE) is not true).
             // Since the branch is fully covered, there is no need to restrict the source state.
-            return setState(State.SET_COVERED_BRANCH, depth, transition, srcState);
+            return setState(State.SET_COVERED_BRANCH, depth, transition, restrict(srcState, setState));
         }
     }
 
@@ -364,7 +364,7 @@ class RangeIntersectionCursor<M extends RangeMarker<M>> implements RangeCursor<M
     {
         if (srcState == null)
             return null;
-        return srcState.restrict(setState.applicableBefore, setState.applicableAfter, setState.branchIncluded());
+        return srcState.restrict(setState.applicableBefore, setState.applicableAfter, setState.branchCoverage);
     }
 
     private int setState(State state, int depth, int transition, M cursorState)

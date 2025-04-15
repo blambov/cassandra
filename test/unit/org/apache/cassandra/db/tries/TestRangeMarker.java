@@ -164,15 +164,15 @@ class TestRangeMarker implements RangeMarker<TestRangeMarker>
     }
 
     @Override
-    public TestRangeMarker restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+    public TestRangeMarker restrict(boolean applicableBefore, boolean applicableAfter, Boolean boundaryAndBranchCoverage)
     {
-        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)) && (!convertCoveringToReported || isReportableState))
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)) && ((boundaryAndBranchCoverage != null) || isReportableState))
             return this;
-        int newAt = isReportableState || convertCoveringToReported ? at : -1;
+        int newAt = isReportableState || boundaryAndBranchCoverage != null && boundaryAndBranchCoverage ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
         if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
-            return new TestRangeMarker(position, newLeft, newAt, newRight, isReportableState || convertCoveringToReported);
+            return new TestRangeMarker(position, newLeft, newAt, newRight, isReportableState || (boundaryAndBranchCoverage != null));
         else
             return null;
     }

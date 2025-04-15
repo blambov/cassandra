@@ -188,7 +188,7 @@ public class InMemoryRangeTrieConsistencyTest extends ConsistencyTestBase<InMemo
         }
 
         @Override
-        public Content restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+        public Content restrict(boolean applicableBefore, boolean applicableAfter, Boolean convertCoveringToReported)
         {
             return this;
         }
@@ -221,7 +221,7 @@ public class InMemoryRangeTrieConsistencyTest extends ConsistencyTestBase<InMemo
         }
 
         @Override
-        public Content restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+        public Content restrict(boolean applicableBefore, boolean applicableAfter, Boolean convertCoveringToReported)
         {
             throw new AssertionError(); // should not be called
         }
@@ -278,7 +278,7 @@ public class InMemoryRangeTrieConsistencyTest extends ConsistencyTestBase<InMemo
         }
 
         @Override
-        public Content restrict(boolean applicableBefore, boolean applicableAfter, boolean convertCoveringToReported)
+        public Content restrict(boolean applicableBefore, boolean applicableAfter, Boolean convertCoveringToReported)
         {
             return this;
         }

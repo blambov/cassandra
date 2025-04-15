@@ -265,7 +265,7 @@ public class RangesTrieSetTest
         {
             boolean appliesBefore = (firstIndex & 1) != 0;
             boolean appliesAfter = (lastIndex & 1) == 0;
-            return TrieSetCursor.RangeState.values()[(appliesBefore ? 1 : 0) | (appliesAfter ? 2 : 0) | (exact ? 4 : 0)];
+            return TrieSetCursor.RangeState.values()[(appliesBefore ? 1 : 0) | (appliesAfter ? 2 : 0) | (exact ? 8 : 0)];
         }
 
         static PointState fullRange()
@@ -446,12 +446,12 @@ public class RangesTrieSetTest
     {
         for (boolean applicableBefore : List.of(false, true))
             for (boolean applicableAfter : List.of(false, true))
-                for (boolean applicableAt : List.of(false, true))
+                for (Boolean applicableAt : new Boolean[]{null, false, true})
                 {
                     TrieSetCursor.RangeState state = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableAfter, applicableAt);
                     assertEquals(applicableBefore, state.applicableBefore);
                     assertEquals(applicableAfter, state.applicableAfter);
-                    assertEquals(applicableAt, state.asContent != null);
+                    assertEquals(applicableAt, state.branchIncluded());
                 }
     }
 }
