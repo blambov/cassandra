@@ -19,6 +19,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.function.BiFunction;
 
 import com.google.common.base.Preconditions;
 
@@ -137,7 +138,14 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
         }
     }
 
-    @SuppressWarnings("unchecked")
+    /// Applies these ranges to a given data trie. The meaning of the application is defined by the given mapper:
+    /// whenever the trie's content falls under a range, the mapper is called to return the content that should be
+    /// presented.
+    default <T> Trie<T> applyTo(Trie<T> source, BiFunction<S, T, T> mapper)
+    {
+        return dir -> new RangeApplyCursor<>(mapper, cursor(dir), source.cursor(dir));
+    }
+
     static <S extends RangeState<S>> RangeTrie<S> empty(ByteComparable.Version version)
     {
         return dir -> RangeCursor.empty(dir, version);
