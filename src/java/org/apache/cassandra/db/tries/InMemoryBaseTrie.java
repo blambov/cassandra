@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.tries;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Predicates;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -122,40 +121,12 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         switch (lifetime)
         {
             case SHORT:
-                cellAllocator = new MemoryAllocationStrategy.NoReuseStrategy(new MemoryAllocationStrategy.Allocator()
-                {
-                    @Override
-                    public int allocate() throws TrieSpaceExhaustedException
-                    {
-                        return allocateNewCell();
-                    }
-                });
-                objectAllocator = new MemoryAllocationStrategy.NoReuseStrategy(new MemoryAllocationStrategy.Allocator()
-                {
-                    @Override
-                    public int allocate()
-                    {
-                        return allocateNewObject();
-                    }
-                });
+                cellAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewCell);
+                objectAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewObject);
                 break;
             case LONG:
-                cellAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(new MemoryAllocationStrategy.Allocator()
-                {
-                    @Override
-                    public int allocate() throws TrieSpaceExhaustedException
-                    {
-                        return allocateNewCell();
-                    }
-                }, opOrder);
-                objectAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(new MemoryAllocationStrategy.Allocator()
-                {
-                    @Override
-                    public int allocate()
-                    {
-                        return allocateNewObject();
-                    }
-                }, opOrder);
+                cellAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewCell, opOrder);
+                objectAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewObject, opOrder);
                 break;
             default:
                 throw new AssertionError();
@@ -383,7 +354,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                 return attachChildToSplitCopying(node, originalNode, trans, newChild);
             default:
                 // chain nodes
-                return attachChildToChainCopying(node, originalNode, trans, newChild); // always copies
+                return attachChildToChainCopying(node, trans, newChild); // always copies
         }
     }
 
@@ -792,7 +763,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     }
 
     /// Attach a child to the given chain node, when we are force-copying.
-    private int attachChildToChainCopying(int node, int originalNode, int transitionByte, int newChild)
+    private int attachChildToChainCopying(int node, int transitionByte, int newChild)
     throws TrieSpaceExhaustedException
     {
         int existingByte = getUnsignedByte(node);
@@ -1802,7 +1773,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     @VisibleForTesting
     public long unusedReservedOnHeapMemory()
     {
-        int bufferOverhead = 0;
+        long bufferOverhead = 0;
         if (bufferType == BufferType.ON_HEAP)
         {
             int pos = this.allocatedPos;
@@ -1816,7 +1787,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> contentArray = contentArrays[leadBit];
-        int contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
+        long contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
         contentOverhead += objectAllocator.indexCountInPipeline();
         contentOverhead *= MemoryLayoutSpecification.SPEC.getReferenceSize();
 

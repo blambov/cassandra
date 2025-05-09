@@ -189,7 +189,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         action.apply(this, item, index);
     }
 
-    <D> void applyToAllOnHeap(HeapOp<T, C> action)
+    void applyToAllOnHeap(HeapOp<T, C> action)
     {
         for (int i = 0; i < heap.length; i++)
             action.apply(this, heap[i], i);

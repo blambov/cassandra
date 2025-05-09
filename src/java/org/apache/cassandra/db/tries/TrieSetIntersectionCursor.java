@@ -21,7 +21,7 @@ package org.apache.cassandra.db.tries;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// Implementation of the intersection of two sets.
-public class TrieSetIntersectionCursor implements TrieSetCursor
+class TrieSetIntersectionCursor implements TrieSetCursor
 {
     enum State
     {
@@ -51,7 +51,7 @@ public class TrieSetIntersectionCursor implements TrieSetCursor
     TrieSetCursor.RangeState currentRangeState;
     State state;
 
-    public TrieSetIntersectionCursor(TrieSetCursor c1, TrieSetCursor c2)
+    TrieSetIntersectionCursor(TrieSetCursor c1, TrieSetCursor c2)
     {
         this.direction = c1.direction();
         this.c1 = c1;

@@ -175,6 +175,7 @@ public interface VerificationCursor
         }
 
         @Override
+        @SuppressWarnings("unchecked")
         public Plain<T, C> tailCursor(Direction direction)
         {
             return new Plain<>((C) source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
@@ -240,11 +241,6 @@ public interface VerificationCursor
         S currentPrecedingState = null;
         S nextPrecedingState = null;
         int maxNextDepth = Integer.MAX_VALUE;
-
-        WithRanges(C source)
-        {
-            this(source, 0, 0, INITIAL_TRANSITION);
-        }
 
         WithRanges(C source, int minDepth, int expectedDepth, int expectedTransition)
         {

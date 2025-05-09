@@ -39,7 +39,7 @@ package org.apache.cassandra.db.tries;
 ///   directions.
 ///
 /// Using this combination instead of separate concepts simplifies and improves the performance of the implementation.
-interface RangeState<S extends RangeState<S>>
+public interface RangeState<S extends RangeState<S>>
 {
     /// True if this is a boundary point. Boundary points are reported by `content()` and usually apply a different
     /// state before and after the point (i.e. `precedingState(FORWARD) != precedingState(REVERSE)`).

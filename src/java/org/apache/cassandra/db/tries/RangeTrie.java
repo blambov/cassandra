@@ -74,7 +74,7 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     /// as the forward and reverse `precedingState`).
     static <S extends RangeState<S>> RangeTrie<S> fromSet(TrieSet set, S v)
     {
-        Preconditions.checkArgument(v.isBoundary() == false);
+        Preconditions.checkArgument(!v.isBoundary());
         Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == v);
         Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == v);
         return dir -> new RangeCursor.FromSet<>(set.cursor(dir), v);
@@ -100,7 +100,7 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     @Override
     default RangeTrie<S> intersect(TrieSet set)
     {
-        return dir -> new RangeIntersectionCursor(cursor(dir), set.cursor(dir));
+        return dir -> new RangeIntersectionCursor<>(cursor(dir), set.cursor(dir));
     }
 
     /// Constructs a view of the merge of this trie with the given one. The view is live, i.e. any write to any of the
@@ -146,7 +146,6 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
         return dir -> new RangeApplyCursor<>(mapper, cursor(dir), source.cursor(dir));
     }
 
-    @SuppressWarnings("unchecked")
     static <S extends RangeState<S>> RangeTrie<S> empty(ByteComparable.Version version)
     {
         return dir -> RangeCursor.empty(dir, version);

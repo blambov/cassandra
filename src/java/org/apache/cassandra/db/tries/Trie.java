@@ -227,7 +227,7 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     @Override
     default Trie<T> prefixedBy(ByteComparable prefix)
     {
-        return dir -> new PrefixedCursor.Plain(prefix, cursor(dir));
+        return dir -> new PrefixedCursor.Plain<>(prefix, cursor(dir));
     }
 
     @Override
@@ -235,7 +235,7 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     {
         Cursor<T> c = cursor(Direction.FORWARD);
         if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
-            return dir -> c.tailCursor(dir);
+            return c::tailCursor;
         else
             return null;
     }
