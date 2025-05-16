@@ -446,4 +446,92 @@ public interface VerificationCursor
             return new TrieSet(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
         }
     }
+
+    class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends VerificationCursor.Plain<T, DeletionAwareCursor<T, D>>
+    implements DeletionAwareCursor<T, D>
+    {
+        int deletionBranchDepth;
+
+        DeletionAware(DeletionAwareCursor<T, D> source)
+        {
+            this(source, 0, 0, INITIAL_TRANSITION);
+        }
+
+        DeletionAware(DeletionAwareCursor<T, D> source, int minDepth, int expectedDepth, int expectedTransition)
+        {
+            super(source, minDepth, expectedDepth, expectedTransition);
+            this.deletionBranchDepth = -1;
+            verifyDeletionBranch(expectedDepth);
+        }
+
+        @Override
+        public int incomingTransition()
+        {
+            return source.incomingTransition();
+        }
+
+        @Override
+        public int advance()
+        {
+            return verifyDeletionBranch(super.advance());
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return verifyDeletionBranch(super.advanceMultiple(receiver));
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return verifyDeletionBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranch()
+        {
+            // deletionBranch is already verified
+            final RangeCursor<D> deletionBranch = source.deletionBranch();
+            if (deletionBranch == null)
+                return null;
+            return new Range<>(deletionBranch, returnedDepth, returnedDepth, returnedTransition);
+        }
+
+        int verifyDeletionBranch(int depth)
+        {
+            if (depth <= deletionBranchDepth)
+                deletionBranchDepth = -1;
+
+            var deletionBranch = source.deletionBranch();
+            if (deletionBranch != null)
+            {
+                Preconditions.checkState(deletionBranchDepth == -1,
+                                         "Deletion branch at depth %s covered by another deletion branch at parent depth %s",
+                                         depth, deletionBranchDepth);
+                Preconditions.checkState(deletionBranch.depth() == depth,
+                                         "Deletion branch depth %s does not match cursor depth %s",
+                                         deletionBranch.depth(), depth);
+                Preconditions.checkState(deletionBranch.incomingTransition() == source.incomingTransition(),
+                                         "Deletion branch initial transition %s does not match cursor transition %s",
+                                         deletionBranch.incomingTransition(), source.incomingTransition());
+                Preconditions.checkState(deletionBranch.precedingState() == null,
+                                         "Deletion branch starts with active deletion %s",
+                                         deletionBranch.precedingState());
+                deletionBranch.skipTo(EXHAUSTED_DEPTH, EXHAUSTED_TRANSITION);
+                Preconditions.checkState(deletionBranch.precedingState() == null,
+                                         "Deletion branch ends with active deletion %s",
+                                         deletionBranch.precedingState());
+                deletionBranchDepth = depth;
+            }
+            return depth;
+        }
+
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction direction)
+        {
+            return new DeletionAware<>(source.tailCursor(direction), 0, 0, INITIAL_TRANSITION);
+        }
+    }
 }

@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.function.BiFunction;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// A merged view of two trie cursors.
@@ -231,6 +233,135 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return new Range<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
             else if (atC2)
                 return new Range<>(resolver, c1.precedingStateCursor(direction), c2.tailCursor(direction));
+            else
+                throw new AssertionError();
+        }
+    }
+
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends MergeCursor<T, FlexibleMergeCursor.DeletionAwareSource<T, D>> implements DeletionAwareCursor<T, D>
+    {
+        // TODO: Some not-so-efficient conversions here. Maybe separate resolvers?
+        final Trie.MergeResolver<D> deletionResolver;
+        int deletionBranchDepth = -1;
+
+        DeletionAware(DeletionAwareTrie.MergeResolver<T, D> mergeResolver,
+                      DeletionAwareCursor<T, D> c1,
+                      DeletionAwareCursor<T, D> c2)
+        {
+            this(mergeResolver,
+                 new FlexibleMergeCursor.DeletionAwareSource<>(c1, mergeResolver::applyMarker),
+                 new FlexibleMergeCursor.DeletionAwareSource<>(c2, mergeResolver::applyMarker));
+            // We will add deletion sources to the above as we find them.
+            maybeAddDeletionsBranch(this.c1.depth());
+        }
+
+        DeletionAware(DeletionAwareTrie.MergeResolver<T, D> mergeResolver,
+                      FlexibleMergeCursor.DeletionAwareSource<T, D> c1,
+                      FlexibleMergeCursor.DeletionAwareSource<T, D> c2)
+        {
+            super(mergeResolver, c1, c2);
+            // We will add deletion sources to the above as we find them.
+            this.deletionResolver = mergeResolver::resolveMarkers;
+        }
+
+        @Override
+        public T content()
+        {
+            T mc = atC2 ? c2.content() : null;
+            T nc = atC1 ? c1.content() : null;
+            if (mc == null)
+                return nc;
+            else if (nc == null)
+                return mc;
+            else
+                return resolver.resolve(nc, mc);
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            if (depth <= deletionBranchDepth)   // ascending above common deletions root
+            {
+                deletionBranchDepth = -1;
+                assert !c1.hasSecondCursor() || depth == -1;    // we might not clear the second cursor when both are exhausted
+                assert !c2.hasSecondCursor() || depth == -1;
+            }
+
+            if (atC1 && atC2)
+            {
+                maybeAddDeletionsBranch(c1, c2);
+                maybeAddDeletionsBranch(c2, c1);
+            }   // otherwise even if there is deletion, the other cursor is ahead of it and can't be affected
+            return depth;
+        }
+
+        void maybeAddDeletionsBranch(FlexibleMergeCursor.DeletionAwareSource<T, D> c1,
+                                     FlexibleMergeCursor.DeletionAwareSource<T, D> c2)
+        {
+            if (c1.hasSecondCursor())
+                return;
+
+            RangeCursor<D> deletionsBranch = c2.deletionBranch();
+            if (deletionsBranch != null)
+                c1.addCursor(deletionsBranch);  // apply all c2 deletions to c1
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranch()
+        {
+            int depth = depth();
+            if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
+                return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
+
+            if (!atC1)
+                return c2.deletionBranch(); // if c1 is ahead, it can't affect this deletion branch
+            if (!atC2)
+                return c1.deletionBranch();
+
+            // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
+            // deletion-tree branch of the other to make sure that we merge any higher-depth deletion branch with it.
+            RangeCursor<D> b1 = c1.deletionBranch();
+            RangeCursor<D> b2 = c2.deletionBranch();
+            if (b1 == null && b2 == null)
+                return null;
+
+            deletionBranchDepth = depth;
+            if (b1 == null)
+                b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.tailCursor(direction));
+            if (b2 == null)
+                b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.tailCursor(direction));
+
+            return new Range<>(deletionResolver, b1, b2);
+        }
+
+        @Override
+        public DeletionAwareCursor<T, D> tailCursor(Direction direction)
+        {
+            if (atC1 && atC2)
+                return new DeletionAware<>((DeletionAwareTrie.MergeResolver<T, D>) resolver,
+                                           c1.tailCursor(direction), c2.tailCursor(direction));
+            else if (atC1)
+                return c1.tailCursor(direction);
+            else if (atC2)
+                return c2.tailCursor(direction);
             else
                 throw new AssertionError();
         }

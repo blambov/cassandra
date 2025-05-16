@@ -131,11 +131,15 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public SingletonCursor<T> tailCursor(Direction dir)
     {
+        return new SingletonCursor<>(dir, duplicateSource(), byteComparableVersion, value);
+    }
+
+    ByteSource.Duplicatable duplicateSource()
+    {
         if (!(src instanceof ByteSource.Duplicatable))
             src = ByteSource.duplicatable(src);
         ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
-
-        return new SingletonCursor<>(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+        return duplicatableSource.duplicate();
     }
 
     static class Range<S extends RangeState<S>> extends SingletonCursor<S> implements RangeCursor<S>
@@ -160,11 +164,28 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public Range<S> tailCursor(Direction dir)
         {
-            if (!(src instanceof ByteSource.Duplicatable))
-                src = ByteSource.duplicatable(src);
-            ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) src;
+            return new Range<>(dir, duplicateSource(), byteComparableVersion, value);
+        }
+    }
 
-            return new Range<>(dir, duplicatableSource.duplicate(), byteComparableVersion, value);
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends SingletonCursor<T> implements DeletionAwareCursor<T, D>
+    {
+        DeletionAware(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+        {
+            super(direction, src, byteComparableVersion, value);
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranch()
+        {
+            return null;
+        }
+
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction dir)
+        {
+            return new DeletionAware<>(dir, duplicateSource(), byteComparableVersion, value);
         }
     }
 }

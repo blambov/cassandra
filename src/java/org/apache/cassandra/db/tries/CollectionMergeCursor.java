@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.IntFunction;
@@ -478,4 +479,195 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         }
     }
 
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends CollectionMergeCursor<T, DeletionAwareCursor<T, D>> implements DeletionAwareCursor<T, D>
+    {
+        final BiFunction<D, T, T> deleter;
+        final Trie.CollectionMergeResolver<D> deletionResolver;
+        final Range<D> relevantDeletions;
+        int deletionBranchDepth = -1;
+
+        enum DeletionState
+        {
+            NONE,
+            MATCHING,
+            AHEAD
+        }
+        DeletionState relevantDeletionsState = DeletionState.NONE;
+
+        <L> DeletionAware(DeletionAwareTrie.CollectionMergeResolver<T, D> mergeResolver,
+                          Direction direction,
+                          Collection<L> inputs,
+                          BiFunction<L, Direction, DeletionAwareCursor<T, D>> extractor)
+        {
+            super(mergeResolver,
+                  direction,
+                  inputs,
+                  DeletionAwareCursor[]::new,
+                  extractor);
+            // We will add deletion sources to the above as we find them.
+            this.deletionResolver = mergeResolver::resolveMarkers;
+            this.deleter = mergeResolver::applyMarker;
+            // Make a flexible merger for the deletion branches
+            relevantDeletions = new Range<D>(deletionResolver,
+                                             direction,
+                                             Collections.<RangeCursor<D>>nCopies(inputs.size(),
+                                                                                 RangeCursor.done()),
+                                             RangeCursor[]::new,
+                                             x -> x);
+            maybeAddDeletionsBranch(this.depth());
+        }
+
+        DeletionAware(Direction direction,
+                      DeletionAwareTrie.CollectionMergeResolver<T, D> mergeResolver,
+                      Collection<? extends DeletionAwareTrie<T, D>> inputs)
+        {
+            this(mergeResolver,
+                 direction,
+                 inputs,
+                 DeletionAwareTrie::cursor);
+        }
+
+        @Override
+        public int advance()
+        {
+            return maybeAddDeletionsBranch(super.advance());
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
+        }
+
+        void adjustDeletionState(int deletionDepth, int contentDepth, int contentTransition)
+        {
+            if (deletionDepth < 0)
+                relevantDeletionsState = DeletionState.NONE;
+            else if (deletionDepth < contentDepth)
+                relevantDeletionsState = DeletionState.AHEAD;
+            else if (direction.lt(contentTransition, relevantDeletions.incomingTransition()))
+                relevantDeletionsState = DeletionState.AHEAD;
+            else
+                relevantDeletionsState = DeletionState.MATCHING;
+        }
+
+        int maybeAddDeletionsBranch(int depth)
+        {
+            int contentTransition = incomingTransition();
+            int deletionDepth;
+            switch (relevantDeletionsState)
+            {
+                case MATCHING:
+                    deletionDepth = relevantDeletions.skipTo(depth, contentTransition);
+                    break;
+                case AHEAD:
+                    deletionDepth = relevantDeletions.skipToWhenAhead(depth, contentTransition);
+                    break;
+                default:
+                    deletionDepth = -1;
+                    break;
+            }
+
+            if (depth <= deletionBranchDepth)   // ascending above common deletions root
+            {
+                deletionBranchDepth = -1;
+                assert deletionDepth < 0;
+            }
+
+            if (branchHasMultipleSources())
+            {
+                maybeAddDeletionsBranch(head, 0);
+                applyToSelectedInHeap(DeletionAware::maybeAddDeletionsBranch);
+                deletionDepth = relevantDeletions.depth();  // newly inserted cursors may have adjusted the deletion cursor's position
+            }
+            // otherwise even if there is deletion, it cannot affect any of the other branches (and head is assumed to
+            // not have anything that can be affected by its own deletion trie).
+
+            adjustDeletionState(deletionDepth, depth, contentTransition);
+            return depth;
+        }
+
+        @Override
+        T resolveContent()
+        {
+            T content = super.resolveContent();
+            if (content == null)
+                return null;
+
+            D deletion;
+            switch (relevantDeletionsState)
+            {
+                case MATCHING:
+                    deletion = relevantDeletions.content();
+                    if (deletion != null)
+                        break;
+                    // else fall through
+                case AHEAD:
+                    deletion = relevantDeletions.precedingState();
+                    break;
+                default:
+                    deletion = null;
+            }
+            if (deletion == null)
+                return content;
+            return deleter.apply(deletion, content);
+        }
+
+        void maybeAddDeletionsBranch(DeletionAwareCursor<T, D> cursor, int ignoredIndex)
+        {
+            RangeCursor<D> deletionsBranch = cursor.deletionBranch();
+            if (deletionsBranch != null)
+                addCursorOrThrow(relevantDeletions, deletionsBranch);
+        }
+
+        static <T, C extends Cursor<T>> void addCursorOrThrow(CollectionMergeCursor<T, C> where, C cursor)
+        {
+            boolean succeeded = where.addCursor(cursor);
+            assert succeeded : "Too many deletion cursors added likely due to a deletion branch covered by another deletion branch.";
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranch()
+        {
+            int depth = depth();
+            if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
+                return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
+
+            if (!branchHasMultipleSources())
+                return head.deletionBranch();
+
+            // We are positioned at a multi-source branch. If one has a deletion branch, we must combine it with the
+            // deletion-tree branch of the others to make sure that we merge any lower-level deletion branch with it.
+
+            // We have already created the merge of all present deletion branches in relevantDeletions. If that's empty,
+            // there's no deletion rooted here.
+            if (relevantDeletions.depth() < 0)
+                return null;
+
+            Range<D> deletions = relevantDeletions.tailCursor(direction);
+            // Now add the deletion-tree branch of all sources that did not present a deletion branch.
+            maybeAddDeletionTrieBranch(head, 0, deletions);
+            applyToSelectedInHeap(DeletionAware::maybeAddDeletionTrieBranch);
+
+            deletionBranchDepth = depth;
+            return deletions;
+        }
+
+        void maybeAddDeletionTrieBranch(DeletionAwareCursor<T,D> cursor, int ignoredIndex, Range<D> deletions)
+        {
+            RangeCursor<D> deletionsBranch = cursor.deletionBranch();
+            if (deletionsBranch == null)
+                addCursorOrThrow(deletions, new DeletionAwareCursor.DeletionsTrieCursor(deletions.direction, cursor.duplicate()));
+            // otherwise deletions already contains this cursor
+        }
+
+        // TODO: tailCursor
+    }
 }

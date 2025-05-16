@@ -143,6 +143,14 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         return prefixDone() ? tail.content() : null;
     }
 
+    ByteSource.Duplicatable duplicateSource()
+    {
+        if (!(prefixBytes instanceof ByteSource.Duplicatable))
+            prefixBytes = ByteSource.duplicatable(prefixBytes);
+        ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
+        return duplicatableSource.duplicate();
+    }
+
     static class Plain<T> extends PrefixedCursor<T, Cursor<T>> implements Cursor<T>
     {
         Plain(ByteComparable prefix, Cursor<T> tail)
@@ -163,11 +171,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             else
             {
                 assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-                if (!(prefixBytes instanceof ByteSource.Duplicatable))
-                    prefixBytes = ByteSource.duplicatable(prefixBytes);
-                ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
-
-                return new Plain<>(duplicatableSource.duplicate(), tail.tailCursor(direction));
+                return new Plain<>(duplicateSource(), tail.tailCursor(direction));
             }
         }
     }
@@ -200,11 +204,39 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             else
             {
                 assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-                if (!(prefixBytes instanceof ByteSource.Duplicatable))
-                    prefixBytes = ByteSource.duplicatable(prefixBytes);
-                ByteSource.Duplicatable duplicatableSource = (ByteSource.Duplicatable) prefixBytes;
+                return new Range<>(duplicateSource(), tail.tailCursor(direction));
+            }
+        }
+    }
 
-                return new Range<>(duplicatableSource.duplicate(), tail.tailCursor(direction));
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends PrefixedCursor<T, DeletionAwareCursor<T, D>> implements DeletionAwareCursor<T, D>
+    {
+        DeletionAware(ByteComparable prefix, DeletionAwareCursor<T, D> tail)
+        {
+            super(prefix, tail);
+        }
+
+        DeletionAware(ByteSource prefix, DeletionAwareCursor<T, D> tail)
+        {
+            super(prefix, tail);
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranch()
+        {
+            return prefixDone() ? tail.deletionBranch() : null;
+        }
+
+        @Override
+        public DeletionAwareCursor<T, D> tailCursor(Direction direction)
+        {
+            if (prefixDone())
+                return tail.tailCursor(direction);
+            else
+            {
+                assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
+                return new DeletionAware<>(duplicateSource(), tail.tailCursor(direction));
             }
         }
     }
