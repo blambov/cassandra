@@ -97,7 +97,8 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
                 return t1.mergeWith(t2, mergeResolver);
             }
             default:
-                return dir -> new CollectionMergeCursor.DeletionAware<>(dir, mergeResolver, sources);
+                throw new AssertionError("not implemented");
+//                return dir -> new CollectionMergeCursor.DeletionAware<>(dir, mergeResolver, sources);
         }
     }
 
@@ -114,7 +115,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
 
     default <Z> Trie<Z> mergedTrie(BiFunction<T, D, Z> resolver)
     {
-        return dir -> new DeletionAwareCursor.LiveAndDeletionsMergeCursor<>(dir, resolver, cursor(dir));
+        return dir -> new DeletionAwareCursor.LiveAndDeletionsMergeCursor<>(resolver, cursor(dir));
     }
 
     @SuppressWarnings("unchecked")

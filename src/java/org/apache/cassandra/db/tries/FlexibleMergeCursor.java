@@ -38,12 +38,24 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     }
     State state;
 
+    FlexibleMergeCursor(C c1)
+    {
+        this.direction = c1.direction();
+        this.c1 = c1;
+        this.c2 = null;
+        state = State.C1_ONLY;
+        // We can't call postAdvance here because the class may not be completely initialized.
+        // The concrete class should do that instead
+    }
+
     FlexibleMergeCursor(C c1, D c2)
     {
         this.direction = c1.direction();
         this.c1 = c1;
         this.c2 = c2;
         state = c2 != null ? State.AT_BOTH : State.C1_ONLY;
+        // We can't call postAdvance here because the class may not be completely initialized.
+        // The concrete class should do that instead
     }
 
     public void addCursor(D c2)
@@ -55,10 +67,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         this.state = State.AT_BOTH;
     }
 
-    public boolean hasSecondCursor()
-    {
-        return state != State.C1_ONLY;
-    }
+    abstract int postAdvance(int depth);
 
     @Override
     public int advance()
@@ -66,7 +75,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         switch (state)
         {
             case C1_ONLY:
-                return c1.advance();
+                return postAdvance(c1.advance());
             case AT_C1:
                 return checkOrder(c1.advance(), c2.depth());
             case AT_C2:
@@ -84,7 +93,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         switch (state)
         {
             case C1_ONLY:
-                return c1.skipTo(skipDepth, skipTransition);
+                return postAdvance(c1.skipTo(skipDepth, skipTransition));
             case AT_C1:
                 return checkOrder(c1.skipTo(skipDepth, skipTransition), c2.skipToWhenAhead(skipDepth, skipTransition));
             case AT_C2:
@@ -102,7 +111,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         switch (state)
         {
             case C1_ONLY:
-                return c1.advanceMultiple(receiver);
+                return postAdvance(c1.advanceMultiple(receiver));
             // If we are in a branch that's only covered by one of the sources, we can use its advanceMultiple as it is
             // only different from advance if it takes multiple steps down, which does not change the order of the
             // cursors.
@@ -130,12 +139,12 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
             }
             else
                 state = State.AT_C1;
-            return c1depth;
+            return postAdvance(c1depth);
         }
         if (direction.lt(c1depth, c2depth))
         {
             state = State.AT_C2;
-            return c2depth;
+            return postAdvance(c2depth);
         }
         // c1depth == c2depth
         int c1trans = c1.incomingTransition();
@@ -143,7 +152,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         boolean c1ahead = direction.gt(c1trans, c2trans);
         boolean c2ahead = direction.lt(c1trans, c2trans);
         state = c2ahead ? State.AT_C1 : c1ahead ? State.AT_C2 : State.AT_BOTH;
-        return c1depth;
+        return postAdvance(c1depth);
     }
 
     @Override
@@ -194,7 +203,13 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     {
         final BiFunction<T, U, Z> resolver;
 
-        WithMappedContent(Direction direction, BiFunction<T, U, Z> resolver, C c1, D c2)
+        WithMappedContent(BiFunction<T, U, Z> resolver, C c1)
+        {
+            super(c1);
+            this.resolver = resolver;
+        }
+
+        WithMappedContent(BiFunction<T, U, Z> resolver, C c1, D c2)
         {
             super(c1, c2);
             this.resolver = resolver;
@@ -224,189 +239,6 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
             if (nc == null && mc == null)
                 return null;
             return resolver.apply(nc, mc);
-        }
-    }
-
-    static class RangeOnTrie<T, D extends RangeState<D>, C extends Cursor<T>>
-    extends FlexibleMergeCursor<C, RangeCursor<D>, T>
-    {
-        final BiFunction<D, T, T> resolver;
-
-        RangeOnTrie(BiFunction<D, T, T> resolver, C c1, RangeCursor<D> c2)
-        {
-            super(c1, c2);
-            this.resolver = resolver;
-        }
-
-        // The advancement methods are overridden so that we skip all sections where only c2 is active.
-        @Override
-        public int advance()
-        {
-            switch (state)
-            {
-                case C1_ONLY:
-                    return c1.advance();
-                case AT_C1:
-                {
-                    int c1depth = c1.advance();
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipToWhenAhead(c1depth, c1trans));
-                }
-                case AT_BOTH:
-                {
-                    int c1depth = c1.advance();
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
-                }
-                default:
-                    throw new AssertionError();
-            }
-        }
-
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            switch (state)
-            {
-                case C1_ONLY:
-                    return c1.skipTo(skipDepth, skipTransition);
-                case AT_C1:
-                {
-                    int c1depth = c1.skipTo(skipDepth, skipTransition);
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipToWhenAhead(c1depth, c1trans));
-                }
-                case AT_BOTH:
-                {
-                    int c1depth = c1.skipTo(skipDepth, skipTransition);
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
-                }
-                default:
-                    throw new AssertionError();
-            }
-        }
-
-        @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
-        {
-            switch (state)
-            {
-                case C1_ONLY:
-                    return c1.advanceMultiple(receiver);
-                // If we are in a branch that's only covered by one of the sources, we can use its advanceMultiple as it is
-                // only different from advance if it takes multiple steps down, which does not change the order of the
-                // cursors.
-                // Since it might ascend, we still have to check the order after the call.
-                case AT_C1:
-                {
-                    int c1depth = c1.advanceMultiple(receiver);
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipToWhenAhead(c1depth, c1trans));
-                }
-                // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
-                case AT_BOTH:
-                {
-                    int c1depth = c1.advance();
-                    int c1trans = c1.incomingTransition();
-                    return checkOrder(c1depth, c2.skipTo(c1depth, c1trans));
-                }
-                default:
-                    throw new AssertionError();
-            }
-        }
-
-        @Override
-        int checkOrder(int c1depth, int c2depth)
-        {
-            if (c1depth > c2depth)
-            {
-                if (c2depth < 0)
-                {
-                    c2 = null;
-                    state = State.C1_ONLY;
-                }
-                else
-                    state = State.AT_C1;
-                return c1depth;
-            }
-
-            assert c1depth == c2depth;
-            int c1trans = c1.incomingTransition();
-            int c2trans = c2.incomingTransition();
-            assert direction.le(c1trans, c2trans);
-            boolean c2ahead = direction.lt(c1trans, c2trans);
-            state = c2ahead ? State.AT_C1 : State.AT_BOTH;
-            return c1depth;
-        }
-
-        @Override
-        public T content()
-        {
-            D applicableRange;
-            T content;
-            switch (state)
-            {
-                case C1_ONLY:
-                    return c1.content();
-                case AT_C1:
-                    content = c1.content();
-                    if (content == null)
-                        return null;
-                    applicableRange = c2.precedingState();
-                    break;
-                case AT_BOTH:
-                    content = c1.content();
-                    if (content == null)
-                        return null;
-                    applicableRange = c2.content();
-                    if (applicableRange == null)
-                        applicableRange = c2.precedingState();
-                    break;
-                default:
-                    throw new AssertionError();
-            }
-
-            if (applicableRange == null)
-                return content;
-
-            return resolver.apply(applicableRange, content);
-        }
-
-        @Override
-        public Cursor<T> tailCursor(Direction direction)
-        {
-            if (state == State.AT_BOTH)
-                return new RangeOnTrie<>(resolver, (C) c1.tailCursor(direction), c2.tailCursor(direction));
-            else
-                return c1.tailCursor(direction);
-        }
-    }
-
-    static class DeletionAwareSource<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
-    extends RangeOnTrie<T, D, DeletionAwareCursor<T, D>> implements DeletionAwareCursor<T, D>
-    {
-        DeletionAwareSource(DeletionAwareCursor<T, D> c1, BiFunction<D, T, T> resolver)
-        {
-            super(resolver, c1, null);
-        }
-
-        DeletionAwareSource(DeletionAwareCursor<T, D> c1, RangeCursor<D> c2, BiFunction<D, T, T> resolver)
-        {
-            super(resolver, c1, c2);
-        }
-
-        @Override
-        public RangeCursor<D> deletionBranch()
-        {
-            // No processing, MergeCursor will handle that.
-            return c1.deletionBranch();
-        }
-
-        @Override
-        public FlexibleMergeCursor.DeletionAwareSource<T, D> tailCursor(Direction direction)
-        {
-            return new DeletionAwareSource<>(c1.tailCursor(direction), c2 != null ? c2.tailCursor(direction) : null, resolver);
         }
     }
 }

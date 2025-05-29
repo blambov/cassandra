@@ -57,36 +57,20 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
     class LiveAndDeletionsMergeCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>, Z>
     extends FlexibleMergeCursor.WithMappedContent<T, D, DeletionAwareCursor<T, D>, RangeCursor<D>, Z>
     {
-        LiveAndDeletionsMergeCursor(Direction direction, BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1)
+        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1)
         {
-            super(direction, resolver, c1, null);
-            maybeAddDeletionsBranch(c1.depth());
+            super(resolver, c1);
+            postAdvance(c1.depth());
         }
 
-        LiveAndDeletionsMergeCursor(Direction direction, BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1, RangeCursor<D> c2)
+        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1, RangeCursor<D> c2)
         {
-            super(direction, resolver, c1, c2);
-        }
-
-        @Override
-        public int advance()
-        {
-            return maybeAddDeletionsBranch(super.advance());
+            super(resolver, c1, c2);
+            postAdvance(c1.depth());
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
-        }
-
-        @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
-        {
-            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
-        }
-
-        int maybeAddDeletionsBranch(int depth)
+        int postAdvance(int depth)
         {
             if (state == State.C1_ONLY)
             {
@@ -103,13 +87,13 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
             switch (state)
             {
                 case C1_ONLY:
-                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), null);
+                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction));
                 case AT_C2:
-                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, new DeletionAwareCursor.Empty<>(direction, byteComparableVersion()), c2.tailCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, new DeletionAwareCursor.Empty<>(direction, byteComparableVersion()), c2.tailCursor(direction));
                 case AT_C1:
-                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
                 case AT_BOTH:
-                    return new LiveAndDeletionsMergeCursor<>(direction, resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
                 default:
                     throw new AssertionError();
             }
@@ -121,13 +105,8 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
     {
         DeletionsTrieCursor(DeletionAwareCursor<T, D> c1)
         {
-            super(c1, null);
-            maybeAddDeletionsBranch(c1.depth());
-        }
-
-        DeletionsTrieCursor(DeletionAwareCursor<T, D> c1, RangeCursor<D> c2)
-        {
-            super(c1, c2);
+            super(c1);
+            postAdvance(c1.depth());
         }
 
         @Override
@@ -149,34 +128,26 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         }
 
         @Override
-        public int advance()
+        int postAdvance(int depth)
         {
-            return maybeAddDeletionsBranch(super.advance());
-        }
-
-        @Override
-        public int skipTo(int skipDepth, int skipTransition)
-        {
-            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
-        }
-
-        @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
-        {
-            return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
-        }
-
-        int maybeAddDeletionsBranch(int depth)
-        {
-            if (state == State.C1_ONLY)
+            switch (state)
             {
-                RangeCursor<D> deletionsBranch = c1.deletionBranch();
-                if (deletionsBranch != null)
-                {
-                    addCursor(deletionsBranch);
-                    c1.skipTo(c1.depth(), c1.incomingTransition() + direction.increase); // skip past the deletion branch
-                    state = State.AT_C2;
-                }
+                case AT_C2:
+                    // already in deletion branch
+                    break;
+                case C1_ONLY:
+                    RangeCursor<D> deletionsBranch = c1.deletionBranch();
+                    if (deletionsBranch != null)
+                    {
+                        addCursor(deletionsBranch);
+                        // deletion branches cannot be nested; skip past the current position in the main trie as we
+                        // don't need to further track it inside this branch
+                        c1.skipTo(c1.depth(), c1.incomingTransition() + direction.increase);
+                        state = State.AT_C2;
+                    }
+                    break;
+                default:
+                    throw new AssertionError("Deletion branch extends above its introduction");
             }
             return depth;
         }
@@ -184,10 +155,15 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         @Override
         public RangeCursor<D> tailCursor(Direction direction)
         {
-            if (state == State.AT_C2)
-                return c2.tailCursor(direction);
-            else
-                return new DeletionsTrieCursor<>(c1.tailCursor(direction), c2 != null ? c2.tailCursor(direction) : null);
+            switch (state)
+            {
+                case AT_C2:
+                    return c2.tailCursor(direction);
+                case C1_ONLY:
+                    return new DeletionsTrieCursor<>(c1.tailCursor(direction));
+                default:
+                    throw new AssertionError("Deletion branch extends above its introduction");
+            }
         }
     }
 

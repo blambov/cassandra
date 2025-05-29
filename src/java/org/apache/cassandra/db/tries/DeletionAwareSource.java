@@ -20,32 +20,42 @@ package org.apache.cassandra.db.tries;
 
 import java.util.function.BiFunction;
 
+import javax.annotation.Nullable;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-/// A cursor applying a range to a data cursor. The cursor will present the content of the data trie modified by any
-/// applicable/covering range of the range trie.
-///
-/// This is very similar to a normal merge cursor but, because it only presents content from the data trie, it does not
-/// need to walk the range trie unless it matches positions from the data cursor and thus skips the range cursor
-/// whenever the data one ends up ahead.
-class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
+/// A cursor applying deletions to a deletion-aware cursor, where the deletions can be dynamically added.
+/// Based on [RangeApplyCursor] and used by [MergeCursor.DeletionAware] to process each source with the deletions of the
+/// other. The cursor will present the content of the data trie modified by any applicable/covering range of the
+/// deletion trie, and will leave the deletion branches unmodied (allowing the merger to process them).
+class DeletionAwareSource<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> implements DeletionAwareCursor<T, D>
 {
-    final BiFunction<S, T, T> resolver;
+    final BiFunction<D, T, T> resolver;
     final Direction direction;
-    final RangeCursor<S> range;
-    final Cursor<T> data;
+    final DeletionAwareCursor<T, D> data;
+    @Nullable RangeCursor<D> deletions;
 
     boolean atRange;
 
-    RangeApplyCursor(BiFunction<S, T, T> resolver, RangeCursor<S> range, Cursor<T> data)
+    DeletionAwareSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data)
     {
         this.direction = data.direction();
         this.resolver = resolver;
-        this.range = range;
+        this.deletions = null;
         this.data = data;
         assert data.depth() == 0;
-        assert range.depth() == 0;
-        atRange = true;
+        atRange = false;
+    }
+
+    DeletionAwareSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<D> deletions)
+    {
+        this.direction = data.direction();
+        this.resolver = resolver;
+        this.deletions = deletions;
+        this.data = data;
+        assert data.depth() == 0;
+        assert deletions == null || deletions.depth() == 0;
+        atRange = deletions != null;
     }
 
     @Override
@@ -69,22 +79,28 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     @Override
     public ByteComparable.Version byteComparableVersion()
     {
-        assert range.byteComparableVersion() == data.byteComparableVersion() :
-            "Merging cursors with different byteComparableVersions: " +
-            range.byteComparableVersion() + " vs " + data.byteComparableVersion();
-        return range.byteComparableVersion();
+        assert deletions == null || deletions.byteComparableVersion() == data.byteComparableVersion() :
+        "Merging cursors with different byteComparableVersions: " +
+        deletions.byteComparableVersion() + " vs " + data.byteComparableVersion();
+        return data.byteComparableVersion();
     }
 
     @Override
     public int advance()
     {
-        return maybeSkipRange(atRange ? range.advance() : range.depth(), data.advance());
+        if (deletions == null)
+            return data.advance();
+
+        return maybeSkipRange(atRange ? deletions.advance() : deletions.depth(), data.advance());
     }
 
     @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
-        int rangeDepth = range.depth();
+        if (deletions == null)
+            return data.skipTo(skipDepth, skipTransition);
+
+        int rangeDepth = deletions.depth();
         int dataDepth = data.depth();
         assert skipDepth <= dataDepth + 1;
 
@@ -101,15 +117,24 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     @Override
     public int advanceMultiple(TransitionsReceiver receiver)
     {
+        if (deletions == null)
+            return data.advanceMultiple(receiver);
+
         // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
         if (atRange)
-            return maybeSkipRange(range.advance(), data.advance());
+            return maybeSkipRange(deletions.advance(), data.advance());
         else // atData only
-            return maybeSkipRange(range.depth(), data.advanceMultiple(receiver));
+            return maybeSkipRange(deletions.depth(), data.advanceMultiple(receiver));
     }
 
     int maybeSkipRange(int rangeDepth, int dataDepth)
     {
+        if (rangeDepth < 0)
+        {
+            deletions = null;
+            return setAtRangeAndReturnDepth(false, dataDepth);
+        }
+
         // If data position is at or before the range position, we are good.
         if (rangeDepth < dataDepth)
             return setAtRangeAndReturnDepth(false, dataDepth);
@@ -117,14 +142,14 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
         int dataTrans = data.incomingTransition();
         if (rangeDepth == dataDepth)
         {
-            int rangeTrans = range.incomingTransition();
+            int rangeTrans = deletions.incomingTransition();
             if (direction.le(dataTrans, rangeTrans))
                 return setAtRangeAndReturnDepth(dataTrans == rangeTrans, dataDepth);
         }
 
         // Range cursor is before data cursor. Skip it ahead so that we are positioned on data.
-        rangeDepth = range.skipTo(dataDepth, dataTrans);
-        return setAtRangeAndReturnDepth(rangeDepth == dataDepth && range.incomingTransition() == dataTrans,
+        rangeDepth = deletions.skipTo(dataDepth, dataTrans);
+        return setAtRangeAndReturnDepth(rangeDepth == dataDepth && deletions.incomingTransition() == dataTrans,
                                         dataDepth);
     }
 
@@ -140,11 +165,13 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
         T content = data.content();
         if (content == null)
             return null;
+        if (deletions == null)
+            return content;
 
-        S applicableRange = atRange ? range.content() : null;
+        D applicableRange = atRange ? deletions.content() : null;
         if (applicableRange == null)
         {
-            applicableRange = range.precedingState();
+            applicableRange = deletions.precedingState();
             if (applicableRange == null)
                 return content;
         }
@@ -153,11 +180,29 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     }
 
     @Override
-    public Cursor<T> tailCursor(Direction direction)
+    public DeletionAwareCursor<T, D> tailCursor(Direction direction)
     {
         if (atRange)
-            return new RangeApplyCursor<>(resolver, range.tailCursor(direction), data.tailCursor(direction));
+            return new DeletionAwareSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction));
         else
             return data.tailCursor(direction);
+    }
+
+    @Override
+    public RangeCursor<D> deletionBranch()
+    {
+        // Return unchanged, to be handled by MergeCursor.
+        return data.deletionBranch();
+    }
+
+    public void addDeletions(RangeCursor<D> deletions)
+    {
+        assert this.deletions == null;
+        this.deletions = deletions;
+    }
+
+    public boolean hasDeletions()
+    {
+        return deletions != null;
     }
 }
