@@ -47,6 +47,14 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new SingletonCursor.DeletionAware<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
     }
 
+    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    DeletionAwareTrie<T, D> deletion(ByteComparable prefixInMainTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    {
+        return dir -> new SingletonCursor.DeletionBranch<>(dir,
+                                                           prefixInMainTrie.asComparableBytes(byteComparableVersion), byteComparableVersion,
+                                                           RangeTrie.range(left, right, byteComparableVersion, deletion));
+    }
+
     @Override
     default DeletionAwareTrie<T, D> intersect(TrieSet set)
     {
@@ -59,13 +67,22 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         T applyMarker(D marker, T content);
     }
 
-    default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other, MergeResolver<T, D> mergeResolver)
+    default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other,
+                                              Trie.MergeResolver<T> mergeResolver,
+                                              Trie.MergeResolver<D> deletionResolver,
+                                              BiFunction<D, T, T> deleter)
     {
         return dir -> new MergeCursor.DeletionAware<>(mergeResolver,
+                                                      deletionResolver,
+                                                      deleter,
                                                       cursor(dir),
                                                       other.cursor(dir));
     }
 
+    default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other, MergeResolver<T, D> mergeResolver)
+    {
+        return mergeWith(other, mergeResolver, mergeResolver::resolveMarkers, mergeResolver::applyMarker);
+    }
 
     interface CollectionMergeResolver<T extends Deletable, D extends DeletionMarker<T, D>>
     extends MergeResolver<T, D>, Trie.CollectionMergeResolver<T>

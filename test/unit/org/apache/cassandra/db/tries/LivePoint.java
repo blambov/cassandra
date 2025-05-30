@@ -90,7 +90,7 @@ class LivePoint implements DataPoint
         if (o == null || getClass() != o.getClass()) return false;
         LivePoint livePoint = (LivePoint) o;
         return timestamp == livePoint.timestamp
-               && ByteComparable.compare(this.position, livePoint.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0;
+               && ByteComparable.compare(this.position, livePoint.position, TrieUtil.VERSION) == 0;
     }
 
     static LivePoint combine(LivePoint a, LivePoint b)

@@ -74,7 +74,7 @@ class CombinedDataPoint implements DataPoint
 
     public DataPoint toContent()
     {
-        if (marker.isReportableState)
+        if (marker.isBoundary)
             return this;
         return livePoint;
     }

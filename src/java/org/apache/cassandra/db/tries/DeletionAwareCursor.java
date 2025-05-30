@@ -24,8 +24,8 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// Deletion-aware trie, containing both live data and deletions.
 /// To be able to query live data and deletions separately, we split deletions into separate branches of the trie,
-/// given by the [#deletionBranch] method. Deletion branches are range tries, i.e. they support deletions of individual
-/// as well as ranges of keys.
+/// given by the [#deletionBranchCursor] method. Deletion branches are range tries, i.e. they support deletions of
+/// individual as well as ranges of keys.
 ///
 /// Deletion-aware tries must satisfy the following requirements:
 /// - No deletion branch can be covered by another deletion branch, i.e. whenever the deletion branch is non-null at a
@@ -48,8 +48,8 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
     ///
     /// When this method returns a non-null deletion branch, the source cursor is not allowed to return another deletion
     /// branch in the covered branch. In other words, for any given path in the trie there must be at most one node
-    /// where [#deletionBranch] is non-null.
-    RangeCursor<D> deletionBranch();
+    /// where [#deletionBranchCursor] is non-null.
+    RangeCursor<D> deletionBranchCursor(Direction direction);
 
     @Override
     DeletionAwareCursor<T, D> tailCursor(Direction direction);
@@ -63,9 +63,9 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
             postAdvance(c1.depth());
         }
 
-        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1, RangeCursor<D> c2)
+        LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1, RangeCursor<D> c2, int c2depthCorrection)
         {
-            super(resolver, c1, c2);
+            super(resolver, c1, c2, c2depthCorrection);
             postAdvance(c1.depth());
         }
 
@@ -74,9 +74,9 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         {
             if (state == State.C1_ONLY)
             {
-                RangeCursor<D> deletionsBranch = c1.deletionBranch();
+                RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction);
                 if (deletionsBranch != null)
-                    addCursor(deletionsBranch);
+                    addCursor(deletionsBranch, c1.depth());
             }
             return depth;
         }
@@ -89,11 +89,11 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
                 case C1_ONLY:
                     return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction));
                 case AT_C2:
-                    return new LiveAndDeletionsMergeCursor<>(resolver, new DeletionAwareCursor.Empty<>(direction, byteComparableVersion()), c2.tailCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, new DeletionAwareCursor.Empty<>(direction, byteComparableVersion()), c2.tailCursor(direction), 0);
                 case AT_C1:
-                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction), 0);
                 case AT_BOTH:
-                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
+                    return new LiveAndDeletionsMergeCursor<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction), 0);
                 default:
                     throw new AssertionError();
             }
@@ -136,13 +136,14 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
                     // already in deletion branch
                     break;
                 case C1_ONLY:
-                    RangeCursor<D> deletionsBranch = c1.deletionBranch();
+                    RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction);
                     if (deletionsBranch != null)
                     {
-                        addCursor(deletionsBranch);
+                        final int c1depth = c1.depth();
+                        addCursor(deletionsBranch, c1depth);
                         // deletion branches cannot be nested; skip past the current position in the main trie as we
                         // don't need to further track it inside this branch
-                        c1.skipTo(c1.depth(), c1.incomingTransition() + direction.increase);
+                        c1.skipTo(c1depth, c1.incomingTransition() + direction.increase);
                         state = State.AT_C2;
                     }
                     break;
@@ -176,7 +177,7 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         }
 
         @Override
-        public RangeCursor<D> deletionBranch()
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
             return null;
         }

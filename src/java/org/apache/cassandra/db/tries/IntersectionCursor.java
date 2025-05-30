@@ -244,11 +244,12 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public RangeCursor<D> deletionBranch()
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
-            RangeCursor<D> deletions = source.deletionBranch();
+            RangeCursor<D> deletions = source.deletionBranchCursor(direction);
             if (deletions == null)
                 return null;
+
             switch (state)
             {
                 case SET_AHEAD:

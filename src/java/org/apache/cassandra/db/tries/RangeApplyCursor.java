@@ -78,24 +78,21 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     @Override
     public int advance()
     {
-        return maybeSkipRange(atRange ? range.advance() : range.depth(), data.advance());
+        int dataDepth = data.advance();
+        if (atRange)
+            return skipRangeToDataPosition(dataDepth);
+        else
+            return maybeSkipRange(data.advance());
     }
 
     @Override
     public int skipTo(int skipDepth, int skipTransition)
     {
-        int rangeDepth = range.depth();
-        int dataDepth = data.depth();
-        assert skipDepth <= dataDepth + 1;
-
-        int newDataDepth = data.skipTo(skipDepth, skipTransition);
-
-        // Tricky point: if data and range are at the same depth but different transition and data descends,
-        // range should not.
-        if (!atRange && rangeDepth == dataDepth && newDataDepth == dataDepth + 1)
-            return setAtRangeAndReturnDepth(false, newDataDepth);
-        else // otherwise skip range to the new data position if needed
-            return maybeSkipRange(rangeDepth, newDataDepth);
+        int dataDepth = data.skipTo(skipDepth, skipTransition);
+        if (atRange) // if both cursors were at the same position, always advance the range cursor to catch up.
+            return skipRangeToDataPosition(dataDepth);
+        else // otherwise skip range to the new data position only if it advances past the range's current position.
+            return maybeSkipRange(dataDepth);
     }
 
     @Override
@@ -103,27 +100,34 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     {
         // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
         if (atRange)
-            return maybeSkipRange(range.advance(), data.advance());
+            return skipRangeToDataPosition(data.advance());
         else // atData only
-            return maybeSkipRange(range.depth(), data.advanceMultiple(receiver));
+            return maybeSkipRange(data.advanceMultiple(receiver));
     }
 
-    int maybeSkipRange(int rangeDepth, int dataDepth)
+    int maybeSkipRange(int dataDepth)
     {
+        int rangeDepth = range.depth();
         // If data position is at or before the range position, we are good.
         if (rangeDepth < dataDepth)
             return setAtRangeAndReturnDepth(false, dataDepth);
 
-        int dataTrans = data.incomingTransition();
         if (rangeDepth == dataDepth)
         {
+            int dataTrans = data.incomingTransition();
             int rangeTrans = range.incomingTransition();
             if (direction.le(dataTrans, rangeTrans))
                 return setAtRangeAndReturnDepth(dataTrans == rangeTrans, dataDepth);
         }
 
         // Range cursor is before data cursor. Skip it ahead so that we are positioned on data.
-        rangeDepth = range.skipTo(dataDepth, dataTrans);
+        return skipRangeToDataPosition(dataDepth);
+    }
+
+    private int skipRangeToDataPosition(int dataDepth)
+    {
+        int dataTrans = data.incomingTransition();
+        int rangeDepth = range.skipTo(dataDepth, dataTrans);
         return setAtRangeAndReturnDepth(rangeDepth == dataDepth && range.incomingTransition() == dataTrans,
                                         dataDepth);
     }

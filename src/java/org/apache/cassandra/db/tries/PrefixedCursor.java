@@ -223,9 +223,9 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public RangeCursor<D> deletionBranch()
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
-            return prefixDone() ? tail.deletionBranch() : null;
+            return prefixDone() ? tail.deletionBranchCursor(direction) : null;
         }
 
         @Override

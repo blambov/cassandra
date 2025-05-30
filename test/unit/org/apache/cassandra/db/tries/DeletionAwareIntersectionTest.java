@@ -24,8 +24,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Predicates;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -38,6 +40,12 @@ import static org.junit.Assert.assertEquals;
 
 public class DeletionAwareIntersectionTest
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
     static final int bitsNeeded = 6;
     int bits = bitsNeeded;
 
@@ -53,7 +61,7 @@ public class DeletionAwareIntersectionTest
             splitBytes[pos++] = (byte) ((value >> i) & mask);
 
         splitBytes[pos] = (byte) (value & mask);
-        return ByteComparable.fixedLength(splitBytes);
+        return ByteComparable.preencoded(TrieUtil.VERSION, splitBytes);
     }
 
     private DeletionMarker from(int where, int value)
@@ -350,7 +358,7 @@ public class DeletionAwareIntersectionTest
                 ByteComparable[] ranges = sets[toRemove];
                 System.out.println("Ranges:  " + toString(ranges));
                 testIntersection(message + " " + toRemove,
-                                 trie.intersect(TrieSet.ranges(ranges)),
+                                 trie.intersect(TrieSet.ranges(TrieUtil.VERSION, ranges)),
                                  intersect(intersected, ranges),
                                  Arrays.stream(sets)
                                        .filter(x -> x != ranges)
@@ -378,7 +386,7 @@ public class DeletionAwareIntersectionTest
     {
         if (ranges == null)
             return "null";
-        return ranges.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION);
+        return ranges.byteComparableAsString(TrieUtil.VERSION);
     }
 
 
@@ -399,7 +407,7 @@ public class DeletionAwareIntersectionTest
                 if (nextRange == null)
                     cmp = -1;
                 else
-                    cmp = ByteComparable.compare(dp.position(), nextRange, TrieImpl.BYTE_COMPARABLE_VERSION);
+                    cmp = ByteComparable.compare(dp.position(), nextRange, TrieUtil.VERSION);
 
                 if (cmp < 0)
                 {
@@ -434,12 +442,12 @@ public class DeletionAwareIntersectionTest
 
     DeletionMarker startOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportablePoint(false, true) : null;
+        return marker != null ? marker.restrict(false, true) : null;
     }
 
     DeletionMarker endOf(DeletionMarker marker)
     {
-        return marker != null ? marker.asReportablePoint(true, false) : null;
+        return marker != null ? marker.restrict(true, false) : null;
     }
 
     private static DeletionMarker makeActiveMarker(int active, int rangeIndex, ByteComparable nextRange)

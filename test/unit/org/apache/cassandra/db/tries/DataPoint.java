@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -42,7 +43,7 @@ interface DataPoint extends DeletionAwareTrie.Deletable
     {
         if (position == null)
             return "null";
-        return position.byteComparableAsString(TrieImpl.BYTE_COMPARABLE_VERSION);
+        return position.byteComparableAsString(TrieUtil.VERSION);
     }
 
     static List<DataPoint> verify(List<DataPoint> dataPoints)
@@ -55,7 +56,7 @@ interface DataPoint extends DeletionAwareTrie.Deletable
             if (marker == null)
                 continue;
             assertTrue("Order violation " + toString(prev) + " vs " + toString(marker.position),
-                       prev == null || ByteComparable.compare(prev, marker.position, TrieImpl.BYTE_COMPARABLE_VERSION) < 0);
+                       prev == null || ByteComparable.compare(prev, marker.position, TrieUtil.VERSION) < 0);
             assertEquals("Range close violation", active, marker.leftSide);
             assertTrue(marker.at != marker.leftSide || marker.at != marker.rightSide);
             prev = marker.position;
@@ -126,8 +127,9 @@ interface DataPoint extends DeletionAwareTrie.Deletable
 
     static DeletionAwareTrie<LivePoint, DeletionMarker> fromList(List<DataPoint> list)
     {
-        InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> trie = InMemoryDeletionAwareTrie.shortLived();
-        try
+//        InMemoryDeletionAwareTrie<DataPoint, LivePoint, DeletionMarker> trie = InMemoryDeletionAwareTrie.shortLived();
+        DeletionAwareTrie<LivePoint, DeletionMarker> trie = DeletionAwareTrie.empty(TrieUtil.VERSION);
+//        try
         {
             // If we put a deletion first, the deletion branch will start at the root which works but isn't interesting
             // enough as a test. So put the live data first.
@@ -135,7 +137,15 @@ interface DataPoint extends DeletionAwareTrie.Deletable
             {
                 LivePoint live = i.live();
                 if (live != null)
-                    trie.putRecursive(live.position, live, (ex, n) -> n);
+                {
+//                    trie.putRecursive(live.position, live, (ex, n) -> n);
+                    trie = trie.mergeWith(
+                        DeletionAwareTrie.singleton(live.position, TrieUtil.VERSION, live),
+                        LivePoint::combine,
+                        DeletionMarker::combine,
+                        DeletionMarker::applyTo
+                    );
+                }
             }
             // If we simply put all deletions with putAlternativeRecursive, we won't get correct branches as they
             // won't always close the intervals they open. Deletions need to be put as ranges instead.
@@ -154,15 +164,35 @@ interface DataPoint extends DeletionAwareTrie.Deletable
 
                     DeletionMarker startMarker = list.get(activeStartedAt).marker();
                     assert startMarker != null;
-                    trie.putAlternativeRangeRecursive(startMarker.position, startMarker, marker.position, marker, (ex, n) -> n);
-                    for (int j = activeStartedAt + 1; j < i; ++j)
-                    {
-                        DeletionMarker m = list.get(j).marker();
-                        if (m == null)
-                            continue;
-                        // this will end up in the alternative branch for the range
-                        trie.putAlternativeRecursive(m.position, m, (ex, n) -> n);
-                    }
+//                    trie.putAlternativeRangeRecursive(startMarker.position, startMarker, marker.position, marker, (ex, n) -> n);
+                    int prefixLength = ByteComparable.diffPoint(startMarker.position, marker.position, TrieUtil.VERSION) - 1;
+                    trie = trie.mergeWith(
+                        dumpDeletionAwareTrie(DeletionAwareTrie.deletion(ByteComparable.cut(startMarker.position, prefixLength),
+                                                   ByteComparable.skipFirst(startMarker.position, prefixLength),
+                                                   ByteComparable.skipFirst(marker.position, prefixLength),
+                                                   TrieUtil.VERSION, marker.leftSideAsCovering)),
+                        LivePoint::combine,
+                        DeletionMarker::combine,
+                        DeletionMarker::applyTo
+                    );
+                    dumpDeletionAwareTrie(trie);
+//                    for (int j = activeStartedAt + 1; j < i; ++j)
+//                    {
+//                        DeletionMarker m = list.get(j).marker();
+//                        if (m == null)
+//                            continue;
+//                        // this will end up in the alternative branch for the range
+////                        trie.putAlternativeRecursive(m.position, m, (ex, n) -> n);
+//                        trie = trie.mergeWith(
+//                            DeletionAwareTrie.deletion(m.position,
+//                                                       ByteComparable.EMPTY,
+//                                                       ByteComparable.EMPTY,
+//                                                       TrieUtil.VERSION, marker),
+//                            LivePoint::combine,
+//                            DeletionMarker::combine,
+//                            DeletionMarker::applyTo
+//                        );
+//                    }
                 }
 
                 active = marker.rightSide;
@@ -173,13 +203,33 @@ interface DataPoint extends DeletionAwareTrie.Deletable
                 // put single deletions separately to avoid creating invalid structure (deletion branch covering another)
                 DeletionMarker marker = i.marker();
                 if (marker != null && marker.leftSide == marker.rightSide)
-                    trie.putAlternativeRecursive(marker.position, marker, (ex, n) -> n);
+//                    trie.putAlternativeRecursive(marker.position, marker, (ex, n) -> n);
+                    trie = trie.mergeWith(
+                        DeletionAwareTrie.deletion(marker.position,
+                                                   ByteComparable.EMPTY,
+                                                   ByteComparable.EMPTY,
+                                                   TrieUtil.VERSION, marker),
+                        LivePoint::combine,
+                        DeletionMarker::combine,
+                        DeletionMarker::applyTo
+                    );
             }
         }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e);
-        }
+//        catch (TrieSpaceExhaustedException e)
+//        {
+//            throw new AssertionError(e);
+//        }
+        return trie;
+    }
+
+    private static DeletionAwareTrie<LivePoint, DeletionMarker> dumpDeletionAwareTrie(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        System.out.println("Content-only");
+        System.out.println(trie.contentOnlyTrie().dump());
+        System.out.println("Deletion-only");
+        System.out.println(trie.deletionOnlyTrie().dump());
+        System.out.println("Merged");
+        System.out.println(trie.mergedTrie(DataPoint::resolve).dump());
         return trie;
     }
 }

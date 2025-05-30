@@ -104,10 +104,15 @@ class SingletonCursor<T> implements Cursor<T>
         return currentDepth;
     }
 
+    protected boolean atEnd()
+    {
+        return nextTransition == ByteSource.END_OF_STREAM;
+    }
+
     @Override
     public T content()
     {
-        return nextTransition == ByteSource.END_OF_STREAM ? value : null;
+        return atEnd() ? value : null;
     }
 
     @Override
@@ -177,9 +182,33 @@ class SingletonCursor<T> implements Cursor<T>
         }
 
         @Override
-        public RangeCursor<D> deletionBranch()
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
             return null;
+        }
+
+        @Override
+        public DeletionAware<T, D> tailCursor(Direction dir)
+        {
+            return new DeletionAware<>(dir, duplicateSource(), byteComparableVersion, value);
+        }
+    }
+
+    static class DeletionBranch<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    extends SingletonCursor<T> implements DeletionAwareCursor<T, D>
+    {
+        RangeTrie<D> deletionBranch;
+
+        DeletionBranch(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, RangeTrie<D> deletionBranch)
+        {
+            super(direction, src, byteComparableVersion, null);
+            this.deletionBranch = deletionBranch;
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
+        {
+            return atEnd() ? deletionBranch.cursor(direction) : null;
         }
 
         @Override

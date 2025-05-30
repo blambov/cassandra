@@ -30,7 +30,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     final int rightSide;
 
     final int at;
-    final boolean isReportableState;
+    final boolean isBoundary;
 
     final DeletionMarker leftSideAsCovering;
     final DeletionMarker rightSideAsCovering;
@@ -41,9 +41,9 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         this.leftSide = leftSide;
         this.rightSide = rightSide;
         this.at = at;
-        this.isReportableState = at != leftSide || leftSide != rightSide;
+        this.isBoundary = at != leftSide || leftSide != rightSide;
 
-        if (!isReportableState)
+        if (!isBoundary)
             leftSideAsCovering = rightSideAsCovering = this;
         else
         {
@@ -131,8 +131,7 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         DeletionMarker that = (DeletionMarker) o;
-        return ByteComparable.compare(this.position, that.position, TrieImpl.BYTE_COMPARABLE_VERSION) == 0
-               && leftSide == that.leftSide
+        return leftSide == that.leftSide
                && rightSide == that.rightSide
                && at == that.at;
     }
@@ -159,44 +158,47 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
     @Override
     public DeletionMarker toContent()
     {
-        return isReportableState ? this : null;
+        return isBoundary ? this : null;
     }
 
     @Override
-    public DeletionMarker asCoveringState(Direction direction)
+    public DeletionMarker restrict(boolean applicableBefore, boolean applicableAfter)
     {
-        return direction.select(leftSideAsCovering, rightSideAsCovering);
-    }
-
-    @Override
-    public DeletionMarker asReportablePoint(boolean applicableBefore, boolean applicableAfter)
-    {
-        if ((applicableBefore || leftSide < 0) && (applicableAfter || (rightSide < 0 && at < 0)))
+        assert isBoundary;
+        if ((applicableBefore || leftSide < 0) && (applicableAfter || rightSide < 0))
             return this;
-        int newAt = applicableAfter ? at : -1;
         int newLeft = applicableBefore ? leftSide : -1;
         int newRight = applicableAfter ? rightSide : -1;
-        if (newAt >= 0 || newLeft >= 0 || newRight >= 0)
-            return new DeletionMarker(position, newLeft, newAt, newRight);
+        int newAt = applicableAfter ? at : -1;
+        if (newLeft >= 0 || newRight >= 0 || newAt >= 0)
+            return new DeletionMarker(position, newLeft, newRight, newAt);
         else
             return null;
     }
 
     @Override
-    public boolean precedingIncluded(Direction direction)
+    public DeletionMarker precedingState(Direction direction)
     {
-        return direction.select(leftSide, rightSide) >= 0;
+        return direction.select(leftSideAsCovering, rightSideAsCovering);
     }
 
     @Override
-    public boolean agreesWith(DeletionMarker other)
+    public DeletionMarker asBoundary(Direction direction)
     {
-        if (other == null)
-            return false;
-        return other.leftSide == leftSide && other.at == at && other.rightSide == rightSide;
+        assert !isBoundary;
+        final boolean isForward = direction.isForward();
+        int newLeft = !isForward ? leftSide : -1;
+        int newRight = isForward ? rightSide : -1;
+        int newAt = isForward ? at : -1;
+        return new DeletionMarker(position, newLeft, newRight, newAt);
     }
 
     @Override
+    public boolean isBoundary()
+    {
+        return isBoundary;
+    }
+
     public LivePoint applyTo(LivePoint content)
     {
         return content.delete(at);
