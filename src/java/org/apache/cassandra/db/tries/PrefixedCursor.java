@@ -37,10 +37,15 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
 
     PrefixedCursor(ByteSource prefix, C tail)
     {
+        this(prefix.next(), prefix, tail);
+    }
+
+    PrefixedCursor(int firstPrefixByte, ByteSource prefix, C tail)
+    {
         this.tail = tail;
         prefixBytes = prefix;
         incomingTransition = -1;
-        nextPrefixByte = prefixBytes.next();
+        nextPrefixByte = firstPrefixByte;
         depthOfPrefix = 0;
     }
 
@@ -158,9 +163,9 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             super(prefix, tail);
         }
 
-        Plain(ByteSource prefix, Cursor<T> source)
+        Plain(int firstPrefixByte, ByteSource prefix, Cursor<T> source)
         {
-            super(prefix, source);
+            super(firstPrefixByte, prefix, source);
         }
 
         @Override
@@ -171,7 +176,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             else
             {
                 assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-                return new Plain<>(duplicateSource(), tail.tailCursor(direction));
+                return new Plain<>(nextPrefixByte, duplicateSource(), tail.tailCursor(direction));
             }
         }
     }
@@ -183,9 +188,9 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             super(prefix, tail);
         }
 
-        Range(ByteSource prefix, RangeCursor<S> source)
+        Range(int firstPrefixByte, ByteSource prefix, RangeCursor<S> source)
         {
-            super(prefix, source);
+            super(firstPrefixByte, prefix, source);
         }
 
         @Override
@@ -204,7 +209,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             else
             {
                 assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-                return new Range<>(duplicateSource(), tail.tailCursor(direction));
+                return new Range<>(nextPrefixByte, duplicateSource(), tail.tailCursor(direction));
             }
         }
     }
@@ -217,9 +222,9 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             super(prefix, tail);
         }
 
-        DeletionAware(ByteSource prefix, DeletionAwareCursor<T, D> tail)
+        DeletionAware(int firstPrefixByte, ByteSource prefix, DeletionAwareCursor<T, D> tail)
         {
-            super(prefix, tail);
+            super(firstPrefixByte, prefix, tail);
         }
 
         @Override
@@ -236,7 +241,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             else
             {
                 assert depthOfPrefix >= 0 : "tailTrie called on exhausted cursor";
-                return new DeletionAware<>(duplicateSource(), tail.tailCursor(direction));
+                return new DeletionAware<>(nextPrefixByte, duplicateSource(), tail.tailCursor(direction));
             }
         }
     }

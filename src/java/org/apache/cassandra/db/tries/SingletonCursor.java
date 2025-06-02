@@ -30,16 +30,21 @@ class SingletonCursor<T> implements Cursor<T>
     final T value;
     private int currentDepth = 0;
     private int currentTransition = -1;
-    private int nextTransition;
+    protected int nextTransition;
 
 
     public SingletonCursor(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+    {
+        this(direction, src.next(), src, byteComparableVersion, value);
+    }
+
+    public SingletonCursor(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
     {
         this.src = src;
         this.direction = direction;
         this.byteComparableVersion = byteComparableVersion;
         this.value = value;
-        this.nextTransition = src.next();
+        this.nextTransition = firstByte;
     }
 
     @Override
@@ -106,7 +111,7 @@ class SingletonCursor<T> implements Cursor<T>
 
     protected boolean atEnd()
     {
-        return nextTransition == ByteSource.END_OF_STREAM;
+        return nextTransition == ByteSource.END_OF_STREAM && currentDepth >= 0;
     }
 
     @Override
@@ -136,7 +141,7 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public SingletonCursor<T> tailCursor(Direction dir)
     {
-        return new SingletonCursor<>(dir, duplicateSource(), byteComparableVersion, value);
+        return new SingletonCursor<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
     }
 
     ByteSource.Duplicatable duplicateSource()
@@ -154,6 +159,11 @@ class SingletonCursor<T> implements Cursor<T>
             super(direction, src, byteComparableVersion, value);
         }
 
+        public Range(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, S value)
+        {
+            super(direction, firstByte, src, byteComparableVersion, value);
+        }
+
         @Override
         public S precedingState()
         {
@@ -169,7 +179,7 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public Range<S> tailCursor(Direction dir)
         {
-            return new Range<>(dir, duplicateSource(), byteComparableVersion, value);
+            return new Range<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
         }
     }
 
@@ -181,6 +191,11 @@ class SingletonCursor<T> implements Cursor<T>
             super(direction, src, byteComparableVersion, value);
         }
 
+        DeletionAware(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+        {
+            super(direction, firstByte, src, byteComparableVersion, value);
+        }
+
         @Override
         public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
@@ -190,7 +205,7 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public DeletionAware<T, D> tailCursor(Direction dir)
         {
-            return new DeletionAware<>(dir, duplicateSource(), byteComparableVersion, value);
+            return new DeletionAware<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
         }
     }
 
@@ -205,6 +220,13 @@ class SingletonCursor<T> implements Cursor<T>
             this.deletionBranch = deletionBranch;
         }
 
+        DeletionBranch(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, RangeTrie<D> deletionBranch)
+        {
+
+            super(direction, firstByte, src, byteComparableVersion, null);
+            this.deletionBranch = deletionBranch;
+        }
+
         @Override
         public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
@@ -214,7 +236,7 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public DeletionAware<T, D> tailCursor(Direction dir)
         {
-            return new DeletionAware<>(dir, duplicateSource(), byteComparableVersion, value);
+            return new DeletionAware<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
         }
     }
 }
