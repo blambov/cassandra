@@ -82,7 +82,7 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
         if (atRange)
             return skipRangeToDataPosition(dataDepth);
         else
-            return maybeSkipRange(data.advance());
+            return maybeSkipRange(dataDepth);
     }
 
     @Override

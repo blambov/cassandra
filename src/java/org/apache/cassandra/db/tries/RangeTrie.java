@@ -47,12 +47,12 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
 
     /// Returns a singleton trie mapping the given byte path to a marker.
     ///
-    /// Note: Ranges are not meant to use boundaries that are distinct from data and thus a singleton range would list
+    /// Note: Ranges are meant to use boundaries that are distinct from data and thus a singleton range would list
     /// only a boundary and always be empty in terms of covered content. However, we do want to be able to place
     /// metadata in intermediate nodes of the trie and this method makes that possible.
     static <S extends RangeState<S>> RangeTrie<S> singleton(ByteComparable key, ByteComparable.Version byteComparableVersion, S v)
     {
-        Preconditions.checkArgument(v.isBoundary());
+        Preconditions.checkArgument(v.isBoundary()); // make sure marker is returned for content()
         Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
         Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
         return dir -> new SingletonCursor.Range<>(dir, key.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
