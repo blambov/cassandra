@@ -22,72 +22,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Collectors;
 
-import com.google.common.base.Predicates;
-import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
-import static org.apache.cassandra.db.tries.DataPoint.deletionOnlyList;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.junit.Assert.assertEquals;
 
-public class DeletionAwareMergeTest
+public class DeletionAwareMergeTest extends DeletionAwareTestBase
 {
-    static final int bitsNeeded = 6;
-    int bits = bitsNeeded;
     int deletionPoint = 100;
-
-    /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
-    private ByteComparable of(int value)
-    {
-        assert value >= 0 && value < 1<< bitsNeeded;
-
-        byte[] splitBytes = new byte[(bitsNeeded + bits - 1) / bits];
-        int pos = 0;
-        int mask = (1 << bits) - 1;
-        for (int i = bitsNeeded - bits; i > 0; i -= bits)
-            splitBytes[pos++] = (byte) ((value >> i) & mask);
-
-        splitBytes[pos] = (byte) (value & mask);
-        return ByteComparable.preencoded(TrieUtil.VERSION, splitBytes);
-    }
-
-    private DeletionMarker from(int where, int value)
-    {
-        return new DeletionMarker(of(where), -1, value, value);
-    }
-
-    private DeletionMarker to(int where, int value)
-    {
-        return new DeletionMarker(of(where), value, -1, -1);
-    }
-
-    private DeletionMarker change(int where, int from, int to)
-    {
-        return new DeletionMarker(of(where), from, to, to);
-    }
-
-    private DeletionMarker deletedPoint(int where, int value)
-    {
-        return deletedPointInside(where, value, -1);
-    }
-
-    private DeletionMarker deletedPointInside(int where, int value, int active)
-    {
-        return new DeletionMarker(of(where), active, value, active);
-    }
-
-    private DataPoint livePoint(int where, int timestamp)
-    {
-        return new LivePoint(of(where), timestamp);
-    }
 
     private List<DataPoint> deletedRanges(ByteComparable... dataPoints)
     {
@@ -100,7 +48,7 @@ public class DeletionAwareMergeTest
         {
             ByteComparable pos = data.get(i);
             if (pos == null)
-                pos = i % 2 == 0 ? of(0) : of((1<<bitsNeeded) - 1);
+                pos = i % 2 == 0 ? before(0) : before((1<<bitsNeeded) - 1);
             if (i % 2 == 0)
                 markers.add(new DeletionMarker(pos, -1, deletionPoint, deletionPoint));
             else
@@ -147,59 +95,59 @@ public class DeletionAwareMergeTest
             testMerge("all",
                       deletedRanges(null, null));
             testMerge("fully covered range",
-                      deletedRanges(of(20), of(25)));
+                      deletedRanges(before(20), before(25)));
             testMerge("fully covered range",
-                      deletedRanges(of(25), of(33)));
+                      deletedRanges(before(25), before(33)));
             testMerge("matching range",
-                      deletedRanges(of(21), of(24)));
+                      deletedRanges(before(21), before(24)));
             testMerge("touching empty",
-                      deletedRanges(of(24), of(26)));
+                      deletedRanges(before(24), before(26)));
 
             testMerge("partial left",
-                      deletedRanges(of(22), of(25)));
+                      deletedRanges(before(22), before(25)));
             testMerge("partial left on change",
-                      deletedRanges(of(28), of(32)));
+                      deletedRanges(before(28), before(32)));
             testMerge("partial left with null",
-                      deletedRanges(of(29), null));
+                      deletedRanges(before(29), null));
 
 
             testMerge("partial right",
-                      deletedRanges(of(25), of(27)));
+                      deletedRanges(before(25), before(27)));
             testMerge("partial right on change",
-                      deletedRanges(of(25), of(28)));
+                      deletedRanges(before(25), before(28)));
             testMerge("partial right with null",
-                      deletedRanges(null, of(22)));
+                      deletedRanges(null, before(22)));
 
             testMerge("inside range",
-                      deletedRanges(of(22), of(23)));
+                      deletedRanges(before(22), before(23)));
             testMerge("inside with change",
-                      deletedRanges(of(27), of(29)));
+                      deletedRanges(before(27), before(29)));
 
             testMerge("empty range inside",
-                      deletedRanges(of(27), of(27)));
+                      deletedRanges(before(27), before(27)));
 
             testMerge("point covered",
-                      deletedRanges(of(16), of(18)));
+                      deletedRanges(before(16), before(18)));
             testMerge("point at range start",
-                      deletedRanges(of(17), of(18)));
+                      deletedRanges(before(17), before(18)));
             testMerge("point at range end",
-                      deletedRanges(of(16), of(17)));
+                      deletedRanges(before(16), before(17)));
 
 
             testMerge("start point covered",
-                      deletedRanges(of(32), of(35)));
+                      deletedRanges(before(32), before(35)));
             testMerge("start point at range start",
-                      deletedRanges(of(33), of(35)));
+                      deletedRanges(before(33), before(35)));
             testMerge("start point at range end",
-                      deletedRanges(of(32), of(33)));
+                      deletedRanges(before(32), before(33)));
 
 
             testMerge("end point covered",
-                      deletedRanges(of(36), of(40)));
+                      deletedRanges(before(36), before(40)));
             testMerge("end point at range start",
-                      deletedRanges(of(38), of(40)));
+                      deletedRanges(before(38), before(40)));
             testMerge("end point at range end",
-                      deletedRanges(of(36), of(38)));
+                      deletedRanges(before(36), before(38)));
         }
     }
 
@@ -210,22 +158,22 @@ public class DeletionAwareMergeTest
         for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             testMerge("fully covered ranges",
-                      deletedRanges(of(20), of(25), of(25), of(33)));
+                      deletedRanges(before(20), before(25), before(25), before(33)));
             testMerge("matching ranges",
-                      deletedRanges(of(21), of(24), of(26), of(31)));
+                      deletedRanges(before(21), before(24), before(26), before(31)));
             testMerge("touching empty",
-                      deletedRanges(of(20), of(21), of(24), of(26), of(32), of(33), of(34), of(36)));
+                      deletedRanges(before(20), before(21), before(24), before(26), before(32), before(33), before(34), before(36)));
             testMerge("partial left",
-                      deletedRanges(of(22), of(25), of(29), null));
+                      deletedRanges(before(22), before(25), before(29), null));
 
             testMerge("partial right",
-                      deletedRanges(null, of(22), of(25), of(27)));
+                      deletedRanges(null, before(22), before(25), before(27)));
 
             testMerge("inside ranges",
-                      deletedRanges(of(22), of(23), of(27), of(29)));
+                      deletedRanges(before(22), before(23), before(27), before(29)));
 
             testMerge("jumping inside",
-                      deletedRanges(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30)));
+                      deletedRanges(before(21), before(22), before(23), before(24), before(25), before(26), before(27), before(28), before(29), before(30)));
         }
     }
 
@@ -236,19 +184,19 @@ public class DeletionAwareMergeTest
         for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             // non-overlapping
-            testMerge("non-overlapping", deletedRanges(of(20), of(23)), deletedRanges(of(24), of(27)));
+            testMerge("non-overlapping", deletedRanges(before(20), before(23)), deletedRanges(before(24), before(27)));
             // touching, i.e. still non-overlapping
-            testMerge("touching", deletedRanges(of(20), of(23)), deletedRanges(of(23), of(27)));
+            testMerge("touching", deletedRanges(before(20), before(23)), deletedRanges(before(23), before(27)));
             // overlapping 1
-            testMerge("overlapping1", deletedRanges(of(20), of(23)), deletedRanges(of(22), of(27)));
+            testMerge("overlapping1", deletedRanges(before(20), before(23)), deletedRanges(before(22), before(27)));
             // overlapping 2
-            testMerge("overlapping2", deletedRanges(of(20), of(23)), deletedRanges(of(21), of(27)));
+            testMerge("overlapping2", deletedRanges(before(20), before(23)), deletedRanges(before(21), before(27)));
             // covered
-            testMerge("covered1", deletedRanges(of(20), of(23)), deletedRanges(of(20), of(27)));
+            testMerge("covered1", deletedRanges(before(20), before(23)), deletedRanges(before(20), before(27)));
             // covered 2
-            testMerge("covered2", deletedRanges(of(23), of(27)), deletedRanges(of(20), of(27)));
+            testMerge("covered2", deletedRanges(before(23), before(27)), deletedRanges(before(20), before(27)));
             // covered 3
-            testMerge("covered3", deletedRanges(of(21), of(23)), deletedRanges(of(20), of(27)));
+            testMerge("covered3", deletedRanges(before(21), before(23)), deletedRanges(before(20), before(27)));
         }
     }
 
@@ -262,44 +210,44 @@ public class DeletionAwareMergeTest
 
     private List<DataPoint> getTestRanges()
     {
-        return asList(deletedPoint(17, 20),
-                      livePoint(19, 30),
-                      from(21, 10), deletedPointInside(22, 21, 10), livePoint(23, 31), to(24, 10),
-                      from(26, 11), livePoint(27, 32), change(28, 11, 12).withPoint(22), livePoint(29, 33), to(30, 12),
-                      livePoint(32, 34), from(33, 13).withPoint(23), to(34, 13),
-                      from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35));
+        return flatten(asList(deletedPoint(17, 20),
+                              livePoint(19, 30),
+                              from(21, 10), deletedPointInside(22, 21, 10), livePoint(23, 31), to(24, 10),
+                              from(26, 11), livePoint(27, 32), change(28, 11, 12).withPoint(22), livePoint(29, 33), to(30, 12),
+                              livePoint(32, 34), from(33, 13).withPoint(23), to(34, 13),
+                              from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35)));
     }
 
     private void testMerges()
     {
         testMerge("", fromList(getTestRanges()), getTestRanges());
 
-        List<DataPoint> set1 = deletedRanges(null, of(24), of(25), of(29), of(32), null);
-        List<DataPoint> set2 = deletedRanges(of(14), of(17),
-                                               of(22), of(27),
-                                               of(28), of(30),
-                                               of(32), of(34),
-                                               of(36), of(40));
-        List<DataPoint> set3 = deletedRanges(of(17), of(18),
-                                               of(19), of(20),
-                                               of(21), of(22),
-                                               of(23), of(24),
-                                               of(25), of(26),
-                                               of(27), of(28),
-                                               of(29), of(30),
-                                               of(31), of(32),
-                                               of(33), of(34),
-                                               of(35), of(36),
-                                               of(37), of(38));
+        List<DataPoint> set1 = deletedRanges(null, before(24), before(25), before(29), before(32), null);
+        List<DataPoint> set2 = deletedRanges(before(14), before(17),
+                                               before(22), before(27),
+                                               before(28), before(30),
+                                               before(32), before(34),
+                                               before(36), before(40));
+        List<DataPoint> set3 = deletedRanges(before(17), before(18),
+                                               before(19), before(20),
+                                               before(21), before(22),
+                                               before(23), before(24),
+                                               before(25), before(26),
+                                               before(27), before(28),
+                                               before(29), before(30),
+                                               before(31), before(32),
+                                               before(33), before(34),
+                                               before(35), before(36),
+                                               before(37), before(38));
 
         testMerges(set1, set2, set3);
     }
 
     private void testMerges(List<DataPoint> set1, List<DataPoint> set2, List<DataPoint> set3)
     {
-        // set1 = TrieSet.ranges(null, of(24), of(25), of(29), of(32), null);
-        // set2 = TrieSet.ranges(of(22), of(27), of(28), of(30), of(32), of(34));
-        // set3 = TrieSet.ranges(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30));
+        // set1 = TrieSet.ranges(null, before(24), before(25), before(29), before(32), null);
+        // set2 = TrieSet.ranges(before(22), before(27), before(28), before(30), before(32), before(34));
+        // set3 = TrieSet.ranges(before(21), before(22), before(23), before(24), before(25), before(26), before(27), before(28), before(29), before(30));
         // from(21, 10), to(24, 10), from(26, 11), change(28, 11, 12), to(30, 12), from(33, 13), to(34, 13)
         testMerge("1", set1);
 

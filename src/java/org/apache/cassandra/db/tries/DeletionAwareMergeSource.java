@@ -49,13 +49,13 @@ class DeletionAwareMergeSource<T extends DeletionAwareTrie.Deletable, D extends 
         atDeletions = false;
     }
 
-    DeletionAwareMergeSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<D> deletions, int deletionsDepthCorrection)
+    DeletionAwareMergeSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<D> deletions)
     {
         this.direction = data.direction();
         this.resolver = resolver;
         this.deletions = deletions;
         this.data = data;
-        this.deletionsDepthCorrection = deletionsDepthCorrection;
+        this.deletionsDepthCorrection = 0;
         assert data.depth() == 0;
         assert deletions == null || deletions.depth() == 0;
         atDeletions = deletions != null;
@@ -196,7 +196,7 @@ class DeletionAwareMergeSource<T extends DeletionAwareTrie.Deletable, D extends 
     public DeletionAwareMergeSource<T, D> tailCursor(Direction direction)
     {
         if (atDeletions)
-            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction), 0);
+            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction));
         else
             return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction));
     }
@@ -208,11 +208,13 @@ class DeletionAwareMergeSource<T extends DeletionAwareTrie.Deletable, D extends 
         return data.deletionBranchCursor(direction);
     }
 
-    public void addDeletions(RangeCursor<D> deletions, int deletionsDepthCorrection)
+    public void addDeletions(RangeCursor<D> deletions)
     {
         assert this.deletions == null;
+        assert deletions.depth() == 0;
         this.deletions = deletions;
-        this.deletionsDepthCorrection = deletionsDepthCorrection;
+        this.deletionsDepthCorrection = data.depth();
+        this.atDeletions = true;
     }
 
     public boolean hasDeletions()

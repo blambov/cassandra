@@ -29,6 +29,8 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     final C c1;
     @Nullable D c2;
     int c2depthCorrection;
+    int incomingTransition;
+    int depth;
 
     enum State
     {
@@ -41,33 +43,38 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
     FlexibleMergeCursor(C c1)
     {
+        assert c1.depth() == 0;
         this.direction = c1.direction();
         this.c1 = c1;
         this.c2 = null;
         state = State.C1_ONLY;
+        incomingTransition = c1.incomingTransition();
+        depth = c1.depth();
         // We can't call postAdvance here because the class may not be completely initialized.
         // The concrete class should do that instead
     }
 
-    FlexibleMergeCursor(C c1, D c2, int c2depthCorrection)
+    FlexibleMergeCursor(C c1, D c2)
     {
+        assert c1.depth() == 0;
+        assert c2.depth() == 0;
         this.direction = c1.direction();
         this.c1 = c1;
         this.c2 = c2;
-        this.c2depthCorrection = c2depthCorrection;
+        this.c2depthCorrection = 0;
         state = c2 != null ? State.AT_BOTH : State.C1_ONLY;
+        incomingTransition = c1.incomingTransition();
+        depth = c1.depth();
         // We can't call postAdvance here because the class may not be completely initialized.
         // The concrete class should do that instead
     }
 
-    public void addCursor(D c2, int c2depthCorrection)
+    public void addCursor(D c2)
     {
         assert state == State.C1_ONLY : "Attempting to add further cursors to a cursor that already has two sources";
-        assert c2.depth() + c2depthCorrection == c1.depth()
-            : "Only cursors positioned at the current position can be added";
-        // The new cursor must be rooted at the current position.
+        assert c2.depth() == 0 : "Only cursors rooted at the current position can be added";
         this.c2 = c2;
-        this.c2depthCorrection = c2depthCorrection;
+        this.c2depthCorrection = c1.depth();
         this.state = State.AT_BOTH;
     }
 
@@ -79,7 +86,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         switch (state)
         {
             case C1_ONLY:
-                return postAdvance(c1.advance());
+                return inC1Only(c1.advance());
             case AT_C1:
                 return checkOrder(c1.advance(), c2.depth());
             case AT_C2:
@@ -95,7 +102,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     public int skipTo(int skipDepth, int skipTransition)
     {
         if (state == State.C1_ONLY)
-            return postAdvance(c1.skipTo(skipDepth, skipTransition));
+            return inC1Only(c1.skipTo(skipDepth, skipTransition));
 
         // Handle request to exit c2 branch separately for simplicity
         if (skipDepth <= c2depthCorrection)
@@ -105,8 +112,6 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
         switch (state)
         {
-            case C1_ONLY:
-                return postAdvance(c1.skipTo(skipDepth, skipTransition));
             case AT_C1:
                 return checkOrder(c1.skipTo(skipDepth, skipTransition), c2.skipToWhenAhead(c2skipDepth, skipTransition));
             case AT_C2:
@@ -124,7 +129,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         switch (state)
         {
             case C1_ONLY:
-                return postAdvance(c1.advanceMultiple(receiver));
+                return inC1Only(c1.advanceMultiple(receiver));
             // If we are in a branch that's only covered by one of the sources, we can use its advanceMultiple as it is
             // only different from advance if it takes multiple steps down, which does not change the order of the
             // cursors.
@@ -141,7 +146,14 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         }
     }
 
-    int checkOrder(int c1depth, int c2depthUncorrected)
+    private int inC1Only(int c1depth)
+    {
+        incomingTransition = c1.incomingTransition();
+        depth = c1depth;
+        return postAdvance(c1depth);
+    }
+
+    private int checkOrder(int c1depth, int c2depthUncorrected)
     {
         if (c2depthUncorrected < 0)
             return leaveC2(c1depth);
@@ -150,11 +162,15 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         if (c1depth > c2depth)
         {
             state = State.AT_C1;
+            incomingTransition = c1.incomingTransition();
+            depth = c1depth;
             return postAdvance(c1depth);
         }
         if (direction.lt(c1depth, c2depth))
         {
             state = State.AT_C2;
+            incomingTransition = c2.incomingTransition();
+            depth = c2depth;
             return postAdvance(c2depth);
         }
         // c1depth == c2depth
@@ -163,6 +179,8 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         boolean c1ahead = direction.gt(c1trans, c2trans);
         boolean c2ahead = direction.lt(c1trans, c2trans);
         state = c2ahead ? State.AT_C1 : c1ahead ? State.AT_C2 : State.AT_BOTH;
+        incomingTransition = c1ahead ? c2trans : c1trans;
+        depth = c1depth;
         return postAdvance(c1depth);
     }
 
@@ -170,6 +188,8 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     {
         state = State.C1_ONLY;
         c2 = null;
+        incomingTransition = c1.incomingTransition();
+        depth = c1depth;
         return postAdvance(c1depth);
     }
 
@@ -192,17 +212,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     @Override
     public int incomingTransition()
     {
-        switch (state)
-        {
-            case C1_ONLY:
-            case AT_C1:
-            case AT_BOTH:
-                return c1.incomingTransition();
-            case AT_C2:
-                return c2.incomingTransition();
-            default:
-                throw new AssertionError();
-        }
+        return incomingTransition;
     }
 
     @Override
@@ -227,9 +237,9 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
             this.resolver = resolver;
         }
 
-        WithMappedContent(BiFunction<T, U, Z> resolver, C c1, D c2, int c2depthCorrection)
+        WithMappedContent(BiFunction<T, U, Z> resolver, C c1, D c2)
         {
-            super(c1, c2, c2depthCorrection);
+            super(c1, c2);
             this.resolver = resolver;
         }
 

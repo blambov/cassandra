@@ -24,10 +24,11 @@ import org.agrona.DirectBuffer;
 /// Simple utility class for dumping the structure of a trie to string.
 class TrieDumper<T> implements Cursor.Walker<T, String>
 {
-    private final StringBuilder b;
-    private final Function<T, String> contentToString;
+    protected final StringBuilder b;
+    protected final Function<T, String> contentToString;
     int needsIndent = -1;
     int currentLength = 0;
+    int depthAdjustment = 0;
 
     public TrieDumper(Function<T, String> contentToString)
     {
@@ -35,7 +36,7 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
         this.b = new StringBuilder();
     }
 
-    private void endLineAndSetIndent(int newIndent)
+    protected void endLineAndSetIndent(int newIndent)
     {
         needsIndent = newIndent;
     }
@@ -43,11 +44,11 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
     @Override
     public void resetPathLength(int newLength)
     {
-        currentLength = newLength;
-        endLineAndSetIndent(newLength);
+        currentLength = newLength + depthAdjustment;
+        endLineAndSetIndent(currentLength);
     }
 
-    private void maybeIndent()
+    protected void maybeIndent()
     {
         if (needsIndent >= 0)
         {
@@ -87,5 +88,33 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
     public String complete()
     {
         return b.toString();
+    }
+
+    static class DeletionAware<T extends DeletionAwareTrie.Deletable> extends TrieDumper<T> implements DeletionAwareTrie.DeletionAwareWalker<T, String>
+    {
+        public DeletionAware(Function<T, String> contentToString)
+        {
+            super(contentToString);
+        }
+
+        @Override
+        public boolean enterDeletionsBranch()
+        {
+            b.append("*** Start deletion branch");
+            endLineAndSetIndent(currentLength);
+            depthAdjustment = currentLength;
+            currentLength = 0;
+            return true;
+        }
+
+        @Override
+        public void exitDeletionsBranch()
+        {
+            endLineAndSetIndent(depthAdjustment);
+            maybeIndent();
+            b.append("*** End deletion branch");
+            resetPathLength(0);
+            depthAdjustment = 0;
+        }
     }
 }

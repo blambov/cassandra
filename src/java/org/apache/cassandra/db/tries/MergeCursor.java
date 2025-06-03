@@ -324,7 +324,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 
             RangeCursor<D> deletionsBranch = c2.deletionBranchCursor(direction);
             if (deletionsBranch != null)
-                c1.addDeletions(deletionsBranch, c2.depth());  // apply all c2 deletions to c1
+                c1.addDeletions(deletionsBranch);  // apply all c2 deletions to c1
         }
 
         @Override
@@ -348,9 +348,9 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 
             deletionBranchDepth = depth;
             if (b1 == null)
-                b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.tailCursor(direction));
+                b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.data.tailCursor(direction));
             if (b2 == null)
-                b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.tailCursor(direction));
+                b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.data.tailCursor(direction));
 
             return new Range<>(deletionResolver, b1, b2);
         }

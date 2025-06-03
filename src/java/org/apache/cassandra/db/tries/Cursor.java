@@ -272,7 +272,7 @@ interface Cursor<T>
 
     /// Process the trie using the given [Walker].
     /// This method should only be called on a freshly constructed cursor.
-    default <R> R process(Cursor.Walker<T, R> walker)
+    default <R> R process(Cursor.Walker<? super T, R> walker)
     {
         assert depth() == 0 : "The provided cursor has already been advanced.";
         T content = content();   // handle content on the root node

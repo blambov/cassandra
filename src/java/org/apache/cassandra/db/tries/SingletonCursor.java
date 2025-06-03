@@ -234,9 +234,9 @@ class SingletonCursor<T> implements Cursor<T>
         }
 
         @Override
-        public DeletionAware<T, D> tailCursor(Direction dir)
+        public DeletionBranch<T, D> tailCursor(Direction dir)
         {
-            return new DeletionAware<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
+            return new DeletionBranch<>(dir, nextTransition, duplicateSource(), byteComparableVersion, deletionBranch);
         }
     }
 }

@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.Objects;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, DeletionMarker>, DataPoint
 {
@@ -90,9 +91,20 @@ class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, Dele
         return new DeletionMarker(position, newLeft, newAt, newRight);
     }
 
-    DeletionMarker withPoint(int value)
+    DeletionMarker[] withPoint(int value)
     {
-        return new DeletionMarker(position, leftSide, value, rightSide);
+        return new DeletionMarker[]
+        {
+            new DeletionMarker(position, leftSide, value, value),
+            new DeletionMarker(replaceTerminator(position, ByteSource.GT_NEXT_COMPONENT), value, rightSide, rightSide)
+        };
+    }
+
+    ByteComparable replaceTerminator(ByteComparable c, int terminator)
+    {
+        byte[] key = c.asByteComparableArray(TrieUtil.VERSION);
+        key[key.length - 1] = (byte) terminator;
+        return ByteComparable.preencoded(TrieUtil.VERSION, key);
     }
 
     @Override

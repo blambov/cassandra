@@ -18,16 +18,13 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Predicates;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
@@ -38,66 +35,8 @@ import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.junit.Assert.assertEquals;
 
-public class DeletionAwareIntersectionTest
+public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
 {
-    @BeforeClass
-    public static void enableVerification()
-    {
-        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
-    }
-
-    static final int bitsNeeded = 6;
-    int bits = bitsNeeded;
-
-    /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
-    private ByteComparable of(int value)
-    {
-        assert value >= 0 && value <= Byte.MAX_VALUE;
-
-        byte[] splitBytes = new byte[(bitsNeeded + bits - 1) / bits];
-        int pos = 0;
-        int mask = (1 << bits) - 1;
-        for (int i = bitsNeeded - bits; i > 0; i -= bits)
-            splitBytes[pos++] = (byte) ((value >> i) & mask);
-
-        splitBytes[pos] = (byte) (value & mask);
-        return ByteComparable.preencoded(TrieUtil.VERSION, splitBytes);
-    }
-
-    private DeletionMarker from(int where, int value)
-    {
-        return new DeletionMarker(of(where), -1, value, value);
-    }
-
-    private DeletionMarker to(int where, int value)
-    {
-        return new DeletionMarker(of(where), value, -1, -1);
-    }
-
-    private DeletionMarker change(int where, int from, int to)
-    {
-        return new DeletionMarker(of(where), from, to, to);
-    }
-
-    private DeletionMarker deletedPoint(int where, int value)
-    {
-        return deletedPointInside(where, value, -1);
-    }
-
-    private DeletionMarker deletedPointInside(int where, int value, int active)
-    {
-        return new DeletionMarker(of(where), active, value, active);
-    }
-
-    private DataPoint livePoint(int where, int timestamp)
-    {
-        return new LivePoint(of(where), timestamp);
-    }
-
-    private ByteComparable[] array(ByteComparable... data)
-    {
-        return data;
-    }
 
     @Test
     public void testSubtrie()
@@ -109,59 +48,59 @@ public class DeletionAwareIntersectionTest
             testIntersection("all",
                              array(null, null));
             testIntersection("fully covered range",
-                             array(of(20), of(25)));
+                             array(before(20), before(25)));
             testIntersection("fully covered range",
-                             array(of(25), of(33)));
+                             array(before(25), before(33)));
             testIntersection("matching range",
-                             array(of(21), of(24)));
+                             array(before(21), before(24)));
             testIntersection("touching empty",
-                             array(of(24), of(26)));
+                             array(before(24), before(26)));
 
             testIntersection("partial left",
-                             array(of(22), of(25)));
+                             array(before(22), before(25)));
             testIntersection("partial left on change",
-                             array(of(28), of(32)));
+                             array(before(28), before(32)));
             testIntersection("partial left with null",
-                             array(of(29), null));
+                             array(before(29), null));
 
 
             testIntersection("partial right",
-                             array(of(25), of(27)));
+                             array(before(25), before(27)));
             testIntersection("partial right on change",
-                             array(of(25), of(28)));
+                             array(before(25), before(28)));
             testIntersection("partial right with null",
-                             array(null, of(22)));
+                             array(null, before(22)));
 
             testIntersection("inside range",
-                             array(of(22), of(23)));
+                             array(before(22), before(23)));
             testIntersection("inside with change",
-                             array(of(27), of(29)));
+                             array(before(27), before(29)));
 
 //            testIntersection("empty range inside",
-//                             array(of(27), of(27)));
+//                             array(before(27), before(27)));
 
             testIntersection("point covered",
-                             array(of(16), of(18)));
+                             array(before(16), before(18)));
             testIntersection("point at range start",
-                             array(of(17), of(18)));
+                             array(before(17), before(18)));
             testIntersection("point at range end",
-                             array(of(16), of(17)));
+                             array(before(16), before(17)));
 
 
             testIntersection("start point covered",
-                             array(of(32), of(35)));
+                             array(before(32), before(35)));
             testIntersection("start point at range start",
-                             array(of(33), of(35)));
+                             array(before(33), before(35)));
             testIntersection("start point at range end",
-                             array(of(32), of(33)));
+                             array(before(32), before(33)));
 
 
             testIntersection("end point covered",
-                             array(of(36), of(40)));
+                             array(before(36), before(40)));
             testIntersection("end point at range start",
-                             array(of(38), of(40)));
+                             array(before(38), before(40)));
             testIntersection("end point at range end",
-                             array(of(36), of(38)));
+                             array(before(36), before(38)));
         }
     }
 
@@ -171,22 +110,22 @@ public class DeletionAwareIntersectionTest
         for (bits = bitsNeeded; bits > 0; --bits)
         {
             testIntersection("fully covered ranges",
-                             array(of(20), of(25), of(25), of(33)));
+                             array(before(20), before(25), before(25), before(33)));
             testIntersection("matching ranges",
-                             array(of(21), of(24), of(26), of(31)));
+                             array(before(21), before(24), before(26), before(31)));
             testIntersection("touching empty",
-                             array(of(20), of(21), of(24), of(26), of(32), of(33), of(34), of(36)));
+                             array(before(20), before(21), before(24), before(26), before(32), before(33), before(34), before(36)));
             testIntersection("partial left",
-                             array(of(22), of(25), of(29), null));
+                             array(before(22), before(25), before(29), null));
 
             testIntersection("partial right",
-                             array(null, of(22), of(25), of(27)));
+                             array(null, before(22), before(25), before(27)));
 
             testIntersection("inside ranges",
-                             array(of(22), of(23), of(27), of(29)));
+                             array(before(22), before(23), before(27), before(29)));
 
             testIntersection("jumping inside",
-                             array(of(21), of(22), of(23), of(24), of(25), of(26), of(27), of(28), of(29), of(30)));
+                             array(before(21), before(22), before(23), before(24), before(25), before(26), before(27), before(28), before(29), before(30)));
         }
     }
 
@@ -196,19 +135,19 @@ public class DeletionAwareIntersectionTest
         for (bits = bitsNeeded; bits > 0; --bits)
         {
             // non-overlapping
-            testIntersection("", array(of(20), of(23)), array(of(24), of(27)));
+            testIntersection("", array(before(20), before(23)), array(before(24), before(27)));
             // touching, i.e. still non-overlapping
-            testIntersection("", array(of(20), of(23)), array(of(23), of(27)));
+            testIntersection("", array(before(20), before(23)), array(before(23), before(27)));
             // overlapping 1
-            testIntersection("", array(of(20), of(23)), array(of(22), of(27)));
+            testIntersection("", array(before(20), before(23)), array(before(22), before(27)));
             // overlapping 2
-            testIntersection("", array(of(20), of(23)), array(of(21), of(27)));
+            testIntersection("", array(before(20), before(23)), array(before(21), before(27)));
             // covered
-            testIntersection("", array(of(20), of(23)), array(of(20), of(27)));
+            testIntersection("", array(before(20), before(23)), array(before(20), before(27)));
             // covered
-            testIntersection("", array(of(23), of(27)), array(of(20), of(27)));
+            testIntersection("", array(before(23), before(27)), array(before(20), before(27)));
             // covered 2
-            testIntersection("", array(of(21), of(23)), array(of(20), of(27)));
+            testIntersection("", array(before(21), before(23)), array(before(20), before(27)));
         }
     }
 
@@ -221,40 +160,34 @@ public class DeletionAwareIntersectionTest
 
     private List<DataPoint> getTestRanges()
     {
-        return asList(deletedPoint(17, 20),
-                      livePoint(19, 30),
-                      from(21, 10), deletedPointInside(22, 21, 10), livePoint(23, 31), to(24, 10),
-                      from(26, 11), livePoint(27, 32), change(28, 11, 12).withPoint(22), livePoint(29, 33), to(30, 12),
-                      livePoint(32, 34), from(33, 13).withPoint(23), to(34, 13),
-                      from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35));
+        return flatten(asList(deletedPoint(17, 20),
+                              livePoint(19, 30),
+                              from(21, 10), to(22, 10)));
+//                              from(21, 10), deletedPointInside(22, 21, 10), livePoint(23, 31), to(24, 10),
+//                              from(26, 11), livePoint(27, 32), change(28, 11, 12).withPoint(22), livePoint(29, 33), to(30, 12),
+//                              livePoint(32, 34), from(33, 13).withPoint(23), to(34, 13),
+//                              from(36, 14), to(38, 14).withPoint(24), livePoint(39, 35)));
     }
 
     private DeletionAwareTrie<LivePoint, DeletionMarker> mergeGeneratedRanges()
     {
-        return fromList(asList(
-                                          from(21, 10), to(24, 10),
-                                          from(26, 11), to(29, 11),
-                                          from(33, 13), to(34, 13),
-                                          from(36, 14), to(38, 14)
-                          ))
-               .mergeWith(fromList(asList(
-                                          from(28, 12), to(30, 12)
-                          )),
+        return fromList(asList(from(21, 10), to(24, 10),
+                               from(26, 11), to(29, 11),
+                               from(33, 13), to(34, 13),
+                               from(36, 14), to(38, 14)))
+               .mergeWith(fromList(asList(from(28, 12), to(30, 12)
+                          )), LivePoint::combine,
+                          DeletionMarker::combine,
+                          DeletionMarker::applyTo)
+               .mergeWith(fromList(flatten(asList(deletedPoint(17, 20),
+                                                  deletedPoint(22, 21),
+                                                  deletedPoint(28, 22),
+                                                  deletedPoint(33, 23),
+                                                  deletedPoint(38, 24)))),
                           LivePoint::combine,
                           DeletionMarker::combine,
                           DeletionMarker::applyTo)
-               .mergeWith(fromList(asList(
-                                          deletedPoint(17, 20),
-                                          deletedPoint(22, 21),
-                                          deletedPoint(28, 22),
-                                          deletedPoint(33, 23),
-                                          deletedPoint(38, 24)
-                          )),
-                          LivePoint::combine,
-                          DeletionMarker::combine,
-                          DeletionMarker::applyTo)
-               .mergeWith(fromList(asList(
-                                          livePoint(19, 30),
+               .mergeWith(fromList(asList(livePoint(19, 30),
                                           livePoint(23, 31),
                                           livePoint(27, 32),
                                           livePoint(29, 33),
@@ -269,23 +202,25 @@ public class DeletionAwareIntersectionTest
     {
         testIntersection("");
 
-        ByteComparable[] set1 = array(null, of(24), of(25), of(29), of(32), null);
-        ByteComparable[] set2 = array(of(14), of(17),
-                                      of(22), of(27),
-                                      of(28), of(30),
-                                      of(32), of(34),
-                                      of(36), of(40));
-        ByteComparable[] set3 = array(of(17), of(18),
-                                      of(19), of(20),
-                                      of(21), of(22),
-                                      of(23), of(24),
-                                      of(25), of(26),
-                                      of(27), of(28),
-                                      of(29), of(30),
-                                      of(31), of(32),
-                                      of(33), of(34),
-                                      of(35), of(36),
-                                      of(37), of(38));
+        ByteComparable[] set1 = array(null, before(24),
+                                      before(25), before(29),
+                                      before(32), null);
+        ByteComparable[] set2 = array(before(14), before(17),
+                                      before(22), before(27),
+                                      before(28), before(30),
+                                      before(32), before(34),
+                                      before(36), before(40));
+        ByteComparable[] set3 = array(before(17), before(18),
+                                      before(19), before(20),
+                                      before(21), before(22),
+                                      before(23), before(24),
+                                      before(25), before(26),
+                                      before(27), before(28),
+                                      before(29), before(30),
+                                      before(31), before(32),
+                                      before(33), before(34),
+                                      before(35), before(36),
+                                      before(37), before(38));
 
         testIntersections(set1, set2, set3);
     }
@@ -366,106 +301,5 @@ public class DeletionAwareIntersectionTest
                 );
             }
         }
-    }
-
-    String toString(ByteComparable[] ranges)
-    {
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < ranges.length; i+=2)
-        {
-            b.append('[');
-            b.append(toString(ranges[i]));
-            b.append(';');
-            b.append(toString(ranges[i + 1]));
-            b.append(')');
-        }
-        return b.toString();
-    }
-
-    private static String toString(ByteComparable ranges)
-    {
-        if (ranges == null)
-            return "null";
-        return ranges.byteComparableAsString(TrieUtil.VERSION);
-    }
-
-
-    List<DataPoint> intersect(List<DataPoint> dataPoints, ByteComparable... ranges)
-    {
-        int rangeIndex = 0;
-        int active = -1;
-        ByteComparable nextRange = ranges[0];
-        if (nextRange == null)
-            nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
-        List<DataPoint> result = new ArrayList<>();
-        for (DataPoint dp : dataPoints)
-        {
-            DeletionMarker marker = dp.marker();
-            while (true)
-            {
-                int cmp;
-                if (nextRange == null)
-                    cmp = -1;
-                else
-                    cmp = ByteComparable.compare(dp.position(), nextRange, TrieUtil.VERSION);
-
-                if (cmp < 0)
-                {
-                    if ((rangeIndex & 1) != 0)
-                        maybeAdd(result, dp);
-                    break;
-                }
-
-                if (cmp == 0)
-                {
-                    DeletionMarker adjustedMarker = marker != null ? marker : makeActiveMarker(active, rangeIndex, nextRange);
-
-                    if ((rangeIndex & 1) == 0)
-                        maybeAdd(result, dp.withMarker(startOf(adjustedMarker)));
-                    else
-                        maybeAdd(result, dp.withMarker(endOf(adjustedMarker)));   // live points are included at starts as well as ends
-
-                    nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
-                    break;
-                }
-                else
-                    maybeAdd(result, makeActiveMarker(active, rangeIndex, nextRange));
-
-                nextRange = ++rangeIndex < ranges.length ? ranges[rangeIndex] : null;
-            }
-            if (marker != null)
-                active = marker.rightSide;
-        }
-        assert active == -1;
-        return result;
-    }
-
-    DeletionMarker startOf(DeletionMarker marker)
-    {
-        return marker != null ? marker.restrict(false, true) : null;
-    }
-
-    DeletionMarker endOf(DeletionMarker marker)
-    {
-        return marker != null ? marker.restrict(true, false) : null;
-    }
-
-    private static DeletionMarker makeActiveMarker(int active, int rangeIndex, ByteComparable nextRange)
-    {
-        if (active >= 0) // cmp > 0, must covert active to marker
-        {
-            if ((rangeIndex & 1) != 0)
-                return new DeletionMarker(nextRange, active, -1, -1);
-            else
-                return new DeletionMarker(nextRange, -1, active, active);
-        }
-        return null;
-    }
-
-    static <T> void maybeAdd(List<T> list, T value)
-    {
-        if (value == null)
-            return;
-        list.add(value);
     }
 }

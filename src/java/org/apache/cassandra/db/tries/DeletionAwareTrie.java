@@ -21,6 +21,7 @@ package org.apache.cassandra.db.tries;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import com.google.common.collect.ImmutableList;
 
@@ -50,9 +51,10 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
     DeletionAwareTrie<T, D> deletion(ByteComparable prefixInMainTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
+        RangeTrie<D> rangeTrie = RangeTrie.range(left, right, byteComparableVersion, deletion);
         return dir -> new SingletonCursor.DeletionBranch<>(dir,
                                                            prefixInMainTrie.asComparableBytes(byteComparableVersion), byteComparableVersion,
-                                                           RangeTrie.range(left, right, byteComparableVersion, deletion));
+                                                           rangeTrie);
     }
 
     @Override
@@ -117,6 +119,26 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
                 throw new AssertionError("not implemented");
 //                return dir -> new CollectionMergeCursor.DeletionAware<>(dir, mergeResolver, sources);
         }
+    }
+
+    interface DeletionAwareWalker<T extends Deletable, R> extends Cursor.Walker<T, R>
+    {
+        /// Called when a deletion branch is found. Return false to skip over it, and true to descend inside it.
+        boolean enterDeletionsBranch();
+
+        /// Called when the deletion branch is exited.
+        void exitDeletionsBranch();
+    }
+
+    default String dump(Function<T, String> contentToString)
+    {
+        return process(Direction.FORWARD, new TrieDumper.DeletionAware<>(contentToString));
+    }
+
+    /// Process the trie using the given [DeletionAwareWalker].
+    default <R> R process(Direction direction, DeletionAwareWalker<T, R> walker)
+    {
+        return cursor(direction).process(walker);
     }
 
     default Trie<T> contentOnlyTrie()
