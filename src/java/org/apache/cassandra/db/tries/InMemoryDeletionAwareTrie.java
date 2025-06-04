@@ -25,7 +25,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
- *
  * @param <T>
  * @param <D> Must be a subtype of T.
  */
