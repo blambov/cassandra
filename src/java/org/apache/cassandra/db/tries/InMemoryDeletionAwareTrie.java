@@ -123,17 +123,20 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             // - The above also happens if we don't have an existing deletion at all.
             // - Assuming uplift only happens once, this is not fatal.
             // - Probably sensible to apply deletions on the branch first to reduce its size.
-            // - LATER: We'd prefer to never do it; i.e. to always have a deletion branch (with some special empty designation)
-            //   for every partition.
-            // - LATER: We want a static "partition-level marker" content value that we can use for that.
 
             // plan:
-            // if incoming and existing deletions match, apply:
+            // - Add a flag "deletionsAtKnownPositions" that guarantees that if one merge source has deletion branch
+            //   at some position, the other cannot have a deletion branch below or above this position.
+            //   This lets us avoid creating DeletionBranchCursors when one source is missing.
+            // if incoming and existing deletions match, or flag above is in force, apply:
             // - incoming deletion branch to our data using DeleteMutation
             // - incoming deletion branch to our deletion branch using InMemoryRangeTrie.Mutation
             // - incoming data, with applied existing deletion branch (using DeletionAwareSource) to our data
             // if they don't match, make DeletionBranchCursor on the other to turn it into a deletion branch.
             // - this is likely wasteful
+            // TODO: add deletionsAtKnownPositions flag to MergeCursor too;
+            //   - possibly a property of trie / cursor
+            //   - maybe a DeletionAware subclass
         }
 
         @Override
