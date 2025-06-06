@@ -84,7 +84,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     public InMemoryCursor makeCursor(Direction direction)
     {
-        return new InMemoryCursor(direction, root, 0, -1);
+        return new InMemoryCursor(this, direction, root, 0, -1);
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -227,7 +227,6 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 content = mutationCursor.content();
 
             int depth = state.currentDepth;
-            int prevAscendDepth = state.setAscendLimit(depth);
             while (true)
             {
                 if (depth < forcedCopyDepth)
@@ -253,7 +252,6 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
                 content = mutationCursor.content();
             }
-            state.setAscendLimit(prevAscendDepth);
         }
 
         /// Walk all existing content covered under a deletion. Returns true if the caller needs to continue processing

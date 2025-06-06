@@ -38,8 +38,6 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     interface DeletionMarker<T extends Deletable, D extends DeletionMarker<T, D>> extends RangeState<D>
     {
         // TODO: Consider adding a applyTo/resolve methods; possibly in the whole hierarchy
-//        T applyTo(T content);
-//        D resolve(D other); // this could be in RangeState
     }
 
     static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
