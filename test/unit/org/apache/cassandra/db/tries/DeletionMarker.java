@@ -24,7 +24,7 @@ import java.util.Objects;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-class DeletionMarker implements DeletionAwareTrie.DeletionMarker<LivePoint, DeletionMarker>, DataPoint
+class DeletionMarker implements DataPoint, RangeState<DeletionMarker>
 {
     final ByteComparable position;
     final int leftSide;

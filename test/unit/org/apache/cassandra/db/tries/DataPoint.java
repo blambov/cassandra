@@ -25,12 +25,11 @@ import java.util.stream.Collectors;
 import com.google.common.collect.Streams;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-interface DataPoint extends DeletionAwareTrie.Deletable
+interface DataPoint
 {
     DeletionMarker marker();
     LivePoint live();

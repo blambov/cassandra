@@ -28,7 +28,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// Based on [RangeApplyCursor] and used by [MergeCursor.DeletionAware] to process each source with the deletions of the
 /// other. The cursor will present the content of the data trie modified by any applicable/covering range of the
 /// deletion trie, and will leave the deletion branches unmodied (allowing the merger to process them).
-class DeletionAwareMergeSource<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> implements DeletionAwareCursor<T, D>
+class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAwareCursor<T, D>
 {
     final BiFunction<D, T, T> resolver;
     final Direction direction;

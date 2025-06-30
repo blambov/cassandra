@@ -90,7 +90,7 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
         return b.toString();
     }
 
-    static class DeletionAware<T extends DeletionAwareTrie.Deletable> extends TrieDumper<T> implements DeletionAwareTrie.DeletionAwareWalker<T, String>
+    static class DeletionAware<T> extends TrieDumper<T> implements DeletionAwareTrie.DeletionAwareWalker<T, String>
     {
         public DeletionAware(Function<T, String> contentToString)
         {

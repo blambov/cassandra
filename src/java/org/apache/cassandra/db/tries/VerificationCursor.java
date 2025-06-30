@@ -448,7 +448,7 @@ public interface VerificationCursor
         }
     }
 
-    class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    class DeletionAware<T, D extends RangeState<D>>
     extends VerificationCursor.Plain<T, DeletionAwareCursor<T, D>>
     implements DeletionAwareCursor<T, D>
     {

@@ -24,13 +24,12 @@ import java.util.function.Predicate;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.checkerframework.checker.units.qual.C;
 
 /**
  * @param <T>
  * @param <D> Must be a subtype of T.
  */
-public class InMemoryDeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+public class InMemoryDeletionAwareTrie<T, D extends RangeState<D>>
 extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 {
     public InMemoryDeletionAwareTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
@@ -38,32 +37,32 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         super(byteComparableVersion, bufferType, lifetime, opOrder);
     }
 
-    public static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
     }
 
-    public static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion, BufferType bufferType)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null);
     }
 
-    public static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, OpOrder opOrder)
     {
         return longLived(byteComparableVersion, BufferType.OFF_HEAP, opOrder);
     }
 
-    public static <T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
     }
 
 
-    static class DeletionAwareInMemoryCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static class DeletionAwareInMemoryCursor<T, D extends RangeState<D>>
     extends InMemoryCursor<T> implements DeletionAwareCursor<T, D>
     {
         DeletionAwareInMemoryCursor(InMemoryReadTrie<T> trie, Direction direction, int root, int depth, int incomingTransition)
@@ -105,8 +104,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         return new DeletionAwareInMemoryCursor<>(this, direction, root, -1, -1);
     }
 
-    static class Mutation<T extends Deletable, D extends DeletionMarker<T, D>,
-            V extends Deletable, E extends DeletionMarker<V, E>>
+    static class Mutation<T, D extends RangeState<D>, V, E extends RangeState<E>>
     extends InMemoryBaseTrie.Mutation<T, V, DeletionAwareMergeSource<V, E>>
     {
         final UpsertTransformerWithKeyProducer<D, E> deletionTransformer;
@@ -265,7 +263,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
      * @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
      * value. Applied even if there's no pre-existing value in the memtable trie.
      */
-    public <V extends DeletionAwareTrie.Deletable, E extends DeletionAwareTrie.DeletionMarker<V, E>>
+    public <V, E extends RangeState<E>>
     void apply(DeletionAwareTrie<V, E> mutation,
                final UpsertTransformer<T, V> dataTransformer,
                final UpsertTransformer<D, E> deletionTransformer,

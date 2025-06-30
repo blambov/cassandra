@@ -214,7 +214,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
     }
 
-    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static class DeletionAware<T, D extends RangeState<D>>
     extends PrefixedCursor<T, DeletionAwareCursor<T, D>> implements DeletionAwareCursor<T, D>
     {
         DeletionAware(ByteComparable prefix, DeletionAwareCursor<T, D> tail)

@@ -39,7 +39,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 ///   - precedingState must be properly reported on the deletion branch.
 /// - There cannot be entries in the trie that are deleted by the same trie (the condition above means this is not
 ///   possible for deletions).
-public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>> extends Cursor<T>
+public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<T>
 {
     /// Returns the deletion branch rooted at this position, if any.
     ///
@@ -87,7 +87,7 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         return walker.complete();
     }
 
-    class LiveAndDeletionsMergeCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>, Z>
+    class LiveAndDeletionsMergeCursor<T, D extends RangeState<D>, Z>
     extends FlexibleMergeCursor.WithMappedContent<T, D, DeletionAwareCursor<T, D>, RangeCursor<D>, Z>
     {
         LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1)
@@ -133,7 +133,7 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         }
     }
 
-    class DeletionsTrieCursor<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    class DeletionsTrieCursor<T, D extends RangeState<D>>
     extends FlexibleMergeCursor<DeletionAwareCursor<T, D>, RangeCursor<D>, D> implements RangeCursor<D>
     {
         DeletionsTrieCursor(DeletionAwareCursor<T, D> c1)
@@ -200,7 +200,7 @@ public interface DeletionAwareCursor<T extends DeletionAwareTrie.Deletable, D ex
         }
     }
 
-    static class Empty<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static class Empty<T, D extends RangeState<D>>
     extends Cursor.Empty<T> implements DeletionAwareCursor<T, D>
     {
         public Empty(Direction direction, ByteComparable.Version byteComparableVersion)

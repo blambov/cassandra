@@ -183,7 +183,7 @@ class SingletonCursor<T> implements Cursor<T>
         }
     }
 
-    static class DeletionAware<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static class DeletionAware<T, D extends RangeState<D>>
     extends SingletonCursor<T> implements DeletionAwareCursor<T, D>
     {
         DeletionAware(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
@@ -209,7 +209,7 @@ class SingletonCursor<T> implements Cursor<T>
         }
     }
 
-    static class DeletionBranch<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static class DeletionBranch<T, D extends RangeState<D>>
     extends SingletonCursor<T> implements DeletionAwareCursor<T, D>
     {
         RangeTrie<D> deletionBranch;

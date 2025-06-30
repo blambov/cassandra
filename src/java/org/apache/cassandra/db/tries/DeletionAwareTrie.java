@@ -27,26 +27,16 @@ import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-public interface DeletionAwareTrie<T extends DeletionAwareTrie.Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+public interface DeletionAwareTrie<T, D extends RangeState<D>>
 extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
 {
-    interface Deletable
-    {
-        // Marker interface, no specific methods
-    }
-
-    interface DeletionMarker<T extends Deletable, D extends DeletionMarker<T, D>> extends RangeState<D>
-    {
-        // TODO: Consider adding a applyTo/resolve methods; possibly in the whole hierarchy
-    }
-
-    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
     {
         return dir -> new SingletonCursor.DeletionAware<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
     }
 
-    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> deletion(ByteComparable prefixInMainTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.range(left, right, byteComparableVersion, deletion);
@@ -61,7 +51,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new IntersectionCursor.DeletionAware<>(cursor(dir), set.cursor(dir));
     }
 
-    interface MergeResolver<T extends Deletable, D extends DeletionMarker<T, D>> extends Trie.MergeResolver<T>
+    interface MergeResolver<T, D extends RangeState<D>> extends Trie.MergeResolver<T>
     {
         D resolveMarkers(D left, D right);
         T applyMarker(D marker, T content);
@@ -84,7 +74,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return mergeWith(other, mergeResolver, mergeResolver::resolveMarkers, mergeResolver::applyMarker);
     }
 
-    interface CollectionMergeResolver<T extends Deletable, D extends DeletionMarker<T, D>>
+    interface CollectionMergeResolver<T, D extends RangeState<D>>
     extends MergeResolver<T, D>, Trie.CollectionMergeResolver<T>
     {
         D resolveMarkers(Collection<D> markers);
@@ -96,7 +86,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         }
     }
 
-    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> merge(Collection<? extends DeletionAwareTrie<T, D>> sources,
                                   CollectionMergeResolver<T, D> mergeResolver)
     {
@@ -119,7 +109,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         }
     }
 
-    interface DeletionAwareWalker<T extends Deletable, R> extends Cursor.Walker<T, R>
+    interface DeletionAwareWalker<T, R> extends Cursor.Walker<T, R>
     {
         /// Called when a deletion branch is found. Return false to skip over it, and true to descend inside it.
         boolean enterDeletionsBranch();
@@ -156,7 +146,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     }
 
     @SuppressWarnings("unchecked")
-    static <T extends Deletable, D extends DeletionAwareTrie.DeletionMarker<T, D>>
+    static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> empty(ByteComparable.Version byteComparableVersion)
     {
         return direction -> new DeletionAwareCursor.Empty<>(direction, byteComparableVersion);
