@@ -1074,6 +1074,11 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         ApplyState start()
         {
+            return start(root);
+        }
+
+        ApplyState start(int root)
+        {
             int existingFullNode = root;
             currentDepth = -1;
 
@@ -1151,7 +1156,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         void descend(int transition)
         {
             setTransition(transition);
-            int existingFullNode = getChild(existingFullNode(), transition);
+            int existingFullNode = getChild(existingPostContentNode(), transition);
 
             descendInto(existingFullNode);
         }
@@ -1292,19 +1297,49 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                                      existingPreContentNode,
                                      existingPostContentNode,
                                      contentId,
+                                     NONE,
                                      forcedCopy);
+        }
+
+        /// Apply the collected content to a node. Converts `NONE` to a leaf node, and adds or updates a prefix for all
+        /// others.
+        private int applyContentWithAlternateBranch(int alternateBranch, boolean forcedCopy) throws TrieSpaceExhaustedException
+        {
+            if (isNull(alternateBranch))
+                return applyContent(forcedCopy);
+
+            // Note: the old content id itself is already released by setContent. Here we must release any standalone
+            // prefix nodes that may reference it.
+            int contentId = contentId();
+            final int updatedPostContentNode = updatedPostContentNode();
+            final int existingPreContentNode = existingFullNode();
+            final int existingPostContentNode = existingPostContentNode();
+
+            // applyPrefixChange does not understand leaf nodes, handle upgrade from one explicitly.
+            if (isLeaf(existingPreContentNode))
+                return contentId != NONE
+                        ? createPrefixNode(contentId, alternateBranch, updatedPostContentNode, true)
+                        : updatedPostContentNode;
+
+            return applyPrefixChange(updatedPostContentNode,
+                    existingPreContentNode,
+                    existingPostContentNode,
+                    contentId,
+                    alternateBranch,
+                    forcedCopy);
         }
 
         private int applyPrefixChange(int updatedPostPrefixNode,
                                       int existingPrePrefixNode,
                                       int existingPostPrefixNode,
                                       int contentId,
+                                      int alternateBranch,
                                       boolean forcedCopy)
         throws TrieSpaceExhaustedException
         {
             boolean prefixWasPresent = existingPrePrefixNode != existingPostPrefixNode;
             boolean prefixWasEmbedded = prefixWasPresent && isEmbeddedPrefixNode(existingPrePrefixNode);
-            if (contentId == NONE)
+            if (contentId == NONE && alternateBranch == NONE)
             {
                 if (prefixWasPresent && !prefixWasEmbedded)
                     recycleCell(existingPrePrefixNode);
@@ -1312,7 +1347,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
 
             boolean childChanged = updatedPostPrefixNode != existingPostPrefixNode;
-            boolean dataChanged = !prefixWasPresent || contentId != getIntVolatile(existingPrePrefixNode + PREFIX_CONTENT_OFFSET);
+            boolean dataChanged = !prefixWasPresent || contentId != getIntVolatile(existingPrePrefixNode + PREFIX_CONTENT_OFFSET)
+                    || alternateBranch != getIntVolatile(existingPrePrefixNode + PREFIX_ALTERNATE_OFFSET);
             if (!childChanged && !dataChanged)
                 return existingPrePrefixNode;
 
@@ -1331,19 +1367,22 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                     recycleCell(existingPrePrefixNode);
                     // otherwise cell is already recycled by the recycling of the child
                 }
-                return createContentNode(contentId, updatedPostPrefixNode, isNull(existingPostPrefixNode));
+                return createPrefixNode(contentId, alternateBranch, updatedPostPrefixNode, isNull(existingPostPrefixNode));
             }
 
             // We can't update in-place if there was no preexisting prefix, or if the
             // prefix was embedded and the target node must change.
             if (!prefixWasPresent || prefixWasEmbedded && childChanged)
-                return createContentNode(contentId, updatedPostPrefixNode, isNull(existingPostPrefixNode));
+                return createPrefixNode(contentId, alternateBranch, updatedPostPrefixNode, isNull(existingPostPrefixNode));
 
             // Otherwise modify in place
             if (childChanged) // to use volatile write but also ensure we don't corrupt embedded nodes
                 putIntVolatile(existingPrePrefixNode + PREFIX_POINTER_OFFSET, updatedPostPrefixNode);
             if (dataChanged)
+            {
                 putIntVolatile(existingPrePrefixNode + PREFIX_CONTENT_OFFSET, contentId);
+                putIntVolatile(existingPrePrefixNode + PREFIX_ALTERNATE_OFFSET, alternateBranch);
+            }
             return existingPrePrefixNode;
         }
 
@@ -1352,13 +1391,26 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// one already exists).
         void attachAndMoveToParentState(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            int updatedFullNode = applyContent(currentDepth >= forcedCopyDepth);
+            attachBranchAndMoveToParentState(applyContent(currentDepth >= forcedCopyDepth), forcedCopyDepth);
+        }
+
+        void attachWithAlternateBranchAndMoveToParentState(int updatedAlternateBranch, int forcedCopyDepth) throws TrieSpaceExhaustedException
+        {
+            attachBranchAndMoveToParentState(applyContentWithAlternateBranch(updatedAlternateBranch, currentDepth >= forcedCopyDepth), forcedCopyDepth);
+        }
+
+        void attachBranchAndMoveToParentState(int updatedFullNode, int forcedCopyDepth) throws TrieSpaceExhaustedException {
             int existingFullNode = existingFullNode();
             --currentDepth;
             assert currentDepth >= 0;
 
             if (updatedFullNode != existingFullNode)
                 attachChild(transition(), updatedFullNode, currentDepth >= forcedCopyDepth);
+        }
+
+        int completeBranch(int forcedCopyDepth) throws TrieSpaceExhaustedException
+        {
+            return applyContent(currentDepth >= forcedCopyDepth);
         }
 
         /// Ascend and update the root at the end of processing.
@@ -1373,6 +1425,18 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                 // we don't want to invalidate the value in other cores' caches unnecessarily).
                 root = updatedFullNode;
             }
+        }
+
+        void prepareToWalkBranchAgain()
+        {
+            int updated = updatedPostContentNode();
+            int existing = existingPostContentNode();
+            if (updated == existing)
+                return;
+            // TODO: check this release
+            if (!isNullOrLeaf(existing))
+                recycleCell(existing);
+            setExistingPostContentNode(updated);
         }
 
         public byte[] getBytes()

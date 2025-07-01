@@ -239,7 +239,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     static class DeletionAware<T, D extends RangeState<D>>
-    extends MergeCursor<T, DeletionAwareMergeSource<T, D>> implements DeletionAwareCursor<T, D>
+    extends MergeCursor<T, DeletionAwareMergeSource<T, D, D>> implements DeletionAwareCursor<T, D>
     {
         final Trie.MergeResolver<D> deletionResolver;
         int deletionBranchDepth = -1;
@@ -260,8 +260,8 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 
         DeletionAware(Trie.MergeResolver<T> mergeResolver,
                       Trie.MergeResolver<D> deletionResolver,
-                      DeletionAwareMergeSource<T, D> c1,
-                      DeletionAwareMergeSource<T, D> c2)
+                      DeletionAwareMergeSource<T, D, D> c1,
+                      DeletionAwareMergeSource<T, D, D> c2)
         {
             super(mergeResolver, c1, c2);
             // We will add deletion sources to the above as we find them.
@@ -316,8 +316,8 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             return depth;
         }
 
-        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D> c1,
-                                     DeletionAwareMergeSource<T, D> c2)
+        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D, D> c1,
+                                     DeletionAwareMergeSource<T, D, D> c2)
         {
             if (c1.hasDeletions())
                 return;

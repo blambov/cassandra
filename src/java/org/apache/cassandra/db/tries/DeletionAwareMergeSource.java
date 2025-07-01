@@ -28,17 +28,17 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// Based on [RangeApplyCursor] and used by [MergeCursor.DeletionAware] to process each source with the deletions of the
 /// other. The cursor will present the content of the data trie modified by any applicable/covering range of the
 /// deletion trie, and will leave the deletion branches unmodied (allowing the merger to process them).
-class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAwareCursor<T, D>
+class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<E>> implements DeletionAwareCursor<T, D>
 {
-    final BiFunction<D, T, T> resolver;
+    final BiFunction<E, T, T> resolver;
     final Direction direction;
     final DeletionAwareCursor<T, D> data;
-    @Nullable RangeCursor<D> deletions;
+    @Nullable RangeCursor<E> deletions;
     int deletionsDepthCorrection;
 
     boolean atDeletions;
 
-    DeletionAwareMergeSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data)
+    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> data)
     {
         this.direction = data.direction();
         this.resolver = resolver;
@@ -49,7 +49,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAw
         atDeletions = false;
     }
 
-    DeletionAwareMergeSource(BiFunction<D, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<D> deletions)
+    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<E> deletions)
     {
         this.direction = data.direction();
         this.resolver = resolver;
@@ -181,7 +181,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAw
         if (deletions == null)
             return content;
 
-        D applicableDeletions = atDeletions ? deletions.content() : null;
+        E applicableDeletions = atDeletions ? deletions.content() : null;
         if (applicableDeletions == null)
         {
             applicableDeletions = deletions.precedingState();
@@ -193,7 +193,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAw
     }
 
     @Override
-    public DeletionAwareMergeSource<T, D> tailCursor(Direction direction)
+    public DeletionAwareMergeSource<T, D, E> tailCursor(Direction direction)
     {
         if (atDeletions)
             return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction));
@@ -208,7 +208,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>> implements DeletionAw
         return data.deletionBranchCursor(direction);
     }
 
-    public void addDeletions(RangeCursor<D> deletions)
+    public void addDeletions(RangeCursor<E> deletions)
     {
         assert this.deletions == null;
         assert deletions.depth() == 0;
