@@ -109,9 +109,10 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         }
     }
 
-    interface DeletionAwareWalker<T, R> extends Cursor.Walker<T, R>
+    interface DeletionAwareWalker<B, R> extends Cursor.Walker<B, R>
     {
-        /// Called when a deletion branch is found. Return false to skip over it, and true to descend inside it.
+        /// Called when a deletion branch is found. Return null to skip over it, or the walker to use to descend inside
+        /// it.
         boolean enterDeletionsBranch();
 
         /// Called when the deletion branch is exited.
@@ -120,11 +121,17 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
 
     default String dump(Function<T, String> contentToString)
     {
-        return process(Direction.FORWARD, new TrieDumper.DeletionAware<>(contentToString));
+        return dump(contentToString, Object::toString);
+    }
+
+    default String dump(Function<T, String> contentToString,
+                        Function<D, String> rangeToString)
+    {
+        return process(Direction.FORWARD, new TrieDumper.DeletionAware<>(contentToString, rangeToString));
     }
 
     /// Process the trie using the given [DeletionAwareWalker].
-    default <R> R process(Direction direction, DeletionAwareWalker<T, R> walker)
+    default <R> R process(Direction direction, DeletionAwareWalker<? super T, R> walker)
     {
         return cursor(direction).process(walker);
     }

@@ -1202,97 +1202,107 @@ public abstract class InMemoryReadTrie<T>
 
     abstract InMemoryCursor<T> makeCursor(Direction direction);
 
+
+    /// Dump cursor, augmented to show the type of node
+    class DumpCursor<C extends InMemoryCursor<T>> implements Cursor<String>
+    {
+        final C source;
+        private final Function<T, String> contentToString;
+
+        DumpCursor(C source, Function<T, String> contentToString)
+        {
+            this.source = source;
+            this.contentToString = contentToString;
+        }
+
+        @Override
+        public int advance()
+        {
+            return source.advance();
+        }
+
+        @Override
+        public int advanceMultiple(TransitionsReceiver receiver)
+        {
+            return source.advanceMultiple(receiver);
+        }
+
+        @Override
+        public int skipTo(int skipDepth, int skipTransition)
+        {
+            return source.skipTo(skipDepth, skipTransition);
+        }
+
+        @Override
+        public int depth()
+        {
+            return source.depth();
+        }
+
+        @Override
+        public int incomingTransition()
+        {
+            return source.incomingTransition();
+        }
+
+        @Override
+        public Direction direction()
+        {
+            return source.direction();
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return source.byteComparableVersion();
+        }
+
+        @Override
+        public DumpCursor<C> tailCursor(Direction direction)
+        {
+            throw new AssertionError();
+        }
+
+        @Override
+        public String content()
+        {
+            String type = null;
+            int node = source.currentNode;
+            if (!isNullOrLeaf(node))
+            {
+                switch (offset(node))
+                {
+                    case SPARSE_OFFSET:
+                        type = "[SPARSE]";
+                        break;
+                    case SPLIT_OFFSET:
+                        type = "[SPLIT]";
+                        break;
+                    case PREFIX_OFFSET:
+                        throw new AssertionError("Unexpected prefix as cursor currentNode.");
+                    default:
+                        type = "[CHAIN]";
+                        break;
+                }
+            }
+            T content = source.content();
+            if (content != null)
+            {
+                if (type != null)
+                    return contentToString.apply(content) + " -> " + type;
+                else
+                    return contentToString.apply(content);
+            }
+            else
+                return type;
+        }
+    }
+
     /// Override of dump to provide more detailed printout that includes the type of each node in the trie.
     /// We do this via a wrapping cursor that returns a content string for the type of node for every node we return.
     public String dump(Function<T, String> contentToString)
     {
-        InMemoryCursor<T> source = makeCursor(Direction.FORWARD);
-        class TypedNodesCursor implements Cursor<String>
-        {
-            @Override
-            public int advance()
-            {
-                return source.advance();
-            }
-
-
-            @Override
-            public int advanceMultiple(TransitionsReceiver receiver)
-            {
-                return source.advanceMultiple(receiver);
-            }
-
-            @Override
-            public int skipTo(int skipDepth, int skipTransition)
-            {
-                return source.skipTo(skipDepth, skipTransition);
-            }
-
-            @Override
-            public int depth()
-            {
-                return source.depth();
-            }
-
-            @Override
-            public int incomingTransition()
-            {
-                return source.incomingTransition();
-            }
-
-            @Override
-            public Direction direction()
-            {
-                return source.direction();
-            }
-
-            @Override
-            public ByteComparable.Version byteComparableVersion()
-            {
-                return source.byteComparableVersion();
-            }
-
-            @Override
-            public Cursor<String> tailCursor(Direction direction)
-            {
-                throw new AssertionError();
-            }
-
-            @Override
-            public String content()
-            {
-                String type = null;
-                int node = source.currentNode;
-                if (!isNullOrLeaf(node))
-                {
-                    switch (offset(node))
-                    {
-                        case SPARSE_OFFSET:
-                            type = "[SPARSE]";
-                            break;
-                        case SPLIT_OFFSET:
-                            type = "[SPLIT]";
-                            break;
-                        case PREFIX_OFFSET:
-                            throw new AssertionError("Unexpected prefix as cursor currentNode.");
-                        default:
-                            type = "[CHAIN]";
-                            break;
-                    }
-                }
-                T content = source.content();
-                if (content != null)
-                {
-                    if (type != null)
-                        return contentToString.apply(content) + " -> " + type;
-                    else
-                        return contentToString.apply(content);
-                }
-                else
-                    return type;
-            }
-        }
-        return new TypedNodesCursor().process(new TrieDumper<>(Function.identity()));
+        return new DumpCursor<>(makeCursor(Direction.FORWARD), contentToString).process(new TrieDumper.Plain<>(Function.identity()));
     }
 
     private void dumpSplitNode(int node, int level, StringBuilder builder)

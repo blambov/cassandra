@@ -180,6 +180,7 @@ interface DataPoint
                     );
                 }
             }
+
             // If we simply put all deletions with putAlternativeRecursive, we won't get correct branches as they
             // won't always close the intervals they open. Deletions need to be put as ranges instead.
             int active = -1;
@@ -210,7 +211,6 @@ interface DataPoint
                             false,
                             v -> false
                     );
-                    dumpDeletionAwareTrie(trie);
                 }
 
                 active = marker.rightSide;

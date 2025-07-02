@@ -151,7 +151,7 @@ public interface BaseTrie<T, C extends Cursor<T>, Q extends BaseTrie<T, C, Q>> e
     /// Constuct a textual representation of the trie using the given content-to-string mapper.
     default String dump(Function<T, String> contentToString)
     {
-        return process(Direction.FORWARD, new TrieDumper<>(contentToString));
+        return process(Direction.FORWARD, new TrieDumper.Plain<>(contentToString));
     }
 
     /// Returns the ordered entry set of this trie's content as an iterable.

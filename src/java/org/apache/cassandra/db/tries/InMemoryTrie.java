@@ -208,12 +208,15 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     static class DeleteMutation<T, S extends RangeState<S>, C extends RangeCursor<S>> extends Mutation<T, S, C>
     {
+        final int initialDepth;
+
         DeleteMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
                        Predicate<NodeFeatures<S>> needsForcedCopy,
                        C mutationCursor,
                        InMemoryBaseTrie<T>.ApplyState state)
         {
             super(transformer, needsForcedCopy, mutationCursor, state);
+            initialDepth = state.currentDepth;
         }
 
         @Override
@@ -244,14 +247,16 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                     }
                 }
 
-                depth = mutationCursor.advance();
+                depth = mutationCursor.advance() + initialDepth;
                 // Descend but do not modify anything yet.
-                if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
+                if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth, initialDepth))
                     break;
 
                 assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
                 content = mutationCursor.content();
             }
+
+            assert state.currentDepth == initialDepth;
         }
 
         /// Walk all existing content covered under a deletion. Returns true if the caller needs to continue processing
@@ -260,14 +265,14 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         boolean applyDeletionRange(S mutationCoveringState) throws TrieSpaceExhaustedException
         {
             boolean atMutation = true;
-            int depth = mutationCursor.depth();
+            int depth = mutationCursor.depth() + initialDepth;
             int transition = mutationCursor.incomingTransition();
             // We are walking both tries in parallel.
             while (true)
             {
                 if (atMutation)
                 {
-                    depth = mutationCursor.advance();
+                    depth = mutationCursor.advance() + initialDepth;
                     transition = mutationCursor.incomingTransition();
                     atMutation = false;
                 }

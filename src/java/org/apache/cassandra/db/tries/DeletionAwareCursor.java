@@ -57,23 +57,22 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
 
     /// Process the trie using the given [DeletionAwareTrie.DeletionAwareWalker].
     /// This method should only be called on a freshly constructed cursor.
-    default <R> R process(DeletionAwareTrie.DeletionAwareWalker<T, R> walker)
+    default <R> R process(DeletionAwareTrie.DeletionAwareWalker<? super T, R> walker)
     {
         assert depth() == 0 : "The provided cursor has already been advanced.";
         int prevDepth = 0;
 
         while (true)
         {
-            T content = content();   // handle content on the root node
-            if (content != null)
-                walker.content(content);
             RangeCursor<D> deletionBranch = deletionBranchCursor(direction());
             if (deletionBranch != null && walker.enterDeletionsBranch())
             {
-                // TODO: Seems there's no way to correctly cast this or enforce D to be a descendant of T.
-                deletionBranch.process((Cursor.Walker) walker);
+                deletionBranch.process((Cursor.Walker<Object, R>) walker);
                 walker.exitDeletionsBranch();
             }
+            T content = content();   // handle content on the root node
+            if (content != null)
+                walker.content(content);
 
             int currDepth = advanceMultiple(walker);
             if (currDepth < 0)

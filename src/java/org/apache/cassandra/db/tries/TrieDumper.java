@@ -22,17 +22,15 @@ import java.util.function.Function;
 import org.agrona.DirectBuffer;
 
 /// Simple utility class for dumping the structure of a trie to string.
-class TrieDumper<T> implements Cursor.Walker<T, String>
+abstract class TrieDumper<T> implements Cursor.Walker<T, String>
 {
     protected final StringBuilder b;
-    protected final Function<T, String> contentToString;
     int needsIndent = -1;
     int currentLength = 0;
     int depthAdjustment = 0;
 
-    public TrieDumper(Function<T, String> contentToString)
+    public TrieDumper()
     {
-        this.contentToString = contentToString;
         this.b = new StringBuilder();
     }
 
@@ -77,24 +75,51 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
     }
 
     @Override
-    public void content(T content)
-    {
-        b.append(" -> ");
-        b.append(contentToString.apply(content));
-        endLineAndSetIndent(currentLength);
-    }
-
-    @Override
     public String complete()
     {
         return b.toString();
     }
 
-    static class DeletionAware<T> extends TrieDumper<T> implements DeletionAwareTrie.DeletionAwareWalker<T, String>
+    static class Plain<T> extends TrieDumper<T>
     {
-        public DeletionAware(Function<T, String> contentToString)
+        protected final Function<T, String> contentToString;
+
+        public Plain(Function<T, String> contentToString)
         {
-            super(contentToString);
+            super();
+            this.contentToString = contentToString;
+        }
+
+        @Override
+        public void content(T content)
+        {
+            b.append(" -> ");
+            b.append(contentToString.apply(content));
+            endLineAndSetIndent(currentLength);
+        }
+    }
+
+    static class DeletionAware<T, D extends RangeState<D>> extends TrieDumper<Object>
+    implements DeletionAwareTrie.DeletionAwareWalker<Object, String>
+    {
+        final Function<T, String> contentToString;
+        final Function<D, String> rangeToString;
+        boolean inDeletionBranch;
+
+        public DeletionAware(Function<T, String> contentToString,
+                             Function<D, String> rangeToString)
+        {
+            this.contentToString = contentToString;
+            this.rangeToString = rangeToString;
+            inDeletionBranch = false;
+        }
+
+        @Override
+        public void content(Object content)
+        {
+            b.append(" -> ");
+            b.append(inDeletionBranch ? rangeToString.apply((D) content) : contentToString.apply((T) content));
+            endLineAndSetIndent(currentLength);
         }
 
         @Override
@@ -104,6 +129,7 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
             endLineAndSetIndent(currentLength);
             depthAdjustment = currentLength;
             currentLength = 0;
+            inDeletionBranch = true;
             return true;
         }
 
@@ -115,6 +141,7 @@ class TrieDumper<T> implements Cursor.Walker<T, String>
             b.append("*** End deletion branch");
             resetPathLength(0);
             depthAdjustment = 0;
+            inDeletionBranch = false;
         }
     }
 }

@@ -877,7 +877,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     private int createPrefixNode(int contentId, int alternateBranch, int child, boolean isSafeChain) throws TrieSpaceExhaustedException
     {
-        assert !isNullOrLeaf(child) : "Prefix node cannot reference a childless node.";
+        assert !isLeaf(child) : "Prefix node cannot reference a leaf node.";
+        assert !isNull(child) || !isNull(alternateBranch) : "Prefix node can only have a null child if it includes an alternate branch.";
 
         int offset = offset(child);
         int node;
@@ -1056,6 +1057,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             return data[stackDepth * 5 + 3];
         }
+        int incomingTransition()
+        {
+            return transitionAtDepth(currentDepth - 1);
+        }
 
         /// The compiled content id. Needed because we can only access a cursor's content on the way down but we can't
         /// attach it until we ascend from the node.
@@ -1071,6 +1076,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             return data[stackDepth * 5 + 4];
         }
+
+        int alternateBranchToAttach = NONE;
 
         ApplyState start()
         {
@@ -1089,12 +1096,17 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// Advance to the given depth and transition. Returns false if the depth signals mutation cursor is exhausted.
         boolean advanceTo(int depth, int transition, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            while (currentDepth >= Math.max(1, depth))
+            return advanceTo(depth, transition, forcedCopyDepth, 0);
+        }
+        /// Advance to the given depth and transition. Returns false if the depth signals mutation cursor is exhausted.
+        boolean advanceTo(int depth, int transition, int forcedCopyDepth, int ascendLimit) throws TrieSpaceExhaustedException
+        {
+            while (currentDepth >= Math.max(ascendLimit + 1, depth))
             {
                 // There are no more children. Ascend to the parent state to continue walk.
                 attachAndMoveToParentState(forcedCopyDepth);
             }
-            if (depth == -1)
+            if (depth <= ascendLimit)
                 return false;
 
             // We have a transition, get child to descend into
@@ -1134,6 +1146,11 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// Advance to the next existing position in the trie.
         boolean advanceToNextExisting(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
+            return advanceToNextExisting(forcedCopyDepth, 0);
+        }
+        /// Advance to the next existing position in the trie.
+        boolean advanceToNextExisting(int forcedCopyDepth, int ascendLimit) throws TrieSpaceExhaustedException
+        {
             setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
             {
@@ -1145,7 +1162,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                     return true;
                 }
 
-                if (currentDepth <= 0)
+                if (currentDepth <= ascendLimit)
                     return false;
 
                 attachAndMoveToParentState(forcedCopyDepth);
@@ -1271,6 +1288,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// others.
         private int applyContent(boolean forcedCopy) throws TrieSpaceExhaustedException
         {
+            if (alternateBranchToAttach != NONE)
+            {
+                int alternateBranch = alternateBranchToAttach;
+                alternateBranchToAttach = NONE;
+                return applyContentWithAlternateBranch(alternateBranch, forcedCopy);
+            }
+
             // Note: the old content id itself is already released by setContent. Here we must release any standalone
             // prefix nodes that may reference it.
             int contentId = contentId();
@@ -1305,11 +1329,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// others.
         private int applyContentWithAlternateBranch(int alternateBranch, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
-            if (isNull(alternateBranch))
-                return applyContent(forcedCopy);
-
-            // Note: the old content id itself is already released by setContent. Here we must release any standalone
-            // prefix nodes that may reference it.
             int contentId = contentId();
             final int updatedPostContentNode = updatedPostContentNode();
             final int existingPreContentNode = existingFullNode();
@@ -1394,11 +1413,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             attachBranchAndMoveToParentState(applyContent(currentDepth >= forcedCopyDepth), forcedCopyDepth);
         }
 
-        void attachWithAlternateBranchAndMoveToParentState(int updatedAlternateBranch, int forcedCopyDepth) throws TrieSpaceExhaustedException
-        {
-            attachBranchAndMoveToParentState(applyContentWithAlternateBranch(updatedAlternateBranch, currentDepth >= forcedCopyDepth), forcedCopyDepth);
-        }
-
         void attachBranchAndMoveToParentState(int updatedFullNode, int forcedCopyDepth) throws TrieSpaceExhaustedException {
             int existingFullNode = existingFullNode();
             --currentDepth;
@@ -1429,6 +1443,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         void prepareToWalkBranchAgain()
         {
+            setTransition(-1);
             int updated = updatedPostContentNode();
             int existing = existingPostContentNode();
             if (updated == existing)
@@ -1486,6 +1501,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         public String toString()
         {
+            if (data == null)
+                return "uninitialized";
             StringBuilder sb = new StringBuilder();
             sb.append('@');
             for (int i = 0; i < currentDepth; ++i)
@@ -1599,7 +1616,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                  InMemoryBaseTrie<T>.ApplyState state)
         {
             assert mutationCursor.depth() == 0 : "Unexpected non-fresh cursor.";
-            assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
             this.transformer = transformer;
             this.needsForcedCopy = needsForcedCopy;
             this.mutationCursor = mutationCursor;
