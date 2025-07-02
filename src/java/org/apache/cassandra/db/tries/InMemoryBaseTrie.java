@@ -1428,10 +1428,15 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         }
 
         /// Ascend and update the root at the end of processing.
-        void attachRoot(int forcedCopyDepth) throws TrieSpaceExhaustedException
+        void attachAndUpdateRoot(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            int updatedFullNode = applyContent(0 >= forcedCopyDepth);
+            attachRoot(applyContent(0 >= forcedCopyDepth), forcedCopyDepth);
+        }
+
+        void attachRoot(int updatedFullNode, int ignoredForcedCopyDepth) throws TrieSpaceExhaustedException
+        {
             int existingFullNode = existingFullNode();
+            --currentDepth;
             assert root == existingFullNode : "Unexpected change to root. Concurrent trie modification?";
             if (updatedFullNode != existingFullNode)
             {
@@ -1441,17 +1446,17 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
         }
 
-        void prepareToWalkBranchAgain()
+        void prepareToWalkBranchAgain(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            setTransition(-1);
-            int updated = updatedPostContentNode();
-            int existing = existingPostContentNode();
-            if (updated == existing)
-                return;
-            // TODO: check this release
-            if (!isNullOrLeaf(existing))
-                recycleCell(existing);
-            setExistingPostContentNode(updated);
+            // Go a level up to finalize the node, and then reenter it.
+            int depth = currentDepth;
+            int updatedFullNode = applyContent(depth >= forcedCopyDepth);
+            if (depth == 0)
+                attachRoot(updatedFullNode, forcedCopyDepth);
+            else
+                attachBranchAndMoveToParentState(updatedFullNode, forcedCopyDepth);
+
+            descendInto(updatedFullNode);
         }
 
         public byte[] getBytes()
@@ -1656,7 +1661,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         void complete() throws TrieSpaceExhaustedException
         {
             assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
-            state.attachRoot(forcedCopyDepth);
+            state.attachAndUpdateRoot(forcedCopyDepth);
         }
 
         @Override

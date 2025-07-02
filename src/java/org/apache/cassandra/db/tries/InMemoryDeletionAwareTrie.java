@@ -266,7 +266,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             deleteMutation.apply();
 
             // Make sure the next data pass below walks the updated branch.
-            state.prepareToWalkBranchAgain();
+            state.prepareToWalkBranchAgain(forcedCopyDepth);
         }
 
         private int mergeDeletionBranch(int existingAlternateBranch, RangeCursor<E> deletionBranch) throws TrieSpaceExhaustedException
@@ -314,7 +314,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 deletionState.advanceTo(-1, -1, forcedCopyDepth - initialDepth);
 
             // Make sure next walks over the data branch use the updated branch.
-            state.prepareToWalkBranchAgain();
+            state.prepareToWalkBranchAgain(forcedCopyDepth);
             return deletionState.completeBranch(forcedCopyDepth - initialDepth);
         }
     }
