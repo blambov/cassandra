@@ -462,4 +462,108 @@ public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
                 assertEquals("Merge should be associative", result1, result2);
             });
     }
+
+
+    ///
+    /// Test collection merge functionality using randomized property-based testing.
+    /// This test verifies that merging multiple tries using collection merge produces
+    /// the same result as sequential pairwise merges.
+    ///
+    @Test
+    public void testCollectionMerge()
+    {
+        qt().forAll(dataPointListGen().zip(dataPointListGen(), dataPointListGen(), Arrays::asList))
+            .checkAssert(triple -> {
+                List<DataPoint> list1 = triple.get(0);
+                List<DataPoint> list2 = triple.get(1);
+                List<DataPoint> list3 = triple.get(2);
+
+                // Skip cases where all tries are empty or where we have empty tries mixed with non-empty ones
+                // Collection merge requires at least one non-empty trie and can't handle mixed empty/non-empty
+                boolean hasEmpty = list1.isEmpty() || list2.isEmpty() || list3.isEmpty();
+                boolean hasNonEmpty = !list1.isEmpty() || !list2.isEmpty() || !list3.isEmpty();
+
+                if (!hasNonEmpty || hasEmpty)
+                    return; // Skip if all empty or if we have any empty tries
+
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie1 = fromList(list1);
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie2 = fromList(list2);
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie3 = fromList(list3);
+
+                // Test collection merge
+                DeletionAwareTrie<LivePoint, DeletionMarker> collectionMerged =
+                    DeletionAwareTrie.merge(Arrays.asList(trie1, trie2, trie3),
+                                          LivePoint::combineCollection,
+                                          DeletionMarker::combineCollection,
+                                          DeletionMarker::applyTo,
+                                          false);
+
+                List<DataPoint> collectionResult = toList(collectionMerged);
+
+                // Test pairwise merge for comparison
+                DeletionAwareTrie<LivePoint, DeletionMarker> pairwise12 =
+                trie1.mergeWith(trie2, LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo, false);
+                DeletionAwareTrie<LivePoint, DeletionMarker> pairwiseMerged =
+                pairwise12.mergeWith(trie3, LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo, false);
+
+                List<DataPoint> pairwiseResult = toList(pairwiseMerged);
+
+                assertEquals("Collection merge should equal pairwise merge", pairwiseResult, collectionResult);
+            });
+    }
+
+    ///
+    /// Test that the optimized collection merge produces the same results as the safe version.
+    /// This verifies that the deletionsAtFixedPoints optimization works correctly for collection merges.
+    ///
+    @Test
+    public void testOptimizedCollectionMerge()
+    {
+        qt().forAll(dataPointListGen().zip(dataPointListGen(), dataPointListGen(), Arrays::asList))
+            .checkAssert(triple -> {
+                List<DataPoint> list1 = triple.get(0);
+                List<DataPoint> list2 = triple.get(1);
+                List<DataPoint> list3 = triple.get(2);
+
+                // Skip cases where all tries are empty or where we have empty tries mixed with non-empty ones
+                // Collection merge requires at least one non-empty trie and can't handle mixed empty/non-empty
+                boolean hasEmpty = list1.isEmpty() || list2.isEmpty() || list3.isEmpty();
+                boolean hasNonEmpty = !list1.isEmpty() || !list2.isEmpty() || !list3.isEmpty();
+
+                if (!hasNonEmpty || hasEmpty)
+                    return; // Skip if all empty or if we have any empty tries
+
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie1 = fromList(list1);
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie2 = fromList(list2);
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie3 = fromList(list3);
+
+                // Test safe collection merge (deletionsAtFixedPoints = false)
+                DeletionAwareTrie<LivePoint, DeletionMarker> safeMerged = dir ->
+                    new CollectionMergeCursor.DeletionAware<>(
+                        LivePoint::combineCollection,
+                        DeletionMarker::combineCollection,
+                        DeletionMarker::applyTo,
+                        false,
+                        dir,
+                        Arrays.asList(trie1, trie2, trie3),
+                        DeletionAwareTrie::cursor);
+
+                // Test optimized collection merge (deletionsAtFixedPoints = true)
+                DeletionAwareTrie<LivePoint, DeletionMarker> optimizedMerged = dir ->
+                    new CollectionMergeCursor.DeletionAware<>(
+                    LivePoint::combineCollection,
+                    DeletionMarker::combineCollection,
+                    DeletionMarker::applyTo,
+                    true,
+                    dir,
+                    Arrays.asList(trie1, trie2, trie3),
+                    DeletionAwareTrie::cursor);
+
+                List<DataPoint> safeResult = toList(safeMerged);
+                List<DataPoint> optimizedResult = toList(optimizedMerged);
+
+                assertEquals("Optimized and safe collection merge should produce identical results",
+                             safeResult, optimizedResult);
+            });
+    }
 }

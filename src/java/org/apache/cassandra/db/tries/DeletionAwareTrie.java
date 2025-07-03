@@ -94,6 +94,20 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     DeletionAwareTrie<T, D> merge(Collection<? extends DeletionAwareTrie<T, D>> sources,
                                   CollectionMergeResolver<T, D> mergeResolver)
     {
+        return merge(sources,
+                     mergeResolver::resolve,
+                     mergeResolver::resolveMarkers,
+                     mergeResolver::applyMarker,
+                     mergeResolver.deletionsAtFixedPoints());
+    }
+
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> merge(Collection<? extends DeletionAwareTrie<T, D>> sources,
+                                  Trie.CollectionMergeResolver<T> mergeResolver,
+                                  Trie.CollectionMergeResolver<D> deletionResolver,
+                                  BiFunction<D, T, T> deleter,
+                                  boolean deletionsAtFixedPoints)
+    {
         switch (sources.size())
         {
             case 0:
@@ -105,11 +119,17 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
                 Iterator<? extends DeletionAwareTrie<T, D>> it = sources.iterator();
                 DeletionAwareTrie<T, D> t1 = it.next();
                 DeletionAwareTrie<T, D> t2 = it.next();
-                return t1.mergeWith(t2, mergeResolver);
+                // Create a combined resolver for the pairwise merge
+                return t1.mergeWith(t2, mergeResolver, deletionResolver, deleter, deletionsAtFixedPoints);
             }
             default:
-                throw new AssertionError("not implemented");
-//                return dir -> new CollectionMergeCursor.DeletionAware<>(dir, mergeResolver, sources);
+                return dir -> new CollectionMergeCursor.DeletionAware<>(mergeResolver,
+                                                                        deletionResolver,
+                                                                        deleter,
+                                                                        deletionsAtFixedPoints,
+                                                                        dir,
+                                                                        sources,
+                                                                        DeletionAwareTrie::cursor);
         }
     }
 
