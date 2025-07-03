@@ -238,34 +238,70 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
     }
 
+    /// Deletion-aware merge cursor that efficiently merges two deletion-aware tries.
+    /// This cursor handles the complex task of merging both live data and deletion metadata
+    /// from two deletion-aware sources. It supports an important optimization via the
+    /// `deletionsAtFixedPoints` flag.
     static class DeletionAware<T, D extends RangeState<D>>
     extends MergeCursor<T, DeletionAwareMergeSource<T, D, D>> implements DeletionAwareCursor<T, D>
     {
         final Trie.MergeResolver<D> deletionResolver;
+
+        /// Tracks the depth at which deletion branches were introduced to avoid redundant processing.
+        /// Set to -1 when no deletion branches are active.
         int deletionBranchDepth = -1;
 
+        /// Critical performance optimization flag. When true, guarantees that if one merge source
+        /// has a deletion branch at some position, the other source cannot have deletion branches
+        /// below or above that position. This allows us to skip walking the data trie to look for
+        /// lower-level deletion branches when merging. If the flag is false, we cannot know where
+        /// in the covered branch we may have a deletion, thus to be sure to find all we _must_
+        /// walk the whole data subtrie. This can be terribly expensive.
+        ///
+        /// If we can guarantee that deletions always come at the same points in each path (e.g. at
+        /// partition roots), we can use this optimization.
+        final boolean deletionsAtFixedPoints;
+
+        /// Creates a deletion-aware merge cursor with configurable deletion optimization.
+        ///
+        /// @param mergeResolver resolver for merging live data content
+        /// @param deletionResolver resolver for merging deletion metadata
+        /// @param deleter function to apply deletions to live data
+        /// @param c1 first deletion-aware cursor
+        /// @param c2 second deletion-aware cursor
+        /// @param deletionsAtFixedPoints TODO
         DeletionAware(Trie.MergeResolver<T> mergeResolver,
                       Trie.MergeResolver<D> deletionResolver,
                       BiFunction<D, T, T> deleter,
                       DeletionAwareCursor<T, D> c1,
-                      DeletionAwareCursor<T, D> c2)
+                      DeletionAwareCursor<T, D> c2,
+                      boolean deletionsAtFixedPoints)
         {
             this(mergeResolver,
                  deletionResolver,
                  new DeletionAwareMergeSource<>(deleter, c1),
-                 new DeletionAwareMergeSource<>(deleter, c2));
+                 new DeletionAwareMergeSource<>(deleter, c2),
+                 deletionsAtFixedPoints);
             // We will add deletion sources to the above as we find them.
             maybeAddDeletionsBranch(this.c1.depth());
         }
 
+        /// Internal constructor for creating deletion-aware merge cursor from merge sources.
+        ///
+        /// @param mergeResolver resolver for merging live data content
+        /// @param deletionResolver resolver for merging deletion metadata
+        /// @param c1 first deletion-aware merge source
+        /// @param c2 second deletion-aware merge source
+        /// @param deletionsAtFixedPoints optimization flag for deletion handling
         DeletionAware(Trie.MergeResolver<T> mergeResolver,
                       Trie.MergeResolver<D> deletionResolver,
                       DeletionAwareMergeSource<T, D, D> c1,
-                      DeletionAwareMergeSource<T, D, D> c2)
+                      DeletionAwareMergeSource<T, D, D> c2,
+                      boolean deletionsAtFixedPoints)
         {
             super(mergeResolver, c1, c2);
-            // We will add deletion sources to the above as we find them.
             this.deletionResolver = deletionResolver;
+            this.deletionsAtFixedPoints = deletionsAtFixedPoints;
         }
 
         @Override
@@ -316,16 +352,30 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             return depth;
         }
 
-        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D, D> c1,
-                                     DeletionAwareMergeSource<T, D, D> c2)
+        /// Attempts to add deletion branches from one source to another.
+        /// This method implements the core deletion merging logic. When `deletionsAtFixedPoints`
+        /// is true, it can skip expensive operations because we know deletion branches are
+        /// mutually exclusive between sources.
+        ///
+        /// @param tgt target merge source that may receive deletions
+        /// @param src source merge source that may provide deletions
+        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D, D> tgt,
+                                     DeletionAwareMergeSource<T, D, D> src)
         {
-            if (c1.hasDeletions())
+            // If tgt already has deletions applied, no need to add more (we cannot have a deletion branch covering
+            // another deletion branch).
+            if (tgt.hasDeletions())
+                return;
+            // Additionally, if `deletionsAtFixedPoints` is in force, we don't need to look for deletions below this
+            // point when we already have applied tdt's deletions to src.
+            if (deletionsAtFixedPoints && src.hasDeletions())
                 return;
 
-            RangeCursor<D> deletionsBranch = c2.deletionBranchCursor(direction);
+            RangeCursor<D> deletionsBranch = src.deletionBranchCursor(direction);
             if (deletionsBranch != null)
-                c1.addDeletions(deletionsBranch);  // apply all c2 deletions to c1
+                tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
         }
+
 
         @Override
         public RangeCursor<D> deletionBranchCursor(Direction direction)
@@ -334,10 +384,11 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
                 return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
 
+            // if one of the two cursors is ahead, it can't affect this deletion branch
             if (!atC1)
-                return c2.deletionBranchCursor(direction); // if c1 is ahead, it can't affect this deletion branch
+                return maybeSetDeletionsDepth(c2.deletionBranchCursor(direction), depth);
             if (!atC2)
-                return c1.deletionBranchCursor(direction);
+                return maybeSetDeletionsDepth(c1.deletionBranchCursor(direction), depth);
 
             // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
             // deletion-tree branch of the other to make sure that we merge any higher-depth deletion branch with it.
@@ -347,12 +398,47 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return null;
 
             deletionBranchDepth = depth;
-            if (b1 == null)
-                b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.data.tailCursor(direction));
-            if (b2 == null)
-                b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.data.tailCursor(direction));
 
-            return new Range<>(deletionResolver, b1, b2);
+            // OPTIMIZATION: When deletionsAtFixedPoints=true, we know that both sources would
+            // have deletions at the same depth, i.e. if one source has a deletion
+            // branch at this position, the other cannot have any deletion branches below this
+            // point. We can thus avoid reproducing the data trie in the deletion branch.
+            if (deletionsAtFixedPoints)
+            {
+                // With the optimization, we can directly return the existing deletion branch
+                // without needing to create expensive DeletionsTrieCursor instances
+                if (b1 != null && b2 != null)
+                {
+                    // Both have deletion branches - merge them directly
+                    return new Range<>(deletionResolver, b1, b2);
+                }
+                else
+                {
+                    // Only one has a deletion branch - return it directly
+                    // The optimization guarantees the other source has no conflicting deletions
+                    return b1 != null ? b1 : b2;
+                }
+            }
+            else
+            {
+                // Safe path: create DeletionsTrieCursor for missing deletion branches
+                // This ensures we capture any deletion branches that might exist deeper
+                // in the trie structure, but is expensive for large tries because we have
+                // to list the whole data trie (minus content).
+                if (b1 == null)
+                    b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.data.tailCursor(direction));
+                if (b2 == null)
+                    b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.data.tailCursor(direction));
+
+                return new Range<>(deletionResolver, b1, b2);
+            }
+        }
+
+        private RangeCursor<D> maybeSetDeletionsDepth(RangeCursor<D> deletionBranchCursor, int depth)
+        {
+            if (deletionBranchCursor != null)
+                deletionBranchDepth = depth;
+            return deletionBranchCursor;
         }
 
         @Override
@@ -362,7 +448,8 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return new DeletionAware<>(resolver,
                                            deletionResolver,
                                            c1.tailCursor(direction),
-                                           c2.tailCursor(direction));
+                                           c2.tailCursor(direction),
+                                           deletionsAtFixedPoints);
             else if (atC1)
                 return c1.tailCursor(direction);
             else if (atC2)

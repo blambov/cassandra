@@ -239,8 +239,8 @@ interface DataPoint
                             DeletionAwareTrie.singleton(live.position, VERSION, live),
                             LivePoint::combine,
                             DeletionMarker::combine,
-                            DeletionMarker::applyTo
-                    );
+                            DeletionMarker::applyTo,
+                            false);
                 }
             }
             // If we simply put all deletions with putAlternativeRecursive, we won't get correct branches as they
@@ -268,8 +268,8 @@ interface DataPoint
                                     VERSION, marker.leftSideAsCovering),
                             LivePoint::combine,
                             DeletionMarker::combine,
-                            DeletionMarker::applyTo
-                    );
+                            DeletionMarker::applyTo,
+                            false);
                 }
 
                 active = marker.rightSide;

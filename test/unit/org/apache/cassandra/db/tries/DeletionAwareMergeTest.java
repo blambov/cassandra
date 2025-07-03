@@ -302,7 +302,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
                 List<DataPoint> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
                 testMergeWith(message + " " + toRemove,
-                              trie.mergeWith(fromList(ranges), LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo),
+                              trie.mergeWith(fromList(ranges), LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo, false),
                               mergeLists(merged, ranges),
                               Arrays.stream(sets)
                                 .filter(x -> x != ranges)

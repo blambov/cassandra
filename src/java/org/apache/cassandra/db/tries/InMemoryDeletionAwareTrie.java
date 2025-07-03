@@ -321,14 +321,13 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
 
 
-    /**
-     * Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-     * with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-     * @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
-     * different than the element type for this memtable trie.
-     * @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
-     * value. Applied even if there's no pre-existing value in the memtable trie.
-     */
+    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+    /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+    /// different than the element type for this memtable trie.
+    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param deletionsAtFixedPoints TODO
     public <V, E extends RangeState<E>>
     void apply(DeletionAwareTrie<V, E> mutation,
                final UpsertTransformerWithKeyProducer<T, V> dataTransformer,

@@ -55,23 +55,27 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     {
         D resolveMarkers(D left, D right);
         T applyMarker(D marker, T content);
+        boolean deletionsAtFixedPoints();
     }
 
+    /// @param deletionsAtFixedPoints TODO
     default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other,
                                               Trie.MergeResolver<T> mergeResolver,
                                               Trie.MergeResolver<D> deletionResolver,
-                                              BiFunction<D, T, T> deleter)
+                                              BiFunction<D, T, T> deleter,
+                                              boolean deletionsAtFixedPoints)
     {
         return dir -> new MergeCursor.DeletionAware<>(mergeResolver,
                                                       deletionResolver,
                                                       deleter,
                                                       cursor(dir),
-                                                      other.cursor(dir));
+                                                      other.cursor(dir),
+                                                      deletionsAtFixedPoints);
     }
 
     default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other, MergeResolver<T, D> mergeResolver)
     {
-        return mergeWith(other, mergeResolver, mergeResolver::resolveMarkers, mergeResolver::applyMarker);
+        return mergeWith(other, mergeResolver, mergeResolver::resolveMarkers, mergeResolver::applyMarker, mergeResolver.deletionsAtFixedPoints());
     }
 
     interface CollectionMergeResolver<T, D extends RangeState<D>>
@@ -165,11 +169,13 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new PrefixedCursor.DeletionAware<>(prefix, cursor(dir));
     }
 
+    /// @inheritDoc
+    ///
+    /// Note: if the cursor is positioned below a deletion branch root, the tail will not include any information about
+    /// that deletion branch, even if it applies to the current position.
     @Override
     default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix)
     {
-        // TODO: What happens if the tail is after a splitting point?
-        // TODO: What if the tail is covered by a deletion? We are not allowed to have open-ended deletion branches...
         DeletionAwareCursor<T, D> c = cursor(Direction.FORWARD);
         if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
             return c::tailCursor;

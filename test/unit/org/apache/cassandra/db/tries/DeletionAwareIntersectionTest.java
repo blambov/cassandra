@@ -178,7 +178,7 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
                .mergeWith(fromList(asList(from(28, 12), to(30, 12)
                           )), LivePoint::combine,
                           DeletionMarker::combine,
-                          DeletionMarker::applyTo)
+                          DeletionMarker::applyTo, false)
                .mergeWith(fromList(flatten(asList(deletedPoint(17, 20),
                                                   deletedPoint(22, 21),
                                                   deletedPoint(28, 22),
@@ -186,7 +186,7 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
                                                   deletedPoint(38, 24)))),
                           LivePoint::combine,
                           DeletionMarker::combine,
-                          DeletionMarker::applyTo)
+                          DeletionMarker::applyTo, false)
                .mergeWith(fromList(asList(livePoint(19, 30),
                                           livePoint(23, 31),
                                           livePoint(27, 32),
@@ -195,7 +195,7 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
                                           livePoint(39, 35))),
                           LivePoint::combine,
                           DeletionMarker::combine,
-                          DeletionMarker::applyTo);
+                          DeletionMarker::applyTo, false);
     }
 
     private void testIntersections()
