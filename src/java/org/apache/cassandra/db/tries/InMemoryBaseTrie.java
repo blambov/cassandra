@@ -1123,7 +1123,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         boolean advanceToNextExistingOr(int limitDepth, int limitTransition, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
             assert limitDepth > 0;
-            setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
             {
                 int currentTransition = transition();
@@ -1151,7 +1150,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// Advance to the next existing position in the trie.
         boolean advanceToNextExisting(int forcedCopyDepth, int ascendLimit) throws TrieSpaceExhaustedException
         {
-            setTransition(-1); // we have newly descended to a node, start with its first child
             while (true)
             {
                 int currentTransition = transition();
@@ -1202,6 +1200,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             setExistingPostContentNode(existingPostContentNode);
             setUpdatedPostContentNode(existingPostContentNode);
             setContentId(existingContentId);
+            setTransition(-1);
         }
 
         T getContent()

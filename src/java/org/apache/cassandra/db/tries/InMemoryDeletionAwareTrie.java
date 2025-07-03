@@ -190,7 +190,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                         // incoming deletions.
                         updatedAlternateBranch = hoistOurDeletionBranches();
                     }
-                    ourDeletionBranch = ((InMemoryDeletionAwareTrie<T, D>) state.trie()).makeRangeCursor(Direction.FORWARD, existingAlternateBranch);
+                    ourDeletionBranch = ((InMemoryDeletionAwareTrie<T, D>) state.trie()).makeRangeCursor(Direction.FORWARD, updatedAlternateBranch);
 
                     if (!deletionsAtFixedPoints && incomingAlternateBranch == null)
                     {
@@ -407,5 +407,11 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     public String dump(Function<T, String> contentToString, Function<D, String> rangeToString)
     {
         return new DumpCursor(makeCursor(Direction.FORWARD), contentToString).process(new TrieDumper.DeletionAware<>(Function.identity(), rangeToString));
+    }
+
+    private String dumpBranch(int branchRoot)
+    {
+        return new DumpCursor(new DeletionAwareInMemoryCursor<>(this, Direction.FORWARD, branchRoot, 0, -1), Object::toString)
+               .process(new TrieDumper.DeletionAware<>(Function.identity(), Object::toString));
     }
 }

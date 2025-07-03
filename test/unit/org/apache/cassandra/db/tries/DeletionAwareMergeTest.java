@@ -88,8 +88,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
     @Test
     public void testSubtrie()
     {
-//        for (bits = bitsNeeded; bits > 0; --bits)
-            for (bits = 4; bits > 0; --bits)
+        for (bits = bitsNeeded; bits > 0; --bits)
         for (deletionPoint = 4; deletionPoint <= 40; deletionPoint += 9)
         {
             testMerge("no merge");
@@ -222,25 +221,25 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
 
     private void testMerges()
     {
-        testMerge("", fromList(getTestRanges()), getTestRanges());
+        testMergeWith("", fromList(getTestRanges()), getTestRanges());
 
         List<DataPoint> set1 = deletedRanges(null, before(24), before(25), before(29), before(32), null);
         List<DataPoint> set2 = deletedRanges(before(14), before(17),
-                                               before(22), before(27),
-                                               before(28), before(30),
-                                               before(32), before(34),
-                                               before(36), before(40));
+                                             before(22), before(27),
+                                             before(28), before(30),
+                                             before(32), before(34),
+                                             before(36), before(40));
         List<DataPoint> set3 = deletedRanges(before(17), before(18),
-                                               before(19), before(20),
-                                               before(21), before(22),
-                                               before(23), before(24),
-                                               before(25), before(26),
-                                               before(27), before(28),
-                                               before(29), before(30),
-                                               before(31), before(32),
-                                               before(33), before(34),
-                                               before(35), before(36),
-                                               before(37), before(38));
+                                             before(19), before(20),
+                                             before(21), before(22),
+                                             before(23), before(24),
+                                             before(25), before(26),
+                                             before(27), before(28),
+                                             before(29), before(30),
+                                             before(31), before(32),
+                                             before(33), before(34),
+                                             before(35), before(36),
+                                             before(37), before(38));
 
         testMerges(set1, set2, set3);
     }
@@ -270,13 +269,14 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
     public final void testMerge(String message, List<DataPoint>... sets)
     {
         List<DataPoint> testRanges = getTestRanges();
-//        testMerge(message, fromList(testRanges), testRanges, sets);
+        testMergeWith(message, fromList(testRanges), testRanges, sets);
 //        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
         testMergeInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
+        testMergeInMemoryTrieIntoSet(message + " inmem.apply into set", fromList(testRanges), testRanges, sets);
     }
 
 
-    public void testMerge(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> merged, List<DataPoint>... sets)
+    public void testMergeWith(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> merged, List<DataPoint>... sets)
     {
         System.out.println("Markers: " + merged);
         verify(merged);
@@ -301,10 +301,10 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
             {
                 List<DataPoint> ranges = sets[toRemove];
                 System.out.println("Adding:  " + ranges);
-                testMerge(message + " " + toRemove,
-                          trie.mergeWith(fromList(ranges), LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo),
-                          mergeLists(merged, ranges),
-                          Arrays.stream(sets)
+                testMergeWith(message + " " + toRemove,
+                              trie.mergeWith(fromList(ranges), LivePoint::combine, DeletionMarker::combine, DeletionMarker::applyTo),
+                              mergeLists(merged, ranges),
+                              Arrays.stream(sets)
                                 .filter(x -> x != ranges)
                                 .toArray(List[]::new)
                 );
@@ -390,18 +390,70 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
                     System.out.println("Adding:  " + ranges);
                     var dupe = duplicateTrie(trie);
                     dupe.apply(fromList(ranges),
-                            DataPoint::combineLive,
-                            DataPoint::combineDeletion,
-                            DataPoint::deleteLive,
-                            DataPoint::deleteLive,
-                            false,
-                            v -> false);
-                    testMerge(message + " " + toRemove,
-                              dupe,
-                              mergeLists(merged, ranges),
-                              Arrays.stream(sets)
-                                    .filter(x -> x != ranges)
-                                    .toArray(List[]::new)
+                               DataPoint::combineLive,
+                               DataPoint::combineDeletion,
+                               DataPoint::deleteLive,
+                               DataPoint::deleteLive,
+                               false,
+                               v -> false);
+                    testMergeInMemoryTrie(message + " " + toRemove,
+                                          dupe,
+                                          mergeLists(merged, ranges),
+                                          Arrays.stream(sets)
+                                                .filter(x -> x != ranges)
+                                                .toArray(List[]::new)
+                    );
+                }
+            }
+            catch (TrieSpaceExhaustedException e)
+            {
+                throw new AssertionError(e);
+            }
+        }
+    }
+
+    public void testMergeInMemoryTrieIntoSet(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> merged, List<DataPoint>... sets)
+    {
+        System.out.println("Markers: " + merged);
+        verify(merged);
+        // Test that intersecting the given trie with the given sets, in any order, results in the expected list.
+        // Checks both forward and reverse iteration direction.
+        if (sets.length == 0)
+        {
+            try
+            {
+                assertEquals(message + " forward b" + bits, merged, toList(trie));
+                System.out.println(message + " forward b" + bits + " matched.");
+            }
+            catch (AssertionError e)
+            {
+                System.out.println();
+                DataPoint.dumpDeletionAwareTrie(trie);
+                throw e;
+            }
+        }
+        else
+        {
+            try
+            {
+                for (int toRemove = 0; toRemove < sets.length; ++toRemove)
+                {
+                    List<DataPoint> ranges = sets[toRemove];
+                    System.out.println("Adding:  " + ranges);
+                    var set = fromList(ranges);
+                    set.apply(trie,
+                              DataPoint::combineLive,
+                              DataPoint::combineDeletion,
+                              DataPoint::deleteLive,
+                              DataPoint::deleteLive,
+                              false,
+                              v -> false);
+                    testMergeInMemoryTrieIntoSet(message + " " + toRemove,
+                                                 set,
+                                                 mergeLists(merged, ranges),
+                                                 Arrays.stream(sets)
+                                                       .filter(x -> x != ranges)
+                                                       .toArray(List[]::new)
                     );
                 }
             }

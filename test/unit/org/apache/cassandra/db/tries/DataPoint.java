@@ -157,7 +157,7 @@ interface DataPoint
                       .collect(Collectors.toList());
     }
 
-    static DeletionAwareTrie<LivePoint, DeletionMarker> fromList(List<DataPoint> list)
+    static InMemoryDeletionAwareTrie<LivePoint, DeletionMarker> fromList(List<DataPoint> list)
     {
         InMemoryDeletionAwareTrie<LivePoint, DeletionMarker> trie = InMemoryDeletionAwareTrie.shortLived(VERSION);
         try
@@ -279,7 +279,7 @@ interface DataPoint
         return trie;
     }
 
-    private static DeletionAwareTrie<LivePoint, DeletionMarker> dumpDeletionAwareTrie(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    static DeletionAwareTrie<LivePoint, DeletionMarker> dumpDeletionAwareTrie(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
     {
         System.out.println("DeletionAware");
         System.out.println(trie.dump());
