@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
 import org.junit.Test;
@@ -30,20 +29,14 @@ import org.junit.Test;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
-import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
-import static org.apache.cassandra.db.tries.DataPoint.deletionOnlyList;
 import static org.apache.cassandra.db.tries.DataPoint.dumpDeletionAwareTrie;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
-import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.junit.Assert.assertEquals;
 
 public class DeletionAwareMergeTest extends DeletionAwareTestBase
 {
-    /// Change to true to pring debug info
-    static final boolean VERBOSE = false;
-
     int deletionPoint = 100;
 
     private List<DataPoint> deletedRanges(ByteComparable... dataPoints)
@@ -292,15 +285,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            try
-            {
-                assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
-            }
-            catch (AssertionError e)
-            {
-                System.out.println("\n" + trie.dump());
-                throw e;
-            }
+            assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
         }
         else
         {
@@ -350,15 +335,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
                 dumpDeletionAwareTrie(trie);
             }
 
-            try
-            {
-                assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
-            }
-            catch (AssertionError e)
-            {
-                System.out.println("\n" + trie.dump());
-                throw e;
-            }
+            assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
         }
         else
         {
@@ -380,18 +357,6 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
         }
     }
 
-    private static void assertDeletionAwareEqual(String msg, List<DataPoint> merged, DeletionAwareTrie<LivePoint, DeletionMarker> trie)
-    {
-        assertEquals(msg, merged, toList(trie));
-        assertEquals(msg + " live",
-                     merged.stream().map(DataPoint::live).filter(x -> x != null).collect(Collectors.toList()),
-                     contentOnlyList(trie));
-        assertEquals(msg + " deletions",
-                     merged.stream().map(DataPoint::marker).filter(x -> x != null).collect(Collectors.toList()),
-                     deletionOnlyList(trie));
-        System.out.println(msg + " matched.");
-    }
-
     public void testMergeInMemoryTrie(String message, DeletionAwareTrie<LivePoint, DeletionMarker> trie, List<DataPoint> merged, List<DataPoint>... sets)
     {
         if (VERBOSE)
@@ -404,15 +369,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            try
-            {
-                assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
-            }
-            catch (AssertionError e)
-            {
-                System.out.println("\n" + trie.dump());
-                throw e;
-            }
+            assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
         }
         else
         {
@@ -463,16 +420,7 @@ public class DeletionAwareMergeTest extends DeletionAwareTestBase
         // Checks both forward and reverse iteration direction.
         if (sets.length == 0)
         {
-            try
-            {
-                assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
-            }
-            catch (AssertionError e)
-            {
-                System.out.println();
-                DataPoint.dumpDeletionAwareTrie(trie);
-                throw e;
-            }
+            assertDeletionAwareEqual(message + " forward b" + bits, merged, trie);
         }
         else
         {

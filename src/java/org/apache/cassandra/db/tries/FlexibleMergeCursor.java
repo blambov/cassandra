@@ -106,10 +106,20 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
         // Handle request to exit c2 branch separately for simplicity
         if (skipDepth <= c2depthCorrection)
-            return leaveC2(c1.skipTo(skipDepth, skipTransition));
+        {
+            switch (state)
+            {
+                case AT_C1:
+                case AT_BOTH:
+                    return leaveC2(c1.skipTo(skipDepth, skipTransition));
+                case AT_C2:
+                    return leaveC2(c1.skipToWhenAhead(skipDepth, skipTransition));
+                default:
+                    throw new AssertionError();
+            }
+        }
 
         int c2skipDepth = skipDepth - c2depthCorrection;
-
         switch (state)
         {
             case AT_C1:

@@ -30,10 +30,17 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
+import static org.apache.cassandra.db.tries.DataPoint.contentOnlyList;
+import static org.apache.cassandra.db.tries.DataPoint.deletionOnlyList;
+import static org.apache.cassandra.db.tries.DataPoint.toList;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.junit.Assert.assertEquals;
 
 public class DeletionAwareTestBase
 {
+    /// Change to true to pring debug info
+    static final boolean VERBOSE = false;
+
     static final int bitsNeeded = 6;
     int bits = bitsNeeded;
 
@@ -60,6 +67,27 @@ public class DeletionAwareTestBase
                 return new DeletionMarker(nextRange, -1, active, active);
         }
         return null;
+    }
+
+    protected static void assertDeletionAwareEqual(String msg, List<DataPoint> merged, DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        try
+        {
+            assertEquals(msg, merged, toList(trie));
+            assertEquals(msg + " live",
+                         merged.stream().map(DataPoint::live).filter(x -> x != null).collect(Collectors.toList()),
+                         contentOnlyList(trie));
+            assertEquals(msg + " deletions",
+                         merged.stream().map(DataPoint::marker).filter(x -> x != null).collect(Collectors.toList()),
+                         deletionOnlyList(trie));
+            System.out.println(msg + " matched.");
+        }
+        catch (AssertionError e)
+        {
+            System.out.println();
+            DataPoint.dumpDeletionAwareTrie(trie);
+            throw e;
+        }
     }
 
     static <T> void maybeAdd(List<T> list, T value)
