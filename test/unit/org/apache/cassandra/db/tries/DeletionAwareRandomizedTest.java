@@ -23,10 +23,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.quicktheories.core.Gen;
 
@@ -49,6 +50,12 @@ import static org.quicktheories.generators.SourceDSL.lists;
 ///
 public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
 {
+    @BeforeClass
+    public static void enableVerification()
+    {
+        CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+    }
+
     private static final int MAX_POINTS = 20;
     private static final int MAX_VALUE = 63; // Fits in 6 bits (bitsNeeded)
     private static final int MAX_TIMESTAMP = 100;

@@ -33,7 +33,6 @@ import static org.apache.cassandra.db.tries.DataPoint.dumpDeletionAwareTrie;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
-import static org.junit.Assert.assertEquals;
 
 public class DeletionAwareMergeTest extends DeletionAwareTestBase
 {
