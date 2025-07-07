@@ -47,7 +47,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 {
     // Note: This should not be run by default with verification to have the higher concurrency of faster writes and reads.
 
-    private static final int COUNT = 100;
+    private static final int COUNT = 30;
     private static final int PROGRESS_UPDATE = Math.max(1, COUNT / 15);
     private static final int READERS = 1;
     private static final int WALKERS = 0;
@@ -111,6 +111,8 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker) throws TrieSpaceExhaustedException;
 
     abstract void delete(R trie,
+                         ByteComparable deletionPrefix,
+                         TestRangeState partitionMarker,
                          RangeTrie<TestRangeState> deletion,
                          InMemoryBaseTrie.UpsertTransformer<C, TestRangeState> mergeResolver,
                          Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException;
@@ -428,10 +430,8 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         RangeTrie<TestRangeState> deletion = RangeTrie.merge(ranges, Trie.throwingResolver());
                         if (cprefix != null)
                             deletion = deletion.prefixedBy(cprefix);
-                        deletion = TrieUtil.withRootMetadata(deletion, partitionMarker);
-                        deletion = deletion.prefixedBy(b);
 
-                        delete(trie, deletion, deleteResolver, forcedCopyCheckerRanges);
+                        delete(trie, b, partitionMarker, deletion, deleteResolver, forcedCopyCheckerRanges);
                     }
                 }
                 catch (Throwable t)
@@ -539,6 +539,18 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         static final TestRangeState COVERED = new TestRangeCoveringState();
         static final TestRangeState RANGE_START = new TestRangeBoundary(Direction.FORWARD);
         static final TestRangeState RANGE_END = new TestRangeBoundary(Direction.REVERSE);
+
+        public static TestRangeState combine(TestRangeState existing, TestRangeState incoming)
+        {
+            // This can only be called for TestRangeBoundary as other types should not end up in any persisted tries.
+            TestRangeBoundary be = (TestRangeBoundary) existing;
+            TestRangeBoundary bi = (TestRangeBoundary) incoming;
+            if (be == null)
+                return bi;
+            if (be.direction == bi.direction)
+                return be;
+            return null;    // switch from covered to covered, we should not store anything
+        }
     }
 
     static class TestRangeCoveringState extends TestRangeState

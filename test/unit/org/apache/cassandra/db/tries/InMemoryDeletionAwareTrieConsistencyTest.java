@@ -19,7 +19,11 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
+import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
+
+import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -34,10 +38,19 @@ import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
  * correctness and consistency under concurrent access patterns typical of Cassandra's
  * memtable operations with deletions.
  */
-public class InMemoryDeletionAwareTrieConsistencyTest extends ConsistencyTestBase<InMemoryDeletionAwareTrieConsistencyTest.Content, DeletionAwareTrie<InMemoryDeletionAwareTrieConsistencyTest.Content, InMemoryDeletionAwareTrieConsistencyTest.DeletionContent>, InMemoryDeletionAwareTrie<InMemoryDeletionAwareTrieConsistencyTest.Content, InMemoryDeletionAwareTrieConsistencyTest.DeletionContent>>
+public class InMemoryDeletionAwareTrieConsistencyTest
+extends ConsistencyTestBase<InMemoryDeletionAwareTrieConsistencyTest.Content,
+                           DeletionAwareTrie<InMemoryDeletionAwareTrieConsistencyTest.Content, ConsistencyTestBase.TestRangeState>,
+                           InMemoryDeletionAwareTrie<InMemoryDeletionAwareTrieConsistencyTest.Content, ConsistencyTestBase.TestRangeState>>
 {
+
+    @SuppressWarnings("rawtypes") // type does not matter, we are always throwing an exception
+    InMemoryBaseTrie.UpsertTransformer UPSERT_THROW = (x, y) -> { throw new AssertionError(); };
+    @SuppressWarnings("rawtypes") // type does not matter, we are always throwing an exception
+    BiFunction BIFUNCTION_THROW = (x, y) -> { throw new AssertionError(); };
+
     @Override
-    InMemoryDeletionAwareTrie<Content, DeletionContent> makeTrie(OpOrder readOrder)
+    InMemoryDeletionAwareTrie<Content, TestRangeState> makeTrie(OpOrder readOrder)
     {
         return InMemoryDeletionAwareTrie.longLived(VERSION, readOrder);
     }
@@ -87,72 +100,62 @@ public class InMemoryDeletionAwareTrieConsistencyTest extends ConsistencyTestBas
     }
 
     @Override
-    DeletionAwareTrie<Content, DeletionContent> makeSingleton(ByteComparable b, Content content)
+    DeletionAwareTrie<Content, TestRangeState> makeSingleton(ByteComparable b, Content content)
     {
         return DeletionAwareTrie.singleton(b, VERSION, content);
     }
 
     @Override
-    DeletionAwareTrie<Content, DeletionContent> withRootMetadata(DeletionAwareTrie<Content, DeletionContent> wrapped, Content metadata)
+    DeletionAwareTrie<Content, TestRangeState> withRootMetadata(DeletionAwareTrie<Content, TestRangeState> wrapped, Content metadata)
     {
-        // For deletion-aware tries, we'll use the existing trie structure
-        // In a real implementation, this would add metadata at the root
-        return wrapped;
+        return TrieUtil.withRootMetadata(wrapped, metadata);
     }
 
     @Override
-    DeletionAwareTrie<Content, DeletionContent> merge(Collection<DeletionAwareTrie<Content, DeletionContent>> tries,
+    DeletionAwareTrie<Content, TestRangeState> merge(Collection<DeletionAwareTrie<Content, TestRangeState>> tries,
                                                       Trie.CollectionMergeResolver<Content> mergeResolver)
     {
         return DeletionAwareTrie.merge(tries,
                                       mergeResolver,
-                                      DeletionContent::combineCollection,
-                                      DeletionContent::applyTo,
+                                      Trie.throwingResolver(),
+                                      BIFUNCTION_THROW,
                                       true); // deletionsAtFixedPoints = true for consistency
     }
 
     @Override
-    void apply(InMemoryDeletionAwareTrie<Content, DeletionContent> trie,
-               DeletionAwareTrie<Content, DeletionContent> mutation,
+    void apply(InMemoryDeletionAwareTrie<Content, TestRangeState> trie,
+               DeletionAwareTrie<Content, TestRangeState> mutation,
                InMemoryBaseTrie.UpsertTransformer<Content, Content> mergeResolver,
                Predicate<InMemoryBaseTrie.NodeFeatures<Content>> forcedCopyChecker) throws TrieSpaceExhaustedException
     {
         trie.apply(mutation,
                   mergeResolver, // Use the provided merge resolver for content
-                  (existing, incoming) -> DeletionContent.combine(existing, incoming), // Combine deletion content
-                  (existing, del) -> DeletionContent.applyTo(del, existing), // Apply deletions to existing data
-                  (del, incoming) -> DeletionContent.applyTo(del, incoming), // Apply deletions to incoming data
+                   (del, incoming) -> { throw new AssertionError(); },
+                   (del, incoming) -> { throw new AssertionError(); },
+                   (del, incoming) -> { throw new AssertionError(); },
                   true, // deletionsAtFixedPoints = true for consistency
                   forcedCopyChecker); // Use the provided forced copy checker
     }
 
     @Override
-    void delete(InMemoryDeletionAwareTrie<Content, DeletionContent> trie,
-                RangeTrie<TestRangeState> deletion,
+    void delete(InMemoryDeletionAwareTrie<Content, TestRangeState> trie,
+                ByteComparable deletionPrefix,
+                TestRangeState partitionMarker,
+                RangeTrie<TestRangeState> deletionBranch,
                 InMemoryBaseTrie.UpsertTransformer<Content, TestRangeState> mergeResolver,
                 Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException
     {
-        // For deletion-aware tries, we need to convert the range deletion to a deletion marker
-        // This is a simplified implementation - in practice, this would be more sophisticated
-
-        // Create a deletion content that will delete all existing data
-        DeletionContent deletionContent = new DeletionContent();
-
-        // Create dummy byte comparables for the deletion range (can't use null)
-        ByteComparable start = ByteComparable.of(0);
-        ByteComparable end = ByteComparable.of(Integer.MAX_VALUE);
-
-        // Apply as a deletion trie (simplified - covers the entire range)
-        DeletionAwareTrie<Content, DeletionContent> deletionTrie =
-            DeletionAwareTrie.deletion(start, start, end, VERSION, deletionContent);
-
-        trie.apply(deletionTrie,
-                  (existing, incoming) -> mergeResolver.apply(existing, null), // Apply deletion logic
-                  (existing, incoming) -> DeletionContent.combine(existing, incoming),
-                  (existing, del) -> DeletionContent.applyTo(del, existing),
-                  (del, incoming) -> DeletionContent.applyTo(del, incoming),
-                  true,
-                  x -> false);
+//        DeletionAwareTrie<TestRangeState, TestRangeState> deletion = DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, VERSION, deletionBranch);
+//        deletion = TrieUtil.withRootMetadata(deletion, partitionMarker);
+//        deletion = deletion.prefixedBy(deletionPrefix);
+//
+//        trie.apply(deletion,
+//                  mergeResolver,
+//                  (existing, incoming) -> TestRangeState.combine(existing, incoming),
+//                  mergeResolver,
+//                  BIFUNCTION_THROW,
+//                  true,
+//                  forcedCopyChecker);
     }
 
     @Override
@@ -177,7 +180,7 @@ public class InMemoryDeletionAwareTrieConsistencyTest extends ConsistencyTestBas
     }
 
     @Override
-    void printStats(InMemoryDeletionAwareTrie<Content, DeletionContent> trie,
+    void printStats(InMemoryDeletionAwareTrie<Content, TestRangeState> trie,
                     Predicate<InMemoryBaseTrie.NodeFeatures<Content>> forcedCopyChecker)
     {
         System.out.format("DeletionAware Reuse %s %s on-heap %,d (+%,d) off-heap %,d\n",
@@ -273,63 +276,6 @@ public class InMemoryDeletionAwareTrieConsistencyTest extends ConsistencyTestBas
                    "pk='" + pk + '\'' +
                    ", updateCount=" + updateCount +
                    '}';
-        }
-    }
-
-    // Deletion content for range state
-    static class DeletionContent implements RangeState<DeletionContent>
-    {
-        @Override
-        public boolean isBoundary()
-        {
-            return false;
-        }
-
-        @Override
-        public DeletionContent precedingState(Direction direction)
-        {
-            return this;
-        }
-
-        @Override
-        public DeletionContent restrict(boolean applicableBefore, boolean applicableAfter)
-        {
-            return this;
-        }
-
-        @Override
-        public DeletionContent asBoundary(Direction direction)
-        {
-            return this;
-        }
-
-        public static DeletionContent combine(DeletionContent existing, DeletionContent incoming)
-        {
-            if (existing == null) return incoming;
-            if (incoming == null) return existing;
-            return existing; // Simple combination - just keep existing
-        }
-
-        public static DeletionContent combineCollection(Collection<DeletionContent> deletions)
-        {
-            DeletionContent result = null;
-            for (DeletionContent deletion : deletions)
-            {
-                result = combine(result, deletion);
-            }
-            return result;
-        }
-
-        public static Content applyTo(DeletionContent deletion, Content content)
-        {
-            // Simple deletion logic - delete all content
-            return null;
-        }
-
-        @Override
-        public String toString()
-        {
-            return "DeletionContent{}";
         }
     }
 }

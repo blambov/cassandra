@@ -175,8 +175,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
-                applyContent();
-
                 int existingAlternateBranch = state.alternateBranch();
                 RangeCursor<E> incomingAlternateBranch = mutationCursor.deletionBranchCursor(Direction.FORWARD);
                 if (incomingAlternateBranch != null || existingAlternateBranch != NONE)
@@ -213,6 +211,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     }
 
                     // Continue processing to also insert the incoming data at this branch.
+                    // Note that this will also apply the incoming content to this node.
                     applyDataUnderDeletion(ourDeletionBranch);
 
                     // ascend and apply alternate branch
@@ -223,7 +222,10 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     depth = mutationCursor.depth();
                 }
                 else
+                {
+                    applyContent();
                     depth = mutationCursor.advance();
+                }
 
                 if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
                     break;

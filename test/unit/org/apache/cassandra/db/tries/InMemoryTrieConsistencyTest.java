@@ -102,8 +102,15 @@ public class InMemoryTrieConsistencyTest extends ConsistencyTestBase<InMemoryTri
     }
 
     @Override
-    void delete(InMemoryTrie<Content> trie, RangeTrie<TestRangeState> deletion, InMemoryBaseTrie.UpsertTransformer<Content, TestRangeState> mergeResolver, Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException
+    void delete(InMemoryTrie<Content> trie,
+                ByteComparable deletionPrefix,
+                TestRangeState partitionMarker,
+                RangeTrie<TestRangeState> deletion,
+                InMemoryBaseTrie.UpsertTransformer<Content, TestRangeState> mergeResolver,
+                Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException
     {
+        deletion = TrieUtil.withRootMetadata(deletion, partitionMarker);
+        deletion = deletion.prefixedBy(deletionPrefix);
         trie.apply(deletion, mergeResolver, forcedCopyChecker);
     }
 

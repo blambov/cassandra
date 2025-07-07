@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -37,11 +38,19 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     }
 
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletion(ByteComparable prefixInMainTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    DeletionAwareTrie<T, D> deletion(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.range(left, right, byteComparableVersion, deletion);
         return dir -> new SingletonCursor.DeletionBranch<>(dir,
-                                                           prefixInMainTrie.asComparableBytes(byteComparableVersion), byteComparableVersion,
+                                                           prefixInDataTrie.asComparableBytes(byteComparableVersion), byteComparableVersion,
+                                                           rangeTrie);
+    }
+
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> deletionBranch(ByteComparable prefixInDataTrie, ByteComparable.Version byteComparableVersion, RangeTrie<D> rangeTrie)
+    {
+        return dir -> new SingletonCursor.DeletionBranch<>(dir,
+                                                           prefixInDataTrie.asComparableBytes(byteComparableVersion), byteComparableVersion,
                                                            rangeTrie);
     }
 
@@ -201,6 +210,13 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
             return c::tailCursor;
         else
             return empty(c.byteComparableVersion());
+    }
+
+    /// Returns an entry set containing all tail tree constructed at the points that contain content of
+    /// the given type.
+    default Iterable<Map.Entry<ByteComparable, DeletionAwareTrie<T, D>>> tailTries(Direction direction, Class<? extends T> clazz)
+    {
+        return () -> new TrieTailsIterator.AsEntriesDeletionAware<>(cursor(direction), clazz);
     }
 
     DeletionAwareCursor<T, D> makeCursor(Direction direction);

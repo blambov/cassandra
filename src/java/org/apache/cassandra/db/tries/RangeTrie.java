@@ -19,6 +19,7 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.function.BiFunction;
 
 import com.google.common.base.Preconditions;
@@ -167,6 +168,13 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
             return c::precedingStateCursor;
         else
             return null;
+    }
+
+    /// Returns an entry set containing all tail tree constructed at the points that contain content of
+    /// the given type.
+    default Iterable<Map.Entry<ByteComparable, RangeTrie<S>>> tailTries(Direction direction, Class<? extends S> clazz)
+    {
+        return () -> new TrieTailsIterator.AsEntriesRange<>(cursor(direction), clazz);
     }
 
     RangeCursor<S> makeCursor(Direction direction);
