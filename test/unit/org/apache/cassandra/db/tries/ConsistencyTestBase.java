@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
+import com.google.common.collect.Iterables;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -41,16 +42,18 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
+import static org.junit.Assert.assertTrue;
 
 public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R extends BaseTrie<C, ?, ?>>
 {
     // Note: This should not be run by default with verification to have the higher concurrency of faster writes and reads.
 
-    private static final int COUNT = 30;
+    private static final int COUNT = 300;
     private static final int PROGRESS_UPDATE = Math.max(1, COUNT / 15);
-    private static final int READERS = 1;
-    private static final int WALKERS = 0;
+    private static final int READERS = 8;
+    private static final int WALKERS = 2;
     private static final Random rand = new Random();
 
     /**
@@ -454,6 +457,8 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 
         printStats(trie, forcedCopyChecker);
 
+        assertTrue(Iterables.isEmpty(trie.entrySet()));
+
         if (!errors.isEmpty())
             Assert.fail("Got errors:\n" + errors);
     }
@@ -513,12 +518,12 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                 idMax = seq;
         }
 
-        Assert.assertTrue("Values" + location + " should be at least " + min + ", got " + count, min <= count);
+        assertTrue("Values" + location + " should be at least " + min + ", got " + count, min <= count);
 
         if (checkAtomicity)
         {
             // If mutations apply atomically, the row count is always a multiple of the mutation size...
-            Assert.assertTrue("Values" + location + " should be a multiple of " + PER_MUTATION + ", got " + count, count % PER_MUTATION == 0);
+            assertTrue("Values" + location + " should be a multiple of " + PER_MUTATION + ", got " + count, count % PER_MUTATION == 0);
             // ... and the sum of the values is 0 (as the sum for each individual mutation is 0).
             Assert.assertEquals("Value sum" + location, 0, sum);
         }

@@ -145,17 +145,17 @@ extends ConsistencyTestBase<InMemoryDeletionAwareTrieConsistencyTest.Content,
                 InMemoryBaseTrie.UpsertTransformer<Content, TestRangeState> mergeResolver,
                 Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException
     {
-//        DeletionAwareTrie<TestRangeState, TestRangeState> deletion = DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, VERSION, deletionBranch);
-//        deletion = TrieUtil.withRootMetadata(deletion, partitionMarker);
-//        deletion = deletion.prefixedBy(deletionPrefix);
-//
-//        trie.apply(deletion,
-//                  mergeResolver,
-//                  (existing, incoming) -> TestRangeState.combine(existing, incoming),
-//                  mergeResolver,
-//                  BIFUNCTION_THROW,
-//                  true,
-//                  forcedCopyChecker);
+        DeletionAwareTrie<TestRangeState, TestRangeState> deletion = DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, VERSION, deletionBranch);
+        deletion = TrieUtil.withRootMetadata(deletion, partitionMarker);
+        deletion = deletion.prefixedBy(deletionPrefix);
+
+        trie.apply(deletion,
+                  mergeResolver,
+                  (existing, incoming) -> TestRangeState.combine(existing, incoming),
+                  mergeResolver,
+                  BIFUNCTION_THROW,
+                  true,
+                  forcedCopyChecker);
     }
 
     @Override
