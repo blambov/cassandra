@@ -215,8 +215,18 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                        C mutationCursor,
                        InMemoryBaseTrie<T>.ApplyState state)
         {
+            this(transformer, needsForcedCopy, mutationCursor, state, Integer.MAX_VALUE);
+        }
+
+        DeleteMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
+                       Predicate<NodeFeatures<S>> needsForcedCopy,
+                       C mutationCursor,
+                       InMemoryBaseTrie<T>.ApplyState state,
+                       int initialForcedCopyDepth)
+        {
             super(transformer, needsForcedCopy, mutationCursor, state);
             initialDepth = state.currentDepth;
+            forcedCopyDepth = initialForcedCopyDepth;
         }
 
         @Override

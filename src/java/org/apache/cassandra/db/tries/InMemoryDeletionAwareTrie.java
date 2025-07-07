@@ -200,6 +200,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
                     if (incomingAlternateBranch != null)
                     {
+                        // FIXME: forced copy depth must be applied
                         // duplicate cursor as we need it for both deletion and data branches
                         RangeCursor<E> deletionBranch = incomingAlternateBranch.tailCursor(Direction.FORWARD);
 
@@ -264,7 +265,8 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     deleter,
                     (Predicate<NodeFeatures<E>>) (Predicate) needsForcedCopy,
                     incomingAlternateBranch,
-                    state);
+                    state,
+                    forcedCopyDepth);
             deleteMutation.apply();
 
             // Make sure the next data pass below walks the updated branch.
@@ -273,6 +275,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
         private int mergeDeletionBranch(int existingAlternateBranch, RangeCursor<E> deletionBranch) throws TrieSpaceExhaustedException
         {
+            // FIXME: Forced copy depth and forced copy predicate evaluation are incorrect. This needs a test too.
             // Merge the deletion branch into our deletion branch.
             InMemoryRangeTrie.Mutation<D, E> rangeMutation = new InMemoryRangeTrie.Mutation<>(
                     deletionTransformer,

@@ -1449,9 +1449,12 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             // Go a level up to finalize the node, and then reenter it.
             int depth = currentDepth;
+            // Because we modify the parent to be able to reenter, we should adjust the forced copying depth to cover
+            // one extra parent level.
+            --forcedCopyDepth;
             int updatedFullNode = applyContent(depth >= forcedCopyDepth);
             if (depth == 0)
-                attachRoot(updatedFullNode, forcedCopyDepth);
+                attachRoot(updatedFullNode, forcedCopyDepth); // FIXME: We shouldn't need to update this, and it messes with consistency
             else
                 attachBranchAndMoveToParentState(updatedFullNode, forcedCopyDepth);
 
