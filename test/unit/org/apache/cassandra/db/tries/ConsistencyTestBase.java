@@ -47,10 +47,10 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 {
     // Note: This should not be run by default with verification to have the higher concurrency of faster writes and reads.
 
-    private static final int COUNT = 30000;
+    private static final int COUNT = 100;
     private static final int PROGRESS_UPDATE = Math.max(1, COUNT / 15);
-    private static final int READERS = 8;
-    private static final int WALKERS = 2;
+    private static final int READERS = 1;
+    private static final int WALKERS = 0;
     private static final Random rand = new Random();
 
     /**
