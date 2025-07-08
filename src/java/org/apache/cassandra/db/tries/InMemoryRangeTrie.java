@@ -167,21 +167,22 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
     static class Mutation<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutation<S, U, RangeCursor<U>>
     {
-        /// Depth at which the modification started. This will be 0 for range tries, but can be greater when deletion
-        /// aware tries' deletion branches are applied.
-        final int initialDepth;
-
         Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, InMemoryRangeTrie<S>.ApplyState state)
         {
+            this(transformer, needsForcedCopy, source, state, Integer.MAX_VALUE);
+        }
+
+        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, InMemoryRangeTrie<S>.ApplyState state, int forcedCopyDepth)
+        {
             super(transformer, needsForcedCopy, source, state);
-            initialDepth = state.currentDepth;
+            this.forcedCopyDepth = forcedCopyDepth;
         }
 
         @Override
         void apply() throws TrieSpaceExhaustedException
         {
             applyRanges();
-            assert state.currentDepth == initialDepth : "Unexpected change to applyState. Concurrent trie modification?";
+            assert state.currentDepth == 0 : "Unexpected change to applyState. Concurrent trie modification?";
         }
 
         void applyContent(S existingState, U mutationState) throws TrieSpaceExhaustedException
@@ -224,9 +225,9 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                         applyDeletionRange(rightSideAsCovering(existingCoveringState), mutationCoveringState);
                 }
 
-                depth = mutationCursor.advance() + initialDepth;
+                depth = mutationCursor.advance();
                 // Descend but do not modify anything yet.
-                if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth, initialDepth))
+                if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
                     break;
                 assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
             }
@@ -237,14 +238,14 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         throws TrieSpaceExhaustedException
         {
             boolean atMutation = true;
-            int depth = mutationCursor.depth() + initialDepth;
+            int depth = mutationCursor.depth();
             int transition = mutationCursor.incomingTransition();
             // We are walking both tries in parallel.
             while (true)
             {
                 if (atMutation)
                 {
-                    depth = mutationCursor.advance() + initialDepth;
+                    depth = mutationCursor.advance();
                     transition = mutationCursor.incomingTransition();
 
                     assert depth > 0 : "Unbounded range in mutation trie, state " + mutationCoveringState + " active when exhausted.";

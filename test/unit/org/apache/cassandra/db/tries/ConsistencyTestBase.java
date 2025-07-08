@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
@@ -30,6 +29,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
@@ -42,7 +42,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
-import static org.apache.cassandra.db.tries.TrieUtil.assertMapEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.junit.Assert.assertTrue;
 
@@ -50,7 +49,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 {
     // Note: This should not be run by default with verification to have the higher concurrency of faster writes and reads.
 
-    private static final int COUNT = 300;
+    private static final int COUNT = 30000;
     private static final int PROGRESS_UPDATE = Math.max(1, COUNT / 15);
     private static final int READERS = 8;
     private static final int WALKERS = 2;
@@ -130,6 +129,13 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 
     abstract C mergeMetadata(C c1, C c2);
     abstract C deleteMetadata(C existing, int entriesCount);
+
+    // To overridden by deletion branch testing.
+    Iterable<Map.Entry<ByteComparable, C>> getEntrySet(BaseTrie<C, ?, ?> trie)
+    {
+        return trie.entrySet();
+    }
+
 
     abstract void printStats(R trie, Predicate<InMemoryBaseTrie.NodeFeatures<C>> forcedCopyChecker);
 
@@ -213,6 +219,26 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         return ByteComparable.preencoded(VERSION, bytes);
     }
 
+    static class ThreadWithProgressAck extends Thread
+    {
+        final int threadId;
+        final LongUnaryOperator ackWriteProgress;
+        final Consumer<LongUnaryOperator> runnable;
+
+        ThreadWithProgressAck(AtomicInteger threadIdx, Consumer<LongUnaryOperator> runnable)
+        {
+            threadId = threadIdx.getAndIncrement();
+            ackWriteProgress = x -> x | (1<<threadId);
+            this.runnable = runnable;
+        }
+
+        @Override
+        public void run()
+        {
+            runnable.accept(ackWriteProgress);
+        }
+    }
+
     public void testAtomicUpdates(int PER_MUTATION,
                                   Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker,
                                   Predicate<InMemoryTrie.NodeFeatures<TestRangeState>> forcedCopyCheckerRanges,
@@ -238,84 +264,73 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         AtomicLong writeProgressAck = new AtomicLong(0);
         AtomicInteger threadIdx = new AtomicInteger(0);
 
-        for (int i = 0; i < WALKERS; ++i)
-            threads.add(new Thread()
+        Consumer<LongUnaryOperator> walkTrie = ackWriteProgress ->
+        {
+            while (!writeCompleted.get())
             {
-                int threadId = threadIdx.getAndIncrement();
-                LongUnaryOperator ackWriteProgress = x -> x | (1<<threadId);
-                public void run()
+                try
                 {
-                    Random r = ThreadLocalRandom.current();
-                    while (!writeCompleted.get())
+                    writeProgressAck.getAndUpdate(ackWriteProgress);
+                    int min = writeProgress.get();
+                    try (OpOrder.Group group = readOrder.start())
                     {
-                        try
+                        Iterable<Map.Entry<ByteComparable, C>> entries = getEntrySet(trie);
+                        checkEntries("", min, true, checkAtomicity, false, PER_MUTATION, entries);
+                    }
+                }
+                catch (Throwable t)
+                {
+                    t.printStackTrace();
+                    errors.add(t);
+                }
+            }
+        };
+
+        Consumer<LongUnaryOperator> readTrie = ackWriteProgress ->
+        {
+            Random r = ThreadLocalRandom.current();
+            while (!writeCompleted.get())
+            {
+                try
+                {
+                    {
+                        writeProgressAck.getAndUpdate(ackWriteProgress);
+                        ByteComparable key = pkeys[r.nextInt(pkeys.length)];
+                        int min = writeProgress.get() / (pkeys.length * PER_MUTATION) * PER_MUTATION;
+                        Iterable<Map.Entry<ByteComparable, C>> entries;
+
+                        try (OpOrder.Group group = readOrder.start())
                         {
-                            writeProgressAck.getAndUpdate(ackWriteProgress);
-                            int min = writeProgress.get();
-                            try (OpOrder.Group group = readOrder.start())
+                            var tail = trie.tailTrie(key);
+                            if (tail != null)
                             {
-                                Iterable<Map.Entry<ByteComparable, C>> entries = trie.entrySet();
-                                checkEntries("", min, true, checkAtomicity, false, PER_MUTATION, entries);
+                                entries = getEntrySet(tail);
+                                checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
                             }
+                            else
+                                Assert.assertEquals("Trie key not found when there should be data for it", 0, min);
                         }
-                        catch (Throwable t)
+
+                        try (OpOrder.Group group = readOrder.start())
                         {
-                            t.printStackTrace();
-                            errors.add(t);
+                            entries = getEntrySet(trie.subtrie(key, key));
+                            checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
                         }
                     }
                 }
-            });
+                catch (Throwable t)
+                {
+                    t.printStackTrace();
+                    errors.add(t);
+                }
+            }
+        };
+
+        for (int i = 0; i < WALKERS; ++i)
+            threads.add(new ThreadWithProgressAck(threadIdx, walkTrie));
 
         for (int i = 0; i < READERS; ++i)
-        {
-            ByteComparable[] srcLocal = pkeys;
-            threads.add(new Thread()
-            {
-                public void run()
-                {
-                    int threadId = threadIdx.getAndIncrement();
-                    LongUnaryOperator ackWriteProgress = x -> x | (1 << threadId);
-
-                    Random r = ThreadLocalRandom.current();
-                    while (!writeCompleted.get())
-                    {
-                        try
-                        {
-                            {
-                                writeProgressAck.getAndUpdate(ackWriteProgress);
-                                ByteComparable key = srcLocal[r.nextInt(srcLocal.length)];
-                                int min = writeProgress.get() / (pkeys.length * PER_MUTATION) * PER_MUTATION;
-                                Iterable<Map.Entry<ByteComparable, C>> entries;
-
-                                try (OpOrder.Group group = readOrder.start())
-                                {
-                                    var tail = trie.tailTrie(key);
-                                    if (tail != null)
-                                    {
-                                        entries = tail.entrySet();
-                                        checkEntries(" in tail " + key.byteComparableAsString(VERSION), min, false, checkAtomicity, checkSequence, PER_MUTATION, entries);
-                                    }
-                                    else
-                                        Assert.assertEquals("Trie key not found when there should be data for it", 0, min);
-                                }
-
-                                try (OpOrder.Group group = readOrder.start())
-                                {
-                                    entries = trie.subtrie(key, key).entrySet();
-                                    checkEntries(" in branch " + key.byteComparableAsString(VERSION), min, true, checkAtomicity, checkSequence, PER_MUTATION, entries);
-                                }
-                            }
-                        }
-                        catch (Throwable t)
-                        {
-                            t.printStackTrace();
-                            errors.add(t);
-                        }
-                    }
-                }
-            });
-        }
+            threads.add(new ThreadWithProgressAck(threadIdx, readTrie));
 
         threads.add(new Thread()
         {
@@ -389,6 +404,14 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                     printStats(trie, forcedCopyChecker);
                     Thread.sleep(100); // Let the threads check the completed state too.
 
+                    // Make sure we can read everything we have inserted from this thread (if this fails, the problem
+                    // is not concurrency).
+                    try (OpOrder.Group group = readOrder.start())
+                    {
+                        Iterable<Map.Entry<ByteComparable, C>> entries = getEntrySet(trie);
+                        checkEntries("", COUNT, true, checkAtomicity, false, PER_MUTATION, entries);
+                    }
+
                     InMemoryTrie.UpsertTransformer<C, TestRangeState> deleteResolver = (existing, update) ->
                     {
                         if (update instanceof TestStateMetadata)
@@ -436,6 +459,8 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 
                         delete(trie, b, partitionMarker, deletion, deleteResolver, forcedCopyCheckerRanges);
                     }
+
+                    writeProgress.set(0);
                 }
                 catch (Throwable t)
                 {
@@ -457,7 +482,9 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 
         printStats(trie, forcedCopyChecker);
 
-        assertTrue(Iterables.isEmpty(trie.entrySet()));
+        Assert.assertEquals("Writer did not complete", 0, writeProgress.get());
+
+        assertTrue(Iterables.isEmpty(getEntrySet(trie)));
 
         if (!errors.isEmpty())
             Assert.fail("Got errors:\n" + errors);

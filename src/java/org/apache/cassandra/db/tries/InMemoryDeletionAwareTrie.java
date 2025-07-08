@@ -275,15 +275,15 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
         private int mergeDeletionBranch(int existingAlternateBranch, RangeCursor<E> deletionBranch) throws TrieSpaceExhaustedException
         {
-            // FIXME: Forced copy depth and forced copy predicate evaluation are incorrect. This needs a test too.
-            // Merge the deletion branch into our deletion branch.
+            int deletionForcedCopyDepth = forcedCopyDepth <= state.currentDepth ? 0 : Integer.MAX_VALUE;
             InMemoryRangeTrie.Mutation<D, E> rangeMutation = new InMemoryRangeTrie.Mutation<>(
                     deletionTransformer,
                     (Predicate<NodeFeatures<E>>) (Predicate) needsForcedCopy,
                     deletionBranch,
-                    deletionState.start(existingAlternateBranch));
+                    deletionState.start(existingAlternateBranch),
+                    deletionForcedCopyDepth);
             rangeMutation.apply();
-            return deletionState.completeBranch(forcedCopyDepth);
+            return deletionState.completeBranch(deletionForcedCopyDepth);
         }
 
         private int hoistOurDeletionBranches() throws TrieSpaceExhaustedException {
@@ -336,7 +336,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     public <V, E extends RangeState<E>>
     void apply(DeletionAwareTrie<V, E> mutation,
                final UpsertTransformerWithKeyProducer<T, V> dataTransformer,
-               final UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
+               final UpsertTransformer<D, E> deletionTransformer, // TODO: Document why can't be WithKeyProducer
                final UpsertTransformerWithKeyProducer<T, E> existingDeleter,
                final BiFunction<D, V, V> insertedDeleter,
                boolean deletionsAtFixedPoints,

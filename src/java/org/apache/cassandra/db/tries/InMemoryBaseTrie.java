@@ -1043,6 +1043,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             data[currentDepth * 5 + 2] = value;
         }
+        int updatedPostContentNodeAtDepth(int stackDepth)
+        {
+            return data[stackDepth * 5 + 2];
+        }
 
         /// The transition we took on the way down.
         int transition()
@@ -1126,7 +1130,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             while (true)
             {
                 int currentTransition = transition();
-                int nextTransition = getNextTransition(existingPostContentNode(), currentTransition + 1);
+                int nextTransition = getNextTransition(updatedPostContentNode(), currentTransition + 1);
                 if (currentDepth + 1 == limitDepth && nextTransition >= limitTransition)
                 {
                     descend(limitTransition);
@@ -1153,7 +1157,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             while (true)
             {
                 int currentTransition = transition();
-                int nextTransition = getNextTransition(existingPostContentNode(), currentTransition + 1);
+                int nextTransition = getNextTransition(updatedPostContentNode(), currentTransition + 1);
                 if (nextTransition <= 0xFF)
                 {
                     descend(nextTransition);
@@ -1171,7 +1175,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         void descend(int transition)
         {
             setTransition(transition);
-            int existingFullNode = getChild(existingPostContentNode(), transition);
+            int existingFullNode = getChild(updatedPostContentNode(), transition);
 
             descendInto(existingFullNode);
         }
@@ -1248,7 +1252,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             setTransition(-1);      // In the node we have just descended to, start with its first child
             for (; stackPos >= 0 && node == NONE; --stackPos)
             {
-                node = getNextChild(existingPostContentNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
+                node = getNextChild(updatedPostContentNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
             }
 
             while (node != NONE)
@@ -1447,18 +1451,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         void prepareToWalkBranchAgain(int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            // Go a level up to finalize the node, and then reenter it.
-            int depth = currentDepth;
-            // Because we modify the parent to be able to reenter, we should adjust the forced copying depth to cover
-            // one extra parent level.
-            --forcedCopyDepth;
-            int updatedFullNode = applyContent(depth >= forcedCopyDepth);
-            if (depth == 0)
-                attachRoot(updatedFullNode, forcedCopyDepth); // FIXME: We shouldn't need to update this, and it messes with consistency
-            else
-                attachBranchAndMoveToParentState(updatedFullNode, forcedCopyDepth);
-
-            descendInto(updatedFullNode);
+            setTransition(-1);
         }
 
         public byte[] getBytes()

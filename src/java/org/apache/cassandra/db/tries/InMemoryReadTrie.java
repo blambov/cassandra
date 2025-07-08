@@ -1364,10 +1364,13 @@ public abstract class InMemoryReadTrie<T>
                     builder.append("Prefix: ");
                     int flags = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
                     final int content = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
+                    final int alternate = getIntVolatile(node + PREFIX_ALTERNATE_OFFSET);
                     builder.append(content < 0 ? "~" + (~content) : "" + content);
+                    if (alternate != NONE)
+                        builder.append(" alt:" + alternate);
                     int child = followPrefixTransition(node);
                     builder.append(" -> ")
-                           .append(child);
+                           .append(dumpNode(child));
                     break;
                 }
                 default:
