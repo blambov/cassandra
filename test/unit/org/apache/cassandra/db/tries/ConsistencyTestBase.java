@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -147,7 +146,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         // and consistent, i.e. that it is not possible to receive some newer updates while missing
         // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
         // could see an enumeration which lists 3 and 5 but not 1.)
-        testAtomicUpdates(3, FORCE_COPY_PARTITION, FORCE_COPY_PARTITION_RANGE_STATE, true, true);
+        testUpdateConsistency(3, FORCE_COPY_PARTITION, FORCE_COPY_PARTITION_RANGE_STATE, true, true);
         // Note: using 3 per mutation, so that the first and second update fit in a sparse in-memory trie block.
     }
 
@@ -156,14 +155,14 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
     {
         // Check that multi-path updates with below-branching-point copying are safe for concurrent readers,
         // and that content is atomically applied, i.e. that reader see either nothing from the update or all of it.
-        testAtomicUpdates(3, forceAtomic(), forceAtomic(), true, false);
+        testUpdateConsistency(3, forceAtomic(), forceAtomic(), true, false);
     }
 
     @Test
     public void testSafeUpdates() throws Exception
     {
         // Check that multi path updates without additional copying are safe for concurrent readers.
-        testAtomicUpdates(3, noAtomicity(), noAtomicity(), false, false);
+        testUpdateConsistency(3, noAtomicity(), noAtomicity(), false, false);
     }
 
     @Test
@@ -173,7 +172,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         // and that content is consistent, i.e. that it is not possible to receive some newer updates while missing
         // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
         // could see an enumeration which lists 3 and 5 but not 1.)
-        testAtomicUpdates(1, FORCE_COPY_PARTITION, FORCE_COPY_PARTITION_RANGE_STATE, true, true);
+        testUpdateConsistency(1, FORCE_COPY_PARTITION, FORCE_COPY_PARTITION_RANGE_STATE, true, true);
     }
 
 
@@ -182,14 +181,14 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
     {
         // When doing single path updates atomicity comes for free. This only checks that the branching checker is
         // not doing anything funny.
-        testAtomicUpdates(1, forceAtomic(), forceAtomic(), true, false);
+        testUpdateConsistency(1, forceAtomic(), forceAtomic(), true, false);
     }
 
     @Test
     public void testSafeSinglePathUpdates() throws Exception
     {
         // Check that single path updates without additional copying are safe for concurrent readers.
-        testAtomicUpdates(1, noAtomicity(), noAtomicity(), true, false);
+        testUpdateConsistency(1, noAtomicity(), noAtomicity(), true, false);
     }
 
     // The generated keys all start with NEXT_COMPONENT, which makes it impossible to test the precise behavior of the
@@ -239,13 +238,17 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         }
     }
 
-    public void testAtomicUpdates(int PER_MUTATION,
-                                  Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker,
-                                  Predicate<InMemoryTrie.NodeFeatures<TestRangeState>> forcedCopyCheckerRanges,
-                                  boolean checkAtomicity,
-                                  boolean checkSequence)
+    public void testUpdateConsistency(int PER_MUTATION,
+                                      Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker,
+                                      Predicate<InMemoryTrie.NodeFeatures<TestRangeState>> forcedCopyCheckerRanges,
+                                      boolean checkAtomicity,
+                                      boolean checkSequence)
     throws Exception
     {
+        long seed = rand.nextLong();
+        System.out.println("Seed: " + seed);
+        rand.setSeed(seed);
+
         ByteComparable[] ckeys = skipFirst(generateKeys(rand, COUNT));
         ByteComparable[] pkeys = skipFirst(generateKeys(rand, Math.min(100, COUNT / 10)));  // to guarantee repetition
 
@@ -332,11 +335,12 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         for (int i = 0; i < READERS; ++i)
             threads.add(new ThreadWithProgressAck(threadIdx, readTrie));
 
+        byte[] choices = new byte[COUNT / PER_MUTATION];
+        rand.nextBytes(choices);
         threads.add(new Thread()
         {
             public void run()
             {
-                ThreadLocalRandom r = ThreadLocalRandom.current();
                 final Trie.CollectionMergeResolver<C> mergeResolver = new Trie.CollectionMergeResolver<C>()
                 {
                     @Override
@@ -352,7 +356,6 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         return contents.stream().reduce(this::resolve).get();
                     }
                 };
-                BitSet choices = new BitSet(COUNT / PER_MUTATION);
 
                 try
                 {
@@ -363,11 +366,8 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         ByteComparable b = pkeys[(i / PER_MUTATION) % pkeys.length];
                         C partitionMarker = metadata(b);
                         ByteComparable cprefix = null;
-                        if (r.nextBoolean())
-                        {
+                        if ((choices[i / PER_MUTATION] & 1) == 1)
                             cprefix = ckeys[i]; // Also test branching point below the partition level
-                            choices.set(i / PER_MUTATION);
-                        }
 
                         List<T> sources = new ArrayList<>();
                         for (int j = 0; j < PER_MUTATION; ++j)
@@ -439,7 +439,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         TestRangeState partitionMarker = new TestStateMetadata<>(metadata(b));
                         List<RangeTrie<TestRangeState>> ranges = new ArrayList<>();
                         ByteComparable cprefix = null;
-                        if (choices.get(i / PER_MUTATION) && r.nextBoolean())
+                        if ((choices[i / PER_MUTATION] & 3) == 3)
                         {
                             // Delete the whole branch in one range
                             ranges.add(makeRangeCovering(ckeys[i]));
@@ -447,7 +447,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         else
                         {
                             // A range for each entry
-                            if (choices.get(i / PER_MUTATION))
+                            if ((choices[i / PER_MUTATION] & 1) == 1)
                                 cprefix = ckeys[i];
                             for (int j = 0; j < PER_MUTATION; ++j)
                                 ranges.add(makeRangeCovering(ckeys[i + j]));
@@ -487,7 +487,25 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         assertTrue(Iterables.isEmpty(getEntrySet(trie)));
 
         if (!errors.isEmpty())
+        {
+            System.out.println(trie.dump());
+            for (byte b : choices)
+                switch (b & 3)
+                {
+                    case 0:
+                    case 2:
+                        System.out.print(".");
+                        break;
+                    case 1:
+                        System.out.print("-");
+                        break;
+                    case 3:
+                        System.out.print("#");
+                        break;
+                }
+            System.out.println();
             Assert.fail("Got errors:\n" + errors);
+        }
     }
 
     private static RangeTrie<TestRangeState> makeRangeCovering(ByteComparable cprefix)

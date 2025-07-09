@@ -796,17 +796,49 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         @Override
         public DeletionAwareCursor<T, D> tailCursor(Direction dir)
         {
-            if (relevantDeletionsState != DeletionState.NONE)
-                throw new AssertionError("unimplemented"); // FIXME
+            RangeCursor<D> deletions = null;
+            switch (relevantDeletionsState)
+            {
+                case NONE:
+                    break;
+                case MATCHING:
+                    deletions = relevantDeletions.tailCursor(direction);
+                    break;
+                case AHEAD:
+                    deletions = relevantDeletions.precedingStateCursor(direction);
+                    break;
+            }
 
-            if (!branchHasMultipleSources())
-                return head.tailCursor(dir);
+            if (deletions != null)
+            {
+                // Because deletions branch is already active (and no new one can be introduced now), we treat the
+                // sources as plain tries.
+                Cursor<T> source;
 
-            List<DeletionAwareCursor<T, D>> inputs = new ArrayList<>(heap.length + 1);
-            inputs.add(head);
-            applyToSelectedInHeap((self, cursor, index) -> inputs.add(cursor));
+                if (!branchHasMultipleSources())
+                    source = head.tailCursor(dir);
+                else
+                {
+                    List<DeletionAwareCursor<T, D>> inputs = new ArrayList<>(heap.length + 1);
+                    inputs.add(head);
+                    applyToSelectedInHeap((self, cursor, index) -> inputs.add(cursor));
 
-            return new DeletionAware<>(resolver, deletionResolver, deleter, deletionsAtFixedPoints, dir, inputs, DeletionAwareCursor::tailCursor);
+                    source = new Plain<>(resolver, dir, inputs, DeletionAwareCursor::tailCursor);
+                }
+
+                return new RangeApplyCursor.DeletionAwareDataBranch<>(deleter, deletions, source);
+            }
+            else
+            {
+                if (!branchHasMultipleSources())
+                    return head.tailCursor(dir);
+
+                List<DeletionAwareCursor<T, D>> inputs = new ArrayList<>(heap.length + 1);
+                inputs.add(head);
+                applyToSelectedInHeap((self, cursor, index) -> inputs.add(cursor));
+
+                return new DeletionAware<>(resolver, deletionResolver, deleter, deletionsAtFixedPoints, dir, inputs, DeletionAwareCursor::tailCursor);
+            }
         }
     }
 }

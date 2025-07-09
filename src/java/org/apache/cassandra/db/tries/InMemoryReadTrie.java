@@ -499,6 +499,7 @@ public abstract class InMemoryReadTrie<T>
                 }
             }
             tailIndex = 0;
+            childIndex = 0;
             ++midIndex;
         }
         return Integer.MAX_VALUE;
