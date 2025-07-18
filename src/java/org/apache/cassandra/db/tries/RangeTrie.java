@@ -86,15 +86,19 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     {
         RangeCursor<S> cursor = cursor(Direction.FORWARD);
         final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
-        int next = bytes.next();
-        int depth = cursor.depth();
-        while (next != ByteSource.END_OF_STREAM)
-        {
-            if (cursor.skipTo(++depth, next) != depth || cursor.incomingTransition() != next)
-                return cursor.precedingState(); // The key falls in a covered range.
-            next = bytes.next();
-        }
-        return cursor.state();
+        if (cursor.descendAlong(bytes))
+            return cursor.state();
+        else
+            return cursor.precedingState();
+//        int next = bytes.next();
+//        int depth = cursor.depth();
+//        while (next != ByteSource.END_OF_STREAM)
+//        {
+//            if (cursor.skipTo(++depth, next) != depth || cursor.incomingTransition() != next)
+//                return cursor.precedingState(); // The key falls in a covered range.
+//            next = bytes.next();
+//        }
+//        return cursor.state();
     }
 
     @Override

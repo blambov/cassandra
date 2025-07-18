@@ -1747,15 +1747,26 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         if (offset(node) == PREFIX_OFFSET)
         {
             int contentId = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
-            T newContent = transformer.apply(getContent(contentId), value);
+            T newContent = transformer.apply(isNull(contentId) ? null : getContent(contentId), value);
             if (newContent != null)
             {
-                setContent(contentId, newContent);
+                if (!isNull(contentId))
+                    setContent(contentId, newContent);
+                else
+                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, addContent(newContent));
                 return node;
             }
             else
             {
-                releaseContent(contentId);
+                if (!isNull(contentId))
+                    releaseContent(contentId);
+
+                if (!isNull(getIntVolatile(node + PREFIX_ALTERNATE_OFFSET)))
+                {
+                    // keep the prefix node for the alternate path
+                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, NONE);
+                    return node;
+                }
 
                 int b = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
                 if (b < CELL_SIZE)

@@ -153,6 +153,10 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
+                // Content must be applied before descending into the branch to make sure we call the transformers
+                // in the right order.
+                applyContent();
+
                 int existingAlternateBranch = state.alternateBranch();
                 RangeCursor<E> incomingAlternateBranch = mutationCursor.deletionBranchCursor(Direction.FORWARD);
                 if (incomingAlternateBranch != null || existingAlternateBranch != NONE)
@@ -200,10 +204,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     depth = mutationCursor.depth();
                 }
                 else
-                {
-                    applyContent();
                     depth = mutationCursor.advance();
-                }
 
                 if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth))
                     break;
@@ -218,18 +219,19 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 mutationCursor.addDeletions(ourDeletionBranch);
             int initialDepth = state.currentDepth;
 
-            // Below is the same as the main loop in `apply`, but ignores deletion branches.
-            int depth = state.currentDepth;
-            while (true)
+            // The first forcedCopyDepth and applyContent are already called.
+            int depth = mutationCursor.advance();
+
+            // Below is the same as the main loop in `apply`, slightly rearranged and ignoring deletion branches.
+            while (state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth, initialDepth))
             {
+                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
                 applyContent();
                 depth = mutationCursor.advance();
-                if (!state.advanceTo(depth, mutationCursor.incomingTransition(), forcedCopyDepth, initialDepth))
-                    break;
-                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
             }
             assert state.currentDepth == initialDepth;
         }

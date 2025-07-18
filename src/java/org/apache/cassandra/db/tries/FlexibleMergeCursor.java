@@ -176,7 +176,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
             depth = c1depth;
             return postAdvance(c1depth);
         }
-        if (direction.lt(c1depth, c2depth))
+        if (c1depth < c2depth)
         {
             state = State.AT_C2;
             incomingTransition = c2.incomingTransition();
