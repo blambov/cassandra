@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -279,7 +280,7 @@ public interface ShardManager
         return applyMaxParallelism(maxParallelism, maker, shards);
     }
 
-    private static <T, R extends CompactionSSTable> List<T> applyMaxParallelism(int maxParallelism, BiFunction<Collection<R>, Range<Token>, T> maker, List<Pair<Set<R>, Range<Token>>> shards)
+    static <T, R> List<T> applyMaxParallelism(int maxParallelism, BiFunction<Collection<R>, Range<Token>, T> maker, List<Pair<Set<R>, Range<Token>>> shards)
     {
         int actualParallelism = shards.size();
         if (maxParallelism >= actualParallelism)
@@ -328,7 +329,14 @@ public interface ShardManager
             currentSpan += span;
             prevEnd = currentEnd;
         }
-        assert currentSSTables.isEmpty();
+        if (tasks.size() > maxParallelism)
+            System.err.println(tasks.size());
+        if (!currentSSTables.isEmpty())
+        {
+            System.err.println(currentSSTables);
+            System.err.println(tasks);
+            throw new AssertionError();
+        }
         return tasks;
     }
 
