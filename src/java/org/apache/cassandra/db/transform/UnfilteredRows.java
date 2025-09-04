@@ -43,6 +43,14 @@ final class UnfilteredRows extends BaseRows<Unfiltered, UnfilteredRowIterator> i
         partitionLevelDeletion = input.partitionLevelDeletion();
     }
 
+    public UnfilteredRows(UnfilteredRows copyFrom, UnfilteredRowIterator newInput)
+    {
+        super((BaseRows<Unfiltered, UnfilteredRowIterator>) copyFrom);
+        input = newInput;
+        regularAndStaticColumns = copyFrom.regularAndStaticColumns;
+        partitionLevelDeletion = copyFrom.partitionLevelDeletion;
+    }
+
     @Override
     void add(Transformation add)
     {
@@ -72,5 +80,17 @@ final class UnfilteredRows extends BaseRows<Unfiltered, UnfilteredRowIterator> i
     public boolean isEmpty()
     {
         return staticRow().isEmpty() && partitionLevelDeletion().isLive() && !hasNext();
+    }
+
+    @Override
+    public boolean stopIssuingTombstones()
+    {
+        if (!input.stopIssuingTombstones())
+            return false;
+
+        // If we are stopping tombstones, we must check if any already prepared `next` is a tombstone and drop it if so.
+        if (next != null && next.isRangeTombstoneMarker())
+            next = null;
+        return true;
     }
 }

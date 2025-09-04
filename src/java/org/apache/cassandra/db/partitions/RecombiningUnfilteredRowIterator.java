@@ -44,6 +44,22 @@ class RecombiningUnfilteredRowIterator extends WrappingUnfilteredRowIterator
     }
 
     @Override
+    public boolean stopIssuingTombstones()
+    {
+        if (!wrapped.stopIssuingTombstones())
+            return false;
+
+        if (nextPrepared && next == null)
+            return true; // this is already done
+
+        if (nextPrepared && next.isRangeTombstoneMarker())
+            nextPrepared = false;
+        if (bufferedOne != null && bufferedOne.isRangeTombstoneMarker())
+            bufferedOne = wrapped.hasNext() ? wrapped.next() : null;
+        return true;
+    }
+
+    @Override
     public boolean hasNext()
     {
         return computeNext() != null;
@@ -92,7 +108,9 @@ class RecombiningUnfilteredRowIterator extends WrappingUnfilteredRowIterator
             {
                 RangeTombstoneMarker marker2;
                 final DeletionTime deletionTime = marker1.openDeletionTime(reversed);
-                if (bufferedOne == null || bufferedOne.isRangeTombstoneMarker())
+                if (bufferedOne == null)
+                    next = marker1;
+                else if (bufferedOne.isRangeTombstoneMarker())
                 {
                     marker2 = (RangeTombstoneMarker) bufferedOne;
                     assert marker2.isClose(reversed);

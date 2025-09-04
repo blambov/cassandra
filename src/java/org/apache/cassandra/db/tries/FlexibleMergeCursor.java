@@ -206,17 +206,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     @Override
     public int depth()
     {
-        switch (state)
-        {
-            case C1_ONLY:
-            case AT_C1:
-            case AT_BOTH:
-                return c1.depth();
-            case AT_C2:
-                return c2.depth() + c2depthCorrection;
-            default:
-                throw new AssertionError();
-        }
+        return depth;
     }
 
     @Override
