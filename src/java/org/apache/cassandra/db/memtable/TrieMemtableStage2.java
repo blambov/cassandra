@@ -481,10 +481,10 @@ public class TrieMemtableStage2 extends AbstractAllocatorMemtable
         public PartitionData(PartitionData existing,
                              DeletionInfo update)
         {
-            // Start with the update content, to properly copy it
-            this(update, existing.owner);
+            super(existing.partitionDeletion, existing.ranges == null ? null : existing.ranges.copy());
+            owner = existing.owner;
             rowCountIncludingStatic = existing.rowCountIncludingStatic;
-            add(existing);
+            add(update.clone(HeapCloner.instance));
         }
 
         public RegularAndStaticColumns columns()

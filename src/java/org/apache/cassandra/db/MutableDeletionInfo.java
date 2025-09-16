@@ -40,13 +40,13 @@ public class MutableDeletionInfo implements DeletionInfo
      * This represents a deletion of the entire partition. We can't represent this within the RangeTombstoneList, so it's
      * kept separately. This also slightly optimizes the common case of a full partition deletion.
      */
-    private DeletionTime partitionDeletion;
+    protected DeletionTime partitionDeletion;
 
     /**
      * A list of range tombstones within the partition.  This is left as null if there are no range tombstones
      * (to save an allocation (since it's a common case).
      */
-    private RangeTombstoneList ranges;
+    protected RangeTombstoneList ranges;
 
     /**
      * Creates a DeletionInfo with only a top-level (row) tombstone.
