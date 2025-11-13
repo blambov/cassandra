@@ -264,7 +264,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         contentCollected = false;
         return doAdvance();
@@ -291,7 +291,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         // We need to advance all cursors that stand before the requested position.
         // If a child cursor does not need to advance as it is greater than the skip position, neither of the ones
@@ -325,7 +325,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return head.depth();
     }
@@ -567,13 +567,13 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return processRelevantDeletions(super.advance());
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             return processRelevantDeletions(super.skipTo(skipDepth, skipTransition));
         }

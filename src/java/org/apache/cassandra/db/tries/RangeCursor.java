@@ -152,15 +152,9 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
-            return -1;
-        }
-
-        @Override
-        public int incomingTransition()
-        {
-            return -1;
+            return EXHAUSTED_POSITION;
         }
 
         @Override
@@ -182,15 +176,15 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
-            return -1;
+            return EXHAUSTED_POSITION;
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
-            return -1;
+            return EXHAUSTED_POSITION;
         }
 
         @Override
@@ -223,15 +217,9 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
-            return source.depth();
-        }
-
-        @Override
-        public int incomingTransition()
-        {
-            return source.incomingTransition();
+            return source.encodedPosition();
         }
 
         @Override
@@ -247,15 +235,15 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return source.advance();
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
-            return source.skipTo(skipDepth, skipTransition);
+            return source.skipTo(encodedSkipPosition);
         }
 
         @Override

@@ -544,7 +544,7 @@ public class TrieUtil
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             SpecStackEntry current = stack;
             Object child;
@@ -573,7 +573,7 @@ public class TrieUtil
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             assert skipDepth <= depth + 1 : "skipTo descends more than one level";
 
@@ -601,7 +601,7 @@ public class TrieUtil
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
             return depth;
         }

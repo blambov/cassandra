@@ -65,6 +65,11 @@ public enum Direction
             return forward;
         }
 
+        public int encodeTransitionByte(int transition)
+        {
+            return transition;
+        }
+
         public boolean isForward()
         {
             return true;
@@ -110,6 +115,11 @@ public enum Direction
         public int select(int forward, int reverse)
         {
             return reverse;
+        }
+
+        public int encodeTransitionByte(int transition)
+        {
+            return transition ^ 0xFF;
         }
 
         public boolean isForward()
@@ -159,6 +169,10 @@ public enum Direction
      * Use the first argument in forward direction and the second in reverse, i.e. isForward() ? forward : reverse.
      */
     public abstract int select(int forward, int reverse);
+
+    /// Encode/decode a transition byte, so that the value is ordered according to the direction.
+    /// This returns transition unchanged for the forward direction and flips all its bits for the inverse.
+    public abstract int encodeTransitionByte(int transition);
 
     /**
      * Helper to perform loops over possible values in the given direction. Returns whether the given index is still

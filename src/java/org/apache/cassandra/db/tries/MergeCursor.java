@@ -47,34 +47,27 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         this.resolver = resolver;
         this.c1 = c1;
         this.c2 = c2;
-        assert c1.depth() == c2.depth();
-        assert c1.incomingTransition() == c2.incomingTransition();
+        assert Cursor.compare(c1.encodedPosition(), c2.encodedPosition()) == 0;
         atC1 = atC2 = true;
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
-        return checkOrder(atC1 ? c1.advance() : c1.depth(),
-                          atC2 ? c2.advance() : c2.depth());
+        return checkOrder(atC1 ? c1.advance() : c1.encodedPosition(),
+                          atC2 ? c2.advance() : c2.encodedPosition());
+        // TODO: recheck / explain operation flags when using encodedPosition
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
-        int c1depth = c1.depth();
-        int c2depth = c2.depth();
-        assert skipDepth <= c1depth + 1 || skipDepth <= c2depth + 1;
-        if (atC1 || skipDepth < c1depth || skipDepth == c1depth && direction.gt(skipTransition, c1.incomingTransition()))
-            c1depth = c1.skipTo(skipDepth, skipTransition);
-        if (atC2 || skipDepth < c2depth || skipDepth == c2depth && direction.gt(skipTransition, c2.incomingTransition()))
-            c2depth = c2.skipTo(skipDepth, skipTransition);
-
-        return checkOrder(c1depth, c2depth);
+        return checkOrder(atC1 ? c1.skipTo(encodedSkipPosition) : c1.skipToWhenAhead(encodedSkipPosition),
+                          atC2 ? c2.skipTo(encodedSkipPosition) : c2.skipToWhenAhead(encodedSkipPosition));
     }
 
     @Override
-    public int advanceMultiple(TransitionsReceiver receiver)
+    public long advanceMultiple(TransitionsReceiver receiver)
     {
         // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
         if (atC1 && atC2)
@@ -85,44 +78,41 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         // cursors.
         // Since it might ascend, we still have to check the order after the call.
         if (atC1)
-            return checkOrder(c1.advanceMultiple(receiver), c2.depth());
+            return checkOrder(c1.advanceMultiple(receiver), c2.encodedPosition());
         else // atC2
-            return checkOrder(c1.depth(), c2.advanceMultiple(receiver));
+            return checkOrder(c1.encodedPosition(), c2.advanceMultiple(receiver));
     }
 
-    int checkOrder(int c1depth, int c2depth)
+    long checkOrder(long c1pos, long c2pos)
     {
-        if (c1depth > c2depth)
+        long cmp = Cursor.compare(c1pos, c2pos);
+        if (cmp == 0)
+        {
+            atC1 = atC2 = true;
+            // The positions are the same. Combine the flags with OR; this also gives us the correct operation flags,
+            // and leaves the position unchanged.
+            return c1pos | c2pos;
+        }
+        else if (cmp < 0)
         {
             atC1 = true;
             atC2 = false;
-            return c1depth;
+            return c1pos;
         }
-        if (c1depth < c2depth)
+        else
         {
-            atC1 = false;
             atC2 = true;
-            return c2depth;
+            atC1 = false;
+            return c2pos;
         }
-        // c1depth == c2depth
-        int c1trans = c1.incomingTransition();
-        int c2trans = c2.incomingTransition();
-        atC1 = direction.le(c1trans, c2trans);
-        atC2 = direction.le(c2trans, c1trans);
-        assert atC1 | atC2;
-        return c1depth;
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
-        return atC1 ? c1.depth() : c2.depth();
-    }
-
-    @Override
-    public int incomingTransition()
-    {
-        return atC1 ? c1.incomingTransition() : c2.incomingTransition();
+        long e1 = atC1 ? c1.encodedPosition() : 0;
+        long e2 = atC2 ? c2.encodedPosition() : 0;
+        return e1 | e2;
     }
 
     @Override
@@ -189,6 +179,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         @Override
         public S state()
         {
+            // TODO: Take advantage of flag
             if (!stateCollected)
             {
                 S state1 = atC1 ? c1.state() : c1.precedingState();
@@ -204,21 +195,21 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             stateCollected = false;
             return super.advance();
         }
 
         @Override
-        public int skipTo(int depth, int incomingTransition)
+        public long skipTo(long encodedSkipTransition)
         {
             stateCollected = false;
-            return super.skipTo(depth, incomingTransition);
+            return super.skipTo(encodedSkipTransition);
         }
 
         @Override
-        public int advanceMultiple(Cursor.TransitionsReceiver receiver)
+        public long advanceMultiple(Cursor.TransitionsReceiver receiver)
         {
             stateCollected = false;
             return super.advanceMultiple(receiver);
@@ -303,26 +294,26 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return maybeAddDeletionsBranch(super.advance());
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipTransition)
         {
-            return maybeAddDeletionsBranch(super.skipTo(skipDepth, skipTransition));
+            return maybeAddDeletionsBranch(super.skipTo(encodedSkipTransition));
         }
 
         @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
+        public long advanceMultiple(TransitionsReceiver receiver)
         {
             return maybeAddDeletionsBranch(super.advanceMultiple(receiver));
         }
 
-        int maybeAddDeletionsBranch(int depth)
+        long maybeAddDeletionsBranch(long encodedPosition)
         {
-            if (depth <= deletionBranchDepth)   // ascending above common deletions root
+            if (Cursor.depth(encodedPosition) <= deletionBranchDepth)   // ascending above common deletions root
             {
                 deletionBranchDepth = -1;
                 assert !c1.hasDeletions();
@@ -334,7 +325,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 maybeAddDeletionsBranch(c1, c2);
                 maybeAddDeletionsBranch(c2, c1);
             }   // otherwise even if there is deletion, the other cursor is ahead of it and can't be affected
-            return depth;
+            return encodedPosition;
         }
 
         /// Attempts to add deletion branches from one source to another.
@@ -356,6 +347,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             if (deletionsAtFixedPoints && src.hasDeletions())
                 return;
 
+            // TODO: Use flag before asking for deletion branch cursor
             RangeCursor<D> deletionsBranch = src.deletionBranchCursor(direction);
             if (deletionsBranch != null)
                 tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
@@ -365,7 +357,8 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         @Override
         public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
-            int depth = depth();
+            // TODO: assert flag is set?
+            int depth = Cursor.depth(encodedPosition());
             if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
                 return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
 

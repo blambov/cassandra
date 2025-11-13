@@ -651,7 +651,7 @@ public abstract class InMemoryReadTrie<T>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return doAdvance();
         }
@@ -689,7 +689,7 @@ public abstract class InMemoryReadTrie<T>
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             if (skipDepth > depth)
             {
@@ -723,7 +723,7 @@ public abstract class InMemoryReadTrie<T>
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
             return depth;
         }
@@ -1221,7 +1221,7 @@ public abstract class InMemoryReadTrie<T>
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return source.advance();
         }
@@ -1233,13 +1233,13 @@ public abstract class InMemoryReadTrie<T>
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
-            return source.skipTo(skipDepth, skipTransition);
+            return source.skipTo(encodedSkipPosition);
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
             return source.depth();
         }

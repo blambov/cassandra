@@ -45,7 +45,7 @@ class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return toAdjustedDepth(source.depth());
     }
@@ -75,7 +75,7 @@ class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         return toAdjustedDepth(source.advance());
     }
@@ -87,7 +87,7 @@ class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         return toAdjustedDepth(source.skipTo(fromAdjustedDepth(skipDepth), skipTransition));
     }

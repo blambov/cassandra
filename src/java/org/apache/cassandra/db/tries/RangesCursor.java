@@ -141,7 +141,7 @@ class RangesCursor implements TrieSetCursor
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return currentDepth;
     }
@@ -171,7 +171,7 @@ class RangesCursor implements TrieSetCursor
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         if (direction.gt(currentIdx, completedIdx))
             return exhausted();
@@ -225,7 +225,7 @@ class RangesCursor implements TrieSetCursor
     // method.
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         while (direction.le(currentIdx, completedIdx)
                && (depths[currentIdx] > skipDepth ||

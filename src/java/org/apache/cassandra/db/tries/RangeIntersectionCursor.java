@@ -46,7 +46,7 @@ class RangeIntersectionCursor<S extends RangeState<S>> implements RangeCursor<S>
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return currentDepth;
     }
@@ -76,7 +76,7 @@ class RangeIntersectionCursor<S extends RangeState<S>> implements RangeCursor<S>
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         switch(state)
         {
@@ -98,7 +98,7 @@ class RangeIntersectionCursor<S extends RangeState<S>> implements RangeCursor<S>
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         switch(state)
         {

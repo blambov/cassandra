@@ -49,7 +49,7 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return data.depth();
     }
@@ -76,7 +76,7 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         int dataDepth = data.advance();
         if (atRange)
@@ -86,7 +86,7 @@ class RangeApplyCursor<T, S extends RangeState<S>> implements Cursor<T>
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         int dataDepth = data.skipTo(skipDepth, skipTransition);
         if (atRange) // if both cursors were at the same position, always advance the range cursor to catch up.

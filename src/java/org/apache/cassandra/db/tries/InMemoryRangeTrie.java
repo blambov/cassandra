@@ -89,7 +89,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return updateActiveAndReturn(super.advance());
         }
@@ -101,7 +101,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             activeIsSet = false;    // since we are skipping, we have no idea where we will end up
             activeRange = null;

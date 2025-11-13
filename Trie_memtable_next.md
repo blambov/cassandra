@@ -12,7 +12,9 @@ abc -> START(555)
  de -> END(555)
 ```
 
-`precedingState` works forward and back around "acc", but how about when we enter the branch? Cursor will be positioned ahead (otherwise we don't know there's substructure), and `precedingState` will be 555. How to know when to switch 777 to 555?
+`precedingState` works forward and back around "acc", but how about when we enter the branch? Cursor will be positioned
+ahead (otherwise we don't know there's substructure), and `precedingState` will be 555. How to know when to switch 777
+to 555?
 
 Other examples:
 
@@ -42,11 +44,12 @@ to represent `[a, aa)@111, [aa, aaa)@222, [aaa,aa]@333, (aa, ab)@444`
 
 We kind of need a "point" to be a pair of boundaries applicable at the positions just before point and just after point.
 
-Something like concat(key, -1) and concat(key, 256) switchpoints.
+Something like `concat(key, -1)` and `concat(key, 256)` switchpoints.
 
 ### The current way
 
-We currently do have to handle this for inclusivity at the boundaries. This relies on knowing boundaries have no children and doing some special advancing for them.
+We currently do have to handle this for inclusivity at the boundaries. This relies on knowing boundaries have no
+children and doing some special advancing for them.
 
 ### POINT vs POINT_WITH_SUBSTRUCTURE?
 
@@ -124,6 +127,17 @@ Range covering `a -> abc`
 
 
 # TODOs
+
+Multiple children flag. Perhaps two variations:
+ - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
+   children. 
+   Cleared by intersection.
+ - `HAS_AT_MOST_ONE_CHILD` only true if known. Intersections set at set|source but don't add on mismatch. 
+   Cleared by merge.
+
+Merges clear the flag.
+
+
 
 ## CollectionMergeCursor
 

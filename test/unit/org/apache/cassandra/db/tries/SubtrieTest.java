@@ -335,7 +335,7 @@ public class SubtrieTest
                 }
 
                 @Override
-                public int advance()
+                public long advance()
                 {
                     current += direction.increase;
                     return depth();
@@ -358,7 +358,7 @@ public class SubtrieTest
                 }
 
                 @Override
-                public int depth()
+                public long encodedPosition()
                 {
                     if (current == direction.select(-1, childs))
                         return 0;

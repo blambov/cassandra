@@ -28,8 +28,7 @@ class SingletonCursor<T> implements Cursor<T>
     ByteSource src;
     final ByteComparable.Version byteComparableVersion;
     final T value;
-    private int currentDepth = 0;
-    private int currentTransition = -1;
+    private long currentPosition = ROOT_POSITION;
     protected int nextTransition;
 
 
@@ -48,13 +47,16 @@ class SingletonCursor<T> implements Cursor<T>
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
-        currentTransition = nextTransition;
-        if (currentTransition != ByteSource.END_OF_STREAM)
+        currentPosition = Cursor.encode(Cursor.depth(currentPosition) + 1, nextTransition, direction())
+                          | FLAG_HAS_CHILDREN;
+        if (nextTransition != ByteSource.END_OF_STREAM)
         {
             nextTransition = src.next();
-            return ++currentDepth;
+            if (nextTransition == ByteSource.END_OF_STREAM)
+                currentPosition |= FLAG_HAS_CONTENT;
+            return currentPosition | FLAG_DESCENDED;
         }
         else
         {
@@ -63,12 +65,12 @@ class SingletonCursor<T> implements Cursor<T>
     }
 
     @Override
-    public int advanceMultiple(TransitionsReceiver receiver)
+    public long advanceMultiple(TransitionsReceiver receiver)
     {
         if (nextTransition == ByteSource.END_OF_STREAM)
             return done();
         int current = nextTransition;
-        int depth = currentDepth;
+        int depth = Cursor.depth(currentPosition);
         int next = src.next();
         while (next != ByteSource.END_OF_STREAM)
         {
@@ -78,41 +80,35 @@ class SingletonCursor<T> implements Cursor<T>
             next = src.next();
             ++depth;
         }
-        currentTransition = current;
+        currentPosition = Cursor.encode(depth + 1, current, direction())
+                          | FLAG_HAS_CHILDREN
+                          | FLAG_HAS_CONTENT;
         nextTransition = next;
-        currentDepth = ++depth;
-        return currentDepth;
+        return currentPosition | FLAG_DESCENDED;
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
-        if (skipDepth <= currentDepth)
-        {
-            assert skipDepth < currentDepth || direction.gt(skipTransition, currentTransition);
+        long current = currentPosition;
+        if (Cursor.compare(encodedSkipPosition, current) > 0)
             return done();  // no alternatives
-        }
-        if (direction.gt(skipTransition, nextTransition))
+
+        assert Cursor.depth(encodedSkipPosition) == Cursor.depth(current) + 1;
+        if (direction.encodeTransitionByte(nextTransition) < Cursor.undecodedTransition(encodedSkipPosition))
             return done();   // request is skipping over our path
 
         return advance();
     }
 
-    private int done()
+    private long done()
     {
-        currentTransition = -1;
-        return currentDepth = -1;
-    }
-
-    @Override
-    public int depth()
-    {
-        return currentDepth;
+        return currentPosition = EXHAUSTED_POSITION;
     }
 
     protected boolean atEnd()
     {
-        return nextTransition == ByteSource.END_OF_STREAM && currentDepth >= 0;
+        return nextTransition == ByteSource.END_OF_STREAM && !Cursor.isExhausted(currentPosition);
     }
 
     @Override
@@ -122,9 +118,9 @@ class SingletonCursor<T> implements Cursor<T>
     }
 
     @Override
-    public int incomingTransition()
+    public long encodedPosition()
     {
-        return currentTransition;
+        return currentPosition;
     }
 
     @Override
@@ -225,6 +221,7 @@ class SingletonCursor<T> implements Cursor<T>
         {
             super(direction, firstByte, src, byteComparableVersion, null);
             this.deletionBranch = deletionBranch;
+            // TODO: Set alternate branch flag
         }
 
         @Override

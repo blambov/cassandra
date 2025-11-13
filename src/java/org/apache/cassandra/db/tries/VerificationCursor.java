@@ -73,7 +73,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int depth()
+        public long encodedPosition()
         {
             Preconditions.checkState(returnedDepth == source.depth(),
                                      "Depth changed without advance: %s -> %s\n%s",
@@ -109,7 +109,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return verify(source.advance());
         }
@@ -128,10 +128,10 @@ public interface VerificationCursor
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             verifySkipRequest(skipDepth, skipTransition);
-            return verify(source.skipTo(skipDepth, skipTransition));
+            return verify(source.skipTo(encodedSkipPosition));
         }
 
         private void verifySkipRequest(int skipDepth, int skipTransition)
@@ -264,7 +264,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             currentPrecedingState = nextPrecedingState;
             checkIfDescentShouldBeForbidden();
@@ -280,7 +280,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             checkIfDescentShouldBeForbidden();
             return verifySkipState(super.skipTo(skipDepth, skipTransition));
@@ -460,7 +460,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int advance()
+        public long advance()
         {
             return verifyDeletionBranch(super.advance());
         }
@@ -472,7 +472,7 @@ public interface VerificationCursor
         }
 
         @Override
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
             return verifyDeletionBranch(super.skipTo(skipDepth, skipTransition));
         }

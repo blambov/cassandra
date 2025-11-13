@@ -56,7 +56,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         return data.depth();
     }
@@ -83,7 +83,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         int newDataDepth = data.advance();
 
@@ -96,7 +96,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         int newDataDepth = data.skipTo(skipDepth, skipTransition);
 

@@ -59,7 +59,7 @@ public class RangesTrieSetTest
                 return cursor.state();
             }
 
-            public int depth()
+            public long encodedPosition()
             {
                 return cursor.depth();
             }
@@ -71,13 +71,13 @@ public class RangesTrieSetTest
             }
 
             @Override
-            public int advance()
+            public long advance()
             {
                 return cursor.advance();
             }
 
             @Override
-            public int skipTo(int skipDepth, int skipTransition)
+            public long skipTo(long encodedSkipPosition)
             {
                 return cursor.skipTo(skipDepth, skipTransition);
             }

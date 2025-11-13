@@ -117,12 +117,113 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// Also see [Trie.md](./Trie.md) for further documentation.
 interface Cursor<T>
 {
-    /// @return the current descend-depth; 0, if the cursor has just been created and is positioned on the root,
-    ///         and -1, if the trie has been exhausted.
-    int depth();
+    // The flag's meaning must be such that logical OR on them should reflect the features of a merge.
 
-    /// @return the last transition taken; if positioned on the root, return -1
-    int incomingTransition();
+    // TODO: Likely need to change the meaning to "may have X" as e.g. content may be rejected by filter function.
+
+    static final int FLAG_HAS_CONTENT  = 1 << 8;
+    // 1 << 9 reserved for FLAG_HAS_ALTERNATE
+    // 1 << 10 reserved for FLAG_HAS_PRECEDING_STATE
+    static final int FLAG_HAS_CHILDREN = 1 << 11;
+    // TODO: figure if we want the one below. Merges and intersections must deal with it properly.
+    // Certainly has more than one child. This is not guaranteed to always be set, but if it is set, there
+    // static final int FLAG_HAS_MULTIPLE_CHILDREN = 1 << 12;
+    // 1 << 13 to 1 << 15 reserved.
+
+    // The flags below apply to operations that advance the cursor state (advance/advanceMultiple/skipTo) and are
+    // returned in the long value returned by the method.
+    // The flags are not included in encodedState.
+
+    // The operation descended (i.e. current level = prev level + 1).
+    static final int FLAG_DESCENDED = 1 << 0;
+    // A skipTo operation jumped to the requested position.
+    static final int FLAG_SKIP_TO_MATCHED = 1 << 1;
+    // A skipToWhenAhead operation advanced the cursor state.
+    static final int FLAG_SKIP_TO_WHEN_AHEAD_MOVED = 1 << 2;
+    // 1 << 3 to 1 << 7 reserved.
+
+    static final long POSITION_COMPARISON_MASK = 0xFFFFFFFFFFFF0000L;
+
+    static final int DEPTH_SHIFT = 32;
+    static final int TRANSITION_SHIFT = 16;
+
+    static final long ROOT_POSITION = encode(0, 0, Direction.FORWARD);
+    static final long EXHAUSTED_POSITION = encode(-1, 0, Direction.FORWARD);
+
+    static int depth(long encodedPosition)
+    {
+        return ~(int) (encodedPosition >> 32);
+    }
+
+    static int incomingTransition(long encodedPosition, Direction direction)
+    {
+        return direction.encodeTransitionByte(undecodedTransition(encodedPosition));
+    }
+
+    static int undecodedTransition(long encodedPosition)
+    {
+        return (int) (encodedPosition >> 16) & 0x1FF;   // include overflow bit
+    }
+
+
+    static long compare(long encoded1, long encoded2)
+    {
+        // This can support depth of 2^31 - 1 without overflowing.
+        return (encoded1 & POSITION_COMPARISON_MASK) - (encoded2 & POSITION_COMPARISON_MASK);
+    }
+
+    static long encode(int depth, int transition, Direction direction)
+    {
+        assert depth >= -1;
+        assert transition <= 0xFF && transition >= 0;
+        return ((long) ~depth << 32) | direction.encodeTransitionByte(transition << 16);
+    }
+
+    static boolean isExhausted(long encodedPosition)
+    {
+        // Depth of -1 translates to positive encoding.
+        return encodedPosition >= 0;
+    }
+
+    static boolean hasChildren(long encodedPosition)
+    {
+        return (encodedPosition & FLAG_HAS_CHILDREN) != 0;
+    }
+//
+//    static boolean hasMultipleChildren(long encodedPosition)
+//    {
+//        return (encodedPosition & FLAG_HAS_MULTIPLE_CHILDREN) != 0;
+//    }
+
+    static boolean hasContent(long encodedPosition)
+    {
+        return (encodedPosition & FLAG_HAS_CONTENT) != 0;
+    }
+
+    static boolean operationDescended(long encodedPosition)
+    {
+        return (encodedPosition & FLAG_DESCENDED) != 0;
+    }
+
+    static boolean skipToMatched(long encodedPosition)
+    {
+        return (encodedPosition & FLAG_SKIP_TO_MATCHED) != 0;
+    }
+
+    static String toString(long encodedPosition, Direction direction)
+    {
+        return String.format("Depth %d incomingTransition %d", depth(encodedPosition), incomingTransition(encodedPosition, direction));
+    }
+
+    /// Returns the encoded position, which contains, in order of significance:
+    /// - `-depth` in the top 32 bits
+    /// - 3 reserved bits for future use, included in comparisons
+    /// - 1 bit for `incomingTransition` overflow (so that next branch can be requested using 0x100 transition bits)
+    /// - `incomingTransition` in the next 8 bits, negated when iterating backwards
+    /// - 4 reserved bits for future use, included in comparisons
+    /// - 8 bits for flags that reflect features of the node
+    /// - 8 bits for flags that reflect the result of an operation
+    long encodedPosition();
 
     /// @return the content associated with the current node. This may be non-null for any presented node, including
     ///         the root.
@@ -143,8 +244,9 @@ interface Cursor<T>
     /// It is an error to call this after the trie has already been exhausted (i.e. when `depth() == -1`);
     /// for performance reasons we won't always check this.
     ///
-    /// @return depth (can be `prev+1` or `<=prev`), -1 means that the trie is exhausted
-    int advance();
+    /// @return encoded position (see [#encodedPosition()]). The position has FLAG_DESCENDED set if and only if the
+    ///         cursor descended to a child node.
+    long advance();
 
     /// Advance, descending multiple levels if the cursor can do this for the current position without extra work
     /// (e.g. when positioned on a chain node in a memtable trie). If the current node does not have children this
@@ -160,8 +262,9 @@ interface Cursor<T>
     ///
     /// @param receiver object that will receive all transitions taken except the last;
     ///                                 on ascend, or if only one step down was taken, it will not receive any
-    /// @return the new depth, -1 if the trie is exhausted
-    default int advanceMultiple(TransitionsReceiver receiver)
+    /// @return encoded position (see [#encodedPosition()]). The position has FLAG_DESCENDED set if and only if the
+    ///         cursor descended to a child node.
+    default long advanceMultiple(TransitionsReceiver receiver)
     {
         return advance();
     }
@@ -175,22 +278,19 @@ interface Cursor<T>
     /// @return the content, null if the trie is exhausted
     default T advanceToContent(ResettingTransitionsReceiver receiver)
     {
-        int prevDepth = depth();
         while (true)
         {
-            int currDepth = advanceMultiple(receiver);
-            if (currDepth <= 0)
+            long curr = advanceMultiple(receiver);
+            if (isExhausted(curr))
                 return null;
             if (receiver != null)
             {
-                if (currDepth <= prevDepth)
-                    receiver.resetPathLength(currDepth - 1);
-                receiver.addPathByte(incomingTransition());
+                if (!operationDescended(curr))
+                    receiver.resetPathLength(depth(curr) - 1);
+                receiver.addPathByte(incomingTransition(curr, direction()));
             }
-            T content = content();
-            if (content != null)
-                return content;
-            prevDepth = currDepth;
+            if (hasContent(curr))
+                return content();
         }
     }
 
@@ -198,9 +298,13 @@ interface Cursor<T>
     /// position. The inputs must be something that could be returned by a single call to [#advance] (i.e.
     /// `depth` must be <= current depth + 1, and `incomingTransition` must be higher than what the
     /// current state saw at the requested depth).
+    /// This method must also support a transition value of 0x100, which may be used to request ascent from the current
+    /// position.
     ///
-    /// @return the new depth, always <= previous depth + 1; -1 if the trie is exhausted
-    int skipTo(int skipDepth, int skipTransition);
+    /// @return the new encoded position. The position has FLAG_DESCENDED set if and only if the
+    ///         cursor descended to a child node, and FLAG_SKIP_TO_MATCHED if and only if the cursor advanced to the
+    ///         requested position exactly (i.e. compare(returnedPosition, encodedSkipPosition) == 0).
+    long skipTo(long encodedSkipPosition);
 
     /// A version of [#skipTo] which checks if the requested position is ahead of the cursor's current position and only
     /// advances if it is. This can only be used if the [#skipTo] instruction is issued from a position that is behind
@@ -208,13 +312,13 @@ interface Cursor<T>
     /// this cursor's and will not be acted on).
     ///
     /// Used for parallel walks when one of the source cursors is known to be ahead of the current position.
-    default int skipToWhenAhead(int skipDepth, int skipTransition)
+    default long skipToWhenAhead(long encodedSkipPosition)
     {
-        int depth = depth();
-        if (skipDepth < depth || skipDepth == depth && direction().gt(skipTransition, incomingTransition()))
-            return skipTo(skipDepth, skipTransition);
+        long current = encodedPosition();
+        if (compare(encodedSkipPosition, current) > 0)
+            return skipTo(encodedSkipPosition) | FLAG_SKIP_TO_WHEN_AHEAD_MOVED;
         else
-            return depth;
+            return current;
     }
 
     /// Descend into the cursor with the given path.
@@ -225,10 +329,11 @@ interface Cursor<T>
     default boolean descendAlong(ByteSource bytes)
     {
         int next = bytes.next();
-        int depth = depth();
+        int depth = depth(encodedPosition());
+        Direction direction = direction();
         while (next != ByteSource.END_OF_STREAM)
         {
-            if (skipTo(++depth, next) != depth || incomingTransition() != next)
+            if (!skipToMatched(skipTo(encode(++depth, next, direction))))
                 return false;
             next = bytes.next();
         }
@@ -276,9 +381,13 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R process(Cursor.Walker<? super T, R> walker)
     {
-        assert depth() == 0 : "The provided cursor has already been advanced.";
-        T content = content();   // handle content on the root node
-        if (content == null)
+        long current = encodedPosition();
+        assert depth(current) == 0 : "The provided cursor has already been advanced.";
+        T content;
+        // handle content on the root node
+        if (hasContent(current))
+            content = content();
+        else
             content = advanceToContent(walker);
 
         while (content != null)
@@ -293,24 +402,29 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R processSkippingBranches(Cursor.Walker<? super T, R> walker)
     {
-        assert depth() == 0 : "The provided cursor has already been advanced.";
-        T content = content();   // handle content on the root node
-        if (content != null)
+        long current = encodedPosition();
+        assert depth(current) == 0 : "The provided cursor has already been advanced.";
+        // handle content on the root node
+        if (hasContent(current))
         {
-            walker.content(content);
+            walker.content(content());
             return walker.complete();
         }
-        content = advanceToContent(walker);
 
+        Direction direction = direction();
+        T content = advanceToContent(walker);
         while (content != null)
         {
             walker.content(content);
-            if (skipTo(depth(), incomingTransition() + direction().increase) < 0)
+            // skip over the branch by requesting a position that is beyond
+            current = skipTo(encodedPosition() + (1 << TRANSITION_SHIFT));
+            if (isExhausted(current))
                 break;
-            walker.resetPathLength(depth() - 1);
-            walker.addPathByte(incomingTransition());
-            content = content();
-            if (content == null)
+            walker.resetPathLength(depth(current) - 1);
+            walker.addPathByte(incomingTransition(current, direction));
+            if (hasContent(current))
+                content = content();
+            else
                 content = advanceToContent(walker);
         }
         return walker.complete();
@@ -320,47 +434,44 @@ interface Cursor<T>
     {
         private final Direction direction;
         private final ByteComparable.Version byteComparableVersion;
-        int depth;
+        long position;
 
         Empty(Direction direction, ByteComparable.Version byteComparableVersion)
         {
+            assert byteComparableVersion != null;
             this.direction = direction;
             this.byteComparableVersion = byteComparableVersion;
-            depth = 0;
+            position = ROOT_POSITION;
         }
 
-        public int advance()
+        public long advance()
         {
-            return depth = -1;
+            return position = EXHAUSTED_POSITION;
         }
 
-        public int skipTo(int skipDepth, int skipTransition)
+        public long skipTo(long encodedSkipPosition)
         {
-            return depth = -1;
+            return advance();
         }
 
         public ByteComparable.Version byteComparableVersion()
         {
-            if (byteComparableVersion != null)
+//            if (byteComparableVersion != null)
                 return byteComparableVersion;
-            throw new AssertionError();
+//            throw new AssertionError();
         }
 
         @Override
         public Cursor<T> tailCursor(Direction direction)
         {
-            assert depth == 0 : "tailTrie called on exhausted cursor";
+            assert position == ROOT_POSITION : "tailTrie called on exhausted cursor";
             return new Empty<>(direction, byteComparableVersion);
         }
 
-        public int depth()
+        @Override
+        public long encodedPosition()
         {
-            return depth;
-        }
-
-        public T content()
-        {
-            return null;
+            return position;
         }
 
         @Override
@@ -369,9 +480,9 @@ interface Cursor<T>
             return direction;
         }
 
-        public int incomingTransition()
+        public T content()
         {
-            return -1;
+            return null;
         }
     }
 

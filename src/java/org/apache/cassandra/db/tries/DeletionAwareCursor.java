@@ -81,8 +81,9 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     /// deletion branches.
     default <R> R process(DeletionAwareTrie.DeletionAwareWalker<? super T, ? super D, R> walker)
     {
-        assert depth() == 0 : "The provided cursor has already been advanced.";
-        int prevDepth = 0;
+        long currentPosition = encodedPosition();
+        assert Cursor.depth(currentPosition) == 0 : "The provided cursor has already been advanced.";
+        Direction direction = direction();
 
         while (true)
         {
@@ -92,17 +93,19 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                 processDeletionBranch(walker, deletionBranch);
                 walker.exitDeletionsBranch();
             }
-            T content = content();   // handle content on the root node
-            if (content != null)
-                walker.content(content);
+            if (Cursor.hasContent(currentPosition))
+            {
+                T content = content();   // handle content on the root node
+                if (content != null)
+                    walker.content(content);
+            }
 
-            int currDepth = advanceMultiple(walker);
-            if (currDepth < 0)
+            currentPosition = advanceMultiple(walker);
+            if (Cursor.isExhausted(currentPosition))
                 break;
-            if (currDepth <= prevDepth)
-                walker.resetPathLength(currDepth - 1);
-            walker.addPathByte(incomingTransition());
-            prevDepth = currDepth;
+            if (!Cursor.operationDescended(currentPosition))
+                walker.resetPathLength(Cursor.depth(currentPosition) - 1);
+            walker.addPathByte(Cursor.incomingTransition(currentPosition, direction));
         }
 
         return walker.complete();
@@ -111,8 +114,9 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     /// Process a deletion branch using the given walker.
     private static <D> void processDeletionBranch(DeletionAwareTrie.DeletionAwareWalker<?, ? super D, ?> walker, Cursor<D> cursor)
     {
-        assert cursor.depth() == 0 : "The provided cursor has already been advanced.";
-        D content = cursor.content();   // handle content on the root node
+        long currentPosition = cursor.encodedPosition();
+        assert Cursor.depth(currentPosition) == 0 : "The provided cursor has already been advanced.";
+        D content = Cursor.hasContent(currentPosition) ? cursor.content() : null;   // handle content on the root node
         if (content == null)
             content = cursor.advanceToContent(walker);
 
@@ -130,25 +134,26 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1)
         {
             super(resolver, c1);
-            postAdvance(c1.depth());
+            postAdvance(c1.encodedPosition());
         }
 
         LiveAndDeletionsMergeCursor(BiFunction<T, D, Z> resolver, DeletionAwareCursor<T, D> c1, RangeCursor<D> c2)
         {
             super(resolver, c1, c2);
-            postAdvance(c1.depth());
+            postAdvance(c1.encodedPosition());
         }
 
         @Override
-        int postAdvance(int depth)
+        long postAdvance(long encodedPosition)
         {
             if (state == State.C1_ONLY)
             {
+                // TODO: Use flag
                 RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction);
                 if (deletionsBranch != null)
                     addCursor(deletionsBranch);
             }
-            return depth;
+            return encodedPosition;
         }
 
         @Override
@@ -199,11 +204,11 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         }
 
         @Override
-        int postAdvance(int depth)
+        long postAdvance(long encodedPosition)
         {
             if (stopIssuingDeletions)
-                return depth;
-            return super.postAdvance(depth);
+                return encodedPosition;
+            return super.postAdvance(encodedPosition);
         }
     }
 
@@ -218,7 +223,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         DeletionsTrieCursor(DeletionAwareCursor<T, D> c1)
         {
             super(c1);
-            postAdvance(c1.depth());
+            postAdvance(c1.encodedPosition());
         }
 
         @Override
@@ -240,7 +245,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         }
 
         @Override
-        int postAdvance(int depth)
+        long postAdvance(long encodedPosition)
         {
             switch (state)
             {
@@ -254,14 +259,15 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                         addCursor(deletionsBranch);
                         // deletion branches cannot be nested; skip past the current position in the main trie as we
                         // don't need to further track it inside this branch
-                        c1.skipTo(depth, incomingTransition + direction.increase);
+                        c1.skipTo(encodedPosition + (1 << TRANSITION_SHIFT));
                         state = State.AT_C2;
+                        encodedPosition |= c2.encodedPosition();
                     }
                     break;
                 default:
                     throw new AssertionError("Deletion branch extends above its introduction");
             }
-            return depth;
+            return encodedPosition;
         }
 
         @Override

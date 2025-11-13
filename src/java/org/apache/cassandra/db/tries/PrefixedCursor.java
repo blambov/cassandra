@@ -64,7 +64,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int depth()
+    public long encodedPosition()
     {
         if (prefixDone())
             return tail.depth() + depthOfPrefix;
@@ -79,7 +79,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int advance()
+    public long advance()
     {
         if (prefixDone())
             return completeAdvanceInTail(tail.advance());
@@ -111,7 +111,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     @Override
-    public int skipTo(int skipDepth, int skipTransition)
+    public long skipTo(long encodedSkipPosition)
     {
         // regardless if we exhausted prefix, if caller asks for depth <= prefix depth, we're done.
         if (skipDepth <= depthOfPrefix)
