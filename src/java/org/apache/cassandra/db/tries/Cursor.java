@@ -117,31 +117,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// Also see [Trie.md](./Trie.md) for further documentation.
 interface Cursor<T>
 {
-    // The flag's meaning must be such that logical OR on them should reflect the features of a merge.
-
-    // TODO: Likely need to change the meaning to "may have X" as e.g. content may be rejected by filter function.
-
-    static final int FLAG_HAS_CONTENT  = 1 << 8;
-    // 1 << 9 reserved for FLAG_HAS_ALTERNATE
-    // 1 << 10 reserved for FLAG_HAS_PRECEDING_STATE
-    static final int FLAG_HAS_CHILDREN = 1 << 11;
-    // TODO: figure if we want the one below. Merges and intersections must deal with it properly.
-    // Certainly has more than one child. This is not guaranteed to always be set, but if it is set, there
-    // static final int FLAG_HAS_MULTIPLE_CHILDREN = 1 << 12;
-    // 1 << 13 to 1 << 15 reserved.
-
-    // The flags below apply to operations that advance the cursor state (advance/advanceMultiple/skipTo) and are
-    // returned in the long value returned by the method.
-    // The flags are not included in encodedState.
-
-    // The operation descended (i.e. current level = prev level + 1).
-    static final int FLAG_DESCENDED = 1 << 0;
-    // A skipTo operation jumped to the requested position.
-    static final int FLAG_SKIP_TO_MATCHED = 1 << 1;
-    // A skipToWhenAhead operation advanced the cursor state.
-    static final int FLAG_SKIP_TO_WHEN_AHEAD_MOVED = 1 << 2;
-    // 1 << 3 to 1 << 7 reserved.
-
     static final long POSITION_COMPARISON_MASK = 0xFFFFFFFFFFFF0000L;
 
     static final int DEPTH_SHIFT = 32;
@@ -169,7 +144,7 @@ interface Cursor<T>
     static long compare(long encoded1, long encoded2)
     {
         // This can support depth of 2^31 - 1 without overflowing.
-        return (encoded1 & POSITION_COMPARISON_MASK) - (encoded2 & POSITION_COMPARISON_MASK);
+        return encoded1 - encoded2;
     }
 
     static long encode(int depth, int transition, Direction direction)
@@ -179,35 +154,17 @@ interface Cursor<T>
         return ((long) ~depth << 32) | direction.encodeTransitionByte(transition << 16);
     }
 
+    /// Returns a position that can be used to skip over the given branch. Note that this can only work when the
+    /// given encoded position is a valid skipTo position for the current state.
+    static long encodedPositionForSkippingBranch(long encodedBranchPosition)
+    {
+        return encodedBranchPosition + (1 << TRANSITION_SHIFT);
+    }
+
     static boolean isExhausted(long encodedPosition)
     {
         // Depth of -1 translates to positive encoding.
         return encodedPosition >= 0;
-    }
-
-    static boolean hasChildren(long encodedPosition)
-    {
-        return (encodedPosition & FLAG_HAS_CHILDREN) != 0;
-    }
-//
-//    static boolean hasMultipleChildren(long encodedPosition)
-//    {
-//        return (encodedPosition & FLAG_HAS_MULTIPLE_CHILDREN) != 0;
-//    }
-
-    static boolean hasContent(long encodedPosition)
-    {
-        return (encodedPosition & FLAG_HAS_CONTENT) != 0;
-    }
-
-    static boolean operationDescended(long encodedPosition)
-    {
-        return (encodedPosition & FLAG_DESCENDED) != 0;
-    }
-
-    static boolean skipToMatched(long encodedPosition)
-    {
-        return (encodedPosition & FLAG_SKIP_TO_MATCHED) != 0;
     }
 
     static String toString(long encodedPosition, Direction direction)
@@ -278,19 +235,23 @@ interface Cursor<T>
     /// @return the content, null if the trie is exhausted
     default T advanceToContent(ResettingTransitionsReceiver receiver)
     {
+        long prevPosition = encodedPosition();
+        Direction direction = direction();
         while (true)
         {
-            long curr = advanceMultiple(receiver);
-            if (isExhausted(curr))
+            long currPosition = advanceMultiple(receiver);
+            if (isExhausted(currPosition))
                 return null;
             if (receiver != null)
             {
-                if (!operationDescended(curr))
-                    receiver.resetPathLength(depth(curr) - 1);
-                receiver.addPathByte(incomingTransition(curr, direction()));
+                if (currPosition <= prevPosition)
+                    receiver.resetPathLength(depth(currPosition) - 1);
+                receiver.addPathByte(incomingTransition(currPosition, direction));
             }
-            if (hasContent(curr))
-                return content();
+            T content = content();
+            if (content != null)
+                return content;
+            prevPosition = currPosition;
         }
     }
 
@@ -316,7 +277,7 @@ interface Cursor<T>
     {
         long current = encodedPosition();
         if (compare(encodedSkipPosition, current) > 0)
-            return skipTo(encodedSkipPosition) | FLAG_SKIP_TO_WHEN_AHEAD_MOVED;
+            return skipTo(encodedSkipPosition);
         else
             return current;
     }
@@ -333,7 +294,8 @@ interface Cursor<T>
         Direction direction = direction();
         while (next != ByteSource.END_OF_STREAM)
         {
-            if (!skipToMatched(skipTo(encode(++depth, next, direction))))
+            long nextPosition = encode(++depth, next, direction);
+            if (compare(skipTo(nextPosition), nextPosition) != 0)
                 return false;
             next = bytes.next();
         }
@@ -381,13 +343,9 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R process(Cursor.Walker<? super T, R> walker)
     {
-        long current = encodedPosition();
-        assert depth(current) == 0 : "The provided cursor has already been advanced.";
-        T content;
-        // handle content on the root node
-        if (hasContent(current))
-            content = content();
-        else
+        assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
+        T content = content();   // handle content on the root node
+        if (content == null)
             content = advanceToContent(walker);
 
         while (content != null)
@@ -402,29 +360,27 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R processSkippingBranches(Cursor.Walker<? super T, R> walker)
     {
-        long current = encodedPosition();
-        assert depth(current) == 0 : "The provided cursor has already been advanced.";
-        // handle content on the root node
-        if (hasContent(current))
+        assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
+        Direction direction = direction();
+        T content = content();   // handle content on the root node
+        if (content != null)
         {
-            walker.content(content());
+            walker.content(content);
             return walker.complete();
         }
+        content = advanceToContent(walker);
 
-        Direction direction = direction();
-        T content = advanceToContent(walker);
         while (content != null)
         {
             walker.content(content);
             // skip over the branch by requesting a position that is beyond
-            current = skipTo(encodedPosition() + (1 << TRANSITION_SHIFT));
+            long current = skipTo(encodedPositionForSkippingBranch(encodedPosition()));
             if (isExhausted(current))
                 break;
             walker.resetPathLength(depth(current) - 1);
             walker.addPathByte(incomingTransition(current, direction));
-            if (hasContent(current))
-                content = content();
-            else
+            content = content();
+            if (content == null)
                 content = advanceToContent(walker);
         }
         return walker.complete();

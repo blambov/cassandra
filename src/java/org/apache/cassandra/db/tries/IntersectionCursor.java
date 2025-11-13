@@ -106,7 +106,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
 
         // Source moved beyond the set position. Advance the set too.
         setPosition = set.skipTo(sourcePosition);
-        if (Cursor.skipToMatched(setPosition))
+        if (Cursor.compare(setPosition, sourcePosition) == 0)
             return matchingPosition(sourcePosition);
 
         // At this point set is ahead. Check content to see if we are in a covered branch.
@@ -125,12 +125,12 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
             long sourcePosition = source.skipTo(setPosition);
             if (Cursor.isExhausted(sourcePosition))
                 return exhausted();
-            if (Cursor.skipToMatched(sourcePosition))
+            if (Cursor.compare(setPosition, sourcePosition) == 0)
                 return matchingPosition(sourcePosition);
 
             // Source is now ahead of the set.
             setPosition = set.skipTo(sourcePosition);
-            if (Cursor.skipToMatched(setPosition))
+            if (Cursor.compare(setPosition, sourcePosition) == 0)
                 return matchingPosition(sourcePosition);
 
             // At this point set is ahead. Check content to see if we are in a covered branch.
@@ -239,7 +239,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
             // Otherwise we need to skip this node and its branch by jumping to the next position on the same depth.
             // Note that we can't mess up any `advanceMultiple` path reporting, as that cannot end up on a matching
             // position while it is reporting bytes for a descending chain.
-            return skipTo(encodedPosition + (1 << TRANSITION_SHIFT));
+            return skipTo(Cursor.encodedPositionForSkippingBranch(encodedPosition));
         }
 
         @Override

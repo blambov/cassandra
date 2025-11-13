@@ -177,7 +177,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         }
         // c1pos == c2pos
         state = State.AT_BOTH;
-        return currentPosition = postAdvance(c1pos | c2pos);
+        return currentPosition = postAdvance(c1pos);
     }
 
     private long leaveC2(long c1pos)

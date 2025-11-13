@@ -49,14 +49,11 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public long advance()
     {
-        currentPosition = Cursor.encode(Cursor.depth(currentPosition) + 1, nextTransition, direction())
-                          | FLAG_HAS_CHILDREN;
+        currentPosition = Cursor.encode(Cursor.depth(currentPosition) + 1, nextTransition, direction());
         if (nextTransition != ByteSource.END_OF_STREAM)
         {
             nextTransition = src.next();
-            if (nextTransition == ByteSource.END_OF_STREAM)
-                currentPosition |= FLAG_HAS_CONTENT;
-            return currentPosition | FLAG_DESCENDED;
+            return currentPosition;
         }
         else
         {
@@ -80,11 +77,9 @@ class SingletonCursor<T> implements Cursor<T>
             next = src.next();
             ++depth;
         }
-        currentPosition = Cursor.encode(depth + 1, current, direction())
-                          | FLAG_HAS_CHILDREN
-                          | FLAG_HAS_CONTENT;
+        currentPosition = Cursor.encode(depth + 1, current, direction());
         nextTransition = next;
-        return currentPosition | FLAG_DESCENDED;
+        return currentPosition;
     }
 
     @Override
@@ -221,7 +216,6 @@ class SingletonCursor<T> implements Cursor<T>
         {
             super(direction, firstByte, src, byteComparableVersion, null);
             this.deletionBranch = deletionBranch;
-            // TODO: Set alternate branch flag
         }
 
         @Override

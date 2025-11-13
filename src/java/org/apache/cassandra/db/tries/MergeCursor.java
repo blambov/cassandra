@@ -56,7 +56,6 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     {
         return checkOrder(atC1 ? c1.advance() : c1.encodedPosition(),
                           atC2 ? c2.advance() : c2.encodedPosition());
-        // TODO: recheck / explain operation flags when using encodedPosition
     }
 
     @Override
@@ -86,33 +85,15 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     long checkOrder(long c1pos, long c2pos)
     {
         long cmp = Cursor.compare(c1pos, c2pos);
-        if (cmp == 0)
-        {
-            atC1 = atC2 = true;
-            // The positions are the same. Combine the flags with OR; this also gives us the correct operation flags,
-            // and leaves the position unchanged.
-            return c1pos | c2pos;
-        }
-        else if (cmp < 0)
-        {
-            atC1 = true;
-            atC2 = false;
-            return c1pos;
-        }
-        else
-        {
-            atC2 = true;
-            atC1 = false;
-            return c2pos;
-        }
+        atC1 = cmp <= 0;
+        atC2 = cmp >= 0;
+        return atC1 ? c1pos : c2pos;
     }
 
     @Override
     public long encodedPosition()
     {
-        long e1 = atC1 ? c1.encodedPosition() : 0;
-        long e2 = atC2 ? c2.encodedPosition() : 0;
-        return e1 | e2;
+        return atC1 ? c1.encodedPosition() : c2.encodedPosition();
     }
 
     @Override
@@ -179,7 +160,6 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         @Override
         public S state()
         {
-            // TODO: Take advantage of flag
             if (!stateCollected)
             {
                 S state1 = atC1 ? c1.state() : c1.precedingState();

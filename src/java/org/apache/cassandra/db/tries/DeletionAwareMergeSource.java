@@ -58,13 +58,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     @Override
     public long encodedPosition()
     {
-        return data.depth();
-    }
-
-    @Override
-    public int incomingTransition()
-    {
-        return data.incomingTransition();
+        return data.encodedPosition();
     }
 
     @Override
