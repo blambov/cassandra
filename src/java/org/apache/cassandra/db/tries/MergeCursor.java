@@ -32,7 +32,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// See [Trie.md](./Trie.md) for further details.
 abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 {
-    final Direction direction;
     final Trie.MergeResolver<T> resolver;
 
     final C c1;
@@ -43,7 +42,6 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
 
     MergeCursor(Trie.MergeResolver<T> resolver, C c1, C c2)
     {
-        this.direction = c1.direction();
         this.resolver = resolver;
         this.c1 = c1;
         this.c2 = c2;
@@ -99,7 +97,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     @Override
     public Direction direction()
     {
-        return direction;
+        return c1.direction();
     }
 
     @Override
@@ -246,7 +244,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                  new DeletionAwareMergeSource<>(deleter, c2),
                  deletionsAtFixedPoints);
             // We will add deletion sources to the above as we find them.
-            maybeAddDeletionsBranch(this.c1.depth());
+            maybeAddDeletionsBranch(this.c1.encodedPosition());
         }
 
         DeletionAware(Trie.MergeResolver<T> mergeResolver,
@@ -328,7 +326,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return;
 
             // TODO: Use flag before asking for deletion branch cursor
-            RangeCursor<D> deletionsBranch = src.deletionBranchCursor(direction);
+            RangeCursor<D> deletionsBranch = src.deletionBranchCursor(src.direction());
             if (deletionsBranch != null)
                 tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
         }

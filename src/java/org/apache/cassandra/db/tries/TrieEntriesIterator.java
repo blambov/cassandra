@@ -47,7 +47,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
     {
         this.cursor = cursor;
         this.predicate = predicate;
-        assert cursor.depth() == 0;
+        assert Cursor.depth(cursor.encodedPosition()) == 0;
         next = cursor.content();
         gotNext = next != null && predicate.test(next);
     }
@@ -144,7 +144,7 @@ public abstract class TrieEntriesIterator<T, V> extends TriePathReconstructor im
         WithNullFiltering(Cursor<T> cursor)
         {
             this.cursor = cursor;
-            assert cursor.depth() == 0;
+            assert Cursor.depth(cursor.encodedPosition()) == 0;
             T nextContent = cursor.content();
             if (nextContent != null)
             {

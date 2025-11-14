@@ -272,7 +272,7 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     @Override
     default Cursor<T> cursor(Direction direction)
     {
-        return DEBUG ? new VerificationCursor.Plain<>(makeCursor(direction), 0, 0, -1)
+        return DEBUG ? new VerificationCursor.Plain<>(makeCursor(direction))
                      : makeCursor(direction);
     }
 }

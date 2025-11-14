@@ -117,27 +117,64 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// Also see [Trie.md](./Trie.md) for further documentation.
 interface Cursor<T>
 {
-    static final long POSITION_COMPARISON_MASK = 0xFFFFFFFFFFFF0000L;
-
     static final int DEPTH_SHIFT = 32;
     static final int TRANSITION_SHIFT = 16;
 
-    static final long ROOT_POSITION = encode(0, 0, Direction.FORWARD);
-    static final long EXHAUSTED_POSITION = encode(-1, 0, Direction.FORWARD);
+    /// 1 for reverse direction, 0 for forward. Used to xor transition bits for incomingTransition.
+    /// This takes part in comparisons but this does not matter because they always go in the same direction.
+    /// This _must_ be 31, the code below takes advantage of this bit being the sign bit of (int) encodedPosition.
+    static final int DIRECTION_BIT = 31;
+
+    static final long ROOT_POSITION_FORWARD = encode(0, 0, Direction.FORWARD);
+    static final long ROOT_POSITION_REVERSE = encode(0, 0, Direction.REVERSE);
+
+    static final long EXHAUSTED_POSITION_FORWARD = encode(-1, 0, Direction.FORWARD);
+    static final long EXHAUSTED_POSITION_REVERSE = encode(-1, 0, Direction.REVERSE);
+    static final long EXHAUSTED_POSITION_DEPTH = EXHAUSTED_POSITION_FORWARD & 0xFFFFFFFF00000000L;
+
+    static final long DEPTH_ADJUSTMENT_ONE = -1L << DEPTH_SHIFT;
 
     static int depth(long encodedPosition)
     {
-        return ~(int) (encodedPosition >> 32);
+        return ~(int) (encodedPosition >> DEPTH_SHIFT);
     }
 
-    static int incomingTransition(long encodedPosition, Direction direction)
+    static boolean isExhausted(long encodedPosition)
     {
-        return direction.encodeTransitionByte(undecodedTransition(encodedPosition));
+        // Depth of -1 translates to positive encoding.
+        // This must also be true for other positive values that may be the result of adjusting depths.
+        return encodedPosition >= 0;
+    }
+
+    /// Construct a "depth correction" adjustment that can be added to or subtract from positions to adjust the depth
+    /// by the depth of the given encoded position.
+    ///
+    /// The value is such that
+    ///   `depth(somePosition) + depth(initialPosition) = depth(somePosition + depthCorrectionValue(initialPosition))`
+    /// including
+    ///   `depth(ROOT_POSITION + depthCorrectionValue(encodedPosition)) == depth(encodedPosition)`
+    ///
+    /// TODO: test
+    static long depthCorrectionValue(long encodedPosition)
+    {
+        return ((long) -depth(encodedPosition)) << DEPTH_SHIFT;
+    }
+
+    static int incomingTransition(long encodedPosition)
+    {
+        int transitionInt = (int) encodedPosition;
+        transitionInt ^= transitionInt >> 31;
+        return (transitionInt >> TRANSITION_SHIFT) & 0xFF;
     }
 
     static int undecodedTransition(long encodedPosition)
     {
         return (int) (encodedPosition >> 16) & 0x1FF;   // include overflow bit
+    }
+
+    static Direction direction(long encodedPosition)
+    {
+        return Direction.values()[((int) encodedPosition >>> DIRECTION_BIT) & 1];
     }
 
 
@@ -147,29 +184,49 @@ interface Cursor<T>
         return encoded1 - encoded2;
     }
 
+    static long rootPosition(Direction direction)
+    {
+        return direction == Direction.FORWARD ? ROOT_POSITION_FORWARD : ROOT_POSITION_REVERSE;
+    }
+
+    static long exhaustedPosition(Direction direction)
+    {
+        return direction == Direction.FORWARD ? EXHAUSTED_POSITION_FORWARD : EXHAUSTED_POSITION_REVERSE;
+    }
+
+    static long exhaustedPosition(long prevPosition)
+    {
+        return EXHAUSTED_POSITION_DEPTH | (((((int) prevPosition) >> 31) & 0x80FFL) << TRANSITION_SHIFT);
+    }
+
     static long encode(int depth, int transition, Direction direction)
     {
         assert depth >= -1;
         assert transition <= 0xFF && transition >= 0;
-        return ((long) ~depth << 32) | direction.encodeTransitionByte(transition << 16);
+        // The xor below flips transition bits and also sets the direction bit to 1 for REVERSE direction.
+        long transitionXored = (transition ^ direction.select(0, -1)) & 0x80FFL;
+        return ((long) ~depth << 32) | (transitionXored << TRANSITION_SHIFT);
+    }
+
+    static long positionForDescentWithByte(long encodedPosition, int incomingByte)
+    {
+        long depthPart = (encodedPosition + DEPTH_ADJUSTMENT_ONE) & 0xFFFFFFFF00000000L;
+        long transitionXored = (incomingByte ^ (((int) encodedPosition) >> 31)) & 0x80FFL;
+        return depthPart | (transitionXored << TRANSITION_SHIFT);
     }
 
     /// Returns a position that can be used to skip over the given branch. Note that this can only work when the
     /// given encoded position is a valid skipTo position for the current state.
-    static long encodedPositionForSkippingBranch(long encodedBranchPosition)
+    ///
+    /// TODO: test
+    static long positionForSkippingBranch(long encodedBranchPosition)
     {
         return encodedBranchPosition + (1 << TRANSITION_SHIFT);
     }
 
-    static boolean isExhausted(long encodedPosition)
+    static String toString(long encodedPosition)
     {
-        // Depth of -1 translates to positive encoding.
-        return encodedPosition >= 0;
-    }
-
-    static String toString(long encodedPosition, Direction direction)
-    {
-        return String.format("Depth %d incomingTransition %d", depth(encodedPosition), incomingTransition(encodedPosition, direction));
+        return String.format("depth %d incomingTransition %02x %s", depth(encodedPosition), incomingTransition(encodedPosition), direction(encodedPosition));
     }
 
     /// Returns the encoded position, which contains, in order of significance:
@@ -236,7 +293,6 @@ interface Cursor<T>
     default T advanceToContent(ResettingTransitionsReceiver receiver)
     {
         long prevPosition = encodedPosition();
-        Direction direction = direction();
         while (true)
         {
             long currPosition = advanceMultiple(receiver);
@@ -244,9 +300,9 @@ interface Cursor<T>
                 return null;
             if (receiver != null)
             {
-                if (currPosition <= prevPosition)
+                if (depth(currPosition) <= depth(prevPosition))
                     receiver.resetPathLength(depth(currPosition) - 1);
-                receiver.addPathByte(incomingTransition(currPosition, direction));
+                receiver.addPathByte(incomingTransition(currPosition));
             }
             T content = content();
             if (content != null)
@@ -290,14 +346,14 @@ interface Cursor<T>
     default boolean descendAlong(ByteSource bytes)
     {
         int next = bytes.next();
-        int depth = depth(encodedPosition());
-        Direction direction = direction();
+        long position = encodedPosition();
         while (next != ByteSource.END_OF_STREAM)
         {
-            long nextPosition = encode(++depth, next, direction);
+            long nextPosition = positionForDescentWithByte(position, next);
             if (compare(skipTo(nextPosition), nextPosition) != 0)
                 return false;
             next = bytes.next();
+            position = nextPosition;
         }
         return true;
     }
@@ -361,7 +417,6 @@ interface Cursor<T>
     default <R> R processSkippingBranches(Cursor.Walker<? super T, R> walker)
     {
         assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
-        Direction direction = direction();
         T content = content();   // handle content on the root node
         if (content != null)
         {
@@ -374,11 +429,11 @@ interface Cursor<T>
         {
             walker.content(content);
             // skip over the branch by requesting a position that is beyond
-            long current = skipTo(encodedPositionForSkippingBranch(encodedPosition()));
+            long current = skipTo(positionForSkippingBranch(encodedPosition()));
             if (isExhausted(current))
                 break;
             walker.resetPathLength(depth(current) - 1);
-            walker.addPathByte(incomingTransition(current, direction));
+            walker.addPathByte(incomingTransition(current));
             content = content();
             if (content == null)
                 content = advanceToContent(walker);
@@ -397,12 +452,12 @@ interface Cursor<T>
             assert byteComparableVersion != null;
             this.direction = direction;
             this.byteComparableVersion = byteComparableVersion;
-            position = ROOT_POSITION;
+            position = Cursor.rootPosition(direction);
         }
 
         public long advance()
         {
-            return position = EXHAUSTED_POSITION;
+            return position = exhaustedPosition(direction);
         }
 
         public long skipTo(long encodedSkipPosition)
@@ -420,7 +475,7 @@ interface Cursor<T>
         @Override
         public Cursor<T> tailCursor(Direction direction)
         {
-            assert position == ROOT_POSITION : "tailTrie called on exhausted cursor";
+            assert position == Cursor.rootPosition(direction) : "tailTrie called on exhausted cursor";
             return new Empty<>(direction, byteComparableVersion);
         }
 

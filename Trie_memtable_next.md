@@ -128,15 +128,28 @@ Range covering `a -> abc`
 
 # TODOs
 
-Multiple children flag. Perhaps two variations:
- - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
-   children. 
-   Cleared by intersection.
- - `HAS_AT_MOST_ONE_CHILD` only true if known. Intersections set at set|source but don't add on mismatch. 
-   Cleared by merge.
+- Include direction bit/byte in the encoding
 
-Merges clear the flag.
+- Make RangesCursor work with encoded positions instead of next/depth arrays.
 
+- Express depth limits as position limits (e.g. `positionForSkippingBranch` and `<` instead of `depth` and `>`)
+
+- `hasContent` flag
+- `hasChildren` flag
+
+- `hasPrecedingState` flag on range cursors
+- `hasDeletionBranch` flag on deletion-aware
+
+- (Not necessary) Multiple children flag. Perhaps two variations:
+  - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
+    children. 
+    Cleared by intersection.
+  - `HAS_AT_MOST_ONE_CHILD` only true if known. Intersections set at set|source but don't add on mismatch. 
+    Cleared by merge.
+
+  Merges clear the flag.
+
+- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
 
 ## CollectionMergeCursor

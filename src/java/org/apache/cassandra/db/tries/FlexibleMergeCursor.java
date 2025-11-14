@@ -25,7 +25,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> implements Cursor<T>
 {
-    final Direction direction;
     final C c1;
     @Nullable D c2;
     long c2depthCorrection;
@@ -43,7 +42,6 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     FlexibleMergeCursor(C c1)
     {
         assert Cursor.depth(c1.encodedPosition()) == 0;
-        this.direction = c1.direction();
         this.c1 = c1;
         this.c2 = null;
         state = State.C1_ONLY;
@@ -56,7 +54,6 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     {
         assert Cursor.depth(c1.encodedPosition()) == 0;
         assert Cursor.depth(c2.encodedPosition()) == 0;
-        this.direction = c1.direction();
         this.c1 = c1;
         this.c2 = c2;
         this.c2depthCorrection = 0;
@@ -71,7 +68,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         assert state == State.C1_ONLY : "Attempting to add further cursors to a cursor that already has two sources";
         assert Cursor.depth(c2.encodedPosition()) == 0 : "Only cursors rooted at the current position can be added";
         this.c2 = c2;
-        this.c2depthCorrection = -Cursor.depth(currentPosition) << DEPTH_SHIFT;
+        this.c2depthCorrection = Cursor.depthCorrectionValue(currentPosition);
         this.state = State.AT_BOTH;
     }
 
@@ -155,7 +152,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
     private long inC1Only(long c1pos)
     {
-        return currentPosition = postAdvance(c1pos);
+        return postAdvance(currentPosition = c1pos);
     }
 
     private long checkOrder(long c1pos, long c2posUncorrected)
@@ -168,23 +165,23 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         if (cmp < 0)
         {
             state = State.AT_C1;
-            return currentPosition = postAdvance(c1pos);
+            return postAdvance(currentPosition = c1pos);
         }
         if (cmp > 0)
         {
             state = State.AT_C2;
-            return currentPosition = postAdvance(c2pos);
+            return postAdvance(currentPosition = c2pos);
         }
         // c1pos == c2pos
         state = State.AT_BOTH;
-        return currentPosition = postAdvance(c1pos);
+        return postAdvance(currentPosition = c1pos);
     }
 
     private long leaveC2(long c1pos)
     {
         state = State.C1_ONLY;
         c2 = null;
-        return currentPosition = postAdvance(c1pos);
+        return postAdvance(currentPosition = c1pos);
     }
 
     @Override
@@ -196,7 +193,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     @Override
     public Direction direction()
     {
-        return direction;
+        return c1.direction();
     }
 
     @Override

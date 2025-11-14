@@ -154,7 +154,7 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         @Override
         public long encodedPosition()
         {
-            return EXHAUSTED_POSITION;
+            return Cursor.exhaustedPosition(direction);
         }
 
         @Override
@@ -178,13 +178,13 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         @Override
         public long advance()
         {
-            return EXHAUSTED_POSITION;
+            throw new AssertionError("Cursor is exhausted");
         }
 
         @Override
         public long skipTo(long encodedSkipPosition)
         {
-            return EXHAUSTED_POSITION;
+            throw new AssertionError("Cursor is exhausted");
         }
 
         @Override

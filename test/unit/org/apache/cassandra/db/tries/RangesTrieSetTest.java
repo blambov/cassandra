@@ -61,13 +61,7 @@ public class RangesTrieSetTest
 
             public long encodedPosition()
             {
-                return cursor.depth();
-            }
-
-            @Override
-            public int incomingTransition()
-            {
-                return cursor.incomingTransition();
+                return cursor.encodedPosition();
             }
 
             @Override
@@ -79,7 +73,7 @@ public class RangesTrieSetTest
             @Override
             public long skipTo(long encodedSkipPosition)
             {
-                return cursor.skipTo(skipDepth, skipTransition);
+                return cursor.skipTo(encodedSkipPosition);
             }
 
             @Override
@@ -215,8 +209,11 @@ public class RangesTrieSetTest
                     // skip to nearest position in cursor
                     int next = b.next();
                     int depth = 0;
-                    while (next != ByteSource.END_OF_STREAM && cursor.skipTo(depth + 1, next) == depth + 1 && cursor.incomingTransition() == next)
+                    while (next != ByteSource.END_OF_STREAM)
                     {
+                        long skipPosition = Cursor.encode(depth + 1, next, direction);
+                        if (Cursor.compare(cursor.skipTo(skipPosition), skipPosition) != 0)
+                            break;
                         next = b.next();
                         ++depth;
                     }

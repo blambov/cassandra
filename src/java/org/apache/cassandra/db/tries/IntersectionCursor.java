@@ -33,12 +33,10 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
 
     final C source;
     final TrieSetCursor set;
-    final Direction direction;
     State state;
 
     IntersectionCursor(C source, TrieSetCursor set)
     {
-        this.direction = source.direction();
         this.source = source;
         this.set = set;
         setInitialState();
@@ -99,7 +97,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
         if (cmp < 0)    // source is strictly before set position
             return coveredAreaWithSetAhead(sourcePosition);
         if (Cursor.isExhausted(sourcePosition))
-            return exhausted();
+            return exhausted(sourcePosition);
 
         if (cmp == 0)
             return matchingPosition(sourcePosition);
@@ -124,7 +122,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
             // Set is ahead of source, but outside the covered area. Skip source to the set's position.
             long sourcePosition = source.skipTo(setPosition);
             if (Cursor.isExhausted(sourcePosition))
-                return exhausted();
+                return exhausted(sourcePosition);
             if (Cursor.compare(setPosition, sourcePosition) == 0)
                 return matchingPosition(sourcePosition);
 
@@ -161,10 +159,10 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
         matchingPosition(encodedPosition());
     }
 
-    private long exhausted()
+    private long exhausted(long position)
     {
         state = State.MATCHING;
-        return EXHAUSTED_POSITION;
+        return position;
     }
 
     @Override
@@ -239,7 +237,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
             // Otherwise we need to skip this node and its branch by jumping to the next position on the same depth.
             // Note that we can't mess up any `advanceMultiple` path reporting, as that cannot end up on a matching
             // position while it is reporting bytes for a descending chain.
-            return skipTo(Cursor.encodedPositionForSkippingBranch(encodedPosition));
+            return skipTo(Cursor.positionForSkippingBranch(encodedPosition));
         }
 
         @Override

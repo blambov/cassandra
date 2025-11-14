@@ -223,10 +223,10 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
             if (next >= heap.length)
                 break;
             // Select the smaller of the two children to push down to.
-            if (next + 1 < heap.length && greaterCursor(direction, heap[next], heap[next + 1]))
+            if (next + 1 < heap.length && greaterCursor(heap[next], heap[next + 1]))
                 ++next;
             // If the child is greater or equal, the invariant has been restored.
-            if (!greaterCursor(direction, item, heap[next]))
+            if (!greaterCursor(item, heap[next]))
                 break;
             heap[index] = heap[next];
             index = next;
@@ -237,20 +237,19 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     /// Check if the head is greater than the top element in the heap, and if so, swap them and push down the new
     /// top until its proper place.
     ///
-    /// @param headDepth the depth of the head cursor (as returned by e.g. advance).
-    /// @return the new head element's depth
-    private int maybeSwapHead(int headDepth)
+    /// @param headPosition the position of the head cursor (as returned by e.g. advance).
+    /// @return the new head element's position
+    private long maybeSwapHead(long headPosition)
     {
-        int heap0Depth = heap[0].depth();
-        if (headDepth > heap0Depth ||
-            (headDepth == heap0Depth && direction.le(head.incomingTransition(), heap[0].incomingTransition())))
-            return headDepth;   // head is still smallest
+        long heap0Position = heap[0].encodedPosition();
+        if (Cursor.compare(headPosition, heap0Position) <= 0)
+            return headPosition;   // head is still smallest
 
         // otherwise we need to swap heap and heap[0]
         C newHeap0 = head;
         head = heap[0];
         heapifyDown(newHeap0, 0);
-        return heap0Depth;
+        return heap0Position;
     }
 
     boolean branchHasMultipleSources()
@@ -260,7 +259,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
 
     boolean isExhausted()
     {
-        return head.depth() < 0;
+        return Cursor.isExhausted(head.encodedPosition());
     }
 
     @Override
@@ -270,14 +269,14 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         return doAdvance();
     }
 
-    private int doAdvance()
+    private long doAdvance()
     {
         advanceSelectedAndRestoreHeap(Cursor::advance);
         return maybeSwapHead(head.advance());
     }
 
     @Override
-    public int advanceMultiple(TransitionsReceiver receiver)
+    public long advanceMultiple(TransitionsReceiver receiver)
     {
         contentCollected = false;
         // If the current position is present in just one cursor, we can safely descend multiple levels within
@@ -307,33 +306,26 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                     return true;
                 // Otherwise we can compare the child's position against a cursor advanced as requested, and need
                 // to skip only if it would be before it.
-                int childDepth = child.depth();
-                return childDepth > skipDepth ||
-                       childDepth == skipDepth && direction.lt(child.incomingTransition(), skipTransition);
+                long childPosition = child.encodedPosition();
+                return Cursor.compare(childPosition, encodedSkipPosition) < 0;
             }
 
             @Override
             public void apply(C cursor)
             {
-                cursor.skipTo(skipDepth, skipTransition);
+                cursor.skipTo(encodedSkipPosition);
             }
         }
 
         contentCollected = false;
         applyToSelectedElementsInHeap(new SkipTo(), 0);
-        return maybeSwapHead(head.skipTo(skipDepth, skipTransition));
+        return maybeSwapHead(head.skipTo(encodedSkipPosition));
     }
 
     @Override
     public long encodedPosition()
     {
-        return head.depth();
-    }
-
-    @Override
-    public int incomingTransition()
-    {
-        return head.incomingTransition();
+        return head.encodedPosition();
     }
 
     @Override
@@ -395,18 +387,14 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
     /// Compare the positions of two cursors. One is before the other when
     /// - its depth is greater, or
     /// - its depth is equal, and the incoming transition is smaller.
-    static <T> boolean greaterCursor(Direction direction, Cursor<T> c1, Cursor<T> c2)
+    static <T> boolean greaterCursor(Cursor<T> c1, Cursor<T> c2)
     {
-        int c1depth = c1.depth();
-        int c2depth = c2.depth();
-        if (c1depth != c2depth)
-            return c1depth < c2depth;
-        return direction.lt(c2.incomingTransition(), c1.incomingTransition());
+        return Cursor.compare(c1.encodedPosition(), c2.encodedPosition()) > 0;
     }
 
     static <T> boolean equalCursor(Cursor<T> c1, Cursor<T> c2)
     {
-        return c1.depth() == c2.depth() && c1.incomingTransition() == c2.incomingTransition();
+        return Cursor.compare(c1.encodedPosition(), c2.encodedPosition()) == 0;
     }
 
     static class Plain<T> extends CollectionMergeCursor<T, Cursor<T>> implements Cursor<T>
@@ -563,7 +551,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
             else
                 sourcesWithNoDeletionBranch = null;
 
-            processRelevantDeletions(this.depth());
+            processRelevantDeletions(this.encodedPosition());
         }
 
         @Override
@@ -575,11 +563,11 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         @Override
         public long skipTo(long encodedSkipPosition)
         {
-            return processRelevantDeletions(super.skipTo(skipDepth, skipTransition));
+            return processRelevantDeletions(super.skipTo(encodedSkipPosition));
         }
 
         @Override
-        public int advanceMultiple(TransitionsReceiver receiver)
+        public long advanceMultiple(TransitionsReceiver receiver)
         {
             return (branchHasMultipleSources() || relevantDeletionsState == DeletionState.MATCHING)
                    ? advance()
@@ -588,13 +576,11 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
 
         /// Adjusts the deletion state based on the relative positions of deletion and content cursors.
         /// This determines how deletions should be applied to live data at the current position.
-        void adjustDeletionState(int deletionDepth, int contentDepth, int contentTransition)
+        void adjustDeletionState(long deletionPosition, long contentPosition)
         {
-            if (deletionDepth < 0)
+            if (Cursor.isExhausted(deletionPosition))
                 relevantDeletionsState = DeletionState.NONE;
-            else if (deletionDepth < contentDepth)
-                relevantDeletionsState = DeletionState.AHEAD;
-            else if (direction.lt(contentTransition, relevantDeletions.incomingTransition()))
+            else if (Cursor.compare(deletionPosition, contentPosition) > 0)
                 relevantDeletionsState = DeletionState.AHEAD;
             else
                 relevantDeletionsState = DeletionState.MATCHING;
@@ -603,11 +589,11 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         /// Manages deletion branches during cursor advancement.
         /// This method coordinates between live data cursors and deletion cursors to ensure
         /// proper deletion application at each position.
-        int processRelevantDeletions(int depth)
+        long processRelevantDeletions(long contentPosition)
         {
             if (deletionBranchDepth != -1)
             {
-                if (depth > deletionBranchDepth)
+                if (Cursor.depth(contentPosition) > deletionBranchDepth)
                 {
                     // We are still in the branch where the current relevantDeletions apply.
                     // Advance them to match the current state.
@@ -615,21 +601,19 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                     {
                         case MATCHING:
                         {
-                            int contentTransition = incomingTransition();
-                            int deletionDepth = relevantDeletions.skipTo(depth, contentTransition);
-                            adjustDeletionState(deletionDepth, depth, contentTransition);
+                            long deletionPosition = relevantDeletions.skipTo(contentPosition);
+                            adjustDeletionState(deletionPosition, contentPosition);
                             break;
                         }
                         case AHEAD:
                         {
-                            int contentTransition = incomingTransition();
-                            int deletionDepth = relevantDeletions.skipToWhenAhead(depth, contentTransition);
-                            adjustDeletionState(deletionDepth, depth, contentTransition);
+                            long deletionPosition = relevantDeletions.skipToWhenAhead(contentPosition);
+                            adjustDeletionState(deletionPosition, contentPosition);
                             break;
                         }
                         // nothing to do for NONE (where relevantDeletions is exhausted, but we still haven't left its branch)
                     }
-                    return depth;
+                    return contentPosition;
                 }
                 else
                 {
@@ -649,13 +633,13 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                                                                   : makeRelevantDeletionsNoFixedPoints();
                 if (deletions != null)
                 {
-                    deletionBranchDepth = depth;
-                    relevantDeletions = DepthAdjustedCursor.make(deletions, depth, incomingTransition());
+                    deletionBranchDepth = Cursor.depth(contentPosition);
+                    relevantDeletions = DepthAdjustedCursor.make(deletions, contentPosition);
                     relevantDeletionsState = DeletionState.MATCHING;
                 }
             }
 
-            return depth;
+            return contentPosition;
         }
 
         private RangeCursor<D> makeRelevantDeletionsFixedPoints()
@@ -752,7 +736,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                 return branchHasMultipleSources() ? null : head.deletionBranchCursor(direction);
 
             // Otherwise we are already tracking deletions. We only need to report them if they are introduced at this depth.
-            if (deletionBranchDepth == depth())
+            if (deletionBranchDepth == Cursor.depth(encodedPosition()))
             {
                 assert relevantDeletionsState == DeletionState.MATCHING;
                 return relevantDeletions.tailCursor(direction);
@@ -779,7 +763,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         @Override
         public DeletionAwareCursor<T, D> tailCursor(Direction dir)
         {
-            if (deletionBranchDepth != -1 && depth() > deletionBranchDepth)
+            if (deletionBranchDepth != -1 && Cursor.depth(encodedPosition()) > deletionBranchDepth)
             {
                 // We are already inside the coverage of a deletion branch. In this case we don't report that branch,
                 // but we make sure we apply its deletions to the data we report.

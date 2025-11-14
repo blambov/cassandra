@@ -28,7 +28,7 @@ class SingletonCursor<T> implements Cursor<T>
     ByteSource src;
     final ByteComparable.Version byteComparableVersion;
     final T value;
-    private long currentPosition = ROOT_POSITION;
+    private long currentPosition;
     protected int nextTransition;
 
 
@@ -44,14 +44,15 @@ class SingletonCursor<T> implements Cursor<T>
         this.byteComparableVersion = byteComparableVersion;
         this.value = value;
         this.nextTransition = firstByte;
+        this.currentPosition = Cursor.rootPosition(direction);
     }
 
     @Override
     public long advance()
     {
-        currentPosition = Cursor.encode(Cursor.depth(currentPosition) + 1, nextTransition, direction());
         if (nextTransition != ByteSource.END_OF_STREAM)
         {
+            currentPosition = Cursor.positionForDescentWithByte(currentPosition, nextTransition);
             nextTransition = src.next();
             return currentPosition;
         }
@@ -98,7 +99,7 @@ class SingletonCursor<T> implements Cursor<T>
 
     private long done()
     {
-        return currentPosition = EXHAUSTED_POSITION;
+        return currentPosition = Cursor.exhaustedPosition(direction);
     }
 
     protected boolean atEnd()

@@ -67,12 +67,12 @@ class RangesCursor implements TrieSetCursor
     int[] nexts;
     /// The depth (processed number of bytes) for all boundaries.
     int[] depths;
+
+    // TODO: Change these to use positions instead of nexts/depths (only after tests pass with the current code).
     /// Byte sources producing the rest of the bytes of the boundaries.
     ByteSource[] sources;
-    /// The currently reached depth (reported to the user). This is usually `depths[currentIdx] - 1`.
-    int currentDepth;
-    /// The current incoming transition.
-    int currentTransition;
+    /// The current position (reported to the user). This is usually formed from `depths[currentIdx] - 1` and `nexts[currentIdx]`.
+    long currentPosition;
     /// Current range state, returned by [#state].
     RangeState currentState;
 
@@ -92,7 +92,6 @@ class RangesCursor implements TrieSetCursor
             return new RangesCursor(direction, byteComparableVersion,
                                     null, null, null,
                                     1, 1,
-                                    0, -1,
                                     RangeState.END_START_PREFIX);
 
         int[] nexts = new int[length];
@@ -111,7 +110,6 @@ class RangesCursor implements TrieSetCursor
         RangesCursor cursor = new RangesCursor(direction, byteComparableVersion,
                                                nexts, depths, sources,
                                                first, length,
-                                               0, -1,
                                                RangeState.START_END_PREFIX);
         cursor.skipCompletedAndSelectContained(nexts[cursor.currentIdx], cursor.completedIdx);
         return cursor;
@@ -124,8 +122,6 @@ class RangesCursor implements TrieSetCursor
                          ByteSource[] sources,
                          int firstIdxInclusive,
                          int lastIdxExclusive,
-                         int currentDepth,
-                         int currentTransition,
                          RangeState currentState)
     {
         this.byteComparableVersion = byteComparableVersion;
@@ -135,21 +131,14 @@ class RangesCursor implements TrieSetCursor
         this.sources = sources;
         this.currentIdx = direction.select(firstIdxInclusive, lastIdxExclusive - 1);
         this.completedIdx = direction.select(lastIdxExclusive - 1, firstIdxInclusive);
-        this.currentDepth = currentDepth;
-        this.currentTransition = currentTransition;
+        this.currentPosition = Cursor.rootPosition(direction);
         this.currentState = currentState;
     }
 
     @Override
     public long encodedPosition()
     {
-        return currentDepth;
-    }
-
-    @Override
-    public int incomingTransition()
-    {
-        return currentTransition;
+        return currentPosition;
     }
 
     @Override
@@ -177,8 +166,8 @@ class RangesCursor implements TrieSetCursor
             return exhausted();
 
         // Advance the current idx
-        currentTransition = nexts[currentIdx];
-        currentDepth = depths[currentIdx]++;
+        int currentTransition = nexts[currentIdx];
+        int currentDepth = depths[currentIdx]++;
         int next = ByteSource.END_OF_STREAM;
         if (currentTransition != ByteSource.END_OF_STREAM)
             next = nexts[currentIdx] = sources[currentIdx].next();
@@ -192,11 +181,12 @@ class RangesCursor implements TrieSetCursor
             nexts[endIdx] = sources[endIdx].next();
             endIdx += direction.increase;
         }
+        currentPosition = Cursor.encode(currentDepth, currentTransition, direction);
 
         return skipCompletedAndSelectContained(next, endIdx - direction.increase);
     }
 
-    private int skipCompletedAndSelectContained(int next, int endIdx)
+    private long skipCompletedAndSelectContained(int next, int endIdx)
     {
         int containedSelection = 0;
         // in reverse direction the roles of current and end idx are swapped
@@ -216,7 +206,7 @@ class RangesCursor implements TrieSetCursor
             }
         }
         currentState = RangeState.values()[containedSelection];
-        return currentDepth;
+        return currentPosition;
     }
 
     // Note: Sets don't need `advanceMultiple` because they are meant to apply as a restriction on other tries,
@@ -227,6 +217,8 @@ class RangesCursor implements TrieSetCursor
     @Override
     public long skipTo(long encodedSkipPosition)
     {
+        int skipDepth = Cursor.depth(encodedSkipPosition);
+        int skipTransition = Cursor.incomingTransition(encodedSkipPosition);
         while (direction.le(currentIdx, completedIdx)
                && (depths[currentIdx] > skipDepth ||
                    depths[currentIdx] == skipDepth && direction.lt(nexts[currentIdx], skipTransition)))
@@ -234,10 +226,9 @@ class RangesCursor implements TrieSetCursor
         return advance();
     }
 
-    private int exhausted()
+    private long exhausted()
     {
-        currentDepth = -1;
-        currentTransition = -1;
+        currentPosition = Cursor.exhaustedPosition(direction);
         return skipCompletedAndSelectContained(0, completedIdx);
     }
 
@@ -251,7 +242,7 @@ class RangesCursor implements TrieSetCursor
     {
         Direction copyDirection = copyFrom.direction;
         int startInclusive = copyFrom.currentIdx;
-        int endExclusive = findEndOfMatchingValues(copyDirection, startInclusive, copyFrom.completedIdx, copyFrom.depths, copyFrom.currentDepth);
+        int endExclusive = findEndOfMatchingValues(copyDirection, startInclusive, copyFrom.completedIdx, copyFrom.depths, Cursor.depth(copyFrom.currentPosition));
 
         if (startInclusive == endExclusive)
             return boundaryMatchingCursor(copyFrom, newDirection);
@@ -266,7 +257,7 @@ class RangesCursor implements TrieSetCursor
         int firstAdjusted = firstInclusive & -2;
         ByteSource[] sources = new ByteSource[lastExclusive - firstAdjusted];
         final int[] depths = Arrays.copyOfRange(copyFrom.depths, firstAdjusted, lastExclusive);
-        final int startDepth = copyFrom.currentDepth;
+        final int startDepth = Cursor.depth(copyFrom.currentPosition);
         for (int i = firstInclusive; i < lastExclusive; ++i)
         {
             if (copyFrom.sources[i] != null)
@@ -284,8 +275,6 @@ class RangesCursor implements TrieSetCursor
                                 sources,
                                 firstInclusive - firstAdjusted,
                                 lastExclusive - firstAdjusted,
-                                0,
-                                -1,
                                 copyFrom.currentState);
     }
 
@@ -317,8 +306,6 @@ class RangesCursor implements TrieSetCursor
                                 null,
                                 currentIdx,
                                 currentIdx,
-                                0,
-                                -1,
                                 state);
     }
 }

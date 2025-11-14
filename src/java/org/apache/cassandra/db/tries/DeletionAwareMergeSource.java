@@ -31,10 +31,9 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<E>> implements DeletionAwareCursor<T, D>
 {
     final BiFunction<E, T, T> resolver;
-    final Direction direction;
     final DeletionAwareCursor<T, D> data;
     @Nullable RangeCursor<E> deletions;
-    int deletionsDepthCorrection;
+    long deletionsDepthCorrection;
 
     boolean atDeletions;
 
@@ -45,13 +44,12 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
 
     DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<E> deletions)
     {
-        this.direction = data.direction();
         this.resolver = resolver;
         this.deletions = deletions;
         this.data = data;
         this.deletionsDepthCorrection = 0;
-        assert data.depth() == 0;
-        assert deletions == null || deletions.depth() == 0;
+        assert Cursor.depth(data.encodedPosition()) == 0;
+        assert deletions == null || Cursor.depth(deletions.encodedPosition()) == 0;
         atDeletions = deletions != null;
     }
 
@@ -64,7 +62,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     @Override
     public Direction direction()
     {
-        return direction;
+        return data.direction();
     }
 
     @Override
@@ -79,31 +77,31 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     @Override
     public long advance()
     {
-        int newDataDepth = data.advance();
+        long newDataPosition = data.advance();
 
         if (deletions == null)
-            return newDataDepth;
+            return newDataPosition;
         else if (atDeletions) // if both cursors were at the same position, always advance the deletions' cursor to catch up.
-            return skipDeletionsToDataPosition(newDataDepth);
+            return skipDeletionsToDataPosition(newDataPosition);
         else // otherwise skip deletions to the new data position only if it advances past the deletions' current position.
-            return maybeSkipDeletions(newDataDepth);
+            return maybeSkipDeletions(newDataPosition);
     }
 
     @Override
     public long skipTo(long encodedSkipPosition)
     {
-        int newDataDepth = data.skipTo(skipDepth, skipTransition);
+        long newDataPosition = data.skipTo(encodedSkipPosition);
 
         if (deletions == null)
-            return newDataDepth;
+            return newDataPosition;
         else if (atDeletions) // if both cursors were at the same position, always advance the deletions' cursor to catch up.
-            return skipDeletionsToDataPosition(newDataDepth);
+            return skipDeletionsToDataPosition(newDataPosition);
         else // otherwise skip deletions to the new data position only if it advances past the deletions' current position.
-            return maybeSkipDeletions(newDataDepth);
+            return maybeSkipDeletions(newDataPosition);
     }
 
     @Override
-    public int advanceMultiple(TransitionsReceiver receiver)
+    public long advanceMultiple(TransitionsReceiver receiver)
     {
         if (deletions == null)
             return data.advanceMultiple(receiver);
@@ -115,49 +113,43 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
             return maybeSkipDeletions(data.advanceMultiple(receiver));
     }
 
-    int maybeSkipDeletions(int dataDepth)
+    long maybeSkipDeletions(long dataPosition)
     {
-        int deletionsDepth = deletions.depth() + deletionsDepthCorrection;
+        long deletionsPosition = deletions.encodedPosition() + deletionsDepthCorrection;
         
         // If data position is at or before the deletions position, we are good.
-        if (deletionsDepth < dataDepth)
-            return setAtDeletionsAndReturnDepth(false, dataDepth);
-
-        if (deletionsDepth == dataDepth)
-        {
-            int dataTrans = data.incomingTransition();
-            int deletionsTrans = deletions.incomingTransition();
-            if (direction.le(dataTrans, deletionsTrans))
-                return setAtDeletionsAndReturnDepth(dataTrans == deletionsTrans, dataDepth);
-        }
+        long cmp = Cursor.compare(dataPosition, deletionsPosition);
+        if (cmp <= 0)
+            return setAtDeletionsAndReturnPosition(cmp == 0, dataPosition);
 
         // Deletions cursor is before data cursor.
-        return skipDeletionsToDataPosition(dataDepth);
+        return skipDeletionsToDataPosition(dataPosition);
     }
 
-    private int skipDeletionsToDataPosition(int dataDepth)
+    private long skipDeletionsToDataPosition(long dataPosition)
     {
         // Skip deletions cursor to the data position; if that is beyond the branch's root, no need to skip, just leave it.
-        int dataTrans = data.incomingTransition();
-        int deletionsSkipDepth = dataDepth - deletionsDepthCorrection;
-        int deletionsDepthUncorrected = deletionsSkipDepth > 0 ? deletions.skipTo(deletionsSkipDepth, dataTrans) : -1;
-        if (deletionsDepthUncorrected < 0)
-            return leaveDeletionsBranch(dataDepth);
+        long deletionsSkipPosition = dataPosition - deletionsDepthCorrection;
+        long deletionsPositionUncorrected = !Cursor.isExhausted(deletionsSkipPosition)
+                                            ? deletions.skipTo(deletionsSkipPosition)
+                                            : Cursor.exhaustedPosition(deletionsSkipPosition);
+        if (Cursor.isExhausted(deletionsPositionUncorrected))
+            return leaveDeletionsBranch(dataPosition);
         else
-            return setAtDeletionsAndReturnDepth(deletionsDepthUncorrected + deletionsDepthCorrection == dataDepth && deletions.incomingTransition() == dataTrans,
-                                                dataDepth);
+            return setAtDeletionsAndReturnPosition(deletionsPositionUncorrected == deletionsSkipPosition,
+                                                   dataPosition);
     }
 
-    private int leaveDeletionsBranch(int dataDepth)
+    private long leaveDeletionsBranch(long dataPosition)
     {
         deletions = null;
-        return setAtDeletionsAndReturnDepth(false, dataDepth);
+        return setAtDeletionsAndReturnPosition(false, dataPosition);
     }
 
-    private int setAtDeletionsAndReturnDepth(boolean atDeletions, int depth)
+    private long setAtDeletionsAndReturnPosition(boolean atDeletions, long position)
     {
         this.atDeletions = atDeletions;
-        return depth;
+        return position;
     }
 
     @Override
@@ -199,9 +191,9 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     public void addDeletions(RangeCursor<E> deletions)
     {
         assert this.deletions == null;
-        assert deletions.depth() == 0;
+        assert Cursor.depth(deletions.encodedPosition()) == 0;
         this.deletions = deletions;
-        this.deletionsDepthCorrection = data.depth();
+        this.deletionsDepthCorrection = Cursor.depthCorrectionValue(data.encodedPosition());
         this.atDeletions = true;
     }
 
