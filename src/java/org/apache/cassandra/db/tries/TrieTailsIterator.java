@@ -37,7 +37,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
     {
         this.cursor = cursor;
         this.predicate = predicate;
-        assert Cursor.depth(cursor.encodedPosition()) == 0;
+        cursor.assertFresh();
     }
 
     public boolean hasNext()

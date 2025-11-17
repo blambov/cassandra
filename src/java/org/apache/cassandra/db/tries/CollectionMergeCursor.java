@@ -505,7 +505,8 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         final boolean deletionsAtFixedPoints;
 
         RangeCursor<D> relevantDeletions;
-        int deletionBranchDepth = -1;
+        static final long NO_DELETION_BRANCH = Long.MIN_VALUE;
+        long deletionBranchEnd = NO_DELETION_BRANCH;
 
         enum DeletionState
         {
@@ -591,9 +592,9 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         /// proper deletion application at each position.
         long processRelevantDeletions(long contentPosition)
         {
-            if (deletionBranchDepth != -1)
+            if (deletionBranchEnd != NO_DELETION_BRANCH)
             {
-                if (Cursor.depth(contentPosition) > deletionBranchDepth)
+                if (Cursor.compare(contentPosition, deletionBranchEnd) < 0)
                 {
                     // We are still in the branch where the current relevantDeletions apply.
                     // Advance them to match the current state.
@@ -618,7 +619,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                 else
                 {
                     // ascended above the common deletions root, we need to track and report deletion branches again.
-                    deletionBranchDepth = -1;
+                    deletionBranchEnd = NO_DELETION_BRANCH;
                     relevantDeletions = null;
                     relevantDeletionsState = DeletionState.NONE;
                 }
@@ -633,7 +634,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
                                                                   : makeRelevantDeletionsNoFixedPoints();
                 if (deletions != null)
                 {
-                    deletionBranchDepth = Cursor.depth(contentPosition);
+                    deletionBranchEnd = Cursor.positionForSkippingBranch(contentPosition);
                     relevantDeletions = DepthAdjustedCursor.make(deletions, contentPosition);
                     relevantDeletionsState = DeletionState.MATCHING;
                 }
@@ -732,11 +733,11 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         {
             // If we aren't tracking relevant deletions yet, it may be because we are in a single-source branch.
             // If that is so, defer to that source's deletionBranchCursor.
-            if (deletionBranchDepth == -1)
+            if (deletionBranchEnd == NO_DELETION_BRANCH)
                 return branchHasMultipleSources() ? null : head.deletionBranchCursor(direction);
 
             // Otherwise we are already tracking deletions. We only need to report them if they are introduced at this depth.
-            if (deletionBranchDepth == Cursor.depth(encodedPosition()))
+            if (Cursor.depth(deletionBranchEnd) == Cursor.depth(encodedPosition()))
             {
                 assert relevantDeletionsState == DeletionState.MATCHING;
                 return relevantDeletions.tailCursor(direction);
@@ -763,7 +764,7 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
         @Override
         public DeletionAwareCursor<T, D> tailCursor(Direction dir)
         {
-            if (deletionBranchDepth != -1 && Cursor.depth(encodedPosition()) > deletionBranchDepth)
+            if (Cursor.compare(encodedPosition(), deletionBranchEnd) < 0)
             {
                 // We are already inside the coverage of a deletion branch. In this case we don't report that branch,
                 // but we make sure we apply its deletions to the data we report.

@@ -224,6 +224,13 @@ interface Cursor<T>
         return encodedBranchPosition + (1 << TRANSITION_SHIFT);
     }
 
+    static boolean ascended(long currPosition, long prevPosition)
+    {
+        // Descending increases the depth, and thus results in a position that is "earlier" according to our comparison
+        // order.
+        return compare(currPosition, prevPosition) > 0;
+    }
+
     static String toString(long encodedPosition)
     {
         return String.format("depth %d incomingTransition %02x %s", depth(encodedPosition), incomingTransition(encodedPosition), direction(encodedPosition));
@@ -300,7 +307,7 @@ interface Cursor<T>
                 return null;
             if (receiver != null)
             {
-                if (depth(currPosition) <= depth(prevPosition))
+                if (ascended(currPosition, prevPosition))
                     receiver.resetPathLength(depth(currPosition) - 1);
                 receiver.addPathByte(incomingTransition(currPosition));
             }
@@ -399,7 +406,7 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R process(Cursor.Walker<? super T, R> walker)
     {
-        assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
+        assertFresh();
         T content = content();   // handle content on the root node
         if (content == null)
             content = advanceToContent(walker);
@@ -416,7 +423,7 @@ interface Cursor<T>
     /// This method should only be called on a freshly constructed cursor.
     default <R> R processSkippingBranches(Cursor.Walker<? super T, R> walker)
     {
-        assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
+        assertFresh();
         T content = content();   // handle content on the root node
         if (content != null)
         {
@@ -467,9 +474,7 @@ interface Cursor<T>
 
         public ByteComparable.Version byteComparableVersion()
         {
-//            if (byteComparableVersion != null)
-                return byteComparableVersion;
-//            throw new AssertionError();
+            return byteComparableVersion;
         }
 
         @Override
@@ -510,5 +515,10 @@ interface Cursor<T>
         TrieDumper<T> dumper = new TrieDumper.Plain<>(toStringFunction);
         tailCursor(Direction.FORWARD).process(dumper);
         return dumper.complete();
+    }
+
+    default void assertFresh()
+    {
+        assert depth(encodedPosition()) == 0 : "The provided cursor has already been advanced.";
     }
 }

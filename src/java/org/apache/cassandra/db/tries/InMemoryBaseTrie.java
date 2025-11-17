@@ -1587,7 +1587,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                  C mutationCursor,
                  InMemoryBaseTrie<T>.ApplyState state)
         {
-            assert Cursor.depth(mutationCursor.encodedPosition()) == 0 : "Unexpected non-fresh cursor.";
+            mutationCursor.assertFresh();
             this.transformer = transformer;
             this.needsForcedCopy = needsForcedCopy;
             this.mutationCursor = mutationCursor;

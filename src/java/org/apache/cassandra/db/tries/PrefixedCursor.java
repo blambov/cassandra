@@ -44,7 +44,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     {
         this.tail = tail;
         prefixBytes = prefix;
-        assert Cursor.depth(tail.encodedPosition()) == 0;
+        tail.assertFresh();
         currentPosition = tail.encodedPosition(); // initial position with the correct direction
         nextPrefixByte = firstPrefixByte;
     }
@@ -110,9 +110,6 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     {
         if (prefixDone())
             return completeAdvanceInTail(tail.skipTo(encodedSkipPosition - depthAdjustment));
-
-        if (Cursor.depth(encodedSkipPosition) <= Cursor.depth(currentPosition))
-            return exhausted();
 
         long nextPosition = Cursor.positionForDescentWithByte(currentPosition, nextPrefixByte);
         if (Cursor.compare(encodedSkipPosition, nextPosition) > 0)

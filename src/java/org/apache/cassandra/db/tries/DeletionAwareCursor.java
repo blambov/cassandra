@@ -81,8 +81,8 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     /// deletion branches.
     default <R> R process(DeletionAwareTrie.DeletionAwareWalker<? super T, ? super D, R> walker)
     {
+        assertFresh();
         long currentPosition = encodedPosition();
-        assert Cursor.depth(currentPosition) == 0 : "The provided cursor has already been advanced.";
 
         while (true)
         {
@@ -96,13 +96,12 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
             if (content != null)
                 walker.content(content);
 
-            int prevDepth = Cursor.depth(currentPosition);
+            long prevPosition = currentPosition;
             currentPosition = advanceMultiple(walker);
             if (Cursor.isExhausted(currentPosition))
                 break;
-            int currDepth = Cursor.depth(currentPosition);
-            if (currDepth <= prevDepth)
-                walker.resetPathLength(currDepth - 1);
+            if (Cursor.ascended(currentPosition, prevPosition))
+                walker.resetPathLength(Cursor.depth(currentPosition) - 1);
             walker.addPathByte(Cursor.incomingTransition(currentPosition));
         }
 
@@ -112,7 +111,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     /// Process a deletion branch using the given walker.
     private static <D> void processDeletionBranch(DeletionAwareTrie.DeletionAwareWalker<?, ? super D, ?> walker, Cursor<D> cursor)
     {
-        assert Cursor.depth(cursor.encodedPosition()) == 0 : "The provided cursor has already been advanced.";
+        cursor.assertFresh();
         D content = cursor.content();   // handle content on the root node
         if (content == null)
             content = cursor.advanceToContent(walker);

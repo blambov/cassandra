@@ -86,15 +86,24 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public long skipTo(long encodedSkipPosition)
     {
-        long current = currentPosition;
-        if (Cursor.compare(encodedSkipPosition, current) > 0)
-            return done();  // no alternatives
+        if (nextTransition != ByteSource.END_OF_STREAM)
+        {
+            long nextPosition = Cursor.positionForDescentWithByte(currentPosition, nextTransition);
+            if (Cursor.compare(encodedSkipPosition, nextPosition) > 0)
+                return done();
 
-        assert Cursor.depth(encodedSkipPosition) == Cursor.depth(current) + 1;
-        if (direction.encodeTransitionByte(nextTransition) < Cursor.undecodedTransition(encodedSkipPosition))
-            return done();   // request is skipping over our path
+            assert Cursor.depth(encodedSkipPosition) == Cursor.depth(nextPosition)
+                : "Invalid advance request to " + Cursor.toString(encodedSkipPosition) +
+                  " to cursor at " + Cursor.toString(currentPosition);
 
-        return advance();
+            nextTransition = src.next();
+            currentPosition = nextPosition;
+            return currentPosition;
+        }
+        else
+        {
+            return done();
+        }
     }
 
     private long done()

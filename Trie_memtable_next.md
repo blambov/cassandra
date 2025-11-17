@@ -124,21 +124,22 @@ Range covering `a -> abc`
 [a, abc]?
 
 
+# Done
+
+- Include direction bit/byte in the encoding
+
+- (partially) Express depth limits as position limits (e.g. `positionForSkippingBranch` and `<` instead of `depth` and `>`)
 
 
 # TODOs
 
-- Include direction bit/byte in the encoding
-
 - Make RangesCursor work with encoded positions instead of next/depth arrays.
 
-- Express depth limits as position limits (e.g. `positionForSkippingBranch` and `<` instead of `depth` and `>`)
-
 - `hasContent` flag
-- `hasChildren` flag
-
 - `hasPrecedingState` flag on range cursors
 - `hasDeletionBranch` flag on deletion-aware
+
+- `hasChildren` flag
 
 - (Not necessary) Multiple children flag. Perhaps two variations:
   - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple

@@ -41,7 +41,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
     FlexibleMergeCursor(C c1)
     {
-        assert Cursor.depth(c1.encodedPosition()) == 0;
+        c1.assertFresh();
         this.c1 = c1;
         this.c2 = null;
         state = State.C1_ONLY;
@@ -52,8 +52,8 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 
     FlexibleMergeCursor(C c1, D c2)
     {
-        assert Cursor.depth(c1.encodedPosition()) == 0;
-        assert Cursor.depth(c2.encodedPosition()) == 0;
+        c1.assertFresh();
+        c2.assertFresh();
         this.c1 = c1;
         this.c2 = c2;
         this.c2depthCorrection = 0;
@@ -66,7 +66,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     public void addCursor(D c2)
     {
         assert state == State.C1_ONLY : "Attempting to add further cursors to a cursor that already has two sources";
-        assert Cursor.depth(c2.encodedPosition()) == 0 : "Only cursors rooted at the current position can be added";
+        c2.assertFresh();
         this.c2 = c2;
         this.c2depthCorrection = Cursor.depthCorrectionValue(currentPosition);
         this.state = State.AT_BOTH;

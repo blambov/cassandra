@@ -144,7 +144,39 @@ public class CursorTest
     }
 
     @Test
-    public void testCompare()
+    public void testCompareForward()
+    {
+        testCompare(Direction.FORWARD);
+    }
+
+    @Test
+    public void testCompareReverse()
+    {
+        testCompare(Direction.REVERSE);
+    }
+
+    public void testCompare(Direction direction)
+    {
+        qt().forAll(DEPTH_GEN, TRANSITION_GEN, DEPTH_GEN, TRANSITION_GEN)
+            .checkAssert((depth1, transition1, depth2, transition2) -> {
+                long pos1 = Cursor.encode(depth1, transition1, direction);
+                long pos2 = Cursor.encode(depth2, transition2, direction);
+
+                long diff = Cursor.compare(pos1, pos2);
+                int cmp = Long.signum(diff);
+
+                int cmpExpected = Integer.compare(depth2, depth1); // higher depth is earlier
+                // if equal, check directed difference in transitions
+                if (cmpExpected == 0 && transition1.intValue() != transition2.intValue())
+                    cmpExpected = direction.lt(transition1, transition2) ? -1 : 1;
+
+                assertEquals(cmpExpected, cmp);
+            });
+
+    }
+
+    @Test
+    public void testCompareSimple()
     {
         // Equal positions
         long pos1 = Cursor.encode(1, 0x12, Direction.FORWARD);

@@ -48,8 +48,9 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
         this.deletions = deletions;
         this.data = data;
         this.deletionsDepthCorrection = 0;
-        assert Cursor.depth(data.encodedPosition()) == 0;
-        assert deletions == null || Cursor.depth(deletions.encodedPosition()) == 0;
+        data.assertFresh();
+        if (deletions != null)
+            deletions.assertFresh();
         atDeletions = deletions != null;
     }
 
@@ -191,7 +192,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     public void addDeletions(RangeCursor<E> deletions)
     {
         assert this.deletions == null;
-        assert Cursor.depth(deletions.encodedPosition()) == 0;
+        deletions.assertFresh();
         this.deletions = deletions;
         this.deletionsDepthCorrection = Cursor.depthCorrectionValue(data.encodedPosition());
         this.atDeletions = true;
