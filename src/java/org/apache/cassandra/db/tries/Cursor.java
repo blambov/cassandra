@@ -125,6 +125,8 @@ interface Cursor<T>
     /// This _must_ be 31, the code below takes advantage of this bit being the sign bit of (int) encodedPosition.
     static final int DIRECTION_BIT = 31;
 
+    static final long TRANSITION_MASK = 0x80FFL << TRANSITION_SHIFT;
+
     static final long ROOT_POSITION_FORWARD = encode(0, 0, Direction.FORWARD);
     static final long ROOT_POSITION_REVERSE = encode(0, 0, Direction.REVERSE);
 
@@ -196,7 +198,7 @@ interface Cursor<T>
 
     static long exhaustedPosition(long prevPosition)
     {
-        return EXHAUSTED_POSITION_DEPTH | (((((int) prevPosition) >> 31) & 0x80FFL) << TRANSITION_SHIFT);
+        return EXHAUSTED_POSITION_DEPTH | ((((long) ((int) prevPosition) >> 31)) & TRANSITION_MASK);
     }
 
     static long encode(int depth, int transition, Direction direction)
@@ -204,15 +206,15 @@ interface Cursor<T>
         assert depth >= -1;
         assert transition <= 0xFF && transition >= 0;
         // The xor below flips transition bits and also sets the direction bit to 1 for REVERSE direction.
-        long transitionXored = (transition ^ direction.select(0, -1)) & 0x80FFL;
-        return ((long) ~depth << 32) | (transitionXored << TRANSITION_SHIFT);
+        long transitionXored = transition ^ direction.select(0, -1);
+        return ((long) ~depth << 32) | ((transitionXored << TRANSITION_SHIFT) & TRANSITION_MASK);
     }
 
     static long positionForDescentWithByte(long encodedPosition, int incomingByte)
     {
         long depthPart = (encodedPosition + DEPTH_ADJUSTMENT_ONE) & 0xFFFFFFFF00000000L;
-        long transitionXored = (incomingByte ^ (((int) encodedPosition) >> 31)) & 0x80FFL;
-        return depthPart | (transitionXored << TRANSITION_SHIFT);
+        long transitionXored = incomingByte ^ (((int) encodedPosition) >> 31);
+        return depthPart | ((transitionXored << TRANSITION_SHIFT) & TRANSITION_MASK);
     }
 
     /// Returns a position that can be used to skip over the given branch. Note that this can only work when the
@@ -222,6 +224,11 @@ interface Cursor<T>
     static long positionForSkippingBranch(long encodedBranchPosition)
     {
         return encodedBranchPosition + (1 << TRANSITION_SHIFT);
+    }
+
+    static long positionWithOppositeDirection(long encodedPosition)
+    {
+        return encodedPosition ^ TRANSITION_MASK;
     }
 
     static boolean ascended(long currPosition, long prevPosition)

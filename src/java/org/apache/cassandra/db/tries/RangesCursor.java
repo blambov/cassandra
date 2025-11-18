@@ -254,11 +254,11 @@ class RangesCursor implements TrieSetCursor
             return boundaryMatchingCursor(copyFrom, newDirection);
 
         int arrayStart = startInclusive & ~1;
-        int arrayLength = ((endExclusive + 1) & ~1) - arrayStart;
+        int arrayEnd = ((endExclusive + 1) & ~1);
 
         final long depthDiff = Cursor.depthCorrectionValue(copyFrom.currentPosition);
-        ByteSource[] sources = new ByteSource[arrayLength];
-        final long[] nextPositions = new long[arrayLength];
+        ByteSource[] sources = new ByteSource[arrayEnd - arrayStart];
+        final long[] nextPositions = new long[arrayEnd - arrayStart];
 
         // Duplicate all boundaries that are positioned at the current point (if they are not, they cannot affect the
         // tail trie).
@@ -286,23 +286,22 @@ class RangesCursor implements TrieSetCursor
         }
         else
         {
-            long directionXor = 0x80FFL << TRANSITION_SHIFT;
             for (int i = startInclusive; i < endExclusive; ++i)
             {
                 if (copyFrom.sources[i] != null)
                 {
                     ByteSource.Duplicatable dupe = ByteSource.duplicatable(copyFrom.sources[i]);
                     copyFrom.sources[i] = dupe;
-                    sources[arrayLength - 1 - i + arrayStart] = dupe.duplicate();
+                    sources[arrayEnd - 1 - i] = dupe.duplicate();
                 }
-                nextPositions[arrayLength - 1 - i + arrayStart] = (copyFrom.nextPositions[i] - depthDiff) ^ directionXor;
+                nextPositions[arrayEnd - 1 - i] = Cursor.positionWithOppositeDirection(copyFrom.nextPositions[i] - depthDiff);
             }
 
             return new RangesCursor(copyFrom.byteComparableVersion,
                                     nextPositions,
                                     sources,
-                                    arrayLength - endExclusive + arrayStart,
-                                    arrayLength - startInclusive + arrayStart,
+                                    arrayEnd - endExclusive,
+                                    arrayEnd - startInclusive,
                                     Cursor.rootPosition(newDirection),
                                     copyFrom.currentState); // state is not dependent on the direction
         }
