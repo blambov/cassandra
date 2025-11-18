@@ -178,7 +178,7 @@ public interface VerificationCursor
             if (Cursor.isExhausted(newPosition))
             {
                 assert Cursor.compare(newPosition, Cursor.exhaustedPosition(direction)) == 0 :
-                    String.format("Cursor exhausted state should be %s, %s but was %s, %s\n%s",
+                    String.format("Cursor exhausted state should be %s but was %s\n%s",
                                   Cursor.toString(Cursor.exhaustedPosition(direction)),
                                   Cursor.toString(newPosition),
                                   this);
