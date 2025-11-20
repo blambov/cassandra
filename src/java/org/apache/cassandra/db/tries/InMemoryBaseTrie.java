@@ -1638,6 +1638,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             // This is not very efficient, but we only currently use this option in tests.
             // If it's needed for production use, isBranching should be implemented in the cursor interface.
+            if (Cursor.isOnReturnPath(mutationCursor.encodedPosition()))
+                return false;
+
             Cursor<U> dupe = mutationCursor.tailCursor(Direction.FORWARD);
             long childPosition = dupe.advance();
             return !Cursor.isExhausted(childPosition) &&

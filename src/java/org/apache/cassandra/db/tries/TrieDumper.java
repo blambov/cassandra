@@ -75,6 +75,13 @@ abstract class TrieDumper<T> implements Cursor.Walker<T, String>
     }
 
     @Override
+    public void onReturnPath()
+    {
+        maybeIndent();
+        b.append('↑');
+    }
+
+    @Override
     public String complete()
     {
         return b.toString();

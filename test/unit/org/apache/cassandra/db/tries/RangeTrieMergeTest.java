@@ -549,16 +549,18 @@ public class RangeTrieMergeTest
         list.add(value);
     }
 
-    @Test(expected = AssertionError.class)
+    @Test
     public void testRangeUnderCoveredRange()
     {
         String[] ranges1 = {"ba", "bb"};
         String[] ranges2 = {"aa", "ab", "bbc", "bbd", "bbfff", "bbfff", "bce", "bcf", "ce", "cf"};
         // We don't currently handle boundaries that are prefixes of entries and we should identify this and throw an exception.
-        var list = toList(RangeTrie.merge(List.of(TrieUtil.directRangeTrie(1, ranges1),
-                                                  TrieUtil.directRangeTrie(2, ranges2)),
-                                          TestRangeState::combineCollection),
+        RangeTrie<TestRangeState> merge = RangeTrie.merge(List.of(TrieUtil.directRangeTrie(1, ranges1),
+                                                                  TrieUtil.directRangeTrie(2, ranges2)),
+                                                          TestRangeState::combineCollection);
+        var list = toList(merge,
                           Direction.FORWARD);
         System.out.println(list);
+        System.out.println(merge.dump());
     }
 }

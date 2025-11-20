@@ -36,6 +36,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.assertTrieEquals;
+import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -113,7 +114,7 @@ public class RangesTrieSetTest
     {
         Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
         for (int i = 0; i < boundariesAsStrings.length; ++i)
-            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.comparable(boundariesAsStrings[i]) : null;
+            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
         check(boundaries);
 
         verifySkipTo(boundariesAsStrings, TrieSet.ranges(VERSION, boundaries));
@@ -125,6 +126,8 @@ public class RangesTrieSetTest
         TrieSetCursor c = set.cursor(direction);
         if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
             return dir -> c.tailCursor(dir);
+        else if (c.precedingIncluded())
+            return TrieSet.ranges(c.byteComparableVersion()); // full set
         else
             return null;
     }
@@ -171,7 +174,10 @@ public class RangesTrieSetTest
                 }
 
                 final byte[] byteComparableArray = b.asByteComparableArray(VERSION);
-                tails.add(ByteComparable.preencoded(VERSION, Arrays.copyOfRange(byteComparableArray, prefixLength, byteComparableArray.length)));
+                if (prefixLength == byteComparableArray.length)
+                    tails.add(null);
+                else
+                    tails.add(ByteComparable.preencoded(VERSION, Arrays.copyOfRange(byteComparableArray, prefixLength, byteComparableArray.length)));
             }
 
             for (Direction dir : Direction.values())
@@ -181,7 +187,7 @@ public class RangesTrieSetTest
                 assertNotNull(tail);
                 dumpToOut(tail);
                 var expectations = getExpectations(tails.toArray(Preencoded[]::new));
-                assertTrieEquals(fullTrie(tail), expectations);
+                assertTrieEquals(fullTrie(tail), expectations, TrieSetCursor.RangeState::intersect);
             }
         }
     }
@@ -196,15 +202,15 @@ public class RangesTrieSetTest
             String s = boundariesAsStrings[bi];
             if (s == null)
                 continue;
-            while (ei < boundariesAsStrings.length && s.equals(boundariesAsStrings[ei]))
+            while (ei < boundariesAsStrings.length && boundariesAsStrings[ei] != null && boundariesAsStrings[ei].startsWith(s))
                 ++ei;
-            for (int terminator : Arrays.asList(ByteSource.LT_NEXT_COMPONENT, ByteSource.TERMINATOR, ByteSource.GT_NEXT_COMPONENT))
+            for (boolean seekAfterBranch : Arrays.asList(false, true))
                 for (Direction direction : Direction.values())
                 {
-                    String term = terminator == ByteSource.LT_NEXT_COMPONENT ? "<" : terminator == ByteSource.TERMINATOR ? "=" : ">";
+                    String term = seekAfterBranch ? direction.select(">", "<") : "=";
                     String dir = direction == Direction.FORWARD ? "FWD" : "REV";
                     String msg = term + s + " " + dir + " in " + arr + " ";
-                    ByteSource b = ByteSource.withTerminator(terminator, ByteSource.of(s, VERSION));
+                    ByteSource.Peekable b = directComparable(s).getPreencodedBytes();
                     TrieSetCursor cursor = set.cursor(direction);
                     // skip to nearest position in cursor
                     int next = b.next();
@@ -212,16 +218,43 @@ public class RangesTrieSetTest
                     while (next != ByteSource.END_OF_STREAM)
                     {
                         long skipPosition = Cursor.encode(depth + 1, next, direction);
+
+                        // Adjust to ask for post-branch position on > fwd and < rev
+                        if (seekAfterBranch && b.peek() == ByteSource.END_OF_STREAM)
+                            skipPosition |= Cursor.ON_RETURN_PATH_BIT;
+
                         if (Cursor.compare(cursor.skipTo(skipPosition), skipPosition) != 0)
                             break;
                         next = b.next();
                         ++depth;
                     }
+
+                    int effectiveIndexFwd;
+                    int effectiveIndexRev;
+                    boolean seekingSmaller = direction.select(!seekAfterBranch, seekAfterBranch);
+
                     // Check the resulting state.
-                    int effectiveIndexFwd = terminator <= ByteSource.TERMINATOR ? bi : ei;
-                    int effectiveIndexRev = terminator >= ByteSource.TERMINATOR ? ei : bi;
                     boolean isExact = next == ByteSource.END_OF_STREAM;
-                    TrieSetCursor.RangeState state = isExact ? cursor.state() : (cursor.state().precedingIncluded(direction) ? TrieSetCursor.RangeState.END_START_PREFIX : TrieSetCursor.RangeState.START_END_PREFIX);
+
+                    TrieSetCursor.RangeState state = cursor.state();
+                    if (isExact)
+                    {
+                        // Matched left or right boundary.
+                        effectiveIndexFwd = seekingSmaller ? bi : ei - 1;
+                        effectiveIndexRev = seekingSmaller ? bi + 1 : ei;
+                    }
+                    else
+                    {
+                        state = state.precedingState(direction);
+
+                        // Seeking forward smaller not exact gives us interior right (because we must find the greater side as it exists)
+                        // Seeking forward larger not exact gives us right side.
+                        if (direction.isForward())
+                            effectiveIndexFwd = effectiveIndexRev = seekingSmaller ? ei - 1 : ei;
+                        else
+                            effectiveIndexFwd = effectiveIndexRev = seekingSmaller ? bi : bi + 1;
+                    }
+
                     assertEquals(msg + "covering FWD", (effectiveIndexFwd & 1) != 0, state.precedingIncluded(Direction.FORWARD));
                     assertEquals(msg + "covering REV", (effectiveIndexRev & 1) != 0, state.precedingIncluded(Direction.REVERSE));
                 }
@@ -233,7 +266,7 @@ public class RangesTrieSetTest
         TrieSet s = TrieSet.ranges(VERSION, boundaries);
         dumpToOut(s);
         var expectations = getExpectations(boundaries);
-        assertTrieEquals(fullTrie(s), expectations);
+        assertTrieEquals(fullTrie(s), expectations, TrieSetCursor.RangeState::intersect);
     }
 
     static class PointState
@@ -340,29 +373,64 @@ public class RangesTrieSetTest
         check(null, "abc", "afg", null);
     }
 
+    // prefixes
+
     @Test
-    public void testRepeatLeft()
+    public void testPrefixLeft()
     {
-        check("abc", "abc", "abc", null);
+        check(" a", " abc");
     }
 
     @Test
-    public void testRepeatRight()
+    public void testPrefixRight()
     {
-        check(null, "abc", "abc", "abc");
+        check(" abc", " a");
     }
 
     @Test
-    public void testPointRepeat()
+    public void testPrefixHole()
     {
-        check("abc", "abc", "abc", "abc");
+        check(" a", " aaa", " acc", " a");
     }
 
     @Test
-    public void testPointInSpan()
+    public void testPrefixLeftHole()
     {
-        check("aa", "abc", "abc", "ad");
+        check(" a", " aaa", " acc", " d");
     }
+
+    @Test
+    public void testPrefixRightHole()
+    {
+        check(" a", " daa", " dcc", " d");
+    }
+
+
+    // Repeats aren't valid, because they doubly list a branch
+
+//    @Test
+//    public void testRepeatLeft()
+//    {
+//        check("abc", "abc", "abc", null);
+//    }
+//
+//    @Test
+//    public void testRepeatRight()
+//    {
+//        check(null, "abc", "abc", "abc");
+//    }
+//
+//    @Test
+//    public void testPointRepeat()
+//    {
+//        check("abc", "abc", "abc", "abc");
+//    }
+//
+//    @Test
+//    public void testPointInSpan()
+//    {
+//        check("aa", "abc", "abc", "ad");
+//    }
 
     @Test
     public void testPrefixRepeatsInSpanOdd()

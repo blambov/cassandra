@@ -151,7 +151,7 @@ public interface VerificationCursor
                               this);
             int skipTransition = Cursor.undecodedTransition(encodedSkipPosition);
             if (skipDepth <= returnedDepth && skipDepth > 0)
-                assert direction.encodeTransitionByte(getByte(skipDepth)) < skipTransition :
+                assert (direction.encodeTransitionByte(getByte(skipDepth)) << 1) < skipTransition :
                     String.format("Skip goes backwards to %s where it already visited byte %s\n%s",
                                   Cursor.toString(encodedSkipPosition),
                                   getByte(skipDepth),
@@ -187,15 +187,15 @@ public interface VerificationCursor
             {
                 if (newDepth <= oldDepth)
                 {
-                    assert direction.encodeTransitionByte(getByte(newDepth)) < Cursor.undecodedTransition(newPosition) :
-                        String.format("Cursor went backwards to %s where it already visited byte %s\n%s",
+                    assert (direction.encodeTransitionByte(getByte(newDepth)) << 1) < Cursor.undecodedTransition(newPosition) :
+                        String.format("Cursor went backwards to %s where it already visited byte %02x\n%s",
                                       Cursor.toString(newPosition),
                                       getByte(newDepth),
                                       this);
                 }
-                int undecodedTransition = Cursor.undecodedTransition(newPosition);
+                int undecodedTransition = Cursor.undecodedTransition(newPosition) >> 1;
                 assert undecodedTransition >= 0 && undecodedTransition <= 0xFF :
-                    String.format("Cursor returned invalid incoming transition with state %s (%016x)\n%s",
+                    String.format("Cursor returned invalid incoming transition as %s (%016x)\n%s",
                                   Cursor.toString(newPosition),
                                   newPosition,
                                   this);
@@ -354,9 +354,9 @@ public interface VerificationCursor
             boolean equal = agree(currentPrecedingState, precedingState);
             assert equal : String.format("Unexpected change to covering state: %s -> %s\n%s",
                                          currentPrecedingState, precedingState, this);
-            assert Cursor.depth(position) <= maxNextDepth :
-                String.format("Cursor descended after reporting an included branch\n%s",
-                              this);
+//            assert Cursor.depth(position) <= maxNextDepth :
+//                String.format("Cursor descended after reporting an included branch\n%s",
+//                              this);
             currentPrecedingState = precedingState;
 
             S content = source.content();

@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -42,6 +43,7 @@ import com.google.common.base.Objects;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
@@ -76,12 +78,32 @@ public class TrieUtil
                         REVERSE_COMPARATOR);
     }
 
+    static <T> void assertTrieEquals(BaseTrie<T, ?, ?> trie, Map<Preencoded, T> map, BinaryOperator<T> combiner)
+    {
+        assertMapEquals(trie.entrySet(Direction.FORWARD),
+                        map.entrySet(),
+                        FORWARD_COMPARATOR,
+                        combiner);
+        assertMapEquals(trie.entrySet(Direction.REVERSE),
+                        reorderBy(map, REVERSE_COMPARATOR).entrySet(),
+                        REVERSE_COMPARATOR,
+                        combiner);
+    }
+
     static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
                                     Iterable<Map.Entry<Preencoded, T>> container2,
                                     Comparator<Preencoded> comparator)
     {
-        Map<String, String> values1 = collectAsStrings(container1, comparator);
-        Map<String, String> values2 = collectAsStrings(container2, comparator);
+        assertMapEquals(container1, container2, comparator, (a, b) -> { throw new AssertionError("Forbidden duplicate value " + a + " + " + b); });
+    }
+
+    static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
+                                    Iterable<Map.Entry<Preencoded, T>> container2,
+                                    Comparator<Preencoded> comparator,
+                                    BinaryOperator<T> combiner)
+    {
+        Map<String, String> values1 = collectAsStrings(container1, comparator, combiner);
+        Map<String, String> values2 = collectAsStrings(container2, comparator, combiner);
         if (values1.equals(values2))
             return;
 
@@ -111,6 +133,16 @@ public class TrieUtil
     }
 
     private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
+                                                            Comparator<Preencoded> comparator,
+                                                            BinaryOperator<T> combiner)
+    {
+        if (combiner != null)
+            return collectAsStrings(container, combiner);
+        else
+            return collectAsStrings(container, comparator);
+    }
+
+    private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
                                                             Comparator<Preencoded> comparator)
     {
         var map = new LinkedHashMap<String, String>();
@@ -124,6 +156,22 @@ public class TrieUtil
             map.put(asString(key), e.getValue().toString());
         }
         return map;
+    }
+
+    private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
+                                                            BinaryOperator<T> combiner)
+    {
+        var map = new LinkedHashMap<String, T>();
+        for (var e : container)
+        {
+            var key = asString(e.getKey());
+            var value = e.getValue();
+
+            T prevValue = map.put(key, value);
+            if (prevValue != null)
+                map.put(key, combiner.apply(prevValue, value));
+        }
+        return Maps.transformValues(map, v -> v.toString());
     }
 
     static ByteComparable invert(ByteComparable b)
@@ -160,7 +208,7 @@ public class TrieUtil
         return dir -> new CursorFromSpec<>(nodeDef, dir);
     }
 
-    static ByteComparable directComparable(String s)
+    static Preencoded directComparable(String s)
     {
         ByteBuffer b = ByteBufferUtil.bytes(s);
         return ByteComparable.preencoded(VERSION, b);
@@ -547,6 +595,9 @@ public class TrieUtil
                 {
                     int depth = Cursor.depth(encodedSkipPosition);
                     int transition = Cursor.incomingTransition(encodedSkipPosition);
+                    if (Cursor.isOnReturnPath(encodedSkipPosition))
+                        transition += direction.increase;
+
                     if (depth > 1)
                         return advance();
                     if (depth < 1)
@@ -660,6 +711,8 @@ public class TrieUtil
         {
             int skipDepth = Cursor.depth(encodedSkipPosition);
             int skipTransition = Cursor.incomingTransition(encodedSkipPosition);
+            if (Cursor.isOnReturnPath(encodedSkipPosition))
+                skipTransition += direction.increase;
             int depth = Cursor.depth(position);
             assert skipDepth <= depth + 1 : "skipTo descends more than one level";
 

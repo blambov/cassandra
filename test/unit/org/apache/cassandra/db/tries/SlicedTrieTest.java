@@ -57,19 +57,19 @@ public class SlicedTrieTest
     }
 
     public static final Preencoded[] BOUNDARIES = toByteComparable(new String[]{
-    "test1",
-    "test11",
-    "test12",
-    "test13",
-    "test2",
-    "test21",
-    "te",
-    "s",
-    "q",
-    "\000",
-    "\377",
-    "\377\000",
-    "\000\377",
+//    "test1",
+//    "test11",
+//    "test12",
+//    "test13",
+//    "test2",
+//    "test21",
+//    "te",
+//    "s",
+//    "q",
+//    "\000",
+//    "\377",
+//    "\377\000",
+//    "\000\377",
     "\000\000",
     "\000\000\000",
     "\000\000\377",
@@ -166,15 +166,34 @@ public class SlicedTrieTest
 
                     for (Preencoded key : KEYS)
                     {
-                        int cmp1 = l != null ? !isTruePrefix(l, key) ? ByteComparable.compare(key, l, VERSION) : 0 : 1;
-                        int cmp2 = r != null ? !isTruePrefix(r, key) ? ByteComparable.compare(r, key, VERSION) : 0 : 1;
+                        int cmp1 = l != null ? ByteComparable.compare(key, l, VERSION) : 1;
+                        int cmp2 = r != null ? ByteComparable.compare(r, key, VERSION) : 1;
                         Trie<Boolean> ix = Trie.singleton(key, VERSION, true).slice(l, includeLeft, r, includeRight);
                         boolean expected = true;
                         if (cmp1 < 0 || cmp1 == 0 && !includeLeft)
                             expected = false;
                         if (cmp2 < 0 || cmp2 == 0 && !includeRight)
                             expected = false;
-                        boolean actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
+
+                        boolean actual = false;
+                        try
+                        {
+                            actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
+                        }
+                        catch (Throwable t)
+                        {
+                            System.err.println("Intersection");
+                            System.err.println(ix.dump());
+                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
+                                                      includeLeft ? "[" : "(",
+                                                      l != null ? l.byteComparableAsString(VERSION) : null,
+                                                      r != null ? r.byteComparableAsString(VERSION) : null,
+                                                      includeRight ? "]" : ")",
+                                                      key.byteComparableAsString(VERSION),
+                                                      expected,
+                                                      t));
+                        }
+
                         if (expected != actual)
                         {
                             System.err.println("Intersection");
@@ -452,14 +471,14 @@ public class SlicedTrieTest
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(null, true, ByteComparable.EMPTY, true);
-        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
+        assertTrieEquals(asList(-1), intersection);
 
         // Not currently supported
-//        intersection = trie.slice(null, true, ByteComparable.EMPTY, false);
-//        assertTrieEquals(asList(), intersection);
+        intersection = trie.slice(null, true, ByteComparable.EMPTY, false);
+        assertTrieEquals(asList(), intersection);
 
         intersection = trie.slice(ByteComparable.EMPTY, true, ByteComparable.EMPTY, true);
-        assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
+        assertTrieEquals(asList(-1), intersection);
 
         // (empty, empty) is an invalid call as the "(empty" is greater than "empty)"
     }

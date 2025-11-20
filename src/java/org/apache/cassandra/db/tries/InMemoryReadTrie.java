@@ -696,6 +696,8 @@ public abstract class InMemoryReadTrie<T>
         {
             int skipDepth = Cursor.depth(encodedSkipPosition);
             int skipTransition = Cursor.incomingTransition(encodedSkipPosition);
+            if (Cursor.isOnReturnPath(encodedSkipPosition))
+                skipTransition += direction.increase;
             if (skipDepth > depth)
             {
                 // Descent requested. Jump to the given child transition or greater, and backtrack if there's no such.

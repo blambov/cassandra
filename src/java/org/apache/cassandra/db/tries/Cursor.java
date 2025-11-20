@@ -118,14 +118,18 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 interface Cursor<T>
 {
     static final int DEPTH_SHIFT = 32;
-    static final int TRANSITION_SHIFT = 16;
+    static final int TRANSITION_SHIFT = 20;
 
     /// 1 for reverse direction, 0 for forward. Used to xor transition bits for incomingTransition.
     /// This takes part in comparisons but this does not matter because they always go in the same direction.
     /// This _must_ be 31, the code below takes advantage of this bit being the sign bit of (int) encodedPosition.
     static final int DIRECTION_BIT = 31;
 
-    static final long TRANSITION_MASK = 0x80FFL << TRANSITION_SHIFT;
+    /// An additional transition bit used to revisit positions on the way back after iterating the branch.
+    /// Used for sets and ranges to correctly define the range states for branch-inclusive ranges.
+    static final long ON_RETURN_PATH_BIT = 1L << 19;
+
+    static final long TRANSITION_MASK = 0x8FF00000L;
 
     static final long ROOT_POSITION_FORWARD = encode(0, 0, Direction.FORWARD);
     static final long ROOT_POSITION_REVERSE = encode(0, 0, Direction.REVERSE);
@@ -171,7 +175,7 @@ interface Cursor<T>
 
     static int undecodedTransition(long encodedPosition)
     {
-        return (int) (encodedPosition >> 16) & 0x1FF;   // include overflow bit
+        return (int) (encodedPosition >> (TRANSITION_SHIFT - 1)) & 0x3FF;   // include overflow and onReturnPath bits
     }
 
     static Direction direction(long encodedPosition)
@@ -179,6 +183,10 @@ interface Cursor<T>
         return Direction.values()[((int) encodedPosition >>> DIRECTION_BIT) & 1];
     }
 
+    static boolean isOnReturnPath(long encodedPosition)
+    {
+        return (encodedPosition & ON_RETURN_PATH_BIT) != 0;
+    }
 
     static long compare(long encoded1, long encoded2)
     {
@@ -212,6 +220,7 @@ interface Cursor<T>
 
     static long positionForDescentWithByte(long encodedPosition, int incomingByte)
     {
+        assert !isOnReturnPath(encodedPosition) : "Can't descend from a return path position " + toString(encodedPosition);
         long depthPart = (encodedPosition + DEPTH_ADJUSTMENT_ONE) & 0xFFFFFFFF00000000L;
         long transitionXored = incomingByte ^ (((int) encodedPosition) >> 31);
         return depthPart | ((transitionXored << TRANSITION_SHIFT) & TRANSITION_MASK);
@@ -223,12 +232,7 @@ interface Cursor<T>
     /// TODO: test
     static long positionForSkippingBranch(long encodedBranchPosition)
     {
-        return encodedBranchPosition + (1 << TRANSITION_SHIFT);
-    }
-
-    static long positionWithOppositeDirection(long encodedPosition)
-    {
-        return encodedPosition ^ TRANSITION_MASK;
+        return encodedBranchPosition + (1L << TRANSITION_SHIFT);
     }
 
     static boolean ascended(long currPosition, long prevPosition)
@@ -240,7 +244,11 @@ interface Cursor<T>
 
     static String toString(long encodedPosition)
     {
-        return String.format("depth %d incomingTransition %02x %s", depth(encodedPosition), incomingTransition(encodedPosition), direction(encodedPosition));
+        return String.format("depth %d incomingTransition %02x%s %s",
+                             depth(encodedPosition),
+                             incomingTransition(encodedPosition),
+                             isOnReturnPath(encodedPosition) ? "↑" : " ",
+                             direction(encodedPosition));
     }
 
     /// Returns the encoded position, which contains, in order of significance:
@@ -272,8 +280,7 @@ interface Cursor<T>
     /// It is an error to call this after the trie has already been exhausted (i.e. when `depth() == -1`);
     /// for performance reasons we won't always check this.
     ///
-    /// @return encoded position (see [#encodedPosition()]). The position has FLAG_DESCENDED set if and only if the
-    ///         cursor descended to a child node.
+    /// @return encoded position (see [#encodedPosition()])
     long advance();
 
     /// Advance, descending multiple levels if the cursor can do this for the current position without extra work
@@ -289,9 +296,8 @@ interface Cursor<T>
     /// for performance reasons we won't always check this.
     ///
     /// @param receiver object that will receive all transitions taken except the last;
-    ///                                 on ascend, or if only one step down was taken, it will not receive any
-    /// @return encoded position (see [#encodedPosition()]). The position has FLAG_DESCENDED set if and only if the
-    ///         cursor descended to a child node.
+    ///                 on ascend, or if only one step down was taken, it will not receive any
+    /// @return encoded position (see [#encodedPosition()])
     default long advanceMultiple(TransitionsReceiver receiver)
     {
         return advance();
@@ -317,6 +323,8 @@ interface Cursor<T>
                 if (ascended(currPosition, prevPosition))
                     receiver.resetPathLength(depth(currPosition) - 1);
                 receiver.addPathByte(incomingTransition(currPosition));
+                if (isOnReturnPath(currPosition))
+                    receiver.onReturnPath();
             }
             T content = content();
             if (content != null)
@@ -387,6 +395,13 @@ interface Cursor<T>
         void addPathByte(int nextByte);
         /// Add the count bytes from position pos in the given buffer.
         void addPathBytes(DirectBuffer buffer, int pos, int count);
+
+        /// Called when the current position is on the return path. Sets and ranges use these positions to return
+        /// end-inclusive ranges.
+        default void onReturnPath()
+        {
+            // nothing by default
+        }
     }
 
     /// Used by [#advanceToContent] to track the transitions and backtracking taken.

@@ -25,6 +25,7 @@ import java.util.Iterator;
 import java.util.Map;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 /// Basic deterministic trie interface.
 ///
@@ -84,10 +85,17 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return dir -> {
             Cursor<T> cursor = cursor(dir);
             return new IntersectionCursor.PlainSlice<>(cursor,
-                                                       RangesCursor.create(dir, cursor.byteComparableVersion(), left, right),
-                                                       inclusiveLeft,
-                                                       inclusiveRight);
+                                                       RangesCursor.create(dir,
+                                                                           cursor.byteComparableVersion(),
+                                                                           false,
+                                                                           add0(left, !inclusiveLeft),
+                                                                           add0(right, inclusiveRight)));
         };
+    }
+
+    private static ByteComparable add0(ByteComparable byteComparable, boolean inclusive)
+    {
+        return byteComparable != null && inclusive ? v -> ByteSource.append(byteComparable.asComparableBytes(v), 0) : byteComparable;
     }
 
     /// Returns the values in any order. For some tries this is much faster than the ordered iterable.

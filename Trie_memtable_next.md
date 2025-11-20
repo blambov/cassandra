@@ -124,22 +124,72 @@ Range covering `a -> abc`
 [a, abc]?
 
 
+## Prefixes in `RangeCursor`
+
+onReturnPath bit:
+  - Always 0 for non-boundary nodes
+  - 0 for left indexes (&1 == 0) and 1 for right (&1 == 1) (subtries with prefixes and descendants) both fwd/rev
+  - 0 for inclusive-left and exclusive-right (slices) fwd, and 1 rev
+
+Right side of onReturnPath=0 applies to branch. Left side of onReturnPath=1 applies to branch.
+
+[a, aaa]:
+  - a with false->true
+  - aaa^ with true->false
+    - a's combined state is false->true->false->false
+
+[a, aa, ac, a]:
+- a with false->true
+- aa^ with true->false
+- ac with false->true
+- a^ with true->false
+    - a's combined state is false->true->true->false
+
+[a, aa, ac, e]
+- a with false->true
+- aa^ with true->false
+- ac with false->true
+- e^ with true->false
+    - a's combined state is false->true->true->true
+
+[aa, aaaa, aaac, aa]
+- a START_END_PREFIX (0 (no left) to 4e (no right))
+- aa START (0 (no left) to 1e (right) applies only, 1-3 advanced but not processed)
+- aaa END_START_PREFIX (1 (left) to 3e (right)), 1-2 advanced
+- aaaa^ END (1 (left) to 2e (no right))
+- aaac START (2 (no left) to 3e (right))
+- aa^ END (3 (left) to 4e (no right))
+
+
+[a, b, bbb, c]
+- invalid (b^ is after bbb in iteration order, should be [a, bbb, b, c])
+
+### Alternative
+ - 1/2 for path (fwd/rev)
+ - 0/3 for before
+ - 3/0 for after
+ - Can be ^ -1'd to change direction safely
+
 # Done
 
 - Include direction bit/byte in the encoding
 
 - (partially) Express depth limits as position limits (e.g. `positionForSkippingBranch` and `<` instead of `depth` and `>`)
 
+- Make RangesCursor work with encoded positions instead of next/depth arrays.
+
 
 # TODOs
 
-- Make RangesCursor work with encoded positions instead of next/depth arrays.
+- inMemoryTrie support for onReturnPath
 
 - `hasContent` flag
-- `hasPrecedingState` flag on range cursors
 - `hasDeletionBranch` flag on deletion-aware
 
 - `hasChildren` flag
+
+- applicableBefore/applicableAfter flags on sets 
+- `hasPrecedingState`/`hasSucceedingState` flag on range cursors
 
 - (Not necessary) Multiple children flag. Perhaps two variations:
   - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
