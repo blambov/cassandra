@@ -176,7 +176,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
     default TrieSetCursor precedingStateCursor(Direction direction)
     {
         if (precedingIncluded())
-            return RangesCursor.create(direction, byteComparableVersion(), true);
+            return RangesCursor.full(direction, byteComparableVersion());
         else
             return null;
     }

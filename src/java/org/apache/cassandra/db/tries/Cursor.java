@@ -526,14 +526,21 @@ interface Cursor<T>
     @SuppressWarnings("unused")
     private String dumpBranch()
     {
-        return dumpBranch(Object::toString);
+        return dumpBranch(Direction.FORWARD);
     }
 
     /// Dump the current branch. To be used for debugging only.
-    private String dumpBranch(Function<T, String> toStringFunction)
+    @SuppressWarnings("unused")
+    private String dumpBranch(Direction direction)
+    {
+        return dumpBranch(direction, Object::toString);
+    }
+
+    /// Dump the current branch. To be used for debugging only.
+    private String dumpBranch(Direction direction, Function<T, String> toStringFunction)
     {
         TrieDumper<T> dumper = new TrieDumper.Plain<>(toStringFunction);
-        tailCursor(Direction.FORWARD).process(dumper);
+        tailCursor(direction).process(dumper);
         return dumper.complete();
     }
 

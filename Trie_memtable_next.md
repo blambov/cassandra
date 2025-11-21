@@ -177,6 +177,185 @@ Right side of onReturnPath=0 applies to branch. Left side of onReturnPath=1 appl
  - 3/0 for after
  - Can be ^ -1'd to change direction safely
 
+
+# Slices
+
+Forward path is easy, add0 works fine.
+
+However, on reverse we have the content() presented on the reverse-side boundary.
+
+Example
+
+(null, a) fine
+
+(null, a] maps to (null, a0) which in turn is
+
+```
+Forward
+-> START
+a ->
+  0 -> END
+
+Reverse
+->
+a ->
+  0^ -> START
+a^ -> END
+```
+
+a's content is presented on "a" (descent-side) in either direction. This means we see NOT_CONTAINED in the reverse
+direction.
+
+## Different trail bits for content vs children/metadata?
+
+In the four-state transition trail approach, use:
+- 0 (-) for boundary before
+- 1 (*) for content
+- 2 (=) for metadata and children
+- 3 (+) for boundary after
+
+Above would look like (0/1/2/3 shown as -/*/=/+ here, without remapping for reverse).
+
+```
+Forward
+- -> START
+= ->
+a* walked
+a= ->
+ 0- -> END
+
+Reverse
+= ->
+a= ->
+ 0- -> START
+a* walked
+- -> END
+```
+
+Too complex? Is it a performance hit?
+
+get() should use = for all bytes except the last where it should be *.
+
+Dump should only list non-= positions when they have content (e.g. -> / *> / => / +> )
+
+In-memory thing takes all the pain. Now a node can have up to 4 different content values (if we want metadata in range
+tries) plus alternate branch.
+
+Perhaps include trail bits in the content id encoding? Use prefix nodes when there's more than one.
+
+
+## Represent as the proper set?
+
+Not easy at all.
+
+for [bb, bb] that would be something like [bb, bb00, bbff^, bb^], i.e.
+
+```
+bb -> START  (w content)
+  00 -> END
+  FF^ -> START
+bb^ -> END
+```
+so that reverse can be
+```
+bb -> START  (w content)
+  FF -> END
+  00^ -> START
+bb^ -> END
+```
+
+(aa, bb) would be [aa00, aaff^, aa^, bb]
+
+```
+aa ->  (no content presented)
+  00 -> START
+  FF^ -> END
+aa^ -> START
+bb -> END
+```
+reverse
+```
+bb^ -> START
+aa -> END
+  FF -> START
+  00^ -> END
+```
+
+and
+
+(aa, bb] as [aa00, aaff^, aa^, bb00, bbff^, bb^]
+
+```
+aa ->  (no content presented)
+  00 -> START
+  FF^ -> END
+aa^ -> START
+bb ->  (w content)
+  00 -> END
+  FF^ -> START
+bb^ -> END
+```
+reverse
+```
+bb -> START  (w content)
+  FF -> END
+  00^ -> START
+aa -> END
+  FF -> START
+  00^ -> END
+```
+
+
+Content on root and prefixes when we have open sides:
+
+(null, aa) same as [empty, aa)
+
+```
+-> START
+aa -> END
+
+->
+aa^ -> START
+^ -> END
+```
+
+
+[aa, null)
+
+
+
+[aa, aa00) as [aa, aa00, aaFF^, aa^]
+
+[aa, aabb) as [aa, aabb, aaFF^, aa^]
+
+```
+aa -> START
+  bb -> END
+  FF^ -> START
+aa^ -> END
+
+aa -> START
+  FF -> END
+  bb^ -> START
+aa^ -> END
+```
+
+
+[aa, aabb00) as [aa, aabb00, aaFF^, aa^]?
+aabb needs to be included.
+
+
+
+This does not work.
+
+
+## Write a slice cursor implementation to deal with this mess specifically for SAI?
+
+Resurrect the code we had before CNDB-10302?
+
+Making it as set would still need a different Slice intersection for the prefixes.
+
+
 # Done
 
 - Include direction bit/byte in the encoding
@@ -185,10 +364,9 @@ Right side of onReturnPath=0 applies to branch. Left side of onReturnPath=1 appl
 
 - Make RangesCursor work with encoded positions instead of next/depth arrays.
 
+- Use root on return path for set/range end state instead of at exhausted
 
 # TODOs
-
-- Use root on return path for set/range end state instead of at exhausted
 
 - inMemoryTrie support for onReturnPath
 

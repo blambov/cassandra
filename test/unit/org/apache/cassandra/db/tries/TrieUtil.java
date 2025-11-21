@@ -642,7 +642,10 @@ public class TrieUtil
                 @Override
                 public Cursor<Integer> tailCursor(Direction d)
                 {
-                    throw new UnsupportedOperationException("tailTrie on test cursor");
+                    if (current == -1)
+                        return makeCursor(d);
+                    else
+                        throw new UnsupportedOperationException("tailTrie on test cursor");
                 }
             }
         };

@@ -45,7 +45,7 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
 
     static TrieSet ranges(ByteComparable.Version version, ByteComparable... boundaries)
     {
-        return dir -> RangesCursor.create(dir, version, true, boundaries);
+        return dir -> RangesCursor.create(dir, version, null, boundaries);
     }
 
     static TrieSet empty(ByteComparable.Version byteComparableVersion)
