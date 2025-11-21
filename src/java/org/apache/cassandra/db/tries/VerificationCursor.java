@@ -183,6 +183,12 @@ public interface VerificationCursor
                                   Cursor.toString(newPosition),
                                   this);
             }
+            else if (newDepth == 0)
+            {
+                // For range/set tries it is possible to ascend back to the root on the return path.
+                assert Cursor.isOnReturnPath(newPosition) : "Ascend to depth 0 is only possible on the return path";
+                assert Cursor.incomingTransition(newPosition) == 0 : "Invalid incoming transition " + Cursor.incomingTransition(newPosition) + " for depth 0";
+            }
             else
             {
                 if (newDepth <= oldDepth)
@@ -262,6 +268,8 @@ public interface VerificationCursor
             StringBuilder builder = new StringBuilder();
             builder.append(source.getClass().getTypeName()
                                  .replace(source.getClass().getPackageName() + '.', ""));
+            builder.append(" pos ");
+            builder.append(Cursor.toString(returnedPosition));
             if (Cursor.isExhausted(returnedPosition))
             {
                 builder.append(" exhausted");
@@ -281,15 +289,14 @@ public interface VerificationCursor
     {
         S currentPrecedingState = null;
         S nextPrecedingState = null;
-        int maxNextDepth = Integer.MAX_VALUE;
 
         WithRanges(C source)
         {
             super(source);
-            // start state can be non-null for sets
+
             currentPrecedingState = verifyCoveringStateProperties(source.precedingState());
             final S content = source.content();
-            nextPrecedingState = content != null ? verifyBoundaryStateProperties(content).precedingState(direction.opposite())
+            nextPrecedingState = content != null ? verifyBoundaryStateProperties(content).succedingState(direction)
                                                  : currentPrecedingState;
         }
 
@@ -302,7 +309,6 @@ public interface VerificationCursor
         public long advance()
         {
             currentPrecedingState = nextPrecedingState;
-            checkIfDescentShouldBeForbidden();
             return verifyState(super.advance());
         }
 
@@ -310,20 +316,13 @@ public interface VerificationCursor
         public long advanceMultiple(TransitionsReceiver receiver)
         {
             currentPrecedingState = nextPrecedingState;
-            checkIfDescentShouldBeForbidden();
             return verifyState(super.advanceMultiple(receiver));
         }
 
         @Override
         public long skipTo(long encodedSkipPosition)
         {
-            checkIfDescentShouldBeForbidden();
             return verifySkipState(super.skipTo(encodedSkipPosition));
-        }
-
-        private void checkIfDescentShouldBeForbidden()
-        {
-            maxNextDepth = source.content() != null ? Cursor.depth(returnedPosition) : Integer.MAX_VALUE;
         }
 
         @Override
@@ -354,9 +353,6 @@ public interface VerificationCursor
             boolean equal = agree(currentPrecedingState, precedingState);
             assert equal : String.format("Unexpected change to covering state: %s -> %s\n%s",
                                          currentPrecedingState, precedingState, this);
-//            assert Cursor.depth(position) <= maxNextDepth :
-//                String.format("Cursor descended after reporting an included branch\n%s",
-//                              this);
             currentPrecedingState = precedingState;
 
             S content = source.content();
@@ -366,7 +362,7 @@ public interface VerificationCursor
                     String.format("Range end %s does not close covering state %s\n%s",
                                   content.precedingState(direction), currentPrecedingState, this);
                 verifyBoundaryStateProperties(content);
-                nextPrecedingState = content.precedingState(direction.opposite());
+                nextPrecedingState = content.succedingState(direction);
             }
 
             if (Cursor.isExhausted(position))
@@ -391,7 +387,7 @@ public interface VerificationCursor
                               state,
                               this);
             final S precedingState = state.precedingState(Direction.FORWARD);
-            final S succeedingState = state.precedingState(Direction.REVERSE);
+            final S succeedingState = state.succedingState(Direction.FORWARD);
             assert precedingState == state && succeedingState == state :
                 String.format("State %s must return itself its preceding and succeeding state (returned %s/%s)\n%s",
                               state,
@@ -410,7 +406,7 @@ public interface VerificationCursor
                               state,
                               this);
             final S precedingState = state.precedingState(Direction.FORWARD);
-            final S succeedingState = state.precedingState(Direction.REVERSE);
+            final S succeedingState = state.succedingState(Direction.FORWARD);
             verifyCoveringStateProperties(precedingState);
             verifyCoveringStateProperties(succeedingState);
             return state;

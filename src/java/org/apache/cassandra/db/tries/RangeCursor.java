@@ -100,6 +100,48 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         return new Empty<>(precedingState(), byteComparableVersion(), direction);
     }
 
+
+    /// @inheritDoc
+    ///
+    /// Range cursors override `advanceToContent` to handle `onReturnPath` and the possibility to ascend to the root on
+    /// the return path.
+    @Override
+    default S advanceToContent(ResettingTransitionsReceiver receiver)
+    {
+        long prevPosition = encodedPosition();
+        while (true)
+        {
+            long currPosition = advanceMultiple(receiver);
+            if (Cursor.isExhausted(currPosition))
+                return null;
+            if (receiver != null)
+            {
+                if (Cursor.ascended(currPosition, prevPosition))
+                {
+                    int depth = Cursor.depth(currPosition);
+                    if (depth > 0)
+                    {
+                        receiver.resetPathLength(depth - 1);
+                        receiver.addPathByte(Cursor.incomingTransition(currPosition));
+                    }
+                    else
+                    {
+                        receiver.resetPathLength(0);
+                    }
+                }
+                else
+                    receiver.addPathByte(Cursor.incomingTransition(currPosition));
+
+                if (Cursor.isOnReturnPath(currPosition))
+                    receiver.onReturnPath();
+            }
+            S content = content();
+            if (content != null)
+                return content;
+            prevPosition = currPosition;
+        }
+    }
+
     class Empty<S extends RangeState<S>> extends Cursor.Empty<S> implements RangeCursor<S>
     {
         final S coveringState;

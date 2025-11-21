@@ -195,6 +195,12 @@ class DeletionMarker implements DataPoint, RangeState<DeletionMarker>
     }
 
     @Override
+    public DeletionMarker succedingState(Direction direction)
+    {
+        return direction.select(rightSideAsCovering, leftSideAsCovering);
+    }
+
+    @Override
     public DeletionMarker asBoundary(Direction direction)
     {
         assert !isBoundary;

@@ -76,17 +76,14 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
         int next = bytes.next();
         while (next != ByteSource.END_OF_STREAM)
         {
-            if (cursor.branchIncluded())
-                return ContainsResult.CONTAINED; // The set covers a prefix of the key.
-
             long skipPosition = Cursor.positionForDescentWithByte(cursor.encodedPosition(), next);
             if (Cursor.compare(cursor.skipTo(skipPosition), skipPosition) != 0)
-                return cursor.state().precedingIncluded(Direction.FORWARD) ? ContainsResult.CONTAINED
-                                                                           : ContainsResult.NOT_CONTAINED;
+                return cursor.state().applicableBefore ? ContainsResult.CONTAINED
+                                                       : ContainsResult.NOT_CONTAINED;
 
             next = bytes.next();
         }
-        return cursor.branchIncluded() ? ContainsResult.CONTAINED : ContainsResult.PREFIX;
+        return cursor.state().applicableAfter ? ContainsResult.CONTAINED : ContainsResult.PREFIX;
     }
 
     default TrieSet union(TrieSet other)

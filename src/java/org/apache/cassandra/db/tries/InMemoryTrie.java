@@ -268,7 +268,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 if (content != null)
                 {
                     applyCoveringContent(content);
-                    S mutationCoveringState = content.precedingState(Direction.REVERSE); // Use the right side of the deletion
+                    S mutationCoveringState = content.succedingState(Direction.FORWARD); // Use the right side of the deletion
                     if (coveringStateApplies(mutationCoveringState))
                     {
                         boolean done = !applyDeletionRange(mutationCoveringState);
@@ -326,7 +326,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 if (mutationContent != null)
                 {
                     applyCoveringContent(mutationContent);
-                    mutationCoveringState = mutationContent.precedingState(Direction.REVERSE);
+                    mutationCoveringState = mutationContent.succedingState(Direction.FORWARD);
                     if (!coveringStateApplies(mutationCoveringState))
                         return true; // mutation deletion range was closed, we can continue normal mutation cursor iteration
                 }
@@ -338,7 +338,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         private static <S extends RangeState<S>> boolean coveringStateApplies(S state)
         {
             // Sets return non-null state (START_END_PREFIX) for regions that they do not cover. Check that too.
-            return state != null && state != TrieSetCursor.RangeState.START_END_PREFIX;
+            return state != null && state != TrieSetCursor.RangeState.NOT_CONTAINED;
         }
 
         void applyCoveringContent(S content) throws TrieSpaceExhaustedException

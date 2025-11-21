@@ -283,7 +283,7 @@ class RangeIntersectionCursor<S extends RangeState<S>> implements RangeCursor<S>
         public RangeState state()
         {
             RangeState s = super.state();
-            return s != null ? s : RangeState.START_END_PREFIX;
+            return s != null ? s : RangeState.NOT_CONTAINED;
         }
 
         @Override

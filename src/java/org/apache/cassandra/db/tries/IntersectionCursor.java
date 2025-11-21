@@ -200,10 +200,7 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
                 case SET_AHEAD:
                     return source.content();
                 case MATCHING:
-                    // If this is a prefix, report if it leads to an end bound.
-                    if (set.state().isBoundary)
-                        return set.state().applicableAfter ? source.content() : null;
-                    return set.state().applicableBefore ? source.content() : null;
+                    return set.state().applicableAfter ? source.content() : null;
                 default:
                     throw new AssertionError();
             }

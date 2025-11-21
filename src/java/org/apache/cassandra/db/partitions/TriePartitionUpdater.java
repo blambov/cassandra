@@ -114,7 +114,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                                                                 deletionTime));
                 }
 
-                TrieTombstoneMarker succeeding = update.precedingState(Direction.REVERSE);
+                TrieTombstoneMarker succeeding = update.succedingState(Direction.FORWARD);
                 // Ignore the partition deletion.
                 if (succeeding != null && !succeeding.deletionTime().equals(partitionLevelDeletion))
                 {

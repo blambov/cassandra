@@ -132,7 +132,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                 else if (prevContent != null)
                 {
                     // If the previous state was exact, its right side is what we now have.
-                    activeRange = prevContent.precedingState(direction.opposite());
+                    activeRange = prevContent.succedingState(direction);
                     prevContent = null;
                     assert activeIsSet;
                 }
@@ -230,7 +230,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                 {
                     final S existingCoveringState = getExistingCoveringState();
                     applyContent(existingCoveringState, content);
-                    U mutationCoveringState = content.precedingState(Direction.REVERSE);
+                    U mutationCoveringState = content.succedingState(Direction.FORWARD);
                     // Several cases:
                     // - New deletion is point deletion: Apply it and move on to next mutation branch.
                     // - New deletion starts range and there is no existing or it beats the existing: Walk both tries in
@@ -283,7 +283,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                     if (mutationContent == null)
                         mutationContent = mutationCoveringState;
                     applyContent(existingContent, mutationContent);
-                    mutationCoveringState = mutationContent.precedingState(Direction.REVERSE);
+                    mutationCoveringState = mutationContent.succedingState(Direction.FORWARD);
                     existingCoveringState = rightSideAsCovering(existingContent);
                     if (mutationCoveringState == null)
                     {
@@ -298,7 +298,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         {
             if (rangeState == null)
                 return null;
-            return rangeState.precedingState(Direction.REVERSE);
+            return rangeState.succedingState(Direction.FORWARD);
         }
 
         S getExistingCoveringState()

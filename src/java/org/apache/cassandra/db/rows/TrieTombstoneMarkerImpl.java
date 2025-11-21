@@ -37,6 +37,13 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
     Covering leftDeletion();
     Covering rightDeletion();
 
+    @Override
+    default TrieTombstoneMarker succedingState(Direction direction)
+    {
+        return precedingState(direction.opposite());
+    }
+
+
     static Covering covering(DeletionTime deletionTime)
     {
         return new Covering(deletionTime);

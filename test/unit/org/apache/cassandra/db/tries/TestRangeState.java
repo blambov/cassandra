@@ -149,6 +149,12 @@ class TestRangeState implements RangeState<TestRangeState>
     }
 
     @Override
+    public TestRangeState succedingState(Direction direction)
+    {
+        return direction.select(rightState, leftState);
+    }
+
+    @Override
     public TestRangeState restrict(boolean applicableBefore, boolean applicableAfter)
     {
         assert isBoundary;

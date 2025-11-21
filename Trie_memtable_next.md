@@ -152,6 +152,13 @@ Right side of onReturnPath=0 applies to branch. Left side of onReturnPath=1 appl
 - e^ with true->false
     - a's combined state is false->true->true->true
 
+
+
+
+[a, aa), (a, b]
+
+    - a: false->true->false->true
+
 [aa, aaaa, aaac, aa]
 - a START_END_PREFIX (0 (no left) to 4e (no right))
 - aa START (0 (no left) to 1e (right) applies only, 1-3 advanced but not processed)
@@ -180,6 +187,8 @@ Right side of onReturnPath=0 applies to branch. Left side of onReturnPath=1 appl
 
 
 # TODOs
+
+- Use root on return path for set/range end state instead of at exhausted
 
 - inMemoryTrie support for onReturnPath
 

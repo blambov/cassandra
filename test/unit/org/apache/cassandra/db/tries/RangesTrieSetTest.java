@@ -18,9 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -28,14 +25,19 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.BiFunction;
+
+import com.google.common.collect.Maps;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
-import static org.apache.cassandra.db.tries.TrieUtil.assertTrieEquals;
 import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 import static org.junit.Assert.assertEquals;
@@ -49,50 +51,71 @@ public class RangesTrieSetTest
         CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
     }
 
-    static Trie<TrieSetCursor.RangeState> fullTrie(TrieSet s)
+    static RangeTrie<TrieSetCursor.RangeState> fullTrie(TrieSet s)
     {
-        return dir -> new Cursor<>()
+        return new RangeTrie<TrieSetCursor.RangeState>()
         {
-            private final TrieSetCursor cursor = s.cursor(dir);
-
-            public TrieSetCursor.RangeState content()
-            {
-                return cursor.state();
-            }
-
-            public long encodedPosition()
-            {
-                return cursor.encodedPosition();
-            }
-
             @Override
-            public long advance()
-            {
-                return cursor.advance();
-            }
-
-            @Override
-            public long skipTo(long encodedSkipPosition)
-            {
-                return cursor.skipTo(encodedSkipPosition);
-            }
-
-            @Override
-            public Cursor<TrieSetCursor.RangeState> tailCursor(Direction dir)
+            public RangeCursor<TrieSetCursor.RangeState> makeCursor(Direction direction)
             {
                 throw new AssertionError();
             }
 
+            // Override cursor to disable verification which does not like the content this returns.
+            // The source is already verified.
             @Override
-            public Direction direction()
+            public RangeCursor<TrieSetCursor.RangeState> cursor(Direction direction)
             {
-                return dir;
-            }
+                return new RangeCursor<>()
+                {
+                    private final TrieSetCursor cursor = s.cursor(direction);
 
-            @Override
-            public ByteComparable.Version byteComparableVersion()
-            {
-                return VERSION;
+                    public TrieSetCursor.RangeState content()
+                    {
+                        return cursor.state();
+                    }
+
+                    @Override
+                    public TrieSetCursor.RangeState state()
+                    {
+                        return cursor.state();
+                    }
+
+                    public long encodedPosition()
+                    {
+                        return cursor.encodedPosition();
+                    }
+
+                    @Override
+                    public long advance()
+                    {
+                        return cursor.advance();
+                    }
+
+                    @Override
+                    public long skipTo(long encodedSkipPosition)
+                    {
+                        return cursor.skipTo(encodedSkipPosition);
+                    }
+
+                    @Override
+                    public RangeCursor<TrieSetCursor.RangeState> tailCursor(Direction dir)
+                    {
+                        throw new AssertionError();
+                    }
+
+                    @Override
+                    public Direction direction()
+                    {
+                        return direction;
+                    }
+
+                    @Override
+                    public ByteComparable.Version byteComparableVersion()
+                    {
+                        return VERSION;
+                    }
+                };
             }
         };
     }
@@ -187,7 +210,7 @@ public class RangesTrieSetTest
                 assertNotNull(tail);
                 dumpToOut(tail);
                 var expectations = getExpectations(tails.toArray(Preencoded[]::new));
-                assertTrieEquals(fullTrie(tail), expectations, TrieSetCursor.RangeState::intersect);
+                assertTrieEquals(expectations, tail);
             }
         }
     }
@@ -196,14 +219,21 @@ public class RangesTrieSetTest
     {
         String arr = Arrays.toString(boundariesAsStrings);
         // Verify that we get the right covering state for all positions around the boundaries.
-        for (int bi = 0, ei = 0; bi < boundariesAsStrings.length; bi = ei)
+        for (int si = 0; si < boundariesAsStrings.length; ++si)
         {
-            ++ei;
-            String s = boundariesAsStrings[bi];
+            String s = boundariesAsStrings[si];
             if (s == null)
                 continue;
+
+            int bi = 0;
+            while (bi < boundariesAsStrings.length && (boundariesAsStrings[bi] == null || !boundariesAsStrings[bi].startsWith(s)))
+                ++bi;
+
+            int ei = bi;
+            ++ei;
             while (ei < boundariesAsStrings.length && boundariesAsStrings[ei] != null && boundariesAsStrings[ei].startsWith(s))
                 ++ei;
+
             for (boolean seekAfterBranch : Arrays.asList(false, true))
                 for (Direction direction : Direction.values())
                 {
@@ -229,34 +259,58 @@ public class RangesTrieSetTest
                         ++depth;
                     }
 
-                    int effectiveIndexFwd;
-                    int effectiveIndexRev;
-                    boolean seekingSmaller = direction.select(!seekAfterBranch, seekAfterBranch);
+                    boolean foundExact = next == ByteSource.END_OF_STREAM;
 
-                    // Check the resulting state.
-                    boolean isExact = next == ByteSource.END_OF_STREAM;
+                    // when seeking forward !sab, we get positioned on bi (regardless if exact)
+                    //           before = bi & 1, after = exact ^ before
+                    // when seeking forward sab, we get positioned on :
+                    //      ei - 1, if it is exact and right bound (ie ei - 1 & 1 ie ~ei & 1)
+                    //           before = ei & 1 --> false, after = true
+                    //      ei, otherwise, can't be exact
+                    //           before = ei & 1, after = before
+                    //      for both
+                    //           contained if ei & 1
+                    // reverse inverts treatment of indexes (exact or not)
+                    // when seeking reverse !sab, we get positioned on ei - 1
+                    //           contained if ei & 1
+                    // when seeking reverse sab, we get positioned on :
+                    //      bi, if it is exact and left bound (ie bi & 1 == 0)
+                    //           contained if bi & 1 --> not contained
+                    //      bi - 1, otherwise
+                    //           contained if ~bi & 0
 
-                    TrieSetCursor.RangeState state = cursor.state();
-                    if (isExact)
+                    boolean before, after, matchesFirst;
+                    int seekPos;
+                    int statePos;
+                    if (!seekAfterBranch)
                     {
-                        // Matched left or right boundary.
-                        effectiveIndexFwd = seekingSmaller ? bi : ei - 1;
-                        effectiveIndexRev = seekingSmaller ? bi + 1 : ei;
+                        seekPos = direction.select(bi, ei - 1);
+                        matchesFirst = s.equals(boundariesAsStrings[seekPos]) && foundExact;
+                        statePos = direction.select(bi, ei);
+                        before = (statePos & 1) != 0;
+                        after = matchesFirst ^ before;
                     }
                     else
                     {
-                        state = state.precedingState(direction);
-
-                        // Seeking forward smaller not exact gives us interior right (because we must find the greater side as it exists)
-                        // Seeking forward larger not exact gives us right side.
-                        if (direction.isForward())
-                            effectiveIndexFwd = effectiveIndexRev = seekingSmaller ? ei - 1 : ei;
-                        else
-                            effectiveIndexFwd = effectiveIndexRev = seekingSmaller ? bi : bi + 1;
+                        seekPos = direction.select(ei - 1, bi);
+                        matchesFirst = s.equals(boundariesAsStrings[seekPos]) && foundExact;
+                        statePos = direction.select(ei, bi);
+                        after = (statePos & 1) != 0;
+                        before = matchesFirst ^ after;
                     }
 
-                    assertEquals(msg + "covering FWD", (effectiveIndexFwd & 1) != 0, state.precedingIncluded(Direction.FORWARD));
-                    assertEquals(msg + "covering REV", (effectiveIndexRev & 1) != 0, state.precedingIncluded(Direction.REVERSE));
+                    // Check the resulting state.
+                    TrieSetCursor.RangeState state = cursor.state();
+
+                    System.out.format("dir %s query %s%s bi %s ei %s seekPos %s matches %s statePos %s before %s after %s state %s foundExact %s effective state %s\n",
+                                      direction, s, seekAfterBranch ? "^" : "",
+                                      bi, ei, seekPos, matchesFirst, statePos, before, after, state, foundExact, foundExact ? state : state.precedingState(direction));
+
+                    if (!foundExact)
+                        state = state.applicableBefore ? TrieSetCursor.RangeState.CONTAINED : TrieSetCursor.RangeState.NOT_CONTAINED;
+
+                    assertEquals(msg + " before", before, state.applicableBefore);
+                    assertEquals(msg + " after", after, state.applicableAfter);
                 }
         }
     }
@@ -266,27 +320,54 @@ public class RangesTrieSetTest
         TrieSet s = TrieSet.ranges(VERSION, boundaries);
         dumpToOut(s);
         var expectations = getExpectations(boundaries);
-        assertTrieEquals(fullTrie(s), expectations, TrieSetCursor.RangeState::intersect);
+        assertTrieEquals(expectations, s);
+    }
+
+    private static void assertTrieEquals(NavigableMap<Preencoded, PointState> expectations, TrieSet s)
+    {
+        BaseTrie<TrieSetCursor.RangeState, ?, ?> trie = fullTrie(s);
+        BiFunction<Object, TrieSetCursor.RangeState, Object> combiner =
+            (x, y) -> x == null /*|| x == TrieSetCursor.RangeState.NOT_CONTAINED*/ ? y : Pair.create(x, y);
+        TrieUtil.assertMapEquals(trie.entrySet(Direction.FORWARD),
+                                 Maps.transformValues(expectations, PointState::forwardSide).entrySet(),
+                                 FORWARD_COMPARATOR,
+                                 combiner);
+        TrieUtil.assertMapEquals(trie.entrySet(Direction.REVERSE),
+                                 TrieUtil.reorderBy(Maps.transformValues(expectations, PointState::reverseSide),
+                                                    TrieUtil.REVERSE_COMPARATOR).entrySet(),
+                                 TrieUtil.REVERSE_COMPARATOR,
+                                 combiner);
     }
 
     static class PointState
     {
         int firstIndex = Integer.MAX_VALUE;
         int lastIndex = Integer.MIN_VALUE;
-        boolean exact = false;
+        boolean firstExact = false;
+        boolean lastExact = false;
 
         void addIndex(int index, boolean exact)
         {
-            firstIndex = Math.min(index, firstIndex);
-            lastIndex = Math.max(index, lastIndex);
-            this.exact |= exact;
+            if (index < firstIndex)
+            {
+                firstIndex = index;
+                firstExact = exact && ((index & 1) == 0);
+            }
+            if (index > lastIndex)
+            {
+                lastIndex = index;
+                lastExact = exact && ((index & 1) != 0);
+            }
         }
 
-        TrieSetCursor.RangeState state()
+        static PointState coveringInexact(int from, int to)
         {
-            boolean appliesBefore = (firstIndex & 1) != 0;
-            boolean appliesAfter = (lastIndex & 1) == 0;
-            return TrieSetCursor.RangeState.values()[(appliesBefore ? 1 : 0) | (appliesAfter ? 2 : 0) | (exact ? 4 : 0)];
+            PointState state = new PointState();
+            state.firstIndex = from;
+            state.lastIndex = to - 1;
+            state.firstExact = false;
+            state.lastExact = false;
+            return state;
         }
 
         static PointState fullRange()
@@ -294,19 +375,72 @@ public class RangesTrieSetTest
             PointState state = new PointState();
             state.firstIndex = 1;
             state.lastIndex = 2;
-            state.exact = false;
+            state.firstExact = false;
+            state.lastExact = false;
             return state;
+        }
+
+        public static Object forwardSide(PointState pointState)
+        {
+            boolean applicableBefore = (pointState.firstIndex & 1) == 1;
+            RangeState b1 = null;
+            RangeState b2 = null;
+            // choose to report b1 based on diff between first and last
+            if (pointState.firstExact)
+                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            else if (pointState.lastIndex > pointState.firstIndex)
+                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
+
+            if (pointState.lastExact)
+            {
+                boolean applicableAfter = (pointState.lastIndex & 1) == 1;
+                b2 = TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter);
+            }
+
+            if (b1 == null && b2 == null)
+                return TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
+            if (b1 != null && b2 != null)
+                return Pair.create(b1, b2);
+            if (b1 != null)
+                return b1;
+            return b2;
+        }
+
+        public static Object reverseSide(PointState pointState)
+        {
+            boolean applicableBefore = (pointState.lastIndex & 1) != 1;
+            RangeState b1 = null;
+            RangeState b2 = null;
+            if (pointState.lastExact)
+                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            else if (pointState.lastIndex > pointState.firstIndex)
+                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
+            if (pointState.firstExact)
+            {
+                boolean applicableAfter = (pointState.firstIndex & 1) != 1;
+                b2 = TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter);
+            }
+
+            if (b1 == null && b2 == null)
+                return TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
+            if (b1 != null && b2 != null)
+                return Pair.create(b1, b2);
+            if (b1 != null)
+                return b1;
+            return b2;
         }
     }
 
-    static NavigableMap<Preencoded, TrieSetCursor.RangeState> getExpectations(ByteComparable... boundaries)
+    static NavigableMap<Preencoded, PointState> getExpectations(ByteComparable... boundaries)
     {
         var expectations = new TreeMap<Preencoded, PointState>(FORWARD_COMPARATOR);
+//        expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.coveringInexact(0, boundaries.length));
         for (int bi = 0; bi < boundaries.length; ++bi)
         {
             ByteComparable b = boundaries[bi];
             if (b == null)
                 continue;
+//                b = ByteComparable.EMPTY;
             int len = ByteComparable.length(b, VERSION);
             for (int i = 0; i <= len; ++i)
             {
@@ -317,11 +451,12 @@ public class RangesTrieSetTest
         }
         if (expectations.isEmpty())
             expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.fullRange());
-        return expectations.entrySet()
-                           .stream()
-                           .collect(() -> new TreeMap(FORWARD_COMPARATOR),
-                                    (m, e) -> m.put(e.getKey(), e.getValue().state()),
-                                    NavigableMap::putAll);
+        return expectations;
+//        .entrySet()
+//                           .stream()
+//                           .collect(() -> new TreeMap(FORWARD_COMPARATOR),
+//                                    (m, e) -> m.put(e.getKey(), e.getValue().state()),
+//                                    NavigableMap::putAll);
     }
 
     @Test
@@ -473,12 +608,10 @@ public class RangesTrieSetTest
     {
         for (boolean applicableBefore : List.of(false, true))
             for (boolean applicableAfter : List.of(false, true))
-                for (boolean applicableAt : List.of(false, true))
                 {
-                    TrieSetCursor.RangeState state = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableAfter, applicableAt);
+                    TrieSetCursor.RangeState state = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableAfter);
                     assertEquals(applicableBefore, state.applicableBefore);
                     assertEquals(applicableAfter, state.applicableAfter);
-                    assertEquals(applicableAt, state.isBoundary);
                 }
     }
 }

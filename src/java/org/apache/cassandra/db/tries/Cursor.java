@@ -323,8 +323,6 @@ interface Cursor<T>
                 if (ascended(currPosition, prevPosition))
                     receiver.resetPathLength(depth(currPosition) - 1);
                 receiver.addPathByte(incomingTransition(currPosition));
-                if (isOnReturnPath(currPosition))
-                    receiver.onReturnPath();
             }
             T content = content();
             if (content != null)

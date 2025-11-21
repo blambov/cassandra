@@ -602,6 +602,12 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                 return be;
             return null;    // switch from covered to covered, we should not store anything
         }
+
+        @Override
+        public TestRangeState succedingState(Direction direction)
+        {
+            return precedingState(direction.opposite());
+        }
     }
 
     static class TestRangeCoveringState extends TestRangeState

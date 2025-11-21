@@ -91,7 +91,7 @@ class RangesCursor implements TrieSetCursor
                                     null, null,
                                     1, 1,
                                     rootPosition,
-                                    RangeState.END_START_PREFIX);
+                                    RangeState.CONTAINED);
 
         int arrayLength = (length + 1) & ~1;
         long[] nextPositions = new long[arrayLength];
@@ -104,7 +104,7 @@ class RangesCursor implements TrieSetCursor
 
             int destIndex = direction.select(i, arrayLength - i - 1);
             sources[destIndex] = boundaries[i].asPeekableBytes(byteComparableVersion);
-            nextPositions[destIndex] = rootPosition;
+            nextPositions[destIndex] = maybeOnReturnPath(sources, endsInclusive, direction, rootPosition, destIndex);
         }
 
         int startIdx;
@@ -125,8 +125,8 @@ class RangesCursor implements TrieSetCursor
                                                nextPositions, sources,
                                                startIdx, endIdx,
                                                rootPosition,
-                                               RangeState.START_END_PREFIX);
-        cursor.advanceBoundariesAndSelectState(endIdx);
+                                               RangeState.NOT_CONTAINED);
+        cursor.advanceBoundariesAndSelectState(rootPosition);
         return cursor;
     }
 
@@ -180,63 +180,60 @@ class RangesCursor implements TrieSetCursor
             return exhausted();
 
         // Advance the current idx
-        currentPosition = nextPositions[currentIdx];
+        return advanceBoundariesAndSelectState(nextPositions[currentIdx]);
+    }
 
+    private long advanceBoundariesAndSelectState(long nextPosition)
+    {
         // Also advance all others that are at the same position and have the same next byte.
-        int endIdx = currentIdx + 1;
-        while (endIdx < this.endIdx)
+        int endIdxExclusive = currentIdx;
+        while (endIdxExclusive < this.endIdx)
         {
-            long cmp = Cursor.compare(currentPosition, nextPositions[endIdx]);
+            long cmp = Cursor.compare(nextPosition, nextPositions[endIdxExclusive]);
             assert cmp <= 0 : "Invalid order of range boundaries";
             if (cmp < 0)
                 break;
-            endIdx++;
+            endIdxExclusive++;
         }
 
-        return advanceBoundariesAndSelectState(endIdx);
-    }
-
-    private long advanceBoundariesAndSelectState(int endIdxExclusive)
-    {
         int containedSelection = 0;
         // in reverse direction the roles of current and end idx are swapped
         if ((currentIdx & 1) != 0) // even left index means not valid before
-            containedSelection |= direction().select(RangeState.APPLICABLE_BEFORE, RangeState.APPLICABLE_AFTER);
+            containedSelection |= RangeState.APPLICABLE_BEFORE;
 
-        int applicableEndExclusive = endIdxExclusive;
 
         if (currentIdx < endIdxExclusive)
         {
             int nextByte = sources[currentIdx].next();
-            if (nextByte == ByteSource.END_OF_STREAM)
-            {
-                containedSelection |= RangeState.IS_BOUNDARY; // exact match, point and children included; reportable node
+            while (nextByte == ByteSource.END_OF_STREAM && ++currentIdx < endIdxExclusive)
+                nextByte = sources[currentIdx].next();
 
-                while (nextByte == ByteSource.END_OF_STREAM && ++currentIdx < endIdxExclusive)
-                    nextByte = sources[currentIdx].next();
-
-                applicableEndExclusive = currentIdx;
-            }
             if (currentIdx < endIdxExclusive)
             {
                 int advancingIdx = currentIdx;
-                nextPositions[advancingIdx] = maybeOnReturnPath(Cursor.positionForDescentWithByte(currentPosition, nextByte), advancingIdx);
+                nextPositions[advancingIdx] = maybeOnReturnPath(Cursor.positionForDescentWithByte(nextPosition, nextByte), advancingIdx);
                 while (++advancingIdx < endIdxExclusive)
                 {
                     nextByte = sources[advancingIdx].next();
-                    nextPositions[advancingIdx] = maybeOnReturnPath(Cursor.positionForDescentWithByte(currentPosition, nextByte), advancingIdx);
+                    nextPositions[advancingIdx] = maybeOnReturnPath(Cursor.positionForDescentWithByte(nextPosition, nextByte), advancingIdx);
                 }
             }
         }
 
-        if ((applicableEndExclusive & 1) != 0) // even end index means not valid after
-            containedSelection |= direction().select(RangeState.APPLICABLE_AFTER, RangeState.APPLICABLE_BEFORE);
+        if ((currentIdx & 1) != 0) // even end index means not valid after
+            containedSelection |= RangeState.APPLICABLE_AFTER;
 
         currentState = RangeState.values()[containedSelection];
-        return currentPosition;
+        currentPosition = nextPosition;
+        return nextPosition;
     }
 
     long maybeOnReturnPath(long nextPosition, int index)
+    {
+        return maybeOnReturnPath(sources, endsInclusive, direction(), nextPosition, index);
+    }
+
+    static long maybeOnReturnPath(ByteSource.Peekable[] sources, boolean endsInclusive, Direction direction, long nextPosition, int index)
     {
         if (sources[index].peek() != ByteSource.END_OF_STREAM)
             return nextPosition;
@@ -248,7 +245,7 @@ class RangesCursor implements TrieSetCursor
             else
                 return nextPosition;
         }
-        else if (!direction().isForward())
+        else if (!direction.isForward())
             return nextPosition | ON_RETURN_PATH_BIT;
         else
             return nextPosition;
@@ -270,8 +267,7 @@ class RangesCursor implements TrieSetCursor
 
     private long exhausted()
     {
-        currentPosition = Cursor.exhaustedPosition(currentPosition);
-        return advanceBoundariesAndSelectState(endIdx);
+        return advanceBoundariesAndSelectState(Cursor.exhaustedPosition(currentPosition));
     }
 
     @Override
@@ -285,8 +281,14 @@ class RangesCursor implements TrieSetCursor
         assert !Cursor.isOnReturnPath(copyFrom.currentPosition)
             : "Cannot take tail of a position " + Cursor.toString(copyFrom.currentPosition) + " on the return path.";
         boolean directionMatches = newDirection == copyFrom.direction();
+
+        // Make sure we don't include exact matches for the position we are at.
         int startInclusive = copyFrom.currentIdx;
-        int endExclusive = findEndOfMatchingValues(startInclusive, copyFrom.endIdx, copyFrom.nextPositions, copyFrom.currentPosition | ON_RETURN_PATH_BIT);
+//        while (startInclusive < copyFrom.endIdx && Cursor.compare(copyFrom.nextPositions[startInclusive], copyFrom.currentPosition) == 0)
+//            ++startInclusive;
+        int endExclusive = startInclusive;
+        while (endExclusive < copyFrom.endIdx && Cursor.compare(copyFrom.nextPositions[endExclusive], copyFrom.currentPosition | ON_RETURN_PATH_BIT) < 0)
+             ++endExclusive;
 
         if (startInclusive == endExclusive)
             return boundaryMatchingCursor(copyFrom, newDirection);
@@ -298,12 +300,11 @@ class RangesCursor implements TrieSetCursor
         ByteSource.Peekable[] sources = new ByteSource.Peekable[arrayEnd - arrayStart];
         final long[] nextPositions = new long[arrayEnd - arrayStart];
 
-        RangeState state = copyFrom.currentState;
-        // Get the state applicable to the tail branch. This is the succeeding side of the current state.
-        if (state.isBoundary)
-            state = state.precedingState(copyFrom.direction().opposite());
-        if (state == null)
-            state = RangeState.START_END_PREFIX;
+        // Because range state changes are defined to apply before the current position, the state that applies to the
+        // branch is the succeeding state of the current cursor position. This solves the problem of needing to jump
+        // to the return-path position e.g. to be able to correctly present the position when flipping direction.
+        // Get the state applicable to the root of the tail branch. This is the succeeding side of the current state.
+        RangeState state = copyFrom.currentState.applicableAfter ? RangeState.CONTAINED : RangeState.NOT_CONTAINED;
 
         // Duplicate all boundaries that are positioned at the current point (if they are not, they cannot affect the
         // tail trie).
@@ -344,28 +345,22 @@ class RangesCursor implements TrieSetCursor
                 if (sources[arrayEnd - 1 - i].peek() == ByteSource.END_OF_STREAM)
                     nextPositions[arrayEnd - 1 - i] ^= ON_RETURN_PATH_BIT;
             }
+            int newStartInclusive = arrayEnd - endExclusive;
+            int newEndExclusive = arrayEnd - startInclusive;
+
+            boolean startIsContained = (newStartInclusive & 1) != 0;
+            state = startIsContained ? RangeState.CONTAINED : RangeState.NOT_CONTAINED;
 
             return new RangesCursor(copyFrom.byteComparableVersion,
                                     copyFrom.endsInclusive,
                                     nextPositions,
                                     sources,
-                                    arrayEnd - endExclusive,
-                                    arrayEnd - startInclusive,
+                                    newStartInclusive,
+                                    newEndExclusive,
                                     Cursor.rootPosition(newDirection),
-                                    state); // state is not dependent on the direction
+                                    state);
         }
 
-    }
-
-    private static int findEndOfMatchingValues(int startInclusive, int completedExclusive, long[] nextPositions, long positionLimit)
-    {
-        int endExclusive;
-        for (endExclusive = startInclusive;
-             endExclusive < completedExclusive && Cursor.compare(nextPositions[endExclusive], positionLimit) < 0;
-             endExclusive++)
-        {
-        }
-        return endExclusive;
     }
 
     private static RangesCursor boundaryMatchingCursor(RangesCursor copyFrom, Direction newDirection)
@@ -376,7 +371,7 @@ class RangesCursor implements TrieSetCursor
         // on the exhausted() call.
         final RangeState state = copyFrom.currentState;
         // This gives us the included/excluded state after the current position.
-        boolean included = state.precedingIncluded(copyFrom.direction().opposite());
+        boolean included = state.applicableAfter;
 
         return new RangesCursor(copyFrom.byteComparableVersion,
                                 copyFrom.endsInclusive,
@@ -385,6 +380,6 @@ class RangesCursor implements TrieSetCursor
                                 included ? 1 : 0,
                                 included ? 1 : 0,
                                 Cursor.rootPosition(newDirection),
-                                included ? RangeState.END_START_PREFIX : RangeState.START_END_PREFIX);
+                                included ? RangeState.CONTAINED : RangeState.NOT_CONTAINED);
     }
 }

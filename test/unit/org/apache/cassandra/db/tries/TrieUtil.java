@@ -33,7 +33,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.BinaryOperator;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -78,32 +78,34 @@ public class TrieUtil
                         REVERSE_COMPARATOR);
     }
 
-    static <T> void assertTrieEquals(BaseTrie<T, ?, ?> trie, Map<Preencoded, T> map, BinaryOperator<T> combiner)
-    {
-        assertMapEquals(trie.entrySet(Direction.FORWARD),
-                        map.entrySet(),
-                        FORWARD_COMPARATOR,
-                        combiner);
-        assertMapEquals(trie.entrySet(Direction.REVERSE),
-                        reorderBy(map, REVERSE_COMPARATOR).entrySet(),
-                        REVERSE_COMPARATOR,
-                        combiner);
-    }
-
     static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
                                     Iterable<Map.Entry<Preencoded, T>> container2,
                                     Comparator<Preencoded> comparator)
     {
-        assertMapEquals(container1, container2, comparator, (a, b) -> { throw new AssertionError("Forbidden duplicate value " + a + " + " + b); });
+        Map<String, String> values1 = collectAsStrings(container1, comparator);
+        Map<String, String> values2 = collectAsStrings(container2, comparator);
+        if (values1.equals(values2))
+            return;
+
+        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
+        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
+        Set<String> keyDifference = allKeys.stream()
+                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
+                                           .collect(Collectors.toCollection(() -> new TreeSet<>()));
+        System.err.println("All data");
+        dumpDiff(values1, values2, allKeys);
+        System.err.println("\nDifferences");
+        dumpDiff(values1, values2, keyDifference);
+        fail("Maps are not equal at " + keyDifference);
     }
 
-    static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
-                                    Iterable<Map.Entry<Preencoded, T>> container2,
-                                    Comparator<Preencoded> comparator,
-                                    BinaryOperator<T> combiner)
+    static <T, Q> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
+                                       Iterable<Map.Entry<Preencoded, Q>> container2,
+                                       Comparator<Preencoded> comparator,
+                                       BiFunction<Q, T, Q> combiner)
     {
         Map<String, String> values1 = collectAsStrings(container1, comparator, combiner);
-        Map<String, String> values2 = collectAsStrings(container2, comparator, combiner);
+        Map<String, String> values2 = collectAsStrings(container2, comparator);
         if (values1.equals(values2))
             return;
 
@@ -132,9 +134,9 @@ public class TrieUtil
         }
     }
 
-    private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
-                                                            Comparator<Preencoded> comparator,
-                                                            BinaryOperator<T> combiner)
+    private static <T, Q> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
+                                                               Comparator<Preencoded> comparator,
+                                                               BiFunction<Q, T, Q> combiner)
     {
         if (combiner != null)
             return collectAsStrings(container, combiner);
@@ -158,18 +160,16 @@ public class TrieUtil
         return map;
     }
 
-    private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
-                                                            BinaryOperator<T> combiner)
+    private static <T, Q> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
+                                                               BiFunction<Q, T, Q> combiner)
     {
-        var map = new LinkedHashMap<String, T>();
+        var map = new LinkedHashMap<String, Q>();
         for (var e : container)
         {
             var key = asString(e.getKey());
             var value = e.getValue();
 
-            T prevValue = map.put(key, value);
-            if (prevValue != null)
-                map.put(key, combiner.apply(prevValue, value));
+            map.put(key, combiner.apply(map.getOrDefault(key, null), value));
         }
         return Maps.transformValues(map, v -> v.toString());
     }
@@ -273,7 +273,7 @@ public class TrieUtil
         return direction.isForward() ? data : reorderBy(data, REVERSE_COMPARATOR);
     }
 
-    private static <V> Map<Preencoded, V> reorderBy(Map<Preencoded, V> data, Comparator<Preencoded> comparator)
+    static <V> Map<Preencoded, V> reorderBy(Map<Preencoded, V> data, Comparator<Preencoded> comparator)
     {
         Map<Preencoded, V> newMap = new TreeMap<>(comparator);
         newMap.putAll(data);

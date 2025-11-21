@@ -33,64 +33,52 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
     enum RangeState implements org.apache.cassandra.db.tries.RangeState<RangeState>
     {
         // Note: the states must be ordered so that
-        //   `values()[applicableBefore * APPLICABLE_BEFORE + applicableAfter * APPLICABLE_AFTER + isBoundary * IS_BOUNDARY]`
+        //   `values()[applicableBefore * APPLICABLE_BEFORE + applicableAfter * APPLICABLE_AFTER]`
         // produces a state with the requested flags
 
-        /// The cursor is at a prefix of a contained range, and neither the branches to the left or right are contained.
-        START_END_PREFIX(false, false, false),
-        /// The cursor is positioned at a prefix of an end boundary, inside a covered range on the left.
-        END_PREFIX(true, false, false),
-        /// The cursor is positioned at a prefix of a start boundary. The branches to the right are covered.
-        START_PREFIX(false, true, false),
-        /// The cursor is positioned inside a covered range, on a prefix of an excluded sub-range.
-        END_START_PREFIX(true, true, false),
-        /// The cursor is positioned at a "point" boundary, i.e. only the descendants of the boundary are covered,
-        /// branches to the left or right are not contained.
-        POINT(false, false, true),
-        /// The cursor is positioned at an end boundary. Branches to the left, as well as descendants of this point are
-        /// covered by the set.
-        END(true, false, true),
-        /// The cursor is positioned at a start boundary. Branches to the right, as well as descendants of this point
-        /// are covered by the set.
-        START(false, true, true),
-        /// The cursor is positioned at a non-effective boundary (an end boundary for the previous range, as well as
-        /// a start for the next). Branches before, after and below this point is covered.
-        COVERED(true, true, true);
+        /// The cursor is at a prefix of some start boundary, and the branches before it as well as the current point
+        /// are not included in the set.
+        NOT_CONTAINED(false, false),
+        /// The cursor is positioned at an end boundary. Branches before this position in iteration order are covered
+        /// by the set. The current position and any position in iteration order until the next boundary are excluded.
+        END(true, false),
+        /// The cursor is positioned at a start boundary. The current position as well as any position in iteration
+        /// order up to the next boundary are covered by the set. Branches before this position are excluded.
+        START(false, true),
+        /// The cursor is positioned inside a covered range, on a prefix of an end position.
+        CONTAINED(true, true);
 
         public static final int APPLICABLE_BEFORE = 1 << 0;
         public static final int APPLICABLE_AFTER  = 1 << 1;
-        public static final int IS_BOUNDARY       = 1 << 2;
 
-        /// Whether the set applied to positions before the cursor's in forward order.
+        /// Whether the set applied to positions before the cursor's in iteration order.
         final boolean applicableBefore;
-        /// Whether the set applied to positions after the cursor's in forward order.
+        /// Whether the set applied to positions after the cursor's in iteration order, starting with the children
+        /// of the current node.
         final boolean applicableAfter;
-        /// Whether this marker specifies a boundary point. Boundary points are reported as content.
-        final boolean isBoundary;
 
-        RangeState(boolean applicableBefore, boolean applicableAfter, boolean isBoundary)
+        RangeState(boolean applicableBefore, boolean applicableAfter)
         {
             this.applicableBefore = applicableBefore;
             this.applicableAfter = applicableAfter;
-            this.isBoundary = isBoundary;
         }
 
         /// Whether the positions preceding the current in iteration order are included in the set.
-        public boolean precedingIncluded(Direction direction)
+        public boolean precedingIncluded()
         {
-            return direction.select(applicableBefore, applicableAfter);
+            return applicableBefore;
         }
 
         /// Whether the current position is a range boundary. This also means that the descendant branch is fully
         /// included in the set.
         public boolean isBoundary()
         {
-            return isBoundary;
+            return applicableBefore != applicableAfter;
         }
 
         public RangeState toContent()
         {
-            return isBoundary ? this : null;
+            return isBoundary() ? this : null;
         }
 
         /// Return an "intersection" state for the combination of two states, i.e. the ranges covered by both states.
@@ -112,11 +100,10 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
             return values()[ordinal() ^ (APPLICABLE_BEFORE | APPLICABLE_AFTER)];
         }
 
-        public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter, boolean isBoundary)
+        public static RangeState fromProperties(boolean applicableBefore, boolean applicableAfter)
         {
             return values()[(applicableBefore ? APPLICABLE_BEFORE : 0) |
-                            (applicableAfter ? APPLICABLE_AFTER : 0) |
-                            (isBoundary ? IS_BOUNDARY : 0)];
+                            (applicableAfter ? APPLICABLE_AFTER : 0)];
         }
 
         // RangeState implementations (used for verification)
@@ -124,15 +111,20 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public RangeState precedingState(Direction direction)
         {
-            return precedingIncluded(direction) ? END_START_PREFIX : null;
+            return applicableBefore ? CONTAINED : null;
+        }
+
+        @Override
+        public RangeState succedingState(Direction direction)
+        {
+            return applicableAfter ? CONTAINED : null;
         }
 
         @Override
         public RangeState restrict(boolean applicableBefore, boolean applicableAfter)
         {
             return fromProperties(this.applicableBefore && applicableBefore,
-                                  this.applicableAfter && applicableAfter,
-                                  this.isBoundary);
+                                  this.applicableAfter && applicableAfter);
         }
 
         @Override
@@ -140,8 +132,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         {
             final boolean isForward = direction.isForward();
             return fromProperties(this.applicableBefore && !isForward,
-                                  this.applicableAfter && isForward,
-                                  true);
+                                  this.applicableAfter && isForward);
         }
 
 
@@ -150,18 +141,17 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         {
             switch (this)
             {
-                case POINT:
-                    return srcState.asPoint();
-                case COVERED:
-                    return srcState;
                 case START:
                     return srcState.asBoundary(Direction.FORWARD);
                 case END:
                     return srcState.asBoundary(Direction.REVERSE);
+                case CONTAINED:
+                    return srcState;
+                case NOT_CONTAINED:
+                    return null;
                 default:
-                    return precedingIncluded(direction) ? srcState : null;
+                    throw new AssertionError();
             }
-
         }
     }
 
@@ -176,14 +166,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
     /// after cursor construction, signifying, respectively, right and left unbounded ranges.
     default boolean precedingIncluded()
     {
-        return state().precedingIncluded(direction());
-    }
-
-    /// Returns whether the set fully includes all descendants of the current position. This is true for all boundary
-    /// points.
-    default boolean branchIncluded()
-    {
-        return state().isBoundary;
+        return state().applicableBefore;
     }
 
     @Override
@@ -260,7 +243,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 
     static TrieSetCursor empty(Direction direction, ByteComparable.Version version)
     {
-        return new Empty(TrieSetCursor.RangeState.START_END_PREFIX, version, direction);
+        return new Empty(TrieSetCursor.RangeState.NOT_CONTAINED, version, direction);
     }
 
     class Empty extends Cursor.Empty<RangeState> implements TrieSetCursor

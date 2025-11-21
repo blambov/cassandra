@@ -50,7 +50,7 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     {
         Preconditions.checkArgument(v.isBoundary()); // make sure marker is returned for content()
         Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == null);
-        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == null);
+        Preconditions.checkArgument(v.succedingState(Direction.FORWARD) == null);
         return dir -> new SingletonCursor.Range<>(dir, key.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
     }
 
@@ -71,7 +71,7 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     {
         Preconditions.checkArgument(!v.isBoundary());
         Preconditions.checkArgument(v.precedingState(Direction.FORWARD) == v);
-        Preconditions.checkArgument(v.precedingState(Direction.REVERSE) == v);
+        Preconditions.checkArgument(v.succedingState(Direction.FORWARD) == v);
         return dir -> new RangeCursor.FromSet<>(set.cursor(dir), v);
     }
 
