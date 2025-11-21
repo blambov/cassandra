@@ -150,7 +150,7 @@ public class RangesTrieSetTest
         if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
             return dir -> c.tailCursor(dir);
         else if (c.precedingIncluded())
-            return TrieSet.ranges(c.byteComparableVersion()); // full set
+            return TrieSet.full(c.byteComparableVersion());
         else
             return null;
     }
@@ -352,12 +352,16 @@ public class RangesTrieSetTest
             {
                 firstIndex = index;
                 firstExact = exact && ((index & 1) == 0);
-            }
+            } else if (exact && index == firstIndex && ((index & 1) == 0))
+                firstExact = true;
+
             if (index > lastIndex)
             {
                 lastIndex = index;
                 lastExact = exact && ((index & 1) != 0);
             }
+            else if (exact && index == lastIndex && ((index & 1) != 0))
+                lastExact = true;
         }
 
         static PointState coveringInexact(int from, int to)
@@ -434,13 +438,13 @@ public class RangesTrieSetTest
     static NavigableMap<Preencoded, PointState> getExpectations(ByteComparable... boundaries)
     {
         var expectations = new TreeMap<Preencoded, PointState>(FORWARD_COMPARATOR);
-//        expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.coveringInexact(0, boundaries.length));
-        for (int bi = 0; bi < boundaries.length; ++bi)
+        expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.coveringInexact(0, boundaries.length));
+        int l = (boundaries.length + 1) & ~1;
+        for (int bi = 0; bi < l; ++bi)
         {
-            ByteComparable b = boundaries[bi];
+            ByteComparable b = bi < boundaries.length ? boundaries[bi] : null;
             if (b == null)
-                continue;
-//                b = ByteComparable.EMPTY;
+                b = ByteComparable.EMPTY;
             int len = ByteComparable.length(b, VERSION);
             for (int i = 0; i <= len; ++i)
             {
@@ -449,8 +453,8 @@ public class RangesTrieSetTest
                 state.addIndex(bi, i == len);
             }
         }
-        if (expectations.isEmpty())
-            expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.fullRange());
+//        if (expectations.isEmpty())
+//            expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.fullRange());
         return expectations;
 //        .entrySet()
 //                           .stream()
@@ -460,9 +464,14 @@ public class RangesTrieSetTest
     }
 
     @Test
-    public void testFullInterval()
+    public void testEmptyInterval()
     {
         check(new String[0]);
+    }
+
+    @Test
+    public void testFullInterval()
+    {
         check((String) null, null);
     }
 

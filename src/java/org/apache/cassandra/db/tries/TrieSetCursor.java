@@ -63,12 +63,6 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
             this.applicableAfter = applicableAfter;
         }
 
-        /// Whether the positions preceding the current in iteration order are included in the set.
-        public boolean precedingIncluded()
-        {
-            return applicableBefore;
-        }
-
         /// Whether the current position is a range boundary. This also means that the descendant branch is fully
         /// included in the set.
         public boolean isBoundary()
@@ -177,6 +171,15 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 
     @Override
     TrieSetCursor tailCursor(Direction direction);
+
+    @Override
+    default TrieSetCursor precedingStateCursor(Direction direction)
+    {
+        if (precedingIncluded())
+            return RangesCursor.create(direction, byteComparableVersion(), true);
+        else
+            return null;
+    }
 
     /// Returns a negated version of this cursor (where every returned state is inverted).
     default TrieSetCursor negated()

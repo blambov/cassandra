@@ -95,11 +95,9 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
     /// Returns a full-range cursor returning [#precedingState()].
     default RangeCursor<S> precedingStateCursor(Direction direction)
     {
-        // Note: this uses `precedingState` in the current direction, which must be the same as the preceding state we
-        // would get if we walked to the same state in the opposite direction.
-        return new Empty<>(precedingState(), byteComparableVersion(), direction);
+        // This needs to turn into a range covering the whole branch.
+        return new FromSet<>(RangesCursor.create(direction, byteComparableVersion(), true), precedingState());
     }
-
 
     /// @inheritDoc
     ///

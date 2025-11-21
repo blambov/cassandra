@@ -50,7 +50,12 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
 
     static TrieSet empty(ByteComparable.Version byteComparableVersion)
     {
-        return dir -> TrieSetCursor.empty(dir, byteComparableVersion);
+        return ranges(byteComparableVersion);
+    }
+
+    static TrieSet full(ByteComparable.Version byteComparableVersion)
+    {
+        return ranges(byteComparableVersion, null, null);
     }
 
     /// Returns true if the given key is strictly contained in this set, i.e. it falls inside a covered range or branch.

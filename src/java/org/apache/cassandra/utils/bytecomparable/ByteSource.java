@@ -63,7 +63,7 @@ public interface ByteSource
     /** Value returned if at the end of the stream. */
     int END_OF_STREAM = -1;
 
-    ByteSource EMPTY = () -> END_OF_STREAM;
+    Duplicatable EMPTY = preencoded(new byte[0]);
 
     /**
      * Escape value. Used, among other things, to mark the end of subcomponents (so that shorter compares before anything longer).
