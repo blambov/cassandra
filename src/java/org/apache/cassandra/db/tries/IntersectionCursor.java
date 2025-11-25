@@ -200,7 +200,9 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
                 case SET_AHEAD:
                     return source.content();
                 case MATCHING:
-                    return set.state().applicableAfter ? source.content() : null;
+                    return (!Cursor.isOnReturnPath(encodedPosition()) ? set.state().applicableAfter
+                                                                     : set.state().applicableBefore)
+                           ? source.content() : null;
                 default:
                     throw new AssertionError();
             }

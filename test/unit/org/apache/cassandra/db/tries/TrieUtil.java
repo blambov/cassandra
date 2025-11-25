@@ -222,13 +222,17 @@ public class TrieUtil
 
     static void assertSameContent(Trie<ByteBuffer> trie, SortedMap<Preencoded, ByteBuffer> map)
     {
-        for (Direction dir : Direction.values())
-        {
-            assertMapEquals(trie, map, dir);
-            assertForEachEntryEquals(trie, map, dir);
-            assertValuesEqual(trie, map, dir);
-            assertForEachValueEquals(trie, map, dir);
-        }
+        // Don't use a loop for the direction to see it in the stack path in case of failure.
+        assertMapEquals(trie, map, Direction.FORWARD);
+        assertForEachEntryEquals(trie, map, Direction.FORWARD);
+        assertValuesEqual(trie, map, Direction.FORWARD);
+        assertForEachValueEquals(trie, map, Direction.FORWARD);
+
+        assertMapEquals(trie, map, Direction.REVERSE);
+        assertForEachEntryEquals(trie, map, Direction.REVERSE);
+        assertValuesEqual(trie, map, Direction.REVERSE);
+        assertForEachValueEquals(trie, map, Direction.REVERSE);
+
         assertUnorderedValuesEqual(trie, map);
         checkGet(trie, map);
     }
@@ -562,7 +566,7 @@ public class TrieUtil
      *    |  |  |  |
      *    0  1  2  3
      */
-    static Trie<Integer> singleLevelIntTrie(int childs)
+    static Trie<Integer> singleLevelIntTrie(int childs, boolean sliceCompatibleContent)
     {
         return new Trie<Integer>()
         {
@@ -576,11 +580,13 @@ public class TrieUtil
             {
                 final Direction direction;
                 int current;
+                boolean presentContentOnReturnPath;
 
                 SingleLevelCursor(Direction direction)
                 {
                     this.direction = direction;
                     current = direction.select(-1, childs);
+                    presentContentOnReturnPath = !direction.isForward() && sliceCompatibleContent;
                 }
 
                 @Override
@@ -595,13 +601,14 @@ public class TrieUtil
                 {
                     int depth = Cursor.depth(encodedSkipPosition);
                     int transition = Cursor.incomingTransition(encodedSkipPosition);
-                    if (Cursor.isOnReturnPath(encodedSkipPosition))
+
+                    if (Cursor.isOnReturnPath(encodedSkipPosition) && !presentContentOnReturnPath)
                         transition += direction.increase;
 
                     if (depth > 1)
                         return advance();
                     if (depth < 1)
-                        transition = direction.select(childs, -1);
+                        transition = exhausted();
 
                     if (direction.isForward())
                         current = Math.max(0, transition);
@@ -611,20 +618,33 @@ public class TrieUtil
                     return encodedPosition();
                 }
 
+                int exhausted()
+                {
+                    int lastPos = direction.select(childs, -1);
+                    if (presentContentOnReturnPath)
+                        lastPos += direction.increase;
+                    return lastPos;
+                }
+
                 @Override
                 public long encodedPosition()
                 {
                     if (current == direction.select(-1, childs))
                         return Cursor.rootPosition(direction);
-                    if (direction.inLoop(current, 0, childs - 1))
-                        return Cursor.encode(1, current, direction);
+                    else if (presentContentOnReturnPath && current == direction.select(childs, -1))
+                        return Cursor.rootPosition(direction) | Cursor.ON_RETURN_PATH_BIT;
+                    else if (direction.inLoop(current, 0, childs - 1))
+                        return Cursor.encode(1, current, direction) |
+                               (presentContentOnReturnPath ? Cursor.ON_RETURN_PATH_BIT : 0);
                     return Cursor.exhaustedPosition(direction);
                 }
 
                 @Override
                 public Integer content()
                 {
-                    return current == direction.select(-1, childs) ? -1 : current;
+                    if (presentContentOnReturnPath != Cursor.isOnReturnPath(encodedPosition()))
+                        return null;
+                    return current == childs ? -1 : current;
                 }
 
                 @Override

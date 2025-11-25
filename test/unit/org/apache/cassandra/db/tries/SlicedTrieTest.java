@@ -345,7 +345,7 @@ public class SlicedTrieTest
         if (direction.isForward())
             return list;
         List<Integer> reversed = new ArrayList<>(list);
-        reversed.sort((x, y) -> x == -1 ? -1 : y == -1 ? 1 : Integer.compare(y, x));
+        reversed.sort((x, y) -> Integer.compare(y, x));
         return reversed;
     }
 
@@ -358,7 +358,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleIntersectionII()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), true, of(7), true);
@@ -368,7 +368,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleIntersectionEI()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), false, of(7), true);
@@ -378,7 +378,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleIntersectionIE()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), true, of(7), false);
@@ -388,7 +388,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleIntersectionEE()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), false, of(7), false);
@@ -398,7 +398,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleLeftIntersectionE()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), false, null, true);
@@ -408,7 +408,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleLeftIntersectionI()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(of(3), true, null, true);
@@ -418,7 +418,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleRightIntersectionE()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(null, true, of(7), false);
@@ -428,7 +428,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleRightIntersectionI()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(null, true, of(7), true);
@@ -438,7 +438,7 @@ public class SlicedTrieTest
     @Test
     public void testSimpleNoIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(null, true, null, true);
@@ -453,21 +453,21 @@ public class SlicedTrieTest
     @Test
     public void testSimpleEmptyIntersectionLeft()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(ByteComparable.EMPTY, true, null, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
 
         // Not currently supported
-//        intersection = trie.slice(ByteComparable.EMPTY, false, null, true);
-//        assertTrieEquals(asList(), intersection);
+        intersection = trie.slice(ByteComparable.EMPTY, false, null, true);
+        assertTrieEquals(asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), intersection);
     }
 
     @Test
     public void testSimpleEmptyIntersectionRight()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, true);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.slice(null, true, ByteComparable.EMPTY, true);

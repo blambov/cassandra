@@ -20,7 +20,6 @@ package org.apache.cassandra.db.tries;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
@@ -83,76 +82,20 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     /// includes `4040` (a descendant of the included `40`).
     default Trie<T> slice(ByteComparable left, boolean inclusiveLeft, ByteComparable right, boolean inclusiveRight)
     {
-        // FIXME: this does not work correctly for prefixes (see e.g. [aa, aabb00))
-        TrieSet set;
-        if (inclusiveLeft || left == null)
-        {
-            if (!inclusiveRight || right == null)
-            {
-                // Easy case with the right inclusivity
-                set = dir -> RangesCursor.create(dir,
-                                                 cursor(dir).byteComparableVersion(),
-                                                 bits(0b00),
-                                                 left,
-                                                 right);
-            }
-            else
-            {
-                set = dir -> RangesCursor.create(dir,
-                                                 cursor(dir).byteComparableVersion(),
-                                                 bits(0b1100),
-                                                 left,
-                                                 append(right, 0x00),
-                                                 append(right, 0xFF),
-                                                 right);
-            }
-        }
-        else
-        {
-            if (!inclusiveRight || right == null)
-            {
-                // Easy case with the right inclusivity
-                set = dir -> RangesCursor.create(dir,
-                                                 cursor(dir).byteComparableVersion(),
-                                                 bits(0b0110),
-                                                 append(left, 0x00),
-                                                 append(left, 0xFF),
-                                                 left,
-                                                 right);
-            }
-            else
-            {
-                set = dir -> RangesCursor.create(dir,
-                                                 cursor(dir).byteComparableVersion(),
-                                                 bits(0b110110),
-                                                 append(left, 0x00),
-                                                 append(left, 0xFF),
-                                                 left,
-                                                 append(right, 0x00),
-                                                 append(right, 0xFF),
-                                                 right);
-            }
-        }
-
-        System.out.println("forward");
-        System.out.println(set.dump());
-        System.out.println("reverse");
-        System.out.println(set.cursor(Direction.REVERSE).process(new TrieDumper.Plain<>(Object::toString)));
         return dir -> {
             Cursor<T> cursor = cursor(dir);
             return new IntersectionCursor.PlainSlice<>(cursor,
-                                                       set.cursor(dir));
+                                                       RangesCursor.create(dir,
+                                                                           cursor.byteComparableVersion(),
+                                                                           false,
+                                                                           add0(left, !inclusiveLeft),
+                                                                           add0(right, inclusiveRight)));
         };
     }
 
-    private static BitSet bits(long... longs)
+    private static ByteComparable add0(ByteComparable byteComparable, boolean inclusive)
     {
-        return BitSet.valueOf(longs);
-    }
-
-    private static ByteComparable append(ByteComparable byteComparable, int lastByte)
-    {
-        return v -> ByteSource.append(byteComparable.asComparableBytes(v), lastByte);
+        return byteComparable != null && inclusive ? v -> ByteSource.append(byteComparable.asComparableBytes(v), 0) : byteComparable;
     }
 
     /// Returns the values in any order. For some tries this is much faster than the ordered iterable.

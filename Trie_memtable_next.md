@@ -244,6 +244,12 @@ tries) plus alternate branch.
 Perhaps include trail bits in the content id encoding? Use prefix nodes when there's more than one.
 
 
+This approach is developed in CNDB-15669-four-state-adjustment branch. There are two problem points:
+- That the root does not start in a "branch" state (easily fixed by adding a `skipToRootBranch` method)
+- That tails are taken at the branch position, which may lose information. In particular, RangesCursor tails are pretty
+  difficult to get right (we lose either leading bound or root branch position).
+
+
 ## Represent as the proper set?
 
 Not easy at all.
@@ -356,6 +362,12 @@ Resurrect the code we had before CNDB-10302?
 Making it as set would still need a different Slice intersection for the prefixes.
 
 
+## Present content on the return path in reverse direction?
+
+This is basically the effect of the four-state adjustment without the extra states, where we still start and can take
+tails on the root branch.
+
+
 # Done
 
 - Include direction bit/byte in the encoding
@@ -366,9 +378,22 @@ Making it as set would still need a different Slice intersection for the prefixe
 
 - Use root on return path for set/range end state instead of at exhausted
 
+- Test presenting content on the return path in reverse direction (i.e. singleLevelIntTrie support for content-to-the-left)
+
 # TODOs
 
-- inMemoryTrie support for onReturnPath
+- SingletonCursor option to present on the return path.
+
+- inMemoryTrie support for onReturnPath. Needs multiple content slots and choice:
+  - to present content strictly to the left of the branch (lower range bound or ordered content):
+    - forward: with branch
+    - reverse: return path
+  - to present content always with the branch (metadata, i.e. content to always be presented on prefixes)
+    - forward: with branch
+    - reverse: with branch
+  - to present content strictly to the right of the branch (upper range bound)
+    - forward: return path
+    - reverse: with branch
 
 - `hasContent` flag
 - `hasDeletionBranch` flag on deletion-aware

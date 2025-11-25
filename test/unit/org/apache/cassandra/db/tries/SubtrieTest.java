@@ -329,7 +329,7 @@ public class SubtrieTest
     @Test
     public void testSimpleIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(of(3), of(7));
@@ -339,7 +339,7 @@ public class SubtrieTest
     @Test
     public void testSimpleLeftIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(of(3), null);
@@ -349,7 +349,7 @@ public class SubtrieTest
     @Test
     public void testSimpleRightIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(null, of(7));
@@ -359,7 +359,7 @@ public class SubtrieTest
     @Test
     public void testSimpleNoIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(null, null);
@@ -369,7 +369,7 @@ public class SubtrieTest
     @Test
     public void testSimpleEmptyIntersectionLeft()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(ByteComparable.EMPTY, null);
@@ -382,7 +382,7 @@ public class SubtrieTest
     @Test
     public void testSimpleEmptyIntersectionRight()
     {
-        Trie<Integer> trie = singleLevelIntTrie(10);
+        Trie<Integer> trie = singleLevelIntTrie(10, false);
         assertTrieEquals(asList(-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie);
 
         Trie<Integer> intersection = trie.subtrie(null, ByteComparable.EMPTY);
@@ -395,7 +395,7 @@ public class SubtrieTest
     @Test
     public void testSubtrieOnSubtrie()
     {
-        Trie<Integer> trie = singleLevelIntTrie(15);
+        Trie<Integer> trie = singleLevelIntTrie(15, false);
 
         // non-overlapping
         Trie<Integer> intersection = trie.subtrie(of(0), of(4)).subtrie(of(5), of(8));
@@ -420,7 +420,7 @@ public class SubtrieTest
     @Test
     public void testIntersectedIntersection()
     {
-        Trie<Integer> trie = singleLevelIntTrie(15);
+        Trie<Integer> trie = singleLevelIntTrie(15, false);
 
         // non-overlapping
         Trie<Integer> intersection = trie.intersect(TrieSet.range(VERSION, of(0), of(4)))
