@@ -295,6 +295,10 @@ public interface VerificationCursor
             super(source);
 
             currentPrecedingState = verifyCoveringStateProperties(source.precedingState());
+            assert currentPrecedingState == null :
+                String.format("Cursor starts with non-null preceeding state %s\n%s",
+                              currentPrecedingState,
+                              this);
             final S content = source.content();
             nextPrecedingState = content != null ? verifyBoundaryStateProperties(content).succedingState(direction)
                                                  : currentPrecedingState;
@@ -349,24 +353,27 @@ public interface VerificationCursor
 
         private long verifyState(long position)
         {
-            S precedingState = source.precedingState();
-            boolean equal = agree(currentPrecedingState, precedingState);
-            assert equal : String.format("Unexpected change to covering state: %s -> %s\n%s",
-                                         currentPrecedingState, precedingState, this);
-            currentPrecedingState = precedingState;
-
-            S content = source.content();
-            if (content != null)
-            {
-                assert agree(currentPrecedingState, content.precedingState(direction)) :
-                    String.format("Range end %s does not close covering state %s\n%s",
-                                  content.precedingState(direction), currentPrecedingState, this);
-                verifyBoundaryStateProperties(content);
-                nextPrecedingState = content.succedingState(direction);
-            }
-
             if (Cursor.isExhausted(position))
                 verifyEndState();
+            else
+            {
+                S precedingState = source.precedingState();
+                boolean equal = agree(currentPrecedingState, precedingState);
+                assert equal : String.format("Unexpected change to covering state: %s -> %s\n%s",
+                                             currentPrecedingState, precedingState, this);
+                currentPrecedingState = precedingState;
+
+                S content = source.content();
+                if (content != null)
+                {
+                    assert agree(currentPrecedingState, content.precedingState(direction)) :
+                    String.format("Range end %s does not close covering state %s\n%s",
+                                  content.precedingState(direction), currentPrecedingState, this);
+                    verifyBoundaryStateProperties(content);
+                    nextPrecedingState = content.succedingState(direction);
+                }
+            }
+
             return position;
         }
 

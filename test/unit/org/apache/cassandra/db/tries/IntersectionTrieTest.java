@@ -430,7 +430,7 @@ public class IntersectionTrieTest
                               .union(TrieSet.range(VERSION, before(14), before(16)))
                               .union(TrieSet.range(VERSION, before(12), null));
         TrieSet set2 = TrieSet.range(VERSION, before(2), before(7))
-                              .union(TrieSet.ranges(VERSION, null, before(8), before(10), null).weakNegation())
+                              .union(TrieSet.ranges(VERSION, null, before(8), before(10), null).negation())
                               .union(TrieSet.ranges(VERSION, before(8), before(10), before(12), before(14)));
         TrieSet set3 = TrieSet.range(VERSION, before(1), before(2))
                               .union(TrieSet.range(VERSION, before(3), before(4)))
@@ -601,7 +601,7 @@ public class IntersectionTrieTest
                 {
                     TrieSet set = sets[toRemove];
                     InMemoryTrie<Integer> ix = duplicateTrie(trie);
-                    ix.delete(set.weakNegation());
+                    ix.delete(set.negation());
                     testIntersectionInMemoryTrieDelete(message + " " + toRemove, expected,
                                                        ix,
                                                        Arrays.stream(sets)

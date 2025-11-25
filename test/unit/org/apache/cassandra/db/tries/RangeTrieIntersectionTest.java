@@ -258,7 +258,7 @@ public class RangeTrieIntersectionTest
                               .union(range(of(14), of(16)))
                               .union(range(of(12), null));
         TrieSet set2 = range(of(2), of(7))
-                              .union(ranges(null, of(8), of(10), null).weakNegation())
+                              .union(ranges(null, of(8), of(10), null).negation())
                               .union(ranges(of(8), of(10), of(12), of(14)));
         TrieSet set3 = range(of(1), of(2))
                               .union(range(of(3), of(4)))

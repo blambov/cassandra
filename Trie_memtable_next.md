@@ -382,6 +382,8 @@ tails on the root branch.
 
 # TODOs
 
+- Implement negation
+
 - SingletonCursor option to present on the return path.
 
 - inMemoryTrie support for onReturnPath. Needs multiple content slots and choice:

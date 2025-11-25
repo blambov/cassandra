@@ -113,7 +113,7 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
     /// `intersection([a, b], weakNegation([a, b]))` equals `union([a, a], [b, b])`.
     ///
     /// True negation is not feasible in this design (exact points are always included together with all their descendants).
-    default TrieSet weakNegation()
+    default TrieSet negation()
     {
         return dir -> cursor(dir).negated();
     }

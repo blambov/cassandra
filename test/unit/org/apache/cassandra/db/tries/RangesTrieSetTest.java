@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Maps;
 import org.junit.BeforeClass;
@@ -135,13 +136,56 @@ public class RangesTrieSetTest
 
     void check(String... boundariesAsStrings)
     {
+        check(true, boundariesAsStrings);
+    }
+
+    void check(boolean endsInclusive, String... boundariesAsStrings)
+    {
         Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
         for (int i = 0; i < boundariesAsStrings.length; ++i)
             boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
-        check(boundaries);
 
-        verifySkipTo(boundariesAsStrings, TrieSet.ranges(VERSION, boundaries));
-        verifyTails(boundaries, TrieSet.ranges(VERSION, boundaries));
+        check(endsInclusive, boundaries);
+
+        verifySkipTo(endsInclusive, boundariesAsStrings, TrieSet.ranges(VERSION, boundaries));
+        verifyTails(endsInclusive, boundaries, TrieSet.ranges(VERSION, boundaries));
+
+        verifyNegation(endsInclusive, boundaries, TrieSet.ranges(VERSION, boundaries));
+    }
+
+    private static void verifyNegation(boolean endsInclusive, ByteComparable[] boundaries, TrieSet set)
+    {
+        TrieSet negatedSet = set.negation();
+        // If the first entry is not null, drop it; otherwise add a null.
+        int addLeft = boundaries.length == 0 || boundaries[0] != null ? +1
+                                                                      : -1;
+        // If the last entry is not null, drop it; otherwise add a null. If the length is odd, don't adjust anything
+        // as the length will now become even.
+        int addRight = boundaries.length == 0
+                       ? +1
+                       : boundaries.length % 2 != 0 ? 0
+                                                    : boundaries[boundaries.length - 1] != null ? +1
+                                                                                                : -1;
+
+        // Add/remove nulls on both sides of the boundaries
+        ByteComparable[] negatedBoundaries = new ByteComparable[boundaries.length + addLeft + addRight];
+        for (int i = Math.max(-addLeft, 0); i < boundaries.length + Math.min(addRight, 0); ++i)
+            negatedBoundaries[i + addLeft] = boundaries[i];
+        System.out.println("Negated boundaries: " + Arrays.stream(negatedBoundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
+
+        if (endsInclusive)
+            for (int i = 1; i < negatedBoundaries.length; ++i)
+                if (negatedBoundaries[i] != null && negatedBoundaries[i-1] != null &&
+                    ByteComparable.compare(negatedBoundaries[i], negatedBoundaries[i - 1], VERSION) == 0)
+                {
+                    System.out.println("Skipping negated set check because of repetition");
+                    return; // negation cannot be correctly checked when boundaries repeat in endsInclusive mode
+                }
+
+        System.out.println("Negated set");
+        dumpToOut(negatedSet);
+        var expectations = getExpectations(endsInclusive, negatedBoundaries);
+        assertTrieEquals(expectations, negatedSet);
     }
 
     private static TrieSet tailTrie(TrieSet set, ByteComparable prefix, Direction direction)
@@ -169,7 +213,7 @@ public class RangesTrieSetTest
         return true;
     }
 
-    private static void verifyTails(Preencoded[] boundaries, TrieSet set)
+    private static void verifyTails(boolean endsInclusive, Preencoded[] boundaries, TrieSet set)
     {
         Set<Preencoded> prefixes = new TreeSet<>(FORWARD_COMPARATOR);
         for (ByteComparable b : boundaries)
@@ -209,13 +253,13 @@ public class RangesTrieSetTest
                 TrieSet tail = tailTrie(set, prefix, dir);
                 assertNotNull(tail);
                 dumpToOut(tail);
-                var expectations = getExpectations(tails.toArray(Preencoded[]::new));
+                var expectations = getExpectations(endsInclusive, tails.toArray(Preencoded[]::new));
                 assertTrieEquals(expectations, tail);
             }
         }
     }
 
-    private static void verifySkipTo(String[] boundariesAsStrings, TrieSet set)
+    private static void verifySkipTo(boolean endsInclusive, String[] boundariesAsStrings, TrieSet set)
     {
         String arr = Arrays.toString(boundariesAsStrings);
         // Verify that we get the right covering state for all positions around the boundaries.
@@ -261,24 +305,6 @@ public class RangesTrieSetTest
 
                     boolean foundExact = next == ByteSource.END_OF_STREAM;
 
-                    // when seeking forward !sab, we get positioned on bi (regardless if exact)
-                    //           before = bi & 1, after = exact ^ before
-                    // when seeking forward sab, we get positioned on :
-                    //      ei - 1, if it is exact and right bound (ie ei - 1 & 1 ie ~ei & 1)
-                    //           before = ei & 1 --> false, after = true
-                    //      ei, otherwise, can't be exact
-                    //           before = ei & 1, after = before
-                    //      for both
-                    //           contained if ei & 1
-                    // reverse inverts treatment of indexes (exact or not)
-                    // when seeking reverse !sab, we get positioned on ei - 1
-                    //           contained if ei & 1
-                    // when seeking reverse sab, we get positioned on :
-                    //      bi, if it is exact and left bound (ie bi & 1 == 0)
-                    //           contained if bi & 1 --> not contained
-                    //      bi - 1, otherwise
-                    //           contained if ~bi & 0
-
                     boolean before, after, matchesFirst;
                     int seekPos;
                     int statePos;
@@ -315,11 +341,11 @@ public class RangesTrieSetTest
         }
     }
 
-    void check(ByteComparable... boundaries)
+    void check(boolean endsInclusive, ByteComparable... boundaries)
     {
-        TrieSet s = TrieSet.ranges(VERSION, boundaries);
+        TrieSet s = dir -> RangesCursor.create(dir, VERSION, endsInclusive, boundaries);
         dumpToOut(s);
-        var expectations = getExpectations(boundaries);
+        var expectations = getExpectations(endsInclusive, boundaries);
         assertTrieEquals(expectations, s);
     }
 
@@ -435,7 +461,7 @@ public class RangesTrieSetTest
         }
     }
 
-    static NavigableMap<Preencoded, PointState> getExpectations(ByteComparable... boundaries)
+    static NavigableMap<Preencoded, PointState> getExpectations(boolean endsInclusive, ByteComparable... boundaries)
     {
         var expectations = new TreeMap<Preencoded, PointState>(FORWARD_COMPARATOR);
         expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.coveringInexact(0, boundaries.length));
@@ -453,14 +479,7 @@ public class RangesTrieSetTest
                 state.addIndex(bi, i == len);
             }
         }
-//        if (expectations.isEmpty())
-//            expectations.put(ByteComparable.preencoded(VERSION, new byte[0]), PointState.fullRange());
         return expectations;
-//        .entrySet()
-//                           .stream()
-//                           .collect(() -> new TreeMap(FORWARD_COMPARATOR),
-//                                    (m, e) -> m.put(e.getKey(), e.getValue().state()),
-//                                    NavigableMap::putAll);
     }
 
     @Test
@@ -591,19 +610,19 @@ public class RangesTrieSetTest
     @Test
     public void testBothEmpty()
     {
-        check(ByteComparable.EMPTY, ByteComparable.EMPTY);
+        check("", "");
     }
 
     @Test
     public void testLeftEmpty()
     {
-        check(ByteComparable.EMPTY, null);
+        check("", null);
     }
 
     @Test
     public void testRightEmpty()
     {
-        check(null, ByteComparable.EMPTY);
+        check(null, "");
     }
 
     @Test

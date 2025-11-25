@@ -89,7 +89,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 
         /// Return the "weakly negated" state, i.e. the state that corresponds to flipped areas of coverage to the left
         /// and right, and the boundary points. See [TrieSet#weakNegation] for more details.
-        public RangeState weakNegation()
+        public RangeState negation()
         {
             return values()[ordinal() ^ (APPLICABLE_BEFORE | APPLICABLE_AFTER)];
         }
@@ -189,20 +189,39 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 
     /// Negation of trie set cursors.
     ///
-    /// Achieved by simply inverting the [#state()] values.
+    /// Achieved by simply inverting the [#state()] values, but it must also correct the root state, including by
+    /// adding or dropping a return path to the root state.
     class Negated implements TrieSetCursor
     {
         final TrieSetCursor source;
 
+        enum Overriding
+        {
+            NONE, ROOT, ROOT_RETURN, EXHAUSTED;
+        }
+        Overriding overriding;
+
         Negated(TrieSetCursor source)
         {
             this.source = source;
+            overriding = Overriding.ROOT;
         }
 
         @Override
         public long encodedPosition()
         {
-            return source.encodedPosition();
+            long encodedPosition = source.encodedPosition();
+            switch (overriding)
+            {
+                case ROOT_RETURN:
+                    return Cursor.rootPosition(Cursor.direction(encodedPosition)) | ON_RETURN_PATH_BIT;
+                case EXHAUSTED:
+                    return Cursor.exhaustedPosition(encodedPosition);
+                case ROOT:
+                case NONE:
+                default:
+                    return encodedPosition;
+            }
         }
 
         @Override
@@ -220,19 +239,71 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public RangeState state()
         {
-            return source.state().weakNegation();
+            RangeState negatedState = source.state().negation();
+            switch (overriding)
+            {
+                case ROOT:
+                    return negatedState.applicableAfter ? RangeState.START : RangeState.NOT_CONTAINED;
+                case ROOT_RETURN:
+                    return RangeState.END;
+                case EXHAUSTED:
+                    throw new AssertionError("Requested state on exhausted cursor.");
+                case NONE:
+                default:
+                    return negatedState;
+            }
+        }
+
+        long checkOverride(long encodedPosition)
+        {
+            int depth = Cursor.depth(encodedPosition);
+            if (depth > 0)
+            {
+                overriding = Overriding.NONE;
+                return encodedPosition;
+            }
+            else if (depth == 0)
+            {
+                // If we are ascending to the root on the return path, it is done to close an active deletion which
+                // we no longer have. Go directly to exhausted.
+                assert Cursor.isOnReturnPath(encodedPosition);
+                overriding = Overriding.EXHAUSTED;
+                return encodedPosition();
+            }
+            else // depth < 0
+            {
+                // If we went directly to exhausted, we have an active deletion. Insert a root position on the return
+                // path to close it.
+                assert Cursor.isExhausted(encodedPosition);
+                overriding = Overriding.ROOT_RETURN;
+                return encodedPosition();
+            }
         }
 
         @Override
         public long advance()
         {
-            return source.advance();
+            switch (overriding)
+            {
+                case ROOT_RETURN:
+                    overriding = Overriding.EXHAUSTED;
+                    return encodedPosition();
+                default:
+                    return checkOverride(source.advance());
+            }
         }
 
         @Override
         public long skipTo(long encodedSkipPosition)
         {
-            return source.skipTo(encodedSkipPosition);
+            switch (overriding)
+            {
+                case ROOT_RETURN:
+                    overriding = Overriding.EXHAUSTED;
+                    return encodedPosition();
+                default:
+                    return checkOverride(source.skipTo(encodedSkipPosition));
+            }
         }
 
         // Sets don't implement advanceMultiple as they are only meant to limit data tries.
@@ -240,6 +311,8 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public TrieSetCursor tailCursor(Direction direction)
         {
+            assert !Cursor.isOnReturnPath(encodedPosition()) : "tailCursor called on the return path";
+            assert !Cursor.isExhausted(encodedPosition()) : "tailCursor on exhausted cursor";
             return new Negated(source.tailCursor(direction));
         }
     }
