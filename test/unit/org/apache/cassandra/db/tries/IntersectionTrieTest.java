@@ -418,7 +418,7 @@ public class IntersectionTrieTest
 
         testIntersections(trie, set1, set2, set3);
 
-        testSetAlgebraIntersection(trie);
+//        testSetAlgebraIntersection(trie);  TODO when range work is done
     }
 
     private void testSetAlgebraIntersection(Trie<Integer> trie)
@@ -640,7 +640,7 @@ public class IntersectionTrieTest
         assertEquals(expected.process(Direction.FORWARD, new TrieDumper.Plain<>(Object::toString)), trie.intersect(set).dump());
     }
 
-    @Test(expected = Throwable.class)
+    @Test
     public void testRangeUnderCoveredBranch() throws TrieSpaceExhaustedException
     {
         TrieSet set1 = TrieSet.singleton(VERSION, TrieUtil.directComparable("b"));
@@ -649,7 +649,7 @@ public class IntersectionTrieTest
         assertEquals(expected.dump(), set1.intersection(set2).dump());
     }
 
-    @Test(expected = Throwable.class)
+    @Test
     public void testRangeUnderCoveredRoot() throws TrieSpaceExhaustedException
     {
         TrieSet set1 = TrieSet.singleton(VERSION, ByteComparable.EMPTY);

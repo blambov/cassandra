@@ -180,7 +180,7 @@ public abstract class InMemoryReadTrie<T>
     // lower bounds and ordered content have CONTENT_AFTER_BRANCH_REVERSE
     // upper bounds have CONTENT_AFTER_BRANCH_FORWARD
     static final int CONTENT_AFTER_BRANCH_FORWARD = 1 << 30;
-    static final int CONTENT_AFTER_BRANCH_REVERSE = 1 << 31;
+    static final int CONTENT_AFTER_BRANCH_REVERSE = 1 << 29;
 
 
     /// Value used as null for node pointers.

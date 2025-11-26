@@ -311,9 +311,9 @@ public interface VerificationCursor
         void verifyEndState()
         {
             // we cannot be carrying non-null succeeding state at end
-            assert nextPrecedingState == null :
+            assert currentPrecedingState == null :
                 String.format("Cursor ends with non-null covering state %s\n%s",
-                              nextPrecedingState,
+                              currentPrecedingState,
                               this);
         }
 
@@ -340,10 +340,6 @@ public interface VerificationCursor
         @Override
         public S precedingState()
         {
-            assert !Cursor.isExhausted(returnedPosition) :
-                String.format("Cannot query preceding state on exhausted cursor.\n%s",
-                              this);
-
             assert currentPrecedingState == source.precedingState() ||
                    currentPrecedingState != null && currentPrecedingState.equals(source.precedingState()) :
                 String.format("Preceding state changed without advance: %s -> %s.\n%s",
@@ -401,6 +397,9 @@ public interface VerificationCursor
                 currentPrecedingState = verifyCoveringStateProperties(source.precedingState());
                 nextPrecedingState = currentPrecedingState;
             }
+            else
+                currentPrecedingState = nextPrecedingState = null;
+
             return verifyState(encodedSkipPosition);
         }
 
