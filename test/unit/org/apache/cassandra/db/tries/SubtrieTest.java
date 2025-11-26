@@ -26,22 +26,24 @@ import java.util.NavigableMap;
 import java.util.Random;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Streams;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryTrie;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
-import static org.apache.cassandra.db.tries.TrieUtil.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.apache.cassandra.db.tries.TrieUtil.singleLevelIntTrie;
 import static org.apache.cassandra.db.tries.TrieUtil.toBound;
@@ -63,6 +65,7 @@ public class SubtrieTest
     "test13",
     "test2",
     "test21",
+    "test",
     "te",
     "s",
     "q",
@@ -83,6 +86,8 @@ public class SubtrieTest
     "test124",
     "test12",
     "test21",
+    "test",
+    "te",
     "tease",
     "sort",
     "sorting",
@@ -167,19 +172,39 @@ public class SubtrieTest
                             expected = false;
                         if (cmp2 < 0 || cmp2 == 0 && !includeRight)
                             expected = false;
-                        boolean actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
-                        if (expected != actual)
+
+                        try
+                        {
+                            assertEquals(expected, Iterables.getFirst(ix.values(), false));
+                        }
+                        catch (Throwable t)
                         {
                             System.err.println("Intersection");
                             System.err.println(ix.dump());
-                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
+                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s\n%s\n",
                                                       includeLeft ? "[" : "(",
                                                       l != null ? l.byteComparableAsString(VERSION) : null,
                                                       r != null ? r.byteComparableAsString(VERSION) : null,
                                                       includeRight ? "]" : ")",
                                                       key.byteComparableAsString(VERSION),
-                                                      expected,
-                                                      actual));
+                                                      t));
+                        }
+
+                        try
+                        {
+                            assertEquals(expected, Iterables.getFirst(ix.values(Direction.REVERSE), false));
+                        }
+                        catch (Throwable t)
+                        {
+                            System.err.println("Intersection REV");
+                            System.err.println(ix.cursor(Direction.REVERSE).process(new TrieDumper.Plain<>(Object::toString)));
+                            Assert.fail(String.format("Failed on range %s%s,%s%s REV key %s\n%s\n",
+                                                      includeLeft ? "[" : "(",
+                                                      l != null ? l.byteComparableAsString(VERSION) : null,
+                                                      r != null ? r.byteComparableAsString(VERSION) : null,
+                                                      includeRight ? "]" : ")",
+                                                      key.byteComparableAsString(VERSION),
+                                                      t));
                         }
                     }
                 }
@@ -301,7 +326,7 @@ public class SubtrieTest
      */
     private static <T> List<T> toList(Trie<T> trie, Direction direction)
     {
-        return Iterables.toList(trie.values(direction));
+        return Streams.stream(trie.values(direction)).collect(Collectors.toList());
     }
 
     /** Creates a single byte {@link ByteComparable} with the provide value */

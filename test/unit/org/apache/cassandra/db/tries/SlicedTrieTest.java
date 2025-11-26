@@ -195,11 +195,9 @@ public class SlicedTrieTest
                         if (cmp2 < 0 || cmp2 == 0 && !includeRight)
                             expected = false;
 
-                        boolean actual = false;
                         try
                         {
-                            actual = Iterables.getFirst(ix.values(), false);
-                            assertEquals(expected, actual);
+                            assertEquals(expected, Iterables.getFirst(ix.values(), false));
                         }
                         catch (Throwable t)
                         {
@@ -216,8 +214,7 @@ public class SlicedTrieTest
 
                         try
                         {
-                            actual = Iterables.getFirst(ix.values(Direction.REVERSE), false);
-                            assertEquals(expected, actual);
+                            assertEquals(expected, Iterables.getFirst(ix.values(Direction.REVERSE), false));
                         }
                         catch (Throwable t)
                         {
