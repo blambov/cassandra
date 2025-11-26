@@ -55,8 +55,7 @@ public abstract class InMemoryReadTrie<T>
 
      - If the pointer is negative, we have a leaf node. Since a leaf has no children, we need no data outside of its
        content to represent it, and that content is stored in a 'content list', not in the nodes buffer. The content
-       of a particular leaf node is located at the ~pointer position in the content list (~ instead of - so that -1 can
-       correspond to position 0).
+       of a particular leaf node is located at the (pointer & CONTENT_INDEX_MASK) position in the content list.
 
      - If the 'pointer offset' is smaller than 28, we have a chain node with one transition. The transition character is
        the byte at the position pointed in the 'node buffer', and the child is pointed by:
@@ -174,6 +173,16 @@ public abstract class InMemoryReadTrie<T>
     // Offset of the next pointer in a non-shared prefix node
     static final int PREFIX_POINTER_OFFSET = LAST_POINTER_OFFSET - PREFIX_OFFSET;
 
+    static final int CONTENT_FLAGS_SHIFT = 29;
+    static final int CONTENT_INDEX_MASK = (1 << CONTENT_FLAGS_SHIFT) - 1;
+
+    // metadata has neither
+    // lower bounds and ordered content have CONTENT_AFTER_BRANCH_REVERSE
+    // upper bounds have CONTENT_AFTER_BRANCH_FORWARD
+    static final int CONTENT_AFTER_BRANCH_FORWARD = 1 << 30;
+    static final int CONTENT_AFTER_BRANCH_REVERSE = 1 << 31;
+
+
     /// Value used as null for node pointers.
     /// No node can use this address (we enforce this by not allowing chain nodes to grow to position 0).
     /// Do not change this as the code relies on there being a `NONE` placed in all bytes of the cell that are not set.
@@ -280,8 +289,8 @@ public abstract class InMemoryReadTrie<T>
     /// @return the current content value.
     T getContent(int id)
     {
-        int leadBit = getBufferIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(~id, leadBit, CONTENTS_START_SIZE);
+        int leadBit = getBufferIdx(id & CONTENT_INDEX_MASK, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inBufferOffset(id & CONTENT_INDEX_MASK, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
         return array.get(ofs);
     }
@@ -373,15 +382,20 @@ public abstract class InMemoryReadTrie<T>
             return NONE;
 
         if (offset(node) == PREFIX_OFFSET)
-        {
-            int b = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
-            if (b < CELL_SIZE)
-                node = node - PREFIX_OFFSET + b;
-            else
-                node = getIntVolatile(node + PREFIX_POINTER_OFFSET);
+            node = getChildOfPrefixNode(node);
 
-            assert node >= 0 && offset(node) != PREFIX_OFFSET;
-        }
+        return node;
+    }
+
+    private int getChildOfPrefixNode(int node)
+    {
+        int b = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
+        if (b < CELL_SIZE)
+            node = node - PREFIX_OFFSET + b;
+        else
+            node = getIntVolatile(node + PREFIX_POINTER_OFFSET);
+
+        assert node >= 0 && offset(node) != PREFIX_OFFSET;
         return node;
     }
 
@@ -640,7 +654,7 @@ public abstract class InMemoryReadTrie<T>
         int currentNode;
         int currentFullNode;
         private long currentPosition;
-        private int depth;
+        protected int depth;
         protected T content;
         final Direction direction;
 
@@ -648,9 +662,9 @@ public abstract class InMemoryReadTrie<T>
         {
             this.trie = trie;
             this.direction = direction;
-            setCurrentNodeAndApplyPrefixes(root);
-            currentPosition = Cursor.rootPosition(direction);
             depth = 0;
+            currentPosition = Cursor.rootPosition(direction);
+            setCurrentNodeAndApplyPrefixes(root, 0, 0);
         }
 
         @Override
@@ -812,7 +826,9 @@ public abstract class InMemoryReadTrie<T>
 
         private long advanceToNextChild(int node, int data)
         {
-            assert (!isNullOrLeaf(node));
+            assert (!isNull(node));
+            if (isLeaf(node))
+                return descendInto(node, data);
 
             switch (offset(node))
             {
@@ -1149,18 +1165,54 @@ public abstract class InMemoryReadTrie<T>
                 return descendInto(buffer.getIntVolatile(inBufferNode + 1), transition);
         }
 
-        void setCurrentNodeAndApplyPrefixes(int child)
+        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition)
         {
-            content = trie.getNodeContent(child);
-            currentFullNode = child;
-            currentNode = trie.followPrefixTransition(child);
+            currentFullNode = node;
+            if (isLeaf(node))
+            {
+                if (shouldPresentOnTheReturnPath(node))
+                    currentPosition |= ON_RETURN_PATH_BIT;
+                content = trie.getContent(node);
+                currentNode = NONE;
+            }
+            else if (offset(node) == PREFIX_OFFSET)
+            {
+                int child = trie.getIntVolatile(node + PREFIX_CONTENT_OFFSET);
+                assert isNullOrLeaf(child);
+                if (!isNull(child))
+                {
+                    if (shouldPresentOnTheReturnPath(child))
+                    {
+                        // this content needs to be presented on the return path
+                        addBacktrack(child, transition, depth - 1);
+                        content = null;
+                    }
+                    else
+                        content = trie.getContent(child);
+                }
+                else
+                    content = null;
+
+                currentNode = trie.getChildOfPrefixNode(node);
+            }
+            else
+            {
+                content = null;
+                currentFullNode = node;
+                currentNode = node;
+            }
+        }
+
+        protected boolean shouldPresentOnTheReturnPath(int node)
+        {
+            return (node & direction.select(CONTENT_AFTER_BRANCH_FORWARD, CONTENT_AFTER_BRANCH_REVERSE)) != 0;
         }
 
         long descendInto(int child, int transition)
         {
             ++depth;
             currentPosition = Cursor.encode(depth, transition, direction);
-            setCurrentNodeAndApplyPrefixes(child);
+            setCurrentNodeAndApplyPrefixes(child, depth, transition);
             return currentPosition;
         }
 
@@ -1338,7 +1390,7 @@ public abstract class InMemoryReadTrie<T>
         if (isNull(node))
             return "NONE";
         else if (isLeaf(node))
-            return "~" + (~node);
+            return "~" + (node & CONTENT_INDEX_MASK);
         else
         {
             StringBuilder builder = new StringBuilder();
@@ -1371,7 +1423,7 @@ public abstract class InMemoryReadTrie<T>
                     int flags = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
                     final int content = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
                     final int alternate = getIntVolatile(node + PREFIX_ALTERNATE_OFFSET);
-                    builder.append(content < 0 ? "~" + (~content) : "" + content);
+                    builder.append(content < 0 ? "~" + (content & CONTENT_INDEX_MASK) : "" + content);
                     if (alternate != NONE)
                         builder.append(" alt:" + alternate);
                     int child = followPrefixTransition(node);

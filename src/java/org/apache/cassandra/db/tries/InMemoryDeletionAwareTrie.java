@@ -59,7 +59,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
     InMemoryDeletionAwareTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
-        super(byteComparableVersion, bufferType, lifetime, opOrder);
+        super(byteComparableVersion, bufferType, lifetime, opOrder, false); // TODO
     }
 
     public static <T, D extends RangeState<D>>

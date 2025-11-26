@@ -41,7 +41,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
     InMemoryRangeTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
-        super(byteComparableVersion, bufferType, lifetime, opOrder);
+        super(byteComparableVersion, bufferType, lifetime, opOrder, true);
     }
 
     public static <S extends RangeState<S>> InMemoryRangeTrie<S> shortLived(ByteComparable.Version byteComparableVersion)
@@ -98,6 +98,33 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         public long advanceMultiple(TransitionsReceiver receiver)
         {
             return updateActiveAndReturn(super.advanceMultiple(receiver));
+        }
+
+        /// Range tries may have two content values. Handle this possibility here.
+        @Override
+        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition)
+        {
+            super.setCurrentNodeAndApplyPrefixes(node, depth, transition);
+
+            if (offset(node) != PREFIX_OFFSET)
+                return;
+
+            int extraContent = trie.getIntVolatile(node + PREFIX_ALTERNATE_OFFSET);
+            assert isNullOrLeaf(extraContent);
+            if (!isNull(extraContent))
+            {
+                if (shouldPresentOnTheReturnPath(extraContent))
+                {
+                    // this content needs to be presented on the return path
+                    assert content != null : "Prefix node with incompatible content pair";
+                    addBacktrack(extraContent, transition, depth - 1);
+                }
+                else
+                {
+                    assert content == null : "Prefix node with incompatible content pair";
+                    content = trie.getContent(extraContent);
+                }
+            }
         }
 
         @Override

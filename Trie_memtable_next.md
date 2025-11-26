@@ -386,16 +386,28 @@ tails on the root branch.
 
 # TODOs
 
-- inMemoryTrie support for onReturnPath. Needs multiple content slots and choice:
-  - to present content strictly to the left of the branch (lower range bound or ordered content):
-    - forward: with branch
-    - reverse: return path
-  - to present content always with the branch (metadata, i.e. content to always be presented on prefixes)
-    - forward: with branch
-    - reverse: with branch
-  - to present content strictly to the right of the branch (upper range bound)
-    - forward: return path
-    - reverse: with branch
+- inMemoryReadTrie support to report content on the return path and putSingleton versions for:
+    - content strictly to the left of the branch (lower range bound or ordered content):
+        - forward: with branch
+        - reverse: return path
+    - content always with the branch (metadata, i.e. content to always be presented on prefixes)
+        - forward: with branch
+        - reverse: with branch
+    - content strictly to the right of the branch (upper range bound)
+        - forward: return path
+        - reverse: with branch
+  
+  Needs multiple content slots:
+    - content (before branch) and metadata (at branch) for normal tries
+    - content + metadata + deletion branch for deletion-aware tries
+    - before + after (+ metadata?) for range tries
+
+- figure out a way to understand where content should be placed during `apply`:
+  - range tries are easy (`onReturnPath ? before : after`)
+  - apply only walks the forward path, there is no indicator to choose content vs metadata. in particular, we could lose
+    content/metadata distinction when copying a trie.
+  - perhaps some classifier as argument?
+
 
 - `hasContent` flag
 - `hasDeletionBranch` flag on deletion-aware

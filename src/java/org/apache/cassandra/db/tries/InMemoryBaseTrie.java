@@ -46,6 +46,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// This must be done to avoid tries growing beyond their hard 2GB size limit (due to the 32-bit pointers).
     @VisibleForTesting
     static final int ALLOCATED_SIZE_THRESHOLD;
+
     static
     {
         // Default threshold + 10% == 2 GB. This should give the owner enough time to react to the
@@ -64,6 +65,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     final MemoryAllocationStrategy cellAllocator;
     final MemoryAllocationStrategy objectAllocator;
 
+    final boolean markForwardPathContentBeforeBranch;
 
     // constants for space calculations
     private static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
@@ -73,13 +75,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         SHORT, LONG
     }
 
-    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean markForwardPathContentBeforeBranch)
     {
         super(byteComparableVersion,
               new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
               new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
+        this.markForwardPathContentBeforeBranch = markForwardPathContentBeforeBranch;
 
         switch (lifetime)
         {
@@ -190,9 +193,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     /// Add a new content value.
     ///
-    /// @return A content id that can be used to reference the content, encoded as `~index` where index is the
-    ///         position of the value in the content array.
-    private int addContent(T value) throws TrieSpaceExhaustedException
+    /// @return A content id that can be used to reference the content, a negative number where
+    ///         `id & CONTENT_INDEX_MASK` encodes the position of the value in the content array.
+    private int addContent(T value, boolean onReturnPath) throws TrieSpaceExhaustedException
     {
         if (value == null)
             return NONE;
@@ -204,24 +207,31 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         // no need for a volatile set here; at this point the item is not referenced
         // by any node in the trie, and a volatile set will be made to reference it.
         array.setPlain(ofs, value);
-        return ~index;
+        return formContentId(index, onReturnPath);
+    }
+
+    private int formContentId(int index, boolean onReturnPath)
+    {
+        return index | (1 << 31) | (onReturnPath ? CONTENT_AFTER_BRANCH_FORWARD
+                                                 : markForwardPathContentBeforeBranch ? CONTENT_AFTER_BRANCH_REVERSE
+                                                                                      : 0);
     }
 
     /// Change the content associated with a given content id.
     ///
-    /// @param id content id, encoded as `~index` where index is the position in the content array
+    /// @param id encoded content id, where `id & CONTENT_INDEX_MASK` is the position in the content array
     /// @param value new content value to store
     private void setContent(int id, T value)
     {
-        int leadBit = getBufferIdx(~id, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(~id, leadBit, CONTENTS_START_SIZE);
+        int leadBit = getBufferIdx(id & CONTENT_INDEX_MASK, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+        int ofs = inBufferOffset(id & CONTENT_INDEX_MASK, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
         array.set(ofs, value);
     }
 
     private void releaseContent(int id)
     {
-        objectAllocator.recycle(~id);
+        objectAllocator.recycle(id & CONTENT_INDEX_MASK);
     }
 
     /// Called to clean up all buffers when the trie is known to no longer be needed.
@@ -1189,11 +1199,12 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         void setContent(T content, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
+            // TODO: Handle pairs of content for range tries
             int contentId = contentId();
             if (contentId == NONE)
             {
                 if (content != null)
-                    setContentId(InMemoryBaseTrie.this.addContent(content));
+                    setContentId(InMemoryBaseTrie.this.addContent(content, false)); // TODO
             }
             else if (content == null)
             {
@@ -1207,7 +1218,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             else if (forcedCopy)
             {
                 releaseContent(contentId);
-                setContentId(InMemoryBaseTrie.this.addContent(content));
+                setContentId(InMemoryBaseTrie.this.addContent(content, false)); // TODO
             }
             else
             {
@@ -1703,7 +1714,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         if (isNull(node))
-            return addContent(transformer.apply(null, value));
+            return addContent(transformer.apply(null, value), false);
 
         if (isLeaf(node))
         {
@@ -1730,7 +1741,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                 if (!isNull(contentId))
                     setContent(contentId, newContent);
                 else
-                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, addContent(newContent));
+                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, addContent(newContent, false));
                 return node;
             }
             else
@@ -1764,7 +1775,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         if (newContent == null)
             return node;
         else
-            return createContentNode(addContent(transformer.apply(null, value)), node, false);
+            return createContentNode(addContent(transformer.apply(null, value), false), node, false);
     }
 
     void completeMutation()
@@ -1881,7 +1892,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     public void releaseReferencesUnsafe()
     {
         for (int idx : objectAllocator.indexesInPipeline())
-            setContent(~idx, null);
+            setContent(formContentId(idx, false), null);
     }
 
     /// Returns the number of values in the trie

@@ -41,10 +41,10 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.makeInMemoryTrie;
+import static org.apache.cassandra.db.tries.InMemoryTrieTestBase.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.asString;
-import static org.apache.cassandra.db.tries.TrieUtil.assertSameContent;
 import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 import static org.apache.cassandra.db.tries.TrieUtil.singleLevelIntTrie;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
@@ -56,6 +56,8 @@ public class SlicedTrieTest
     public static void enableVerification()
     {
         CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
+        InMemoryTrieTestBase.strategy = InMemoryTrieTestBase.ReuseStrategy.SHORT_LIVED_ORDERED;
+        InMemoryTrieTestBase.reverseComparator = InMemoryTrieTestBase.forwardComparator.reversed();
     }
 
     public static final Preencoded[] BOUNDARIES = toByteComparable(new String[]{
@@ -319,7 +321,7 @@ public class SlicedTrieTest
                                 boolean includeRight)
     {
         System.out.println(String.format("Intersection with %s%s:%s%s", includeLeft ? "[" : "(", asString(l), asString(r), includeRight ? "]" : ")"));
-        SortedMap<Preencoded, ByteBuffer> imap = TrieUtil.boundedMap(content1, l, includeLeft, r, includeRight);
+        SortedMap<Preencoded, ByteBuffer> imap = boundedOrderedMap(content1, l, includeLeft, r, includeRight);
         Trie<ByteBuffer> intersection = t1.slice(l, includeLeft, r, includeRight);
         try
         {
@@ -342,6 +344,14 @@ public class SlicedTrieTest
 
         intersection = t1.slice(null, false, r, includeRight).slice(l, includeLeft, null, false);
         assertSameContent(intersection, imap);
+    }
+
+    private static SortedMap<Preencoded, ByteBuffer> boundedOrderedMap(NavigableMap<Preencoded, ByteBuffer> content1, Preencoded l, boolean includeLeft, Preencoded r, boolean includeRight)
+    {
+        return l != null ? r != null ? content1.subMap(l, includeLeft, r, includeRight)
+                                     : content1.tailMap(l, includeLeft)
+                         : r != null ? content1.headMap(r, includeRight)
+                                     : content1;
     }
 
     /**

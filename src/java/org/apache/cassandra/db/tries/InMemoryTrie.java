@@ -64,25 +64,25 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     static
     {
         // Measuring the empty size of long-lived tries, because these are the ones for which we want to track size.
-        InMemoryBaseTrie<Object> empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.ON_HEAP, ExpectedLifetime.LONG, null);
+        InMemoryBaseTrie<Object> empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.ON_HEAP, ExpectedLifetime.LONG, null, false);
         EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
-        empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, ExpectedLifetime.LONG, null);
+        empty = new InMemoryTrie<>(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, ExpectedLifetime.LONG, null, false);
         EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
     }
 
-    InMemoryTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    InMemoryTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean markForwardPathContentBeforeBranch)
     {
-        super(byteComparableVersion, bufferType, lifetime, opOrder);
+        super(byteComparableVersion, bufferType, lifetime, opOrder, markForwardPathContentBeforeBranch);
     }
 
     public static <T> InMemoryTrie<T> shortLived(ByteComparable.Version byteComparableVersion)
     {
-        return new InMemoryTrie<>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+        return shortLived(byteComparableVersion, BufferType.ON_HEAP);
     }
 
     public static <T> InMemoryTrie<T> shortLived(ByteComparable.Version byteComparableVersion, BufferType bufferType)
     {
-        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null);
+        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null, false);
     }
 
     public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, OpOrder opOrder)
@@ -92,7 +92,27 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
-        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
+        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder, false);
+    }
+
+    public static <T> InMemoryTrie<T> shortLivedOrdered(ByteComparable.Version byteComparableVersion)
+    {
+        return shortLivedOrdered(byteComparableVersion, BufferType.ON_HEAP);
+    }
+
+    public static <T> InMemoryTrie<T> shortLivedOrdered(ByteComparable.Version byteComparableVersion, BufferType bufferType)
+    {
+        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null, true);
+    }
+
+    public static <T> InMemoryTrie<T> longLivedOrdered(ByteComparable.Version byteComparableVersion, OpOrder opOrder)
+    {
+        return longLivedOrdered(byteComparableVersion, BufferType.OFF_HEAP, opOrder);
+    }
+
+    public static <T> InMemoryTrie<T> longLivedOrdered(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
+    {
+        return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder, true);
     }
 
     public InMemoryCursor<T> makeCursor(Direction direction)
