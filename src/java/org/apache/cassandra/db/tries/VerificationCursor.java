@@ -377,12 +377,15 @@ public interface VerificationCursor
             return position;
         }
 
-        private long verifySkipState(long depth)
+        private long verifySkipState(long encodedSkipPosition)
         {
             // The covering state information is invalidated by a skip.
-            currentPrecedingState = verifyCoveringStateProperties(source.precedingState());
-            nextPrecedingState = currentPrecedingState;
-            return verifyState(depth);
+            if (!Cursor.isExhausted(encodedSkipPosition))
+            {
+                currentPrecedingState = verifyCoveringStateProperties(source.precedingState());
+                nextPrecedingState = currentPrecedingState;
+            }
+            return verifyState(encodedSkipPosition);
         }
 
         S verifyCoveringStateProperties(S state)

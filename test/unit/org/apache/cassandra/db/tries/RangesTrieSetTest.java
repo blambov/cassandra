@@ -26,11 +26,14 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Maps;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.Pair;
@@ -39,13 +42,30 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
-import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
+import static org.apache.cassandra.utils.bytecomparable.ByteComparable.EMPTY;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
+@RunWith(Parameterized.class)
 public class RangesTrieSetTest
 {
+    @Parameterized.Parameter(0)
+    public Boolean endsInclusive;
+
+    @Parameterized.Parameter(1)
+    public Boolean negated;
+
+    @Parameterized.Parameters(name = "endInclusive {0} negated {1}")
+    public static List<Object[]> data()
+    {
+        return Arrays.asList(new Object[][] {
+            { true, false },
+            { false, false },
+            { true, true },
+            { false, true }
+        });
+    }
+
     @BeforeClass
     public static void enableVerification()
     {
@@ -136,7 +156,15 @@ public class RangesTrieSetTest
 
     void check(String... boundariesAsStrings)
     {
-        check(true, boundariesAsStrings);
+        if (!negated)
+            check(endsInclusive, boundariesAsStrings);
+        else
+            checkNegated(endsInclusive, boundariesAsStrings);
+    }
+
+    TrieSet ranges(boolean endsInclusive, ByteComparable[] boundaries)
+    {
+        return dir -> RangesCursor.create(dir, VERSION, endsInclusive, boundaries);
     }
 
     void check(boolean endsInclusive, String... boundariesAsStrings)
@@ -145,17 +173,72 @@ public class RangesTrieSetTest
         for (int i = 0; i < boundariesAsStrings.length; ++i)
             boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
 
-        check(endsInclusive, boundaries);
+        System.out.println("Boundaries: " + Arrays.stream(boundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
+        if (!boundariesValid(endsInclusive, false, boundaries))
+        {
+            System.out.println("Skipping endsInclusive " + endsInclusive + " because boundaries do not make sense for it");
+            return;
+        }
 
-        verifySkipTo(endsInclusive, boundariesAsStrings, TrieSet.ranges(VERSION, boundaries));
-        verifyTails(endsInclusive, boundaries, TrieSet.ranges(VERSION, boundaries));
-
-        verifyNegation(endsInclusive, boundaries, TrieSet.ranges(VERSION, boundaries));
+        TrieSet set = ranges(endsInclusive, boundaries);
+        check(endsInclusive, false, boundaries, set);
+        verifyTails(endsInclusive, false, boundaries, set);
     }
 
-    private static void verifyNegation(boolean endsInclusive, ByteComparable[] boundaries, TrieSet set)
+    void checkNegated(boolean endsInclusive, String... boundariesAsStrings)
     {
+        Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
+        for (int i = 0; i < boundariesAsStrings.length; ++i)
+            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
+
+        TrieSet set = ranges(endsInclusive, boundaries);
+
         TrieSet negatedSet = set.negation();
+        Preencoded[] negatedBoundaries = getNegatedBoundaries(boundaries, Preencoded[]::new);
+        System.out.println("Negated boundaries: " + Arrays.stream(negatedBoundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
+        if (!boundariesValid(false, endsInclusive, negatedBoundaries))
+        {
+            System.out.println("Skipping negated for endsInclusive " + endsInclusive + " because boundaries do not make sense for it");
+            return;
+        }
+
+        System.out.println("Negated set");
+        check(false, endsInclusive, negatedBoundaries, negatedSet);
+        verifyTails(false, endsInclusive, negatedBoundaries, negatedSet);
+    }
+
+    private boolean boundariesValid(boolean endsInclusive, boolean startsExclusive, ByteComparable[] boundaries)
+    {
+        ByteComparable[] processedBoundaries = new ByteComparable[boundaries.length];
+        for (int i = 0; i < processedBoundaries.length; ++i)
+        {
+            if (boundaries[i] == null)
+            {
+                assert i == 0 || i == processedBoundaries.length - 1;
+                continue;
+            }
+            if (i % 2 == 0)
+                processedBoundaries[i] = append(boundaries[i], (startsExclusive ? 255 : 0));
+            else
+                processedBoundaries[i] = append(boundaries[i], (endsInclusive ? 255 : 0));
+        }
+        ByteComparable prev = null;
+        for (ByteComparable v : processedBoundaries)
+        {
+            if (prev != null && v != null && ByteComparable.compare(prev, v, VERSION) > 0)
+                return false;
+            prev = v;
+        }
+        return true;
+    }
+
+    private static ByteComparable append(ByteComparable bc, int lastByte)
+    {
+        return dir -> ByteSource.append(bc.asComparableBytes(VERSION), lastByte);
+    }
+
+    private static <T> T[] getNegatedBoundaries(T[] boundaries, Function<Integer, T[]> createArray)
+    {
         // If the first entry is not null, drop it; otherwise add a null.
         int addLeft = boundaries.length == 0 || boundaries[0] != null ? +1
                                                                       : -1;
@@ -168,24 +251,10 @@ public class RangesTrieSetTest
                                                                                                 : -1;
 
         // Add/remove nulls on both sides of the boundaries
-        ByteComparable[] negatedBoundaries = new ByteComparable[boundaries.length + addLeft + addRight];
+        T[] negatedBoundaries = createArray.apply(boundaries.length + addLeft + addRight);
         for (int i = Math.max(-addLeft, 0); i < boundaries.length + Math.min(addRight, 0); ++i)
             negatedBoundaries[i + addLeft] = boundaries[i];
-        System.out.println("Negated boundaries: " + Arrays.stream(negatedBoundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
-
-        if (endsInclusive)
-            for (int i = 1; i < negatedBoundaries.length; ++i)
-                if (negatedBoundaries[i] != null && negatedBoundaries[i-1] != null &&
-                    ByteComparable.compare(negatedBoundaries[i], negatedBoundaries[i - 1], VERSION) == 0)
-                {
-                    System.out.println("Skipping negated set check because of repetition");
-                    return; // negation cannot be correctly checked when boundaries repeat in endsInclusive mode
-                }
-
-        System.out.println("Negated set");
-        dumpToOut(negatedSet);
-        var expectations = getExpectations(endsInclusive, negatedBoundaries);
-        assertTrieEquals(expectations, negatedSet);
+        return negatedBoundaries;
     }
 
     private static TrieSet tailTrie(TrieSet set, ByteComparable prefix, Direction direction)
@@ -196,7 +265,7 @@ public class RangesTrieSetTest
         else if (c.precedingIncluded())
             return TrieSet.full(c.byteComparableVersion());
         else
-            return null;
+            return TrieSet.empty(c.byteComparableVersion());
     }
 
     private static boolean startsWith(ByteComparable b, ByteComparable prefix)
@@ -213,7 +282,7 @@ public class RangesTrieSetTest
         return true;
     }
 
-    private static void verifyTails(boolean endsInclusive, Preencoded[] boundaries, TrieSet set)
+    private static void verifyTails(boolean endsInclusive, boolean startsExclusive, Preencoded[] boundaries, TrieSet set)
     {
         Set<Preencoded> prefixes = new TreeSet<>(FORWARD_COMPARATOR);
         for (ByteComparable b : boundaries)
@@ -241,111 +310,23 @@ public class RangesTrieSetTest
                 }
 
                 final byte[] byteComparableArray = b.asByteComparableArray(VERSION);
-                if (prefixLength == byteComparableArray.length)
-                    tails.add(null);
-                else
-                    tails.add(ByteComparable.preencoded(VERSION, Arrays.copyOfRange(byteComparableArray, prefixLength, byteComparableArray.length)));
+                tails.add(ByteComparable.preencoded(VERSION, Arrays.copyOfRange(byteComparableArray, prefixLength, byteComparableArray.length)));
             }
 
             for (Direction dir : Direction.values())
             {
                 System.out.println("Tail for " + prefix.byteComparableAsString(VERSION) + " " + dir);
+                System.out.println("  tail bounds " + tails.stream().map(x -> x == null ? "null" : x.byteComparableAsString(VERSION)).collect(Collectors.toList()));
                 TrieSet tail = tailTrie(set, prefix, dir);
-                assertNotNull(tail);
-                dumpToOut(tail);
-                var expectations = getExpectations(endsInclusive, tails.toArray(Preencoded[]::new));
-                assertTrieEquals(expectations, tail);
+                check(endsInclusive, startsExclusive, tails.toArray(ByteComparable[]::new), tail);
             }
         }
     }
 
-    private static void verifySkipTo(boolean endsInclusive, String[] boundariesAsStrings, TrieSet set)
+    static void check(boolean endsInclusive, boolean startsExclusive, ByteComparable[] boundaries, TrieSet s)
     {
-        String arr = Arrays.toString(boundariesAsStrings);
-        // Verify that we get the right covering state for all positions around the boundaries.
-        for (int si = 0; si < boundariesAsStrings.length; ++si)
-        {
-            String s = boundariesAsStrings[si];
-            if (s == null)
-                continue;
-
-            int bi = 0;
-            while (bi < boundariesAsStrings.length && (boundariesAsStrings[bi] == null || !boundariesAsStrings[bi].startsWith(s)))
-                ++bi;
-
-            int ei = bi;
-            ++ei;
-            while (ei < boundariesAsStrings.length && boundariesAsStrings[ei] != null && boundariesAsStrings[ei].startsWith(s))
-                ++ei;
-
-            for (boolean seekAfterBranch : Arrays.asList(false, true))
-                for (Direction direction : Direction.values())
-                {
-                    String term = seekAfterBranch ? direction.select(">", "<") : "=";
-                    String dir = direction == Direction.FORWARD ? "FWD" : "REV";
-                    String msg = term + s + " " + dir + " in " + arr + " ";
-                    ByteSource.Peekable b = directComparable(s).getPreencodedBytes();
-                    TrieSetCursor cursor = set.cursor(direction);
-                    // skip to nearest position in cursor
-                    int next = b.next();
-                    int depth = 0;
-                    while (next != ByteSource.END_OF_STREAM)
-                    {
-                        long skipPosition = Cursor.encode(depth + 1, next, direction);
-
-                        // Adjust to ask for post-branch position on > fwd and < rev
-                        if (seekAfterBranch && b.peek() == ByteSource.END_OF_STREAM)
-                            skipPosition |= Cursor.ON_RETURN_PATH_BIT;
-
-                        if (Cursor.compare(cursor.skipTo(skipPosition), skipPosition) != 0)
-                            break;
-                        next = b.next();
-                        ++depth;
-                    }
-
-                    boolean foundExact = next == ByteSource.END_OF_STREAM;
-
-                    boolean before, after, matchesFirst;
-                    int seekPos;
-                    int statePos;
-                    if (!seekAfterBranch)
-                    {
-                        seekPos = direction.select(bi, ei - 1);
-                        matchesFirst = s.equals(boundariesAsStrings[seekPos]) && foundExact;
-                        statePos = direction.select(bi, ei);
-                        before = (statePos & 1) != 0;
-                        after = matchesFirst ^ before;
-                    }
-                    else
-                    {
-                        seekPos = direction.select(ei - 1, bi);
-                        matchesFirst = s.equals(boundariesAsStrings[seekPos]) && foundExact;
-                        statePos = direction.select(ei, bi);
-                        after = (statePos & 1) != 0;
-                        before = matchesFirst ^ after;
-                    }
-
-                    // Check the resulting state.
-                    TrieSetCursor.RangeState state = cursor.state();
-
-                    System.out.format("dir %s query %s%s bi %s ei %s seekPos %s matches %s statePos %s before %s after %s state %s foundExact %s effective state %s\n",
-                                      direction, s, seekAfterBranch ? "^" : "",
-                                      bi, ei, seekPos, matchesFirst, statePos, before, after, state, foundExact, foundExact ? state : state.precedingState(direction));
-
-                    if (!foundExact)
-                        state = state.applicableBefore ? TrieSetCursor.RangeState.CONTAINED : TrieSetCursor.RangeState.NOT_CONTAINED;
-
-                    assertEquals(msg + " before", before, state.applicableBefore);
-                    assertEquals(msg + " after", after, state.applicableAfter);
-                }
-        }
-    }
-
-    void check(boolean endsInclusive, ByteComparable... boundaries)
-    {
-        TrieSet s = dir -> RangesCursor.create(dir, VERSION, endsInclusive, boundaries);
         dumpToOut(s);
-        var expectations = getExpectations(endsInclusive, boundaries);
+        var expectations = getExpectations(endsInclusive, startsExclusive, boundaries);
         assertTrieEquals(expectations, s);
     }
 
@@ -353,7 +334,7 @@ public class RangesTrieSetTest
     {
         BaseTrie<TrieSetCursor.RangeState, ?, ?> trie = fullTrie(s);
         BiFunction<Object, TrieSetCursor.RangeState, Object> combiner =
-            (x, y) -> x == null /*|| x == TrieSetCursor.RangeState.NOT_CONTAINED*/ ? y : Pair.create(x, y);
+            (x, y) -> x == null ? y : Pair.create(x, y);
         TrieUtil.assertMapEquals(trie.entrySet(Direction.FORWARD),
                                  Maps.transformValues(expectations, PointState::forwardSide).entrySet(),
                                  FORWARD_COMPARATOR,
@@ -371,60 +352,67 @@ public class RangesTrieSetTest
         int lastIndex = Integer.MIN_VALUE;
         boolean firstExact = false;
         boolean lastExact = false;
+        boolean firstIsAfter = true;
+        boolean lastIsAfter = false;
 
-        void addIndex(int index, boolean exact)
+        void addIndex(int index, boolean exact, boolean pointIsAfter)
         {
             if (index < firstIndex)
             {
                 firstIndex = index;
-                firstExact = exact && ((index & 1) == 0);
-            } else if (exact && index == firstIndex && ((index & 1) == 0))
-                firstExact = true;
+                firstExact = exact;
+                firstIsAfter = !exact || pointIsAfter;
+            }
+            else if (index == firstIndex)
+            {
+                firstExact |= exact;
+                firstIsAfter &= !exact || pointIsAfter;
+            }
 
             if (index > lastIndex)
             {
                 lastIndex = index;
-                lastExact = exact && ((index & 1) != 0);
+                lastExact = exact;
+                lastIsAfter = exact && pointIsAfter;
             }
-            else if (exact && index == lastIndex && ((index & 1) != 0))
-                lastExact = true;
+            else if (index == lastIndex)
+            {
+                lastExact |= exact;
+                lastIsAfter |= exact && pointIsAfter;
+            }
         }
 
-        static PointState coveringInexact(int from, int to)
+        static PointState empty()
         {
             PointState state = new PointState();
-            state.firstIndex = from;
-            state.lastIndex = to - 1;
-            state.firstExact = false;
-            state.lastExact = false;
-            return state;
-        }
-
-        static PointState fullRange()
-        {
-            PointState state = new PointState();
-            state.firstIndex = 1;
-            state.lastIndex = 2;
-            state.firstExact = false;
-            state.lastExact = false;
+            state.firstIndex = 0;
+            state.lastIndex = 1;
             return state;
         }
 
         public static Object forwardSide(PointState pointState)
         {
             boolean applicableBefore = (pointState.firstIndex & 1) == 1;
-            RangeState b1 = null;
-            RangeState b2 = null;
+            TrieSetCursor.RangeState b1 = null;
+            TrieSetCursor.RangeState b2 = null;
             // choose to report b1 based on diff between first and last
             if (pointState.firstExact)
-                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            {
+                if (pointState.firstIsAfter)
+                    b2 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+                else
+                    b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            }
             else if (pointState.lastIndex > pointState.firstIndex)
                 b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
 
             if (pointState.lastExact)
             {
                 boolean applicableAfter = (pointState.lastIndex & 1) == 1;
-                b2 = TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter);
+                if (pointState.lastIsAfter)
+                    b2 = combine(b2, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                else
+                    b1 = combine(b1, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
             }
 
             if (b1 == null && b2 == null)
@@ -436,19 +424,35 @@ public class RangesTrieSetTest
             return b2;
         }
 
+        static TrieSetCursor.RangeState combine(TrieSetCursor.RangeState b1, TrieSetCursor.RangeState b2)
+        {
+            if (b1 == null)
+                return b2;
+            return TrieSetCursor.RangeState.fromProperties(b1.applicableBefore, b2.applicableAfter);
+        }
+
         public static Object reverseSide(PointState pointState)
         {
             boolean applicableBefore = (pointState.lastIndex & 1) != 1;
-            RangeState b1 = null;
-            RangeState b2 = null;
+            TrieSetCursor.RangeState b1 = null;
+            TrieSetCursor.RangeState b2 = null;
             if (pointState.lastExact)
-                b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            {
+                if (pointState.lastIsAfter)
+                    b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+                else
+                    b2 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+            }
             else if (pointState.lastIndex > pointState.firstIndex)
                 b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
+
             if (pointState.firstExact)
             {
                 boolean applicableAfter = (pointState.firstIndex & 1) != 1;
-                b2 = TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter);
+                if (pointState.firstIsAfter)
+                    b1 = combine(b1, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                else
+                    b2 = combine(b2, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
             }
 
             if (b1 == null && b2 == null)
@@ -461,24 +465,49 @@ public class RangesTrieSetTest
         }
     }
 
-    static NavigableMap<Preencoded, PointState> getExpectations(boolean endsInclusive, ByteComparable... boundaries)
+    static NavigableMap<Preencoded, PointState> getExpectations(boolean endsInclusive, boolean startsExclusive, ByteComparable... boundaries)
     {
-        var expectations = new TreeMap<Preencoded, PointState>(FORWARD_COMPARATOR);
-        expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.coveringInexact(0, boundaries.length));
+        // Leading [null, EMPTY ...] sequence is nonsensical if endsInclusive is not true and causes us trouble.
+        if (!endsInclusive &&
+            boundaries.length >= 2 &&
+            boundaries[0] == null &&
+            boundaries[1] != null &&
+            ByteComparable.compare(EMPTY, boundaries[1], VERSION) == 0)
+        {
+            boundaries = Arrays.copyOfRange(boundaries, 2, boundaries.length);
+        }
         int l = (boundaries.length + 1) & ~1;
+        // Same for trailing [... EMPTY, null] when startsExclusive is true
+        if (startsExclusive &&
+            boundaries.length >= 2 &&
+            (boundaries.length <= l - 1 || boundaries[l - 1] == null) &&
+            boundaries[l - 2] != null &&
+            ByteComparable.compare(EMPTY, boundaries[l - 2], VERSION) == 0)
+        {
+            l -= 2;
+            boundaries = Arrays.copyOfRange(boundaries, 0, l);
+        }
+
+        var expectations = new TreeMap<Preencoded, PointState>(FORWARD_COMPARATOR);
         for (int bi = 0; bi < l; ++bi)
         {
+            boolean pointIsAfter = bi % 2 == 0 ? startsExclusive : endsInclusive;
             ByteComparable b = bi < boundaries.length ? boundaries[bi] : null;
             if (b == null)
+            {
                 b = ByteComparable.EMPTY;
+                pointIsAfter = bi % 2 == 1; // always inclusive left exclusive right
+            }
             int len = ByteComparable.length(b, VERSION);
             for (int i = 0; i <= len; ++i)
             {
                 Preencoded v = ByteComparable.cut(b, i).preencode(VERSION);
                 PointState state = expectations.computeIfAbsent(v, k -> new PointState());
-                state.addIndex(bi, i == len);
+                state.addIndex(bi, i == len, pointIsAfter);
             }
         }
+        if (expectations.isEmpty())
+            expectations.put(ByteComparable.EMPTY.preencode(VERSION), PointState.empty());
         return expectations;
     }
 
@@ -571,29 +600,29 @@ public class RangesTrieSetTest
 
     // Repeats aren't valid, because they doubly list a branch
 
-//    @Test
-//    public void testRepeatLeft()
-//    {
-//        check("abc", "abc", "abc", null);
-//    }
-//
-//    @Test
-//    public void testRepeatRight()
-//    {
-//        check(null, "abc", "abc", "abc");
-//    }
-//
-//    @Test
-//    public void testPointRepeat()
-//    {
-//        check("abc", "abc", "abc", "abc");
-//    }
-//
-//    @Test
-//    public void testPointInSpan()
-//    {
-//        check("aa", "abc", "abc", "ad");
-//    }
+    @Test
+    public void testRepeatLeft()
+    {
+        check("abc", "abc", "abc", null);
+    }
+
+    @Test
+    public void testRepeatRight()
+    {
+        check(null, "abc", "abc", "abc");
+    }
+
+    @Test
+    public void testPointRepeat()
+    {
+        check("abc", "abc", "abc", "abc");
+    }
+
+    @Test
+    public void testPointInSpan()
+    {
+        check("aa", "abc", "abc", "ad");
+    }
 
     @Test
     public void testPrefixRepeatsInSpanOdd()
@@ -617,6 +646,12 @@ public class RangesTrieSetTest
     public void testLeftEmpty()
     {
         check("", null);
+    }
+
+    @Test
+    public void testOneEmpty()
+    {
+        check("");
     }
 
     @Test

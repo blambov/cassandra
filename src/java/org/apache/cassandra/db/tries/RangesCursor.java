@@ -108,6 +108,20 @@ class RangesCursor implements TrieSetCursor
             }
         }
 
+        // If we have a set that is empty because the first start position is after the root branch, shortcut this to
+        // plain empty set to avoid reporting NOT_CONTAINED on the return path.
+        if (arrayLength > 0 && nextPositions[0] == (rootPosition | ON_RETURN_PATH_BIT))
+        {
+            return new RangesCursor(byteComparableVersion,
+                                    false,
+                                    null,
+                                    null,
+                                    0,
+                                    0,
+                                    rootPosition,
+                                    RangeState.NOT_CONTAINED);
+        }
+
         RangesCursor cursor = new RangesCursor(byteComparableVersion,
                                                endsInclusive,
                                                nextPositions, sources,
@@ -327,7 +341,7 @@ class RangesCursor implements TrieSetCursor
 
         // Add a onReturnPath root position for open-ended sets.
         int last = nextPositions.length - 1;
-        if (sources[last] == null)
+        if (last > 0 && sources[last] == null)
         {
             sources[last] = ByteSource.EMPTY;
             nextPositions[last] = rootPosition | ON_RETURN_PATH_BIT;
