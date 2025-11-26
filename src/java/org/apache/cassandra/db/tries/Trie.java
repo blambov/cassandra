@@ -62,7 +62,16 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     /// Returns a singleton trie mapping the given byte path to content.
     static <T> Trie<T> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
     {
-        return dir -> new SingletonCursor<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
+        return dir -> new SingletonCursor<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, false, v);
+    }
+
+    /// Returns a singleton trie mapping the given byte path to content.
+    /// This singleton is ordered, which means that the content will be presented in lexicographic order in both
+    /// directions, i.e. before any content from descendants in the forward direction, and after any content from
+    /// descendents in the reverse.
+    static <T> Trie<T> singletonOrdered(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
+    {
+        return dir -> new SingletonCursor<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, !dir.isForward(), v);
     }
 
     @Override

@@ -380,11 +380,11 @@ tails on the root branch.
 
 - Test presenting content on the return path in reverse direction (i.e. singleLevelIntTrie support for content-to-the-left)
 
-# TODOs
-
 - Implement negation
 
 - SingletonCursor option to present on the return path.
+
+# TODOs
 
 - inMemoryTrie support for onReturnPath. Needs multiple content slots and choice:
   - to present content strictly to the left of the branch (lower range bound or ordered content):

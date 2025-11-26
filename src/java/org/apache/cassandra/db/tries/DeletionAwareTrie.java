@@ -84,7 +84,17 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> singleton(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
     {
-        return dir -> new SingletonCursor.DeletionAware<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, v);
+        return dir -> new SingletonCursor.DeletionAware<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, false, v);
+    }
+
+    /// Returns a singleton trie mapping the given byte path to content.
+    /// This singleton is ordered, which means that the content will be presented in lexicographic order in both
+    /// directions, i.e. before any content from descendants in the forward direction, and after any content from
+    /// descendents in the reverse.
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> singletonOrdered(ByteComparable b, ByteComparable.Version byteComparableVersion, T v)
+    {
+        return dir -> new SingletonCursor.DeletionAware<>(dir, b.asComparableBytes(byteComparableVersion), byteComparableVersion, !dir.isForward(), v);
     }
 
     /// Creates a deletion-aware trie containing a single deletion range.

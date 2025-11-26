@@ -28,16 +28,17 @@ class SingletonCursor<T> implements Cursor<T>
     ByteSource src;
     final ByteComparable.Version byteComparableVersion;
     final T value;
+    final boolean presentOnReturnPath;
     private long currentPosition;
     protected int nextTransition;
 
 
-    public SingletonCursor(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+    public SingletonCursor(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, T value)
     {
-        this(direction, src.next(), src, byteComparableVersion, value);
+        this(direction, src.next(), src, byteComparableVersion, presentOnReturnPath, value);
     }
 
-    public SingletonCursor(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+    public SingletonCursor(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, T value)
     {
         this.src = src;
         this.direction = direction;
@@ -45,6 +46,7 @@ class SingletonCursor<T> implements Cursor<T>
         this.value = value;
         this.nextTransition = firstByte;
         this.currentPosition = Cursor.rootPosition(direction);
+        this.presentOnReturnPath = presentOnReturnPath;
     }
 
     @Override
@@ -52,8 +54,10 @@ class SingletonCursor<T> implements Cursor<T>
     {
         if (nextTransition != ByteSource.END_OF_STREAM)
         {
-            currentPosition = Cursor.positionForDescentWithByte(currentPosition, nextTransition);
+            int currentTransition = nextTransition;
             nextTransition = src.next();
+            long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
+            currentPosition = Cursor.positionForDescentWithByte(currentPosition, currentTransition) | returnBit;
             return currentPosition;
         }
         else
@@ -78,7 +82,8 @@ class SingletonCursor<T> implements Cursor<T>
             next = src.next();
             ++depth;
         }
-        currentPosition = Cursor.encode(depth + 1, current, direction());
+        long returnBit = presentOnReturnPath ? ON_RETURN_PATH_BIT : 0;
+        currentPosition = Cursor.encode(depth + 1, current, direction()) | returnBit;
         nextTransition = next;
         return currentPosition;
     }
@@ -97,7 +102,8 @@ class SingletonCursor<T> implements Cursor<T>
                   " to cursor at " + Cursor.toString(currentPosition);
 
             nextTransition = src.next();
-            currentPosition = nextPosition;
+            long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
+            currentPosition = nextPosition | returnBit;
             return currentPosition;
         }
         else
@@ -143,7 +149,7 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public SingletonCursor<T> tailCursor(Direction dir)
     {
-        return new SingletonCursor<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
+        return new SingletonCursor<>(dir, nextTransition, duplicateSource(), byteComparableVersion, presentOnReturnPath, value);
     }
 
     ByteSource.Duplicatable duplicateSource()
@@ -156,14 +162,14 @@ class SingletonCursor<T> implements Cursor<T>
 
     static class Range<S extends RangeState<S>> extends SingletonCursor<S> implements RangeCursor<S>
     {
-        public Range(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, S value)
+        public Range(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, S value)
         {
-            super(direction, src, byteComparableVersion, value);
+            super(direction, src, byteComparableVersion, presentOnReturnPath, value);
         }
 
-        public Range(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, S value)
+        public Range(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, S value)
         {
-            super(direction, firstByte, src, byteComparableVersion, value);
+            super(direction, firstByte, src, byteComparableVersion, presentOnReturnPath, value);
         }
 
         @Override
@@ -181,21 +187,21 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public Range<S> tailCursor(Direction dir)
         {
-            return new Range<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
+            return new Range<>(dir, nextTransition, duplicateSource(), byteComparableVersion, presentOnReturnPath, value);
         }
     }
 
     static class DeletionAware<T, D extends RangeState<D>>
     extends SingletonCursor<T> implements DeletionAwareCursor<T, D>
     {
-        DeletionAware(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+        DeletionAware(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, T value)
         {
-            super(direction, src, byteComparableVersion, value);
+            super(direction, src, byteComparableVersion, presentOnReturnPath, value);
         }
 
-        DeletionAware(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, T value)
+        DeletionAware(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, boolean presentOnReturnPath, T value)
         {
-            super(direction, firstByte, src, byteComparableVersion, value);
+            super(direction, firstByte, src, byteComparableVersion, presentOnReturnPath, value);
         }
 
         @Override
@@ -207,7 +213,7 @@ class SingletonCursor<T> implements Cursor<T>
         @Override
         public DeletionAware<T, D> tailCursor(Direction dir)
         {
-            return new DeletionAware<>(dir, nextTransition, duplicateSource(), byteComparableVersion, value);
+            return new DeletionAware<>(dir, nextTransition, duplicateSource(), byteComparableVersion, presentOnReturnPath, value);
         }
     }
 
@@ -218,13 +224,13 @@ class SingletonCursor<T> implements Cursor<T>
 
         DeletionBranch(Direction direction, ByteSource src, ByteComparable.Version byteComparableVersion, RangeTrie<D> deletionBranch)
         {
-            super(direction, src, byteComparableVersion, null);
+            super(direction, src, byteComparableVersion, false, null);
             this.deletionBranch = deletionBranch;
         }
 
         DeletionBranch(Direction direction, int firstByte, ByteSource src, ByteComparable.Version byteComparableVersion, RangeTrie<D> deletionBranch)
         {
-            super(direction, firstByte, src, byteComparableVersion, null);
+            super(direction, firstByte, src, byteComparableVersion, false, null);
             this.deletionBranch = deletionBranch;
         }
 

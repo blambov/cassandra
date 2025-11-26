@@ -316,13 +316,28 @@ interface Cursor<T>
         while (true)
         {
             long currPosition = advanceMultiple(receiver);
-            if (isExhausted(currPosition))
+            if (Cursor.isExhausted(currPosition))
                 return null;
             if (receiver != null)
             {
-                if (ascended(currPosition, prevPosition))
-                    receiver.resetPathLength(depth(currPosition) - 1);
-                receiver.addPathByte(incomingTransition(currPosition));
+                if (Cursor.ascended(currPosition, prevPosition))
+                {
+                    int depth = Cursor.depth(currPosition);
+                    if (depth > 0)
+                    {
+                        receiver.resetPathLength(depth - 1);
+                        receiver.addPathByte(Cursor.incomingTransition(currPosition));
+                    }
+                    else
+                    {
+                        receiver.resetPathLength(0);
+                    }
+                }
+                else
+                    receiver.addPathByte(Cursor.incomingTransition(currPosition));
+
+                if (Cursor.isOnReturnPath(currPosition))
+                    receiver.onReturnPath();
             }
             T content = content();
             if (content != null)

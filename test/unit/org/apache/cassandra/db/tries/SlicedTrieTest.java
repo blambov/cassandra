@@ -27,12 +27,14 @@ import java.util.NavigableMap;
 import java.util.Random;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Streams;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -57,19 +59,20 @@ public class SlicedTrieTest
     }
 
     public static final Preencoded[] BOUNDARIES = toByteComparable(new String[]{
-//    "test1",
-//    "test11",
-//    "test12",
-//    "test13",
-//    "test2",
-//    "test21",
-//    "te",
-//    "s",
-//    "q",
-//    "\000",
-//    "\377",
-//    "\377\000",
-//    "\000\377",
+    "test1",
+    "test11",
+    "test12",
+    "test13",
+    "test2",
+    "test21",
+    "test",
+    "te",
+    "s",
+    "q",
+    "\000",
+    "\377",
+    "\377\000",
+    "\000\377",
     "\000\000",
     "\000\000\000",
     "\000\000\377",
@@ -83,6 +86,8 @@ public class SlicedTrieTest
     "test124",
     "test12",
     "test21",
+    "test",
+    "te",
     "tease",
     "sort",
     "sorting",
@@ -141,9 +146,24 @@ public class SlicedTrieTest
                      .toArray(Preencoded[]::new);
     }
 
-    static boolean isTruePrefix(ByteComparable b, ByteComparable key)
+    @Test
+    public void testSingletonOrdered()
     {
-        return ByteComparable.compare(b, key, VERSION) != 0 && key.byteComparableAsString(VERSION).startsWith(b.byteComparableAsString(VERSION));
+        ByteBuffer b = ByteBuffer.allocate(0);
+        List<Trie<ByteBuffer>> singletons = new ArrayList<>();
+        TreeMap<Preencoded, ByteBuffer> map = new TreeMap<>(ByteComparable::compare);
+        for (Preencoded key : KEYS)
+        {
+            singletons.add(Trie.singletonOrdered(key, VERSION, b));
+            map.put(key, b);
+        }
+        Trie<ByteBuffer> trie = Trie.merge(singletons, collection -> b);
+
+        System.out.println(trie.cursor(Direction.FORWARD).process(new TrieDumper.Plain<>(x -> "X")));
+        System.out.println(trie.cursor(Direction.REVERSE).process(new TrieDumper.Plain<>(x -> "X")));
+
+        TrieUtil.assertMapEquals(trie.entryIterator(Direction.FORWARD), map.entrySet().iterator());
+        TrieUtil.assertMapEquals(trie.entryIterator(Direction.REVERSE), map.descendingMap().entrySet().iterator());
     }
 
     @Test
@@ -156,8 +176,6 @@ public class SlicedTrieTest
             for (int ri = Math.max(0, li); ri <= BOUNDARIES.length; ++ri)
             {
                 Preencoded r = ri == BOUNDARIES.length ? null : BOUNDARIES[ri];
-                if (l != null && r != null && (isTruePrefix(l, r) || isTruePrefix(r, l)))
-                    continue; // prefixes in bounds are not supported
 
                 for (int i = li == ri ? 3 : 0; i < 4; ++i)
                 {
@@ -168,7 +186,7 @@ public class SlicedTrieTest
                     {
                         int cmp1 = l != null ? ByteComparable.compare(key, l, VERSION) : 1;
                         int cmp2 = r != null ? ByteComparable.compare(r, key, VERSION) : 1;
-                        Trie<Boolean> ix = Trie.singleton(key, VERSION, true).slice(l, includeLeft, r, includeRight);
+                        Trie<Boolean> ix = Trie.singletonOrdered(key, VERSION, true).slice(l, includeLeft, r, includeRight);
                         boolean expected = true;
                         if (cmp1 < 0 || cmp1 == 0 && !includeLeft)
                             expected = false;
@@ -178,34 +196,38 @@ public class SlicedTrieTest
                         boolean actual = false;
                         try
                         {
-                            actual = com.google.common.collect.Iterables.getFirst(ix.values(), false);
+                            actual = Iterables.getFirst(ix.values(), false);
+                            assertEquals(expected, actual);
                         }
                         catch (Throwable t)
                         {
                             System.err.println("Intersection");
                             System.err.println(ix.dump());
-                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
+                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s\n%s\n",
                                                       includeLeft ? "[" : "(",
                                                       l != null ? l.byteComparableAsString(VERSION) : null,
                                                       r != null ? r.byteComparableAsString(VERSION) : null,
                                                       includeRight ? "]" : ")",
                                                       key.byteComparableAsString(VERSION),
-                                                      expected,
                                                       t));
                         }
 
-                        if (expected != actual)
+                        try
                         {
-                            System.err.println("Intersection");
-                            System.err.println(ix.dump());
-                            Assert.fail(String.format("Failed on range %s%s,%s%s key %s expected %s got %s\n",
+                            actual = Iterables.getFirst(ix.values(Direction.REVERSE), false);
+                            assertEquals(expected, actual);
+                        }
+                        catch (Throwable t)
+                        {
+                            System.err.println("Intersection REV");
+                            System.err.println(ix.cursor(Direction.REVERSE).process(new TrieDumper.Plain<>(Object::toString)));
+                            Assert.fail(String.format("Failed on range %s%s,%s%s REV key %s\n%s\n",
                                                       includeLeft ? "[" : "(",
                                                       l != null ? l.byteComparableAsString(VERSION) : null,
                                                       r != null ? r.byteComparableAsString(VERSION) : null,
                                                       includeRight ? "]" : ")",
                                                       key.byteComparableAsString(VERSION),
-                                                      expected,
-                                                      actual));
+                                                      t));
                         }
                     }
                 }
@@ -296,9 +318,6 @@ public class SlicedTrieTest
                                 Preencoded r,
                                 boolean includeRight)
     {
-        if (l != null && r != null && (isTruePrefix(l, r) || isTruePrefix(r, l)))
-            return; // prefixes not supported in key bounds
-
         System.out.println(String.format("Intersection with %s%s:%s%s", includeLeft ? "[" : "(", asString(l), asString(r), includeRight ? "]" : ")"));
         SortedMap<Preencoded, ByteBuffer> imap = TrieUtil.boundedMap(content1, l, includeLeft, r, includeRight);
         Trie<ByteBuffer> intersection = t1.slice(l, includeLeft, r, includeRight);
@@ -326,11 +345,11 @@ public class SlicedTrieTest
     }
 
     /**
-     * Extract the values of the provide trie into a list.
+     * Extract the values of the provided trie into a list.
      */
     private static <T> List<T> toList(Trie<T> trie, Direction direction)
     {
-        return Iterables.toList(trie.values(direction));
+        return Streams.stream(trie.values(direction)).collect(Collectors.toList());
     }
 
     /** Creates a single byte {@link ByteComparable} with the provide value */

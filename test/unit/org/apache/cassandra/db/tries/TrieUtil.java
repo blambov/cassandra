@@ -419,7 +419,7 @@ public class TrieUtil
 
     public static <S extends RangeState<S>> RangeTrie<S> withRootMetadata(RangeTrie<S> wrapped, S metadata)
     {
-        return wrapped.mergeWith(RangeTrie.singleton(ByteComparable.EMPTY, VERSION, metadata), Trie.throwingResolver());
+        return wrapped.mergeWith(RangeTrie.metadata(ByteComparable.EMPTY, VERSION, metadata), Trie.throwingResolver());
     }
 
     public static <T, D extends RangeState<D>> DeletionAwareTrie<T, D> withRootMetadata(DeletionAwareTrie<T, D> wrapped, T metadata)

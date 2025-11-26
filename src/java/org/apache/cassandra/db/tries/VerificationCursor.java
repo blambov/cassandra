@@ -94,6 +94,10 @@ public interface VerificationCursor
         @Override
         public T content()
         {
+            assert !Cursor.isExhausted(returnedPosition) :
+                String.format("Cannot query content on exhausted cursor.\n%s",
+                              this);
+
             return source.content();
         }
 
@@ -306,7 +310,11 @@ public interface VerificationCursor
 
         void verifyEndState()
         {
-            // end state can be non-null for sets
+            // we cannot be carrying non-null succeeding state at end
+            assert nextPrecedingState == null :
+                String.format("Cursor ends with non-null covering state %s\n%s",
+                              nextPrecedingState,
+                              this);
         }
 
         @Override
@@ -332,6 +340,10 @@ public interface VerificationCursor
         @Override
         public S precedingState()
         {
+            assert !Cursor.isExhausted(returnedPosition) :
+                String.format("Cannot query preceding state on exhausted cursor.\n%s",
+                              this);
+
             assert currentPrecedingState == source.precedingState() ||
                    currentPrecedingState != null && currentPrecedingState.equals(source.precedingState()) :
                 String.format("Preceding state changed without advance: %s -> %s.\n%s",
@@ -343,6 +355,10 @@ public interface VerificationCursor
         @Override
         public S state()
         {
+            assert !Cursor.isExhausted(returnedPosition) :
+            String.format("Cannot query state on exhausted cursor.\n%s",
+                          this);
+
             return source.state();
         }
 
@@ -429,7 +445,7 @@ public interface VerificationCursor
         @Override
         public String toString()
         {
-            return super.toString() + " state " + state();
+            return super.toString() + (Cursor.isExhausted(returnedPosition) ? "" : " state " + state());
         }
     }
 
