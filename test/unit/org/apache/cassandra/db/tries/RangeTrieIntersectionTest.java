@@ -81,12 +81,12 @@ public class RangeTrieIntersectionTest
 
     private TrieSet range(ByteComparable left, ByteComparable right)
     {
-        return TrieSet.range(TrieUtil.VERSION, left, right);
+        return TrieSet.slice(TrieUtil.VERSION, left, right);
     }
 
     private TrieSet ranges(ByteComparable... bounds)
     {
-        return TrieSet.ranges(TrieUtil.VERSION, bounds);
+        return TrieSet.slices(TrieUtil.VERSION, bounds);
     }
 
     @Test

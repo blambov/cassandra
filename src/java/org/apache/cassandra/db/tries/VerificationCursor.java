@@ -351,11 +351,14 @@ public interface VerificationCursor
         @Override
         public S state()
         {
-            assert !Cursor.isExhausted(returnedPosition) :
-            String.format("Cannot query state on exhausted cursor.\n%s",
-                          this);
+            S returnedState = source.state();
+            if (Cursor.isExhausted(returnedPosition))
+                assert returnedState == null :
+                    String.format("Non-null state on exhausted cursor: %s.\n%s",
+                                  returnedState,
+                                  this);
 
-            return source.state();
+            return returnedState;
         }
 
         boolean agree(S left, S right)

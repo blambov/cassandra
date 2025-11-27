@@ -195,7 +195,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     ///
     /// @return A content id that can be used to reference the content, a negative number where
     ///         `id & CONTENT_INDEX_MASK` encodes the position of the value in the content array.
-    private int addContent(T value, boolean onReturnPath) throws TrieSpaceExhaustedException
+    private int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException
     {
         if (value == null)
             return NONE;
@@ -207,14 +207,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         // no need for a volatile set here; at this point the item is not referenced
         // by any node in the trie, and a volatile set will be made to reference it.
         array.setPlain(ofs, value);
-        return formContentId(index, onReturnPath);
+        return formContentId(index, contentAfterBranch);
     }
 
-    private int formContentId(int index, boolean onReturnPath)
+    private int formContentId(int index, boolean contentAfterBranch)
     {
-        return index | (1 << 31) | (onReturnPath ? CONTENT_AFTER_BRANCH_FORWARD
-                                                 : markForwardPathContentBeforeBranch ? CONTENT_AFTER_BRANCH_REVERSE
-                                                                                      : 0);
+        return index | (1 << 31) | (contentAfterBranch ? CONTENT_AFTER_BRANCH_FORWARD
+                                                       : markForwardPathContentBeforeBranch ? CONTENT_AFTER_BRANCH_REVERSE
+                                                                                            : 0);
     }
 
     /// Change the content associated with a given content id.
