@@ -1677,9 +1677,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// even if there's no pre-existing value in the memtable trie.
     public <R> void putRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
+        putRecursive(key, value, false, transformer);
+    }
+
+    public <R> void putRecursive(ByteComparable key, R value, boolean contentAfterBranch, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
+    {
         try
         {
-            int newRoot = putRecursive(root, key.asComparableBytes(byteComparableVersion), value, transformer);
+            int newRoot = putRecursive(root, key.asComparableBytes(byteComparableVersion), value, contentAfterBranch, transformer);
             if (newRoot != root)
                 root = newRoot;
             completeMutation();
@@ -1691,15 +1696,15 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         }
     }
 
-    private <R> int putRecursive(int node, ByteSource key, R value, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
+    private <R> int putRecursive(int node, ByteSource key, R value, boolean contentAfterBranch, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int transition = key.next();
         if (transition == ByteSource.END_OF_STREAM)
-            return applyContent(node, value, transformer);
+            return applyContent(node, value, contentAfterBranch, transformer);
 
         int child = getChild(node, transition);
 
-        int newChild = putRecursive(child, key, value, transformer);
+        int newChild = putRecursive(child, key, value, contentAfterBranch, transformer);
         if (newChild == child)
             return node;
 
@@ -1711,14 +1716,18 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         return preservePrefix(node, skippedContent, attachedChild, false);
     }
 
-    private <R> int applyContent(int node, R value, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
+    private <R> int applyContent(int node, R value, boolean contentAfterBranch, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         if (isNull(node))
-            return addContent(transformer.apply(null, value), false);
+            return addContent(transformer.apply(null, value), contentAfterBranch);
 
         if (isLeaf(node))
         {
             int contentId = node;
+
+            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0))
+                throw new UnsupportedOperationException("FIXME"); // TODO
+
             T newContent = transformer.apply(getContent(contentId), value);
             if (newContent != null)
             {
@@ -1735,6 +1744,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         if (offset(node) == PREFIX_OFFSET)
         {
             int contentId = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
+            // TODO: add the option to combine before and after branch content
+            if (contentAfterBranch != ((contentId & CONTENT_AFTER_BRANCH_FORWARD) != 0))
+                throw new UnsupportedOperationException("FIXME"); // TODO
+
             T newContent = transformer.apply(isNull(contentId) ? null : getContent(contentId), value);
             if (newContent != null)
             {
@@ -1775,7 +1788,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         if (newContent == null)
             return node;
         else
-            return createContentNode(addContent(transformer.apply(null, value), false), node, false);
+            return createContentNode(addContent(newContent, contentAfterBranch), node, false);
     }
 
     void completeMutation()

@@ -198,10 +198,10 @@ class RangesCursor implements TrieSetCursor
             endIdxExclusive++;
         }
 
+        Direction direction = Cursor.direction(nextPosition);
         int containedSelection = 0;
-        // in reverse direction the roles of current and end idx are swapped
         if ((currentIdx & 1) != 0) // even left index means not valid before
-            containedSelection |= RangeState.APPLICABLE_BEFORE;
+            containedSelection |= direction.select(RangeState.APPLICABLE_BEFORE, RangeState.APPLICABLE_AFTER);
 
 
         if (currentIdx < endIdxExclusive)
@@ -223,7 +223,7 @@ class RangesCursor implements TrieSetCursor
         }
 
         if ((currentIdx & 1) != 0) // even end index means not valid after
-            containedSelection |= RangeState.APPLICABLE_AFTER;
+            containedSelection |= direction.select(RangeState.APPLICABLE_AFTER, RangeState.APPLICABLE_BEFORE);
 
         currentState = RangeState.values()[containedSelection];
         currentPosition = nextPosition;
@@ -336,7 +336,8 @@ class RangesCursor implements TrieSetCursor
         }
 
         boolean startIsContained = (newStartIdx & 1) != 0;
-        RangeState rootState = startIsContained ? RangeState.START : RangeState.NOT_CONTAINED;
+        RangeState rootState = startIsContained ? newDirection.select(RangeState.START, RangeState.END)
+                                                : RangeState.NOT_CONTAINED;
         long rootPosition = Cursor.rootPosition(newDirection);
 
         // Add a onReturnPath root position for open-ended sets.

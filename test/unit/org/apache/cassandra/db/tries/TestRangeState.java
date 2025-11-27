@@ -236,7 +236,15 @@ class TestRangeState implements RangeState<TestRangeState>
         {
             try
             {
-                trie.putRecursive(i.position, i, (ex, n) -> n);
+                if (i.leftSide == i.rightSide && i.leftSide != i.at)
+                {
+                    // FIXME: need to change the RangeState added
+                    // we need to make point coverage by adding two boundaries
+                    trie.putRecursive(i.position, i, false, (ex, n) -> n);
+                    trie.putRecursive(i.position, i, true, (ex, n) -> n);
+                }
+                // put right sides after the branch to ensure point is covered
+                trie.putRecursive(i.position, i, i.rightSide < 0, (ex, n) -> n);
             }
             catch (TrieSpaceExhaustedException e)
             {

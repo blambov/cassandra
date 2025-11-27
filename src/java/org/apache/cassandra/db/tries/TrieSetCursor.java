@@ -39,13 +39,13 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         /// The cursor is at a prefix of some start boundary, and the branches before it as well as the current point
         /// are not included in the set.
         NOT_CONTAINED(false, false),
-        /// The cursor is positioned at an end boundary. Branches before this position in iteration order are covered
-        /// by the set. The current position and any position in iteration order until the next boundary are excluded.
+        /// The cursor is positioned at an end boundary. Branches to the left of this are covered by the set.
+        /// The current position and any position to the right until the next boundary are excluded.
         END(true, false),
-        /// The cursor is positioned at a start boundary. The current position as well as any position in iteration
-        /// order up to the next boundary are covered by the set. Branches before this position are excluded.
+        /// The cursor is positioned at a start boundary. The current position as well as any position to the right
+        /// up to the next boundary are covered by the set. Branches to the left of this position are excluded.
         START(false, true),
-        /// The cursor is positioned inside a covered range, on a prefix of an end position.
+        /// The cursor is positioned inside a covered range.
         CONTAINED(true, true);
 
         public static final int APPLICABLE_BEFORE = 1 << 0;
@@ -61,6 +61,17 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         {
             this.applicableBefore = applicableBefore;
             this.applicableAfter = applicableAfter;
+        }
+
+        /// Whether the positions preceding the current in iteration order are included in the set.
+        public boolean precedingIncluded(Direction direction)
+        {
+            return direction.select(applicableBefore, applicableAfter);
+        }
+
+        public boolean succeedingIncluded(Direction direction)
+        {
+            return direction.select(applicableAfter, applicableBefore);
         }
 
         /// Whether the current position is a range boundary. This also means that the descendant branch is fully
@@ -105,13 +116,13 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public RangeState precedingState(Direction direction)
         {
-            return applicableBefore ? CONTAINED : null;
+            return precedingIncluded(direction) ? CONTAINED : null;
         }
 
         @Override
         public RangeState succedingState(Direction direction)
         {
-            return applicableAfter ? CONTAINED : null;
+            return succeedingIncluded(direction) ? CONTAINED : null;
         }
 
         @Override
@@ -160,7 +171,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
     /// after cursor construction, signifying, respectively, right and left unbounded ranges.
     default boolean precedingIncluded()
     {
-        return state().applicableBefore;
+        return state().precedingIncluded(direction());
     }
 
     @Override
@@ -175,7 +186,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
     @Override
     default TrieSetCursor precedingStateCursor(Direction direction)
     {
-        if (precedingIncluded())
+        if (precedingIncluded()) // preceding in the direction of this cursor
             return RangesCursor.full(direction, byteComparableVersion());
         else
             return null;
@@ -239,18 +250,23 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public RangeState state()
         {
-            RangeState negatedState = source.state().negation();
             switch (overriding)
             {
                 case ROOT:
-                    return negatedState.applicableAfter ? RangeState.START : RangeState.NOT_CONTAINED;
+                {
+                    RangeState negatedState = source.state().negation();
+                    if (direction().isForward())
+                        return negatedState.applicableAfter ? RangeState.START : RangeState.NOT_CONTAINED;
+                    else
+                        return negatedState.applicableBefore ? RangeState.END : RangeState.NOT_CONTAINED;
+                }
                 case ROOT_RETURN:
-                    return RangeState.END;
+                    return direction().select(RangeState.END, RangeState.START);
                 case EXHAUSTED:
-                    throw new AssertionError("Requested state on exhausted cursor.");
+                    return RangeState.NOT_CONTAINED;
                 case NONE:
                 default:
-                    return negatedState;
+                    return source.state().negation();
             }
         }
 

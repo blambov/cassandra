@@ -141,17 +141,9 @@ public class RangesTrieSetTest
         };
     }
 
-    static String dump(TrieSet s, Direction direction)
-    {
-        return fullTrie(s).process(direction, new TrieDumper.Plain<>(Object::toString));
-    }
-
     static void dumpToOut(TrieSet s)
     {
-        System.out.println("Forward:");
-        System.out.println(dump(s, Direction.FORWARD));
-        System.out.println("Reverse:");
-        System.out.println(dump(s, Direction.REVERSE));
+        TrieUtil.dumpToOut(fullTrie(s));
     }
 
     void check(String... boundariesAsStrings)
@@ -410,9 +402,9 @@ public class RangesTrieSetTest
             {
                 boolean applicableAfter = (pointState.lastIndex & 1) == 1;
                 if (pointState.lastIsAfter)
-                    b2 = combine(b2, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                    b2 = combineFwd(b2, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
                 else
-                    b1 = combine(b1, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                    b1 = combineFwd(b1, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
             }
 
             if (b1 == null && b2 == null)
@@ -424,7 +416,7 @@ public class RangesTrieSetTest
             return b2;
         }
 
-        static TrieSetCursor.RangeState combine(TrieSetCursor.RangeState b1, TrieSetCursor.RangeState b2)
+        static TrieSetCursor.RangeState combineFwd(TrieSetCursor.RangeState b1, TrieSetCursor.RangeState b2)
         {
             if (b1 == null)
                 return b2;
@@ -439,9 +431,9 @@ public class RangesTrieSetTest
             if (pointState.lastExact)
             {
                 if (pointState.lastIsAfter)
-                    b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+                    b1 = TrieSetCursor.RangeState.fromProperties(!applicableBefore, applicableBefore);
                 else
-                    b2 = TrieSetCursor.RangeState.fromProperties(applicableBefore, !applicableBefore);
+                    b2 = TrieSetCursor.RangeState.fromProperties(!applicableBefore, applicableBefore);
             }
             else if (pointState.lastIndex > pointState.firstIndex)
                 b1 = TrieSetCursor.RangeState.fromProperties(applicableBefore, applicableBefore);
@@ -450,9 +442,9 @@ public class RangesTrieSetTest
             {
                 boolean applicableAfter = (pointState.firstIndex & 1) != 1;
                 if (pointState.firstIsAfter)
-                    b1 = combine(b1, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                    b1 = combineRev(b1, TrieSetCursor.RangeState.fromProperties(!applicableAfter, applicableAfter));
                 else
-                    b2 = combine(b2, TrieSetCursor.RangeState.fromProperties(applicableAfter, !applicableAfter));
+                    b2 = combineRev(b2, TrieSetCursor.RangeState.fromProperties(!applicableAfter, applicableAfter));
             }
 
             if (b1 == null && b2 == null)
@@ -464,6 +456,14 @@ public class RangesTrieSetTest
             return b2;
         }
     }
+
+    static TrieSetCursor.RangeState combineRev(TrieSetCursor.RangeState b1, TrieSetCursor.RangeState b2)
+    {
+        if (b1 == null)
+            return b2;
+        return TrieSetCursor.RangeState.fromProperties(b2.applicableBefore, b1.applicableAfter);
+    }
+
 
     static NavigableMap<Preencoded, PointState> getExpectations(boolean endsInclusive, boolean startsExclusive, ByteComparable... boundaries)
     {

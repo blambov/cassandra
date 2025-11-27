@@ -54,6 +54,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TestRangeState.remap;
+import static org.apache.cassandra.utils.bytecomparable.ByteComparable.EMPTY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -106,6 +107,28 @@ public class TrieUtil
     {
         Map<String, String> values1 = collectAsStrings(container1, comparator, combiner);
         Map<String, String> values2 = collectAsStrings(container2, comparator);
+        if (values1.equals(values2))
+            return;
+
+        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
+        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
+        Set<String> keyDifference = allKeys.stream()
+                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
+                                           .collect(Collectors.toCollection(() -> new TreeSet<>()));
+        System.err.println("All data");
+        dumpDiff(values1, values2, allKeys);
+        System.err.println("\nDifferences");
+        dumpDiff(values1, values2, keyDifference);
+        fail("Maps are not equal at " + keyDifference);
+    }
+
+
+    static <T, Q> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
+                                       Iterable<Map.Entry<Preencoded, T>> container2,
+                                       BiFunction<Q, T, Q> combiner)
+    {
+        Map<String, String> values1 = collectAsStrings(container1, null, combiner);
+        Map<String, String> values2 = collectAsStrings(container2, null, combiner);
         if (values1.equals(values2))
             return;
 
@@ -441,16 +464,14 @@ public class TrieUtil
 
     static TrieSet directRanges(String... ranges)
     {
-        if (ranges.length == 0)
-            return TrieSet.empty(VERSION);
-
-        // to test singleton too, special case two equal boundaries
-        if (ranges.length == 2 && Objects.equal(ranges[0], ranges[1]))
-            return TrieSet.singleton(VERSION, directComparable(ranges[0]));
-
         return TrieSet.ranges(VERSION, Arrays.stream(ranges)
                                              .map(r -> directComparable(r))
                                              .toArray(ByteComparable[]::new));
+    }
+
+    static RangeTrie<TestRangeState> directRangeTrie(int value, String... keys)
+    {
+        return RangeTrie.fromSet(directRanges(keys), new TestRangeState(EMPTY, value, value, value, false));
     }
 
     static RangeTrie<TestRangeState> directRangeTrie(String... keys)
@@ -458,48 +479,22 @@ public class TrieUtil
         return directRangeTrie(1, keys);
     }
 
-    static RangeTrie<TestRangeState> directRangeTrie(int value, String... keys)
-    {
-        if (keys.length == 0)
-            return RangeTrie.empty(VERSION);
-        if (keys.length == 2 && Objects.equal(keys[0], keys[1]))
-        {
-            // special case to make a singleton trie
-            ByteComparable bc = directComparable(keys[0]);
-            return RangeTrie.range(bc, bc, VERSION, new TestRangeState(bc, value, value, value, false));
-        }
-
-        try
-        {
-            InMemoryRangeTrie<TestRangeState> trie = InMemoryRangeTrie.shortLived(VERSION);
-            boolean left = true;
-            for (String s : keys)
-            {
-                trie.putRecursive(directComparable(s),
-                                  new TestRangeState(directComparable(s), left ? -1 : value, value, left ? value : -1, true),
-                                  (e, n) -> e != null ? e.restrict(n.leftSide >= 0, n.rightSide >= 0) : n);
-                left = !left;
-            }
-            return trie;
-        }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e); // we are not inserting that much data
-        }
-    }
-
     static void verifyEqualRangeTries(RangeTrie<TestRangeState> trie, RangeTrie<TestRangeState> expected)
     {
 //        System.out.println("Trie:\n" + trie.dump(TestRangeState::toStringNoPosition));
-//        System.out.println("Expected:\n" + expected.cursor(Direction.FORWARD).process(new TrieDumper<>(TestRangeState::toStringNoPosition)));
+//        System.out.println("Expected:\n" + expected.cursor(Direction.FORWARD).process(new TrieDumper.Plain<>(TestRangeState::toStringNoPosition)));
+        BiFunction<Object, TestRangeState, Object> combiner =
+            (x, y) -> x == null ? y : Pair.create(x, y);
         assertMapEquals(Iterables.transform(trie.entrySet(Direction.FORWARD),
-                                            en -> remap(en)),
-                        expected.entrySet(Direction.FORWARD),
-                        FORWARD_COMPARATOR);
+                                            TestRangeState::remap),
+                        Iterables.transform(expected.entrySet(Direction.FORWARD),
+                                            TestRangeState::remap),
+                        combiner);
         assertMapEquals(Iterables.transform(trie.entrySet(Direction.REVERSE),
-                                            en -> remap(en)),
-                        expected.entrySet(Direction.REVERSE),
-                        REVERSE_COMPARATOR);
+                                            TestRangeState::remap),
+                        Iterables.transform(expected.entrySet(Direction.REVERSE),
+                                            TestRangeState::remap),
+                        combiner);
     }
 
     static Preencoded toBound(Preencoded bc)
@@ -669,6 +664,19 @@ public class TrieUtil
                 }
             }
         };
+    }
+
+    static String dump(BaseTrie<?, ?, ?> s, Direction direction)
+    {
+        return s.process(direction, new TrieDumper.Plain<>(Object::toString));
+    }
+
+    static void dumpToOut(BaseTrie<?, ?, ?> s)
+    {
+        System.out.println("Forward:");
+        System.out.println(dump(s, Direction.FORWARD));
+        System.out.println("Reverse:");
+        System.out.println(dump(s, Direction.REVERSE));
     }
 
     static class SpecStackEntry
