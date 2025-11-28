@@ -209,14 +209,157 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         }
     }
 
-    static class Mutation<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutation<S, U, RangeCursor<U>>
+    final private ApplyState<S> applyState = new ApplyState<>(this);
+
+    static class ApplyState<S extends RangeState<S>> extends InMemoryBaseTrie.ApplyState<S>
     {
-        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, InMemoryRangeTrie<S>.ApplyState state)
+        ApplyState(InMemoryBaseTrie<S> trie)
+        {
+            super(trie);
+        }
+
+        ApplyState<S> start()
+        {
+            return start(trie.root);
+        }
+
+        ApplyState<S> start(int root)
+        {
+            return (ApplyState<S>) super.start(root);
+        }
+
+
+        S getNearestContent()
+        {
+            // Assume any dead branch is deleted, thus: go upstack until first node for which we have a higher transition
+            // and then repeatedly descend into first child until content.
+            int stackPos = currentDepth;
+            int node = NONE;
+            setTransition(-1);      // In the node we have just descended to, start with its first child
+            for (; stackPos >= 0 && node == NONE; --stackPos)
+            {
+                node = trie.getNextChild(updatedPostContentNodeAtDepth(stackPos), transitionAtDepth(stackPos) + 1);
+            }
+
+            while (node != NONE)
+            {
+                S content = trie.getNodeContent(node);
+                if (content != null)
+                    return content;
+                node = trie.getNextChild(node, 0);
+            }
+            return null;
+        }
+
+        S getReturnPathContent()
+        {
+            int fullNode = existingFullNode();
+            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH_FORWARD) != 0)
+                return trie.getContent(fullNode);
+            else if (offset(fullNode) == PREFIX_OFFSET)
+                return trie.getContent(trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET));
+            else
+                return null;
+        }
+
+        int getReturnPathContentId()
+        {
+            int fullNode = existingFullNode();
+            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH_FORWARD) != 0)
+                return fullNode;
+            else if (offset(fullNode) == PREFIX_OFFSET)
+                return trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET);
+            else
+                return NONE;
+        }
+
+        @Override
+        protected int applyContent(boolean forcedCopy) throws TrieSpaceExhaustedException
+        {
+            int ascentPathContentId = getReturnPathContentId();
+            return applyAscentPathContent(ascentPathContentId, forcedCopy);
+        }
+
+        /// After a node's children are processed, this is called to ascend from it. This means applying the collected
+        /// content to the compiled `updatedPostContentNode` and creating a mapping in the parent to it (or updating if
+        /// one already exists).
+        void attachAndMoveToParentStateWithAscentPathContent(int ascentPathContentId, int forcedCopyDepth) throws TrieSpaceExhaustedException
+        {
+            attachBranchAndMoveToParentState(applyAscentPathContent(ascentPathContentId, currentDepth >= forcedCopyDepth),
+                                             forcedCopyDepth);
+        }
+
+        protected int applyAscentPathContent(int ascentPathContentId, boolean forcedCopy) throws TrieSpaceExhaustedException
+        {
+            if (ascentPathContentId == NONE)
+                return super.applyContent(forcedCopy);
+
+            int descentPathContentId = descentPathContentId();
+            final int updatedPostContentNode = updatedPostContentNode();
+            final int existingPreContentNode = existingFullNode();
+            final int existingPostContentNode = existingPostContentNode();
+
+            if (descentPathContentId == NONE)
+            {
+                // return path content only -- we can use a leaf to store it if there is no child
+                if (isNull(updatedPostContentNode))
+                {
+                    if (existingPreContentNode != existingPostContentNode
+                        && !isNullOrLeaf(existingPreContentNode)
+                        && !trie.isEmbeddedPrefixNode(existingPreContentNode))
+                        trie.recycleCell(existingPreContentNode);
+                    return ascentPathContentId;   // also fine for contentId == NONE
+                }
+
+                if (isLeaf(existingPreContentNode))
+                    return ascentPathContentId != NONE
+                           ? trie.createPrefixNode(NONE, ascentPathContentId, updatedPostContentNode, true)
+                           : updatedPostContentNode;
+
+                // otherwise we still create a prefix node
+            }
+
+            return applyPrefixChange(updatedPostContentNode,
+                                     existingPreContentNode,
+                                     existingPostContentNode,
+                                     descentPathContentId,
+                                     ascentPathContentId,
+                                     forcedCopy);
+        }
+
+
+        /// Apply the collected content to a node. Converts `NONE` to a leaf node, and adds or updates a prefix for all
+        /// others.
+        int applyContentWithAlternateBranch(int alternateBranch, boolean forcedCopy) throws TrieSpaceExhaustedException
+        {
+            int contentId = descentPathContentId();
+            final int updatedPostContentNode = updatedPostContentNode();
+            final int existingPreContentNode = existingFullNode();
+            final int existingPostContentNode = existingPostContentNode();
+
+            // applyPrefixChange does not understand leaf nodes, handle upgrade from one explicitly.
+            if (isLeaf(existingPreContentNode))
+                return contentId != NONE
+                       ? trie.createPrefixNode(contentId, alternateBranch, updatedPostContentNode, true)
+                       : updatedPostContentNode;
+
+            return applyPrefixChange(updatedPostContentNode,
+                                     existingPreContentNode,
+                                     existingPostContentNode,
+                                     contentId,
+                                     alternateBranch,
+                                     forcedCopy);
+        }
+    }
+
+    static class Mutation<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutation<S, U, RangeCursor<U>, ApplyState<S>>
+    {
+        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, ApplyState<S> state)
         {
             this(transformer, needsForcedCopy, source, state, Integer.MAX_VALUE);
         }
 
-        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, InMemoryRangeTrie<S>.ApplyState state, int forcedCopyDepth)
+        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, ApplyState<S> state, int forcedCopyDepth)
         {
             super(transformer, needsForcedCopy, source, state);
             this.forcedCopyDepth = forcedCopyDepth;
@@ -234,8 +377,8 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             S combined = transformer.apply(existingState, mutationState, state);
             if (combined != null)
                 combined = combined.isBoundary() ? combined : null;
-            state.setContent(combined, // can be null
-                             state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
+            state.setDescentPathContent(combined, // can be null
+                                        state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
         }
 
 
@@ -255,6 +398,8 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                 U content = mutationCursor.content();
                 if (content != null)
                 {
+                    assert (!Cursor.isOnReturnPath(mutationCursor.encodedPosition())) : "This should not happen";
+
                     final S existingCoveringState = getExistingCoveringState();
                     applyContent(existingCoveringState, content);
                     U mutationCoveringState = content.succedingState(Direction.FORWARD);
@@ -271,6 +416,37 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
                 long position = mutationCursor.advance();
                 depth = Cursor.depth(position);
+                while (Cursor.isOnReturnPath(position))
+                {
+                    // We may get a return path position with descent; if so, do descend into it first.
+                    if (depth > state.currentDepth)
+                    {
+                        assert depth == state.currentDepth + 1;
+                        state.descend(Cursor.incomingTransition(position));
+                    }
+                    else while (state.currentDepth > depth)
+                        state.attachAndMoveToParentState(forcedCopyDepth);
+
+                    // Apply the content on the return path.
+                    content = mutationCursor.content();
+                    int existingContent = state.getReturnPathContentId();
+                    S existingState = existingContent != NONE ? state.trie.getContent(existingContent)
+                                                              : getExistingCoveringState(); // FIXME other direction
+                    S combined = transformer.apply(existingState, content, state);
+                    if (combined != null)
+                        combined = combined.isBoundary() ? combined : null;
+                    int combinedId = state.combineContent(existingContent, combined, forcedCopyDepth >= depth);
+                    state.attachAndMoveToParentStateWithAscentPathContent(combinedId, forcedCopyDepth);
+
+                    U mutationCoveringState = content.succedingState(Direction.FORWARD);
+                    if (mutationCoveringState != null)
+                        applyDeletionRange(rightSideAsCovering(existingState),
+                                           mutationCoveringState);
+
+                    position = mutationCursor.advance();
+                    depth = Cursor.depth(position);
+                }
+
                 // Descend but do not modify anything yet.
                 if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
                     break;
@@ -283,6 +459,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         throws TrieSpaceExhaustedException
         {
             boolean atMutation = true;
+
             long position = mutationCursor.encodedPosition();
             int depth = Cursor.depth(position);
             int transition = Cursor.incomingTransition(position);
@@ -299,9 +476,13 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                     if (depth < forcedCopyDepth)
                         forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
                 }
+                // TODO: deal with ascend-path
+                assert !Cursor.isOnReturnPath(position) : "FIXME";
+
+
                 atMutation = !state.advanceToNextExistingOr(depth, transition, forcedCopyDepth);
 
-                S existingContent = state.getContent();
+                S existingContent = state.getDescentPathContent();
                 U mutationContent = atMutation ? mutationCursor.content() : null;
                 if (existingContent != null || mutationContent != null)
                 {
@@ -331,7 +512,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         S getExistingCoveringState()
         {
             // If the current node has content, use it.
-            S existingCoveringState = state.getContent();
+            S existingCoveringState = state.getDescentPathContent();
             if (existingCoveringState != null)
                 return existingCoveringState;
 

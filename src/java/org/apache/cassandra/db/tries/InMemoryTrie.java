@@ -125,6 +125,8 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         return bufferType == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
     }
 
+    final private ApplyState<T> applyState = new ApplyState<>(this);
+
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
     /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
     /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
@@ -140,10 +142,10 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     {
         try
         {
-            Mutation<T, U, Cursor<U>> m = new Mutation<>(transformer,
-                                                         needsForcedCopy,
-                                                         mutation.cursor(Direction.FORWARD),
-                                                         applyState.start());
+            Mutation<T, U, Cursor<U>, ApplyState<T>> m = new Mutation<>(transformer,
+                                                                        needsForcedCopy,
+                                                                        mutation.cursor(Direction.FORWARD),
+                                                                        applyState.start());
             m.apply();
             m.complete();
             completeMutation();
@@ -246,14 +248,14 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         }
     }
 
-    static class RangeMutation<T, S extends RangeState<S>, C extends RangeCursor<S>> extends Mutation<T, S, C>
+    static class RangeMutation<T, S extends RangeState<S>, C extends RangeCursor<S>> extends Mutation<T, S, C, ApplyState<T>>
     {
         final int initialDepth;
 
         RangeMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
                       Predicate<NodeFeatures<S>> needsForcedCopy,
                       C mutationCursor,
-                      InMemoryBaseTrie<T>.ApplyState state)
+                      ApplyState<T> state)
         {
             this(transformer, needsForcedCopy, mutationCursor, state, Integer.MAX_VALUE);
         }
@@ -261,7 +263,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         RangeMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
                       Predicate<NodeFeatures<S>> needsForcedCopy,
                       C mutationCursor,
-                      InMemoryBaseTrie<T>.ApplyState state,
+                      ApplyState<T> state,
                       int initialForcedCopyDepth)
         {
             super(transformer, needsForcedCopy, mutationCursor, state);
@@ -298,6 +300,9 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 }
 
                 long position = mutationCursor.advance();
+                // TODO: deal with ascend path
+                assert !Cursor.isOnReturnPath(position) : "FIXME";
+
                 depth = Cursor.depth(position) + initialDepth;
                 // Descend but do not modify anything yet.
                 if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
@@ -341,7 +346,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 else if (!state.advanceToNextExisting(forcedCopyDepth))
                     return false;
 
-                T existingContent = state.getContent();
+                T existingContent = state.getDescentPathContent();
                 S mutationContent = atMutation ? mutationCursor.content() : null;
                 if (mutationContent != null)
                 {
@@ -365,11 +370,11 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         {
             if (content != null)
             {
-                T existingContent = state.getContent();
+                T existingContent = state.getDescentPathContent();
                 if (existingContent != null)
                 {
                     T combinedContent = transformer.apply(existingContent, content, state);
-                    state.setContent(combinedContent, // can be null
+                    state.setDescentPathContent(combinedContent, // can be null
                                      state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
                 }
             }

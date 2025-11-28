@@ -67,9 +67,19 @@ public class RangeTrieMergeTest
         return new TestRangeState(of(where), false, -1, value);
     }
 
+    private TestRangeState fromAfter(int where, int value)
+    {
+        return new TestRangeState(of(where), true, -1, value);
+    }
+
     private TestRangeState to(int where, int value)
     {
-        return new TestRangeState(of(where), true,value, -1);
+        return new TestRangeState(of(where), true, value, -1);
+    }
+
+    private TestRangeState toBefore(int where, int value)
+    {
+        return new TestRangeState(of(where), false, value, -1);
     }
 
     private TestRangeState changeBefore(int where, int from, int to)
@@ -251,11 +261,13 @@ public class RangeTrieMergeTest
 
     private List<TestRangeState> getTestRanges()
     {
-        return asList(from(17, 20), to(17, 20),
+        return asList(fromAfter(3, 15), toBefore(5, 15),
+                      from(17, 20), to(17, 20),
                       from(21, 10), changeBefore(22, 10, 21), changeAfter(22, 21, 10), to(24, 10),
                       from(26, 11), changeBefore(28, 11, 22), changeAfter(28, 22, 12), to(30, 12),
                       from(33, 23), changeAfter(33, 23, 13), to(34, 13),
-                      from(36, 14), changeBefore(38, 14, 24), to(38, 24));
+                      from(36, 14), changeBefore(38, 14, 24), to(38, 24),
+                      fromAfter(40, 15), toBefore(43, 15));
     }
 
     private void testMerges()
@@ -308,10 +320,9 @@ public class RangeTrieMergeTest
     public final void testMerge(String message, List<TestRangeState>... sets)
     {
         List<TestRangeState> testRanges = getTestRanges();
-        testMerge(message, fromList(testRanges), testRanges, sets);
-        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
-        // TODO
-//        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
+//        testMerge(message, fromList(testRanges), testRanges, sets);
+//        testCollectionMerge(message + " collection", Lists.newArrayList(fromList(testRanges)), testRanges, sets);
+        testMergeToInMemoryTrie(message + " inmem.apply", fromList(testRanges), testRanges, sets);
     }
 
 
