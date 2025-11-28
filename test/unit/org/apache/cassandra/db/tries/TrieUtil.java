@@ -33,7 +33,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.BiFunction;
+import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -41,11 +41,10 @@ import java.util.stream.IntStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.collect.HashMultiset;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import org.junit.Assert;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -53,12 +52,10 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
-import static org.apache.cassandra.db.tries.TestRangeState.remap;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.EMPTY;
+import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
-
-import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 
 public class TrieUtil
 {
@@ -79,92 +76,62 @@ public class TrieUtil
                         REVERSE_COMPARATOR);
     }
 
-    static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
-                                    Iterable<Map.Entry<Preencoded, T>> container2,
+    static Map<String, String> toStringMap(BaseTrie<?, ?, ?> trie, Direction direction)
+    {
+        return Streams.stream(trie.entryIterator(direction))
+                      .collect(Collectors.toMap(x -> asString(x.getKey()),
+                                                x -> x.getValue().toString(),
+                                                (x, y) -> '(' + x + ',' + y + ')',
+                                                LinkedHashMap::new));
+    }
+
+    static <T> Map<String, String> toStringMap(Map<Preencoded, T> map, Function<T, ?> mapper)
+    {
+        return map.entrySet()
+                  .stream()
+                  .collect(Collectors.toMap(x -> asString(x.getKey()),
+                                            x -> mapper.apply(x.getValue()).toString(),
+                                            (x, y) -> '(' + x + ',' + y + ')',
+                                            LinkedHashMap::new));
+    }
+
+    static <T> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> actual,
+                                    Iterable<Map.Entry<Preencoded, T>> expected,
                                     Comparator<Preencoded> comparator)
     {
-        Map<String, String> values1 = collectAsStrings(container1, comparator);
-        Map<String, String> values2 = collectAsStrings(container2, comparator);
-        if (values1.equals(values2))
-            return;
-
-        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
-        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
-        Set<String> keyDifference = allKeys.stream()
-                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
-                                           .collect(Collectors.toCollection(() -> new TreeSet<>()));
-        System.err.println("All data");
-        dumpDiff(values1, values2, allKeys);
-        System.err.println("\nDifferences");
-        dumpDiff(values1, values2, keyDifference);
-        fail("Maps are not equal at " + keyDifference);
+        Map<String, String> values1 = collectAsStrings(actual, comparator);
+        Map<String, String> values2 = collectAsStrings(expected, comparator);
+        assertMapEquals(values1, values2);
     }
 
-    static <T, Q> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
-                                       Iterable<Map.Entry<Preencoded, Q>> container2,
-                                       Comparator<Preencoded> comparator,
-                                       BiFunction<Q, T, Q> combiner)
+    static void assertMapEquals(Map<String, String> actual, Map<String, String> expected)
     {
-        Map<String, String> values1 = collectAsStrings(container1, comparator, combiner);
-        Map<String, String> values2 = collectAsStrings(container2, comparator);
-        if (values1.equals(values2))
+        if (actual.equals(expected))
             return;
 
         // If the maps are not equal, we want to print out the differences in a way that is easy to read.
-        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
+        final Set<String> allKeys = Sets.union(actual.keySet(), expected.keySet());
         Set<String> keyDifference = allKeys.stream()
-                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
+                                           .filter(k -> !Objects.equal(actual.get(k), expected.get(k)))
                                            .collect(Collectors.toCollection(() -> new TreeSet<>()));
         System.err.println("All data");
-        dumpDiff(values1, values2, allKeys);
+        dumpDiff(actual, expected, allKeys);
         System.err.println("\nDifferences");
-        dumpDiff(values1, values2, keyDifference);
+        dumpDiff(actual, expected, keyDifference);
         fail("Maps are not equal at " + keyDifference);
     }
 
-
-    static <T, Q> void assertMapEquals(Iterable<Map.Entry<Preencoded, T>> container1,
-                                       Iterable<Map.Entry<Preencoded, T>> container2,
-                                       BiFunction<Q, T, Q> combiner)
-    {
-        Map<String, String> values1 = collectAsStrings(container1, null, combiner);
-        Map<String, String> values2 = collectAsStrings(container2, null, combiner);
-        if (values1.equals(values2))
-            return;
-
-        // If the maps are not equal, we want to print out the differences in a way that is easy to read.
-        final Set<String> allKeys = Sets.union(values1.keySet(), values2.keySet());
-        Set<String> keyDifference = allKeys.stream()
-                                           .filter(k -> !Objects.equal(values1.get(k), values2.get(k)))
-                                           .collect(Collectors.toCollection(() -> new TreeSet<>()));
-        System.err.println("All data");
-        dumpDiff(values1, values2, allKeys);
-        System.err.println("\nDifferences");
-        dumpDiff(values1, values2, keyDifference);
-        fail("Maps are not equal at " + keyDifference);
-    }
-
-    private static void dumpDiff(Map<String, String> values1, Map<String, String> values2, Set<String> set)
+    private static void dumpDiff(Map<String, String> actual, Map<String, String> expected, Set<String> set)
     {
         for (String key : set)
         {
-            String v1 = values1.get(key);
+            String v1 = actual.get(key);
             if (v1 != null)
-                System.err.println(String.format("Trie    %s:%s", key, v1));
-            String v2 = values2.get(key);
+                System.err.println(String.format("Actual   %s:%s", key, v1));
+            String v2 = expected.get(key);
             if (v2 != null)
-                System.err.println(String.format("TreeSet %s:%s", key, v2));
+                System.err.println(String.format("Expected %s:%s", key, v2));
         }
-    }
-
-    private static <T, Q> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
-                                                               Comparator<Preencoded> comparator,
-                                                               BiFunction<Q, T, Q> combiner)
-    {
-        if (combiner != null)
-            return collectAsStrings(container, combiner);
-        else
-            return collectAsStrings(container, comparator);
     }
 
     private static <T> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
@@ -181,20 +148,6 @@ public class TrieUtil
             map.put(asString(key), e.getValue().toString());
         }
         return map;
-    }
-
-    private static <T, Q> Map<String, String> collectAsStrings(Iterable<Map.Entry<Preencoded, T>> container,
-                                                               BiFunction<Q, T, Q> combiner)
-    {
-        var map = new LinkedHashMap<String, Q>();
-        for (var e : container)
-        {
-            var key = asString(e.getKey());
-            var value = e.getValue();
-
-            map.put(key, combiner.apply(map.getOrDefault(key, null), value));
-        }
-        return Maps.transformValues(map, v -> v.toString());
     }
 
     static ByteComparable invert(ByteComparable b)
@@ -342,30 +295,30 @@ public class TrieUtil
         return list;
     }
 
-    static void assertMapEquals(Iterator<Map.Entry<Preencoded, ByteBuffer>> it1,
-                                Iterator<Map.Entry<Preencoded, ByteBuffer>> it2)
+    static void assertMapEquals(Iterator<Map.Entry<Preencoded, ByteBuffer>> actual,
+                                Iterator<Map.Entry<Preencoded, ByteBuffer>> expected)
     {
         List<Preencoded> failedAt = new ArrayList<>();
         StringBuilder b = new StringBuilder();
-        while (it1.hasNext() && it2.hasNext())
+        while (actual.hasNext() && expected.hasNext())
         {
-            Map.Entry<Preencoded, ByteBuffer> en1 = it1.next();
-            Map.Entry<Preencoded, ByteBuffer> en2 = it2.next();
-            b.append(String.format("TreeSet %s:%s\n", asString(en2.getKey()), ByteBufferUtil.bytesToHex(en2.getValue())));
-            b.append(String.format("Trie    %s:%s\n", asString(en1.getKey()), ByteBufferUtil.bytesToHex(en1.getValue())));
+            Map.Entry<Preencoded, ByteBuffer> en1 = actual.next();
+            Map.Entry<Preencoded, ByteBuffer> en2 = expected.next();
+            b.append(String.format("Expected %s:%s\n", asString(en2.getKey()), ByteBufferUtil.bytesToHex(en2.getValue())));
+            b.append(String.format("Actual   %s:%s\n", asString(en1.getKey()), ByteBufferUtil.bytesToHex(en1.getValue())));
             if (ByteComparable.compare(en1.getKey(), en2.getKey(), VERSION) != 0 || ByteBufferUtil.compareUnsigned(en1.getValue(), en2.getValue()) != 0)
                 failedAt.add(en1.getKey());
         }
-        while (it1.hasNext())
+        while (actual.hasNext())
         {
-            Map.Entry<Preencoded, ByteBuffer> en1 = it1.next();
-            b.append(String.format("Trie    %s:%s\n", asString(en1.getKey()), ByteBufferUtil.bytesToHex(en1.getValue())));
+            Map.Entry<Preencoded, ByteBuffer> en1 = actual.next();
+            b.append(String.format("Actual   %s:%s\n", asString(en1.getKey()), ByteBufferUtil.bytesToHex(en1.getValue())));
             failedAt.add(en1.getKey());
         }
-        while (it2.hasNext())
+        while (expected.hasNext())
         {
-            Map.Entry<Preencoded, ByteBuffer> en2 = it2.next();
-            b.append(String.format("TreeSet %s:%s\n", asString(en2.getKey()), ByteBufferUtil.bytesToHex(en2.getValue())));
+            Map.Entry<Preencoded, ByteBuffer> en2 = expected.next();
+            b.append(String.format("Expected %s:%s\n", asString(en2.getKey()), ByteBufferUtil.bytesToHex(en2.getValue())));
             failedAt.add(en2.getKey());
         }
         if (!failedAt.isEmpty())
@@ -471,7 +424,7 @@ public class TrieUtil
 
     static RangeTrie<TestRangeState> directRangeTrie(int value, String... keys)
     {
-        return RangeTrie.fromSet(directRanges(keys), new TestRangeState(EMPTY, value, value, value, false));
+        return RangeTrie.fromSet(directRanges(keys), new TestRangeState(EMPTY, value, value));
     }
 
     static RangeTrie<TestRangeState> directRangeTrie(String... keys)
@@ -481,20 +434,12 @@ public class TrieUtil
 
     static void verifyEqualRangeTries(RangeTrie<TestRangeState> trie, RangeTrie<TestRangeState> expected)
     {
-//        System.out.println("Trie:\n" + trie.dump(TestRangeState::toStringNoPosition));
+//        System.out.println("Actual:  \n" + trie.dump(TestRangeState::toStringNoPosition));
 //        System.out.println("Expected:\n" + expected.cursor(Direction.FORWARD).process(new TrieDumper.Plain<>(TestRangeState::toStringNoPosition)));
-        BiFunction<Object, TestRangeState, Object> combiner =
-            (x, y) -> x == null ? y : Pair.create(x, y);
-        assertMapEquals(Iterables.transform(trie.entrySet(Direction.FORWARD),
-                                            TestRangeState::remap),
-                        Iterables.transform(expected.entrySet(Direction.FORWARD),
-                                            TestRangeState::remap),
-                        combiner);
-        assertMapEquals(Iterables.transform(trie.entrySet(Direction.REVERSE),
-                                            TestRangeState::remap),
-                        Iterables.transform(expected.entrySet(Direction.REVERSE),
-                                            TestRangeState::remap),
-                        combiner);
+        assertMapEquals(TestRangeState.toStringMap(trie, Direction.FORWARD),
+                        TestRangeState.toStringMap(expected, Direction.FORWARD));
+        assertMapEquals(TestRangeState.toStringMap(trie, Direction.REVERSE),
+                        TestRangeState.toStringMap(expected, Direction.REVERSE));
     }
 
     static Preencoded toBound(Preencoded bc)

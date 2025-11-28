@@ -155,12 +155,6 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
-        public TrieTombstoneMarker asPoint()
-        {
-            return new Point(this, null);
-        }
-
-        @Override
         public DeletionTime deletionTime()
         {
             return this;

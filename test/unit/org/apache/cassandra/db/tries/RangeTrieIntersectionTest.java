@@ -20,7 +20,6 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 
 import com.google.common.collect.Lists;
 import org.junit.BeforeClass;
@@ -62,22 +61,17 @@ public class RangeTrieIntersectionTest
 
     private TestRangeState from(int where, int value)
     {
-        return new TestRangeState(of(where), -1, value, value, true);
+        return new TestRangeState(of(where), -1, value);
     }
 
     private TestRangeState to(int where, int value)
     {
-        return new TestRangeState(of(where), value, value, -1, true);
+        return new TestRangeState(of(where), value, -1);
     }
 
-    private TestRangeState point(int where, int value)
+    private TestRangeState change(int where, int from, int to)
     {
-        return change(where, -1, value, -1);
-    }
-
-    private TestRangeState change(int where, int from, int at, int to)
-    {
-        return new TestRangeState(of(where), from, at, to, true);
+        return new TestRangeState(of(where), from, to);
     }
 
     private TrieSet range(ByteComparable left, ByteComparable right)
@@ -95,14 +89,14 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)));
+            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             TrieUtil.dumpToOut(trie);
 
-            assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)), toList(trie, Direction.FORWARD));
+            assertEquals("No intersection", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)), toList(trie, Direction.FORWARD));
 
             testIntersection("all",
-                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)),
+                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
                              trie,
                              range(null, null));
             testIntersection("fully covered range",
@@ -110,7 +104,7 @@ public class RangeTrieIntersectionTest
                              trie,
                              range(of(0), of(5)));
             testIntersection("fully covered range",
-                             asList(from(6, 11), change(8, 11, 12, 12), to(10, 12)),
+                             asList(from(6, 11), change(8, 11, 12), to(10, 12)),
                              trie,
                              range(of(5), of(13)));
             testIntersection("matching range",
@@ -141,7 +135,7 @@ public class RangeTrieIntersectionTest
                              trie,
                              range(of(5), of(7)));
             testIntersection("partial right on change",
-                             asList(from(6, 11), change(8, 11, 12, 12), to(8, 12)),
+                             asList(from(6, 11), change(8, 11, 12), to(8, 12)),
                              trie,
                              range(of(5), of(8)));
             testIntersection("partial right with null",
@@ -154,7 +148,7 @@ public class RangeTrieIntersectionTest
                              trie,
                              range(of(2), of(3)));
             testIntersection("inside with change",
-                             asList(from(7, 11), change(8, 11, 12, 12), to(9, 12)),
+                             asList(from(7, 11), change(8, 11, 12), to(9, 12)),
                              trie,
                              range(of(7), of(9)));
 
@@ -170,14 +164,14 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)));
+            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
             testIntersection("fully covered ranges",
-                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)),
+                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
                              trie,
                              ranges(of(0), of(13)));
             testIntersection("matching ranges",
-                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12)),
+                             asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)),
                              trie,
                              ranges(of(1), of(4), of(6), of(11)));
             testIntersection("touching",
@@ -195,12 +189,12 @@ public class RangeTrieIntersectionTest
                              ranges(null, of(2), of(5), of(7)));
 
             testIntersection("inside ranges",
-                             asList(from(2, 10), to(3, 10), from(7, 11), change(8, 11, 12, 12), to(9, 12)),
+                             asList(from(2, 10), to(3, 10), from(7, 11), change(8, 11, 12), to(9, 12)),
                              trie,
                              ranges(of(2), of(3), of(7), of(9)));
 
             testIntersection("jumping inside",
-                             asList(from(1, 10), to(2, 10), from(3, 10), to(4, 10), from(6, 11), to(6, 11), from(7, 11), change(8, 11, 12, 12), to(8, 12), from(9, 12), to(10, 12)),
+                             asList(from(1, 10), to(2, 10), from(3, 10), to(4, 10), from(6, 11), to(6, 11), from(7, 11), change(8, 11, 12), to(8, 12), from(9, 12), to(10, 12)),
                              trie,
                              ranges(of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10)));
         }
@@ -211,7 +205,7 @@ public class RangeTrieIntersectionTest
     {
         for (bits = bitsNeeded; bits > 0; --bits)
         {
-            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12), from(13, 13), to(14, 13)));
+            RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
 
             // non-overlapping
             testIntersection("", asList(), trie, range(of(0), of(3)), range(of(4), of(7)));
@@ -234,13 +228,13 @@ public class RangeTrieIntersectionTest
     public void testRangesOnRanges()
     {
         for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12), from(13, 13), to(14, 13))));
+            testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13))));
     }
 
     private void testIntersections(RangeTrie<TestRangeState> trie)
     {
         System.out.println(trie.dump());
-        testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
+        testIntersection("", asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)), trie);
 
         TrieSet set1 = ranges(null, of(4), of(5), of(9), of(12), null);
         TrieSet set2 = ranges(of(2), of(7), of(8), of(10), of(12), of(14));
@@ -280,7 +274,7 @@ public class RangeTrieIntersectionTest
         // set2 = ranges(2-7, 8-10, 12-14);
         // set3 = ranges(1-2, 3-4, 5-6, 7-8, 9-10);
         testIntersection("1", asList(from(1, 10), to(4, 10),
-                                     from(6, 11), change(8, 11, 12, 12), to(9, 12),
+                                     from(6, 11), change(8, 11, 12), to(9, 12),
                                      from(13, 13), to(14,13)), trie, set1);
 
         testIntersection("2", asList(from(2, 10), to(4, 10),
@@ -291,7 +285,7 @@ public class RangeTrieIntersectionTest
         testIntersection("3", asList(from(1, 10), to(2, 10),
                                      from(3, 10), to(4, 10),
                                      from(6, 11), to(6, 11),
-                                     from(7, 11), change(8, 11, 12, 12), to(8, 12),
+                                     from(7, 11), change(8, 11, 12), to(8, 12),
                                      from(9, 12), to(10, 12)), trie, set3);
 
         testIntersection("12", asList(from(2, 10), to(4, 10),
@@ -302,7 +296,7 @@ public class RangeTrieIntersectionTest
         testIntersection("13", asList(from(1, 10), to(2, 10),
                                       from(3, 10), to(4, 10),
                                       from(6, 11), to(6, 11),
-                                      from(7, 11), change(8, 11, 12, 12), to(8, 12),
+                                      from(7, 11), change(8, 11, 12), to(8, 12),
                                       from(9, 12), to(9, 12)), trie, set1, set3);
 
         testIntersection("23", asList(from(2, 10), to(2, 10),
@@ -355,7 +349,7 @@ public class RangeTrieIntersectionTest
         RangeTrie<TestRangeState> trie = RangeTrie.range(TrieUtil.directComparable("aa"),
                                                          TrieUtil.directComparable("bb"),
                                                          TrieUtil.VERSION,
-                                                         new TestRangeState(ByteComparable.EMPTY, 1, 1, 1, false));
+                                                         new TestRangeState(ByteComparable.EMPTY, 1, 1));
         RangeTrie<TestRangeState> expected = TrieUtil.directRangeTrie("aa", "bb");
         TrieUtil.verifyEqualRangeTries(trie, expected);
     }

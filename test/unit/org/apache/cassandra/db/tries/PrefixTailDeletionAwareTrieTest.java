@@ -128,7 +128,7 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
         try
         {
             DeletionAwareTrie<Object, TestRangeState> toInsert = ((payload & 1) == 1)
-                           ? DeletionAwareTrie.deletion(ByteComparable.EMPTY, b, b, VERSION, new TestRangeState(b, payload, payload, payload, false))
+                           ? DeletionAwareTrie.deletion(ByteComparable.EMPTY, b, b, VERSION, new TestRangeState(b, payload, payload))
                            : DeletionAwareTrie.singleton(b, VERSION, v);
 
             trie.apply(toInsert,
@@ -161,7 +161,7 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
                                        return (v instanceof ByteBuffer) ? (ByteBuffer) v : null;
 
                                    assert rs != null;
-                                   return ByteBufferUtil.bytes(rs.at);
+                                   return ByteBufferUtil.bytes(rs.leftSide);
                                });
     }
 }

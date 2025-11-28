@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
+import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -325,17 +326,10 @@ public class RangesTrieSetTest
     private static void assertTrieEquals(NavigableMap<Preencoded, PointState> expectations, TrieSet s)
     {
         BaseTrie<TrieSetCursor.RangeState, ?, ?> trie = fullTrie(s);
-        BiFunction<Object, TrieSetCursor.RangeState, Object> combiner =
-            (x, y) -> x == null ? y : Pair.create(x, y);
-        TrieUtil.assertMapEquals(trie.entrySet(Direction.FORWARD),
-                                 Maps.transformValues(expectations, PointState::forwardSide).entrySet(),
-                                 FORWARD_COMPARATOR,
-                                 combiner);
-        TrieUtil.assertMapEquals(trie.entrySet(Direction.REVERSE),
-                                 TrieUtil.reorderBy(Maps.transformValues(expectations, PointState::reverseSide),
-                                                    TrieUtil.REVERSE_COMPARATOR).entrySet(),
-                                 TrieUtil.REVERSE_COMPARATOR,
-                                 combiner);
+        TrieUtil.assertMapEquals(TrieUtil.toStringMap(trie, Direction.FORWARD),
+                                 TrieUtil.toStringMap(expectations, PointState::forwardSide));
+        TrieUtil.assertMapEquals(TrieUtil.toStringMap(trie, Direction.REVERSE),
+                                 TrieUtil.toStringMap(TrieUtil.reorderBy(expectations, TrieUtil.REVERSE_COMPARATOR), PointState::reverseSide));
     }
 
     static class PointState

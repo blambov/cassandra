@@ -433,7 +433,7 @@ public abstract class PrefixTailTestBase<T extends InMemoryBaseTrie<Object>, Q e
                 ByteBuffer updateAsBuf = null;
 
                 if (update instanceof TestRangeState)
-                    updateAsBuf = ByteBufferUtil.bytes(((TestRangeState) update).at);
+                    updateAsBuf = ByteBufferUtil.bytes(((TestRangeState) update).leftSide);
                 else if (update instanceof ByteBuffer)
                     updateAsBuf = (ByteBuffer) update;
                 else

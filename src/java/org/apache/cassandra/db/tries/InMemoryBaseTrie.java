@@ -1725,10 +1725,18 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             int contentId = node;
 
-            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0))
-                throw new UnsupportedOperationException("FIXME"); // TODO
-
             T newContent = transformer.apply(getContent(contentId), value);
+
+            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0))
+            {
+                // We already have content, but we also need to add content on the other side of the branch.
+                if (newContent == null)
+                    return node; // we are not adding anything, leave existing node.
+
+                // Convert this to prefix node to be able to store both.
+                return createPrefixNode(contentId, addContent(newContent, contentAfterBranch), NONE, false);
+            }
+
             if (newContent != null)
             {
                 setContent(contentId, newContent);
@@ -1743,29 +1751,29 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         if (offset(node) == PREFIX_OFFSET)
         {
-            int contentId = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
-            // TODO: add the option to combine before and after branch content
-            if (contentAfterBranch != ((contentId & CONTENT_AFTER_BRANCH_FORWARD) != 0))
-                throw new UnsupportedOperationException("FIXME"); // TODO
+            int contentOffset = contentAfterBranch ? PREFIX_ALTERNATE_OFFSET : PREFIX_CONTENT_OFFSET;
+            int contentId = getIntVolatile(node + contentOffset);
 
+            assert isNullOrLeaf(contentId) : "Content after branch cannot be used toghether with alternate branch";
             T newContent = transformer.apply(isNull(contentId) ? null : getContent(contentId), value);
             if (newContent != null)
             {
                 if (!isNull(contentId))
                     setContent(contentId, newContent);
                 else
-                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, addContent(newContent, false));
+                    putIntVolatile(node + contentOffset, addContent(newContent, contentAfterBranch));
                 return node;
             }
             else
             {
                 if (!isNull(contentId))
                     releaseContent(contentId);
+                int otherContentOffset = contentAfterBranch ? PREFIX_CONTENT_OFFSET : PREFIX_ALTERNATE_OFFSET;
 
-                if (!isNull(getIntVolatile(node + PREFIX_ALTERNATE_OFFSET)))
+                if (!isNull(getIntVolatile(node + otherContentOffset)))
                 {
                     // keep the prefix node for the alternate path
-                    putIntVolatile(node + PREFIX_CONTENT_OFFSET, NONE);
+                    putIntVolatile(node + contentOffset, NONE);
                     return node;
                 }
 
