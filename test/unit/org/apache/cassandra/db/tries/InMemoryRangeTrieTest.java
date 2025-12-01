@@ -36,6 +36,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class InMemoryRangeTrieTest
@@ -175,7 +176,7 @@ public class InMemoryRangeTrieTest
     @Test
     public void testCursorRangeDeletionCoversPosition() throws TrieSpaceExhaustedException
     {
-        testCursorsWithInterveningDeletions(strings("aaabc", "aaacd", "bcd", "cde"),
+        testCursorsWithInterveningDeletions(strings("aaabc", "aaacde", "bcd", "cde"),
                                             "aaa", "aaacd",
                                             strings("a_", "ab"));
     }
@@ -183,9 +184,9 @@ public class InMemoryRangeTrieTest
     @Test
     public void testCursorBranchDeletionCoversPosition() throws TrieSpaceExhaustedException
     {
-        testCursorsWithInterveningDeletions(strings("aaabc", "aaacd", "bcd", "cde"),
+        testCursorsWithInterveningDeletions(strings("aaabc", "aaacde", "bcd", "cde"),
                                             "aaa", "aaacd",
-                                            strings("a_", "ab"));
+                                            strings("aa", "aa"));
     }
 
     private String[] strings(String... strings)
@@ -199,6 +200,14 @@ public class InMemoryRangeTrieTest
                                                      String[] insertions)
     throws TrieSpaceExhaustedException
     {
+        // Note: if position matches a boundary we may get a false negative when looking for it because it will be on
+        // the return path in one of the directions. If any of these checks fails, it is a test error, please make
+        // sure the queried positions are not boundaries.
+        assertFalse(Arrays.asList(preparations).contains(leftPos));
+        assertFalse(Arrays.asList(preparations).contains(rightPos));
+        assertFalse(Arrays.asList(insertions).contains(leftPos));
+        assertFalse(Arrays.asList(insertions).contains(rightPos));
+
         // New deletions supercede old
         testCursorsWithInterveningDeletions(preparations, leftPos, rightPos, insertions, Direction.FORWARD, false, 1);
         testCursorsWithInterveningDeletions(preparations, leftPos, rightPos, insertions, Direction.FORWARD, true, 1);
@@ -248,38 +257,23 @@ public class InMemoryRangeTrieTest
         else
             found = advanceTo(c, TrieUtil.directComparable(current), paths);
 
-        if (delTimeIncrease > 0)
-            assertTrue(found);
+        assertTrue(found);
 
         insertRanges(trie, insertions, delTimeIncrease);
 
+        // Even if the branch c is on is deleted, we should be able to continue iterating it and finding the right data.
         String target = dir.select(rightPos, leftPos);
-        if (found)
-        {
-            if (useSkip)
-                found = skipByDifference(c, TrieUtil.directComparable(current), TrieUtil.directComparable(target));
-            else
-                found = advanceTo(c, TrieUtil.directComparable(target), paths);
-        }
+        if (useSkip)
+            found = skipByDifference(c, TrieUtil.directComparable(current), TrieUtil.directComparable(target));
         else
+            found = advanceTo(c, TrieUtil.directComparable(target), paths);
+
+        assertTrue(found);
+
+        while (!Cursor.isExhausted(c.advanceMultiple(null)))
         {
-            // nested entries may be gone if deleted by parent. If so, just try to skip to target for a new cursor.
-            c = trie.cursor(dir);
-            paths = new TriePathReconstructor();
-            if (useSkip)
-                found = c.descendAlong(TrieUtil.directComparable(current).asPeekableBytes(VERSION));
-            else
-                found = advanceTo(c, TrieUtil.directComparable(current), paths);
-        }
-
-        if (delTimeIncrease > 0)
-            assertTrue(found);
-
-        if (found)
-            while (!Cursor.isExhausted(c.advanceMultiple(null)))
-            {
-            }    // let the verification cursor check the correctness of the iteration
-    }
+        }    // let the verification cursor check the correctness of the iteration
+}
 
     ByteComparable maybeInvert(ByteComparable bc, Direction dir)
     {
@@ -317,6 +311,7 @@ public class InMemoryRangeTrieTest
             sb.next();
             ++depth;
         }
+
         final int nextByte = sb.next();
         long skipPosition = Cursor.encode(depth + 1, nextByte, cursor.direction());
         long skippedPosition = cursor.skipTo(skipPosition);

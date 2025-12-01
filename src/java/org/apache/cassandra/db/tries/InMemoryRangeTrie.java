@@ -520,6 +520,9 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             // We are walking both tries in parallel.
             while (true)
             {
+                // We need to force-copy every node we touch while applying ranges to ensure consistent ranges.
+                forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
+
                 switch (advance)
                 {
                     case AT_LIMIT:
@@ -551,10 +554,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                         limitDepth = Cursor.depth(position);
                         limitTransition = Cursor.incomingTransition(position);
                         limitOnReturnPath = Cursor.isOnReturnPath(position);
-
                         assert limitDepth >= 0 : "Unbounded range in mutation trie, state " + mutationCoveringState + " active when exhausted.";
-                        if (limitDepth < forcedCopyDepth)
-                            forcedCopyDepth = needsForcedCopy.test(this) ? limitDepth : Integer.MAX_VALUE;
                         break;
                     }
                     case DESCENDED:
