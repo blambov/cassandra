@@ -1203,15 +1203,15 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
         void setDescentPathContent(T content, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
-            setDescentPathContentId(combineContent(descentPathContentId(), content, forcedCopy));
+            setDescentPathContentId(combineContent(descentPathContentId(), content, false, forcedCopy));
         }
 
-        int combineContent(int existingContentId, T newContent, boolean forcedCopy) throws TrieSpaceExhaustedException
+        int combineContent(int existingContentId, T newContent, boolean contentAfterBranch, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             if (existingContentId == NONE)
             {
                 if (newContent != null)
-                    return trie.addContent(newContent, false);
+                    return trie.addContent(newContent, contentAfterBranch);
                 else
                     return NONE;
             }
@@ -1228,7 +1228,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             else if (forcedCopy)
             {
                 trie.releaseContent(existingContentId);
-                return trie.addContent(newContent, false);
+                return trie.addContent(newContent, contentAfterBranch);
             }
             else
             {

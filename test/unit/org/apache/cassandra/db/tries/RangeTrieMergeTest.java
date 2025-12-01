@@ -22,10 +22,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import com.google.common.collect.Lists;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -36,6 +41,7 @@ import static org.apache.cassandra.db.tries.TestRangeState.toList;
 import static org.apache.cassandra.db.tries.TestRangeState.verify;
 import static org.junit.Assert.assertEquals;
 
+@RunWith(Parameterized.class)
 public class RangeTrieMergeTest
 {
     @BeforeClass
@@ -45,7 +51,22 @@ public class RangeTrieMergeTest
     }
 
     static final int bitsNeeded = 6;
-    int bits = bitsNeeded;
+
+    @Parameterized.Parameters(name = "bits per transition {0} open-ended {1}")
+    public static List<Object[]> data()
+    {
+        return IntStream.rangeClosed(1, bitsNeeded)
+                        .mapToObj(x -> x)
+                        .flatMap(x -> Stream.of(false, true)
+                                            .map(y -> new Object[] { x, y }))
+                        .collect(Collectors.toList());
+    }
+
+    @Parameterized.Parameter(0)
+    public final int bits = bitsNeeded;
+
+    @Parameterized.Parameter(1)
+    public final boolean useNulls = true;
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value)
@@ -103,7 +124,7 @@ public class RangeTrieMergeTest
         {
             ByteComparable pos = data.get(i);
             if (pos == null)
-                pos = i % 2 == 0 ? of(0) : of((1<<bitsNeeded) - 1);
+                pos = i % 2 == 0 ? useNulls ? null : of(0) : useNulls ? null : of((1<<bitsNeeded) - 1);
             if (i % 2 == 0)
                 markers.add(new TestRangeState(pos, -1, 100));
             else
@@ -142,73 +163,69 @@ public class RangeTrieMergeTest
     @Test
     public void testSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-        {
-            testMerge("no merge");
+        testMerge("no merge");
 
-            testMerge("all",
-                      deletedRanges(null, null));
-            testMerge("fully covered range",
-                      deletedRanges(of(20), of(25)));
-            testMerge("fully covered range",
-                      deletedRanges(of(25), of(33)));
-            testMerge("matching range",
-                      deletedRanges(of(21), of(24)));
-            testMerge("touching empty",
-                      deletedRanges(of(24), of(26)));
+        testMerge("all",
+                  deletedRanges(null, null));
+        testMerge("fully covered range",
+                  deletedRanges(of(20), of(25)));
+        testMerge("fully covered range",
+                  deletedRanges(of(25), of(33)));
+        testMerge("matching range",
+                  deletedRanges(of(21), of(24)));
+        testMerge("touching empty",
+                  deletedRanges(of(24), of(26)));
 
-            testMerge("partial left",
-                      deletedRanges(of(22), of(25)));
-            testMerge("partial left on change",
-                      deletedRanges(of(28), of(32)));
-            testMerge("partial left with null",
-                      deletedRanges(of(29), null));
+        testMerge("partial left",
+                  deletedRanges(of(22), of(25)));
+        testMerge("partial left on change",
+                  deletedRanges(of(28), of(32)));
+        testMerge("partial left with null",
+                  deletedRanges(of(29), null));
 
 
-            testMerge("partial right",
-                      deletedRanges(of(25), of(27)));
-            testMerge("partial right on change",
-                      deletedRanges(of(25), of(28)));
-            testMerge("partial right with null",
-                      deletedRanges(null, of(22)));
+        testMerge("partial right",
+                  deletedRanges(of(25), of(27)));
+        testMerge("partial right on change",
+                  deletedRanges(of(25), of(28)));
+        testMerge("partial right with null",
+                  deletedRanges(null, of(22)));
 
-            testMerge("inside range",
-                      deletedRanges(of(22), of(23)));
-            testMerge("inside with change",
-                      deletedRanges(of(27), of(29)));
+        testMerge("inside range",
+                  deletedRanges(of(22), of(23)));
+        testMerge("inside with change",
+                  deletedRanges(of(27), of(29)));
 
-            testMerge("empty range inside",
-                      deletedRanges(of(27), of(27)));
+        testMerge("empty range inside",
+                  deletedRanges(of(27), of(27)));
 
-            testMerge("point covered",
-                      deletedRanges(of(16), of(18)));
-            testMerge("point at range start",
-                      deletedRanges(of(17), of(18)));
-            testMerge("point at range end",
-                      deletedRanges(of(16), of(17)));
-
-
-            testMerge("start point covered",
-                      deletedRanges(of(32), of(35)));
-            testMerge("start point at range start",
-                      deletedRanges(of(33), of(35)));
-            testMerge("start point at range end",
-                      deletedRanges(of(32), of(33)));
+        testMerge("point covered",
+                  deletedRanges(of(16), of(18)));
+        testMerge("point at range start",
+                  deletedRanges(of(17), of(18)));
+        testMerge("point at range end",
+                  deletedRanges(of(16), of(17)));
 
 
-            testMerge("end point covered",
-                      deletedRanges(of(36), of(40)));
-            testMerge("end point at range start",
-                      deletedRanges(of(38), of(40)));
-            testMerge("end point at range end",
-                      deletedRanges(of(36), of(38)));
-        }
+        testMerge("start point covered",
+                  deletedRanges(of(32), of(35)));
+        testMerge("start point at range start",
+                  deletedRanges(of(33), of(35)));
+        testMerge("start point at range end",
+                  deletedRanges(of(32), of(33)));
+
+
+        testMerge("end point covered",
+                  deletedRanges(of(36), of(40)));
+        testMerge("end point at range start",
+                  deletedRanges(of(38), of(40)));
+        testMerge("end point at range end",
+                  deletedRanges(of(36), of(38)));
     }
 
     @Test
     public void testRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             testMerge("fully covered ranges",
                       deletedRanges(of(20), of(25), of(25), of(33)));
@@ -233,7 +250,6 @@ public class RangeTrieMergeTest
     @Test
     public void testRangeOnSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             // non-overlapping
             testMerge("non-overlapping", deletedRanges(of(20), of(23)), deletedRanges(of(24), of(27)));
@@ -255,8 +271,7 @@ public class RangeTrieMergeTest
     @Test
     public void testRangesOnRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testMerges();
+        testMerges();
     }
 
     private List<TestRangeState> getTestRanges()
@@ -495,7 +510,6 @@ public class RangeTrieMergeTest
         return new TestRangeState(marker.position, newLeft, newRight);
     }
 
-
     List<TestRangeState> mergeLists(List<TestRangeState> left, List<TestRangeState> right)
     {
         int active = -1;
@@ -511,7 +525,17 @@ public class RangeTrieMergeTest
                     cmp = -1;
                 else
                 {
-                    cmp = ByteComparable.compare(nextLeft.position, nextRight.position, TrieUtil.VERSION);
+                    if (nextLeft.position == null || nextRight.position == null)
+                    {
+                        if (nextLeft.position == null)
+                            cmp = nextLeft.appliesAfter ? 1 : -1;
+                        else if (nextRight.position == null)
+                            cmp = nextRight.appliesAfter ? -1 : 1;
+                        else // both null
+                            cmp = Boolean.compare(nextLeft.appliesAfter, nextRight.appliesAfter);
+                    }
+                    else
+                        cmp = ByteComparable.compare(nextLeft.position, nextRight.position, TrieUtil.VERSION);
                     if (cmp == 0)
                         cmp = Boolean.compare(nextLeft.appliesAfter, nextRight.appliesAfter);
                 }

@@ -384,7 +384,6 @@ tails on the root branch.
 
 - SingletonCursor option to present on the return path.
 
-# TODOs
 
 - inMemoryReadTrie support to report content on the return path and putSingleton versions for:
     - content strictly to the left of the branch (lower range bound or ordered content):
@@ -396,17 +395,18 @@ tails on the root branch.
     - content strictly to the right of the branch (upper range bound)
         - forward: return path
         - reverse: with branch
-  
-  Needs multiple content slots:
-    - content (before branch) and metadata (at branch) for normal tries
-    - content + metadata + deletion branch for deletion-aware tries
-    - before + after (+ metadata?) for range tries
 
-- figure out a way to understand where content should be placed during `apply`:
-  - range tries are easy (`onReturnPath ? before : after`)
-  - apply only walks the forward path, there is no indicator to choose content vs metadata. in particular, we could lose
-    content/metadata distinction when copying a trie.
-  - perhaps some classifier as argument?
+  Done with two content slots and implementation-specific coding:
+    - normal tries only have one content slot
+    - InMemoryTrie has an option to be "ordered" and presented content on the return path in reverse direction
+    - range tries have two slots, one strictly before and one strictly after the branch
+    - deletion-aware can have normal content (ordered or not) and alternate branches
+    - alternate branches are range tries, with their two slots and logic
+
+# TODOs
+
+- implement proper return path treatment in deletions
+- implement everything needed for deletion-aware
 
 
 - `hasContent` flag

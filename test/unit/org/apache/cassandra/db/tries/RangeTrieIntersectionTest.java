@@ -20,10 +20,14 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.google.common.collect.Lists;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -33,6 +37,7 @@ import static org.apache.cassandra.db.tries.TestRangeState.fromList;
 import static org.apache.cassandra.db.tries.TestRangeState.toList;
 import static org.junit.Assert.assertEquals;
 
+@RunWith(Parameterized.class)
 public class RangeTrieIntersectionTest
 {
     @BeforeClass
@@ -42,7 +47,18 @@ public class RangeTrieIntersectionTest
     }
 
     static final int bitsNeeded = 4;
-    int bits = bitsNeeded;
+
+
+    @Parameterized.Parameters(name = "bits per transition {0}")
+    public static List<Object> data()
+    {
+        return IntStream.rangeClosed(1, bitsNeeded)
+                        .mapToObj(x -> x)
+                        .collect(Collectors.toList());
+    }
+
+    @Parameterized.Parameter(0)
+    public final int bits = bitsNeeded;
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value)
@@ -87,7 +103,6 @@ public class RangeTrieIntersectionTest
     @Test
     public void testSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
@@ -162,7 +177,6 @@ public class RangeTrieIntersectionTest
     @Test
     public void testRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12)));
 
@@ -203,7 +217,6 @@ public class RangeTrieIntersectionTest
     @Test
     public void testRangeOnSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             RangeTrie<TestRangeState> trie = fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13)));
 
@@ -227,8 +240,7 @@ public class RangeTrieIntersectionTest
     @Test
     public void testRangesOnRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13))));
+        testIntersections(fromList(asList(from(1, 10), to(4, 10), from(6, 11), change(8, 11, 12), to(10, 12), from(13, 13), to(14, 13))));
     }
 
     private void testIntersections(RangeTrie<TestRangeState> trie)

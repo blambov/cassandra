@@ -187,11 +187,16 @@ class TestRangeState implements RangeState<TestRangeState>
         TestRangeState prev = null;
         for (TestRangeState marker : markers)
         {
-            if (prev != null)
+            if (prev != null && prev.position != null && marker != null && marker.position != null)
                 assertTrue("Order violation " + toString(prev.position, prev.appliesAfter) + " vs " + toString(marker.position, marker.appliesAfter),
                            ByteComparable.compare(prev.position, marker.position, TrieUtil.VERSION) < 0 ||
                            ByteComparable.compare(prev.position, marker.position, TrieUtil.VERSION) == 0 && !prev.appliesAfter && marker.appliesAfter);
-            assertEquals("Range close violation", active, marker.leftSide);
+
+            if (marker != null)
+                assertEquals("Range close violation", active, marker.leftSide);
+            else
+                assertEquals("Open range at end", null, active);
+
             assertTrue(marker.leftSide != marker.rightSide);
             prev = marker;
             active = marker.rightSide;
@@ -267,7 +272,10 @@ class TestRangeState implements RangeState<TestRangeState>
         {
             try
             {
-                trie.putRecursive(i.position, i, i.appliesAfter, (ex, n) -> n);
+                ByteComparable pos = i.position;
+                if (pos == null)
+                    pos = ByteComparable.EMPTY;
+                trie.putRecursive(pos, i, i.appliesAfter, (ex, n) -> n);
             }
             catch (TrieSpaceExhaustedException e)
             {

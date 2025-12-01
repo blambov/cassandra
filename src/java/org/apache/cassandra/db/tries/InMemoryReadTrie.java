@@ -1376,11 +1376,19 @@ public abstract class InMemoryReadTrie<T>
                     builder.append("       ");
                 builder.append(Integer.toBinaryString(i | 8).substring(1)) // or and substring implement %03b
                        .append(" -> ");
-                builder.append(child);
+                builder.append(dumpChild(child));
                 if (level < 2)
                     dumpSplitNode(child, level + 1, builder);
             }
         }
+    }
+
+    String dumpChild(int node)
+    {
+        if (isNullOrLeaf(node))
+            return dumpNode(node);
+        else
+            return Integer.toString(node, 16);
     }
 
     /// For use in debugging, dump info about the given node.
@@ -1390,11 +1398,13 @@ public abstract class InMemoryReadTrie<T>
         if (isNull(node))
             return "NONE";
         else if (isLeaf(node))
-            return "~" + (node & CONTENT_INDEX_MASK);
+            return "~" + (node & CONTENT_INDEX_MASK) +
+                   ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0 ? "↑" : "") +
+                   ((node & CONTENT_AFTER_BRANCH_REVERSE) != 0 ? "↓" : "");
         else
         {
             StringBuilder builder = new StringBuilder();
-            builder.append(node + " ");
+            builder.append(Integer.toString(node, 16) + " ");
             switch (offset(node))
             {
                 case SPARSE_OFFSET:
@@ -1406,7 +1416,7 @@ public abstract class InMemoryReadTrie<T>
                         if (child != NONE)
                             builder.append(String.format("%02x", getUnsignedByte(node + SPARSE_BYTES_OFFSET + i)))
                                    .append(" -> ")
-                                   .append(child)
+                                   .append(dumpChild(child))
                                    .append('\n');
                     }
                     break;
@@ -1423,9 +1433,9 @@ public abstract class InMemoryReadTrie<T>
                     int flags = getUnsignedByte(node + PREFIX_FLAGS_OFFSET);
                     final int content = getIntVolatile(node + PREFIX_CONTENT_OFFSET);
                     final int alternate = getIntVolatile(node + PREFIX_ALTERNATE_OFFSET);
-                    builder.append(content < 0 ? "~" + (content & CONTENT_INDEX_MASK) : "" + content);
+                    builder.append(dumpChild(content));
                     if (alternate != NONE)
-                        builder.append(" alt:" + alternate);
+                        builder.append(" alt: " + dumpChild(alternate));
                     int child = followPrefixTransition(node);
                     builder.append(" -> ")
                            .append(dumpNode(child));
@@ -1437,7 +1447,7 @@ public abstract class InMemoryReadTrie<T>
                     for (int i = 0; i < chainCellLength(node); ++i)
                         builder.append(String.format("%02x", getUnsignedByte(node + i)));
                     builder.append(" -> ")
-                           .append(getIntVolatile(node + chainCellLength(node)));
+                           .append(dumpChild(getIntVolatile(node + chainCellLength(node))));
                     break;
                 }
             }
