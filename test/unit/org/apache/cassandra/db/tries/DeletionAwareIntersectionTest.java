@@ -22,6 +22,8 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
@@ -29,13 +31,13 @@ import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.verify;
 
+@RunWith(Parameterized.class)
 public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
 {
 
     @Test
     public void testSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             testIntersection("no intersection");
 
@@ -98,7 +100,6 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
     @Test
     public void testRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             testIntersection("fully covered ranges",
                              array(before(20), before(25), before(25), before(33)));
@@ -123,7 +124,6 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
     @Test
     public void testRangeOnSubtrie()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             // non-overlapping
             testIntersection("", array(before(20), before(23)), array(before(24), before(27)));
@@ -145,7 +145,6 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
     @Test
     public void testRangesOnRanges()
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
             testIntersections();
     }
 
@@ -288,7 +287,7 @@ public class DeletionAwareIntersectionTest extends DeletionAwareTestBase
                 ByteComparable[] ranges = sets[toRemove];
                 System.out.println("Ranges:  " + toString(ranges));
                 testIntersection(message + " " + toRemove,
-                                 trie.intersect(TrieSet.ranges(TrieUtil.VERSION, ranges)),
+                                 trie.intersect(TrieSet.slices(TrieUtil.VERSION, ranges)),
                                  intersect(intersected, ranges),
                                  Arrays.stream(sets)
                                        .filter(x -> x != ranges)

@@ -287,10 +287,10 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                     applyDeletionRange(position);
 
                 position = mutationCursor.advance();
-                depth = Cursor.depth(position);
+                depth = Cursor.depth(position) + initialDepth;
                 // Descend but do not modify anything yet. If the position is on the return path, we can still follow
                 // it, `applyDeletionRange` will take care to not apply it to content or descendants.
-                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
+                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
                     break;
                 assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
             }

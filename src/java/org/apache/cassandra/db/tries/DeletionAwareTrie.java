@@ -113,11 +113,34 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param deletion A _covering_ range state that defines the deletion information
     /// @return A deletion-aware trie containing the deletion range
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletion(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    DeletionAwareTrie<T, D> deletionRange(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.range(left, right, byteComparableVersion, deletion);
         return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
     }
+
+    /// Creates a deletion-aware trie containing a single deletion range.
+    ///
+    /// This method creates a trie that represents a deletion covering the range from `prefixInDataTrie`+`left` to
+    /// `prefixInDataTrie`+`right`. The deletion is presented as a deletion branch at the specified prefix, allowing
+    /// the user to take advantage of predefined deletion-branch positions.
+    ///
+    /// Range boundaries should be distinct from live data positions; the inclusivity of the boundary point and any
+    /// position below it is not specified or guaranteed to be preserved under trie transformations.
+    ///
+    /// @param prefixInDataTrie The position in the data trie where this deletion branch is rooted
+    /// @param left The left boundary of the deletion range
+    /// @param right The right boundary of the deletion range
+    /// @param byteComparableVersion The version to use for byte-comparable serialization
+    /// @param deletion A _covering_ range state that defines the deletion information
+    /// @return A deletion-aware trie containing the deletion range
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> deletionSlice(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    {
+        RangeTrie<D> rangeTrie = RangeTrie.slice(left, right, byteComparableVersion, deletion);
+        return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
+    }
+
 
     /// Creates a deletion-aware trie from an existing range trie representing deletions.
     ///

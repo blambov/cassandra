@@ -54,13 +54,24 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
         return dir -> new SingletonCursor.Range<>(dir, key.asComparableBytes(byteComparableVersion), byteComparableVersion, false, v);
     }
 
-    /// Returns a range trie covering a single range. This performs the same process as intersecting a covered
-    /// range by a set, converting the passed marker to the proper state depending on the set's coverage and boundaries.
+    /// Returns a range trie covering a single range, both sides and covered branches included. This performs the same
+    /// process as intersecting a covered range by a set, converting the passed marker to the proper state depending on
+    /// the set's coverage and boundaries.
     /// To this end, the passed marker must be a covering state (i.e. it must not be reportable, and must have the same
     /// forward and reverse `precedingState`).
     static <S extends RangeState<S>> RangeTrie<S> range(ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, S v)
     {
         return fromSet(TrieSet.range(byteComparableVersion, left, right), v);
+    }
+
+    /// Returns a range trie covering a single range, start inclusive and end exclusive. This performs the same process
+    /// as intersecting a covered range by a set, converting the passed marker to the proper state depending on the
+    /// set's coverage and boundaries.
+    /// To this end, the passed marker must be a covering state (i.e. it must not be reportable, and must have the same
+    /// forward and reverse `precedingState`).
+    static <S extends RangeState<S>> RangeTrie<S> slice(ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, S v)
+    {
+        return fromSet(TrieSet.slice(byteComparableVersion, left, right), v);
     }
 
     /// Returns a range trie covering the given set. This performs the same process as intersecting a covered

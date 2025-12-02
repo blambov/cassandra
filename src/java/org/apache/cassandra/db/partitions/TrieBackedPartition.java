@@ -382,11 +382,11 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletion(ByteComparable.EMPTY,
-                                                  start,
-                                                  end,
-                                                  BYTE_COMPARABLE_VERSION,
-                                                  TrieTombstoneMarker.covering(deletionTime)),
+            trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
+                                                       start,
+                                                       end,
+                                                       BYTE_COMPARABLE_VERSION,
+                                                       TrieTombstoneMarker.covering(deletionTime)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),

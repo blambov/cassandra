@@ -26,6 +26,8 @@ import java.util.stream.Collectors;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -47,6 +49,7 @@ import static org.quicktheories.generators.SourceDSL.lists;
 /// comprehensive randomized testing of trie operations, merging, and deletion handling.
 /// It complements the structured tests in [DeletionAwareMergeTest] with property-based
 /// testing to catch edge cases and verify invariants across a wide range of inputs.
+@RunWith(Parameterized.class)
 public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
 {
     @BeforeClass
@@ -67,20 +70,7 @@ public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
                         .zip(integers().between(1, MAX_TIMESTAMP),
                              (pos, ts) -> new LivePoint(at(pos), ts));
     }
-    
-    ///
-    /// Generator for random deletion markers.
-    /// Creates `DeletionMarker` instances with random positions and deletion values.
-    ///
-    private Gen<DeletionMarker> deletionMarkerGen()
-    {
-        return integers().between(0, MAX_VALUE)
-                        .zip(integers().between(1, MAX_TIMESTAMP),
-                             integers().between(-1, MAX_TIMESTAMP),
-                             integers().between(-1, MAX_TIMESTAMP),
-                             (pos, left, at, right) -> new DeletionMarker(before(pos), left, at, right));
-    }
-    
+
     /// Generator for random live point lists.
     /// Creates sorted lists of `LivePoint` instances for trie construction.
     private Gen<List<DataPoint>> dataPointListGen()
@@ -305,7 +295,7 @@ public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
 
                 // Create a live point and a deletion that should affect it
                 LivePoint live = new LivePoint(at(pos), liveTs);
-                DeletionMarker deletion = new DeletionMarker(before(pos), -1, deleteTs, deleteTs);
+                DeletionMarker deletion = new DeletionMarker(before(pos), -1, deleteTs);
 
                 // Apply deletion to live data
                 LivePoint result = deletion.applyTo(live);

@@ -58,7 +58,7 @@ public class RangeTrieIntersectionTest
     }
 
     @Parameterized.Parameter(0)
-    public final int bits = bitsNeeded;
+    public int bits = bitsNeeded;
 
     /** Creates a {@link ByteComparable} for the provided value by splitting the integer in sequences of "bits" bits. */
     private ByteComparable of(int value)

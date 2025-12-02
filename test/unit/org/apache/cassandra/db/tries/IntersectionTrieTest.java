@@ -75,7 +75,7 @@ public class IntersectionTrieTest
     }
 
     @Parameterized.Parameter(0)
-    public final int bits = bitsNeeded;
+    public int bits = bitsNeeded;
 
     public static final Trie.CollectionMergeResolver<Integer> RESOLVER = new Trie.CollectionMergeResolver<>()
     {

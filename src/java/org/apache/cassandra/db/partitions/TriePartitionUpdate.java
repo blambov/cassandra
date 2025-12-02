@@ -471,11 +471,11 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         {
             try
             {
-                trie.apply(DeletionAwareTrie.deletion(ByteComparable.EMPTY,
-                                                      start,
-                                                      end,
-                                                      BYTE_COMPARABLE_VERSION,
-                                                      TrieTombstoneMarker.covering(deletionTime)),
+                trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
+                                                           start,
+                                                           end,
+                                                           BYTE_COMPARABLE_VERSION,
+                                                           TrieTombstoneMarker.covering(deletionTime)),
                            this::merge,
                            this::mergeTombstones,
                            this::applyTombstone,
