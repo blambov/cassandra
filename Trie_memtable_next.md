@@ -403,11 +403,13 @@ tails on the root branch.
     - deletion-aware can have normal content (ordered or not) and alternate branches
     - alternate branches are range tries, with their two slots and logic
 
+- implement proper return path treatment in InMemoryTrie delete
+
 # TODOs
 
-- implement proper return path treatment in deletions
 - implement everything needed for deletion-aware
 
+- Add tests for prefixed ranged throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware)
 
 - `hasContent` flag
 - `hasDeletionBranch` flag on deletion-aware

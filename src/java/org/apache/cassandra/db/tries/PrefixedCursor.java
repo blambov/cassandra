@@ -89,7 +89,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
 
         int depthOfPrefix = Cursor.depth(currentPosition);
         int incomingTransition = nextPrefixByte;
-        int nextPrefixByte = prefixBytes.next();
+        nextPrefixByte = prefixBytes.next();
         ++depthOfPrefix;
 
         while (nextPrefixByte != ByteSource.END_OF_STREAM)

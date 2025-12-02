@@ -274,42 +274,25 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         @Override
         void apply() throws TrieSpaceExhaustedException
         {
-            // A TrieSet may start already in a deleted range. If so, pretend there's a START at the initial position.
-            S content = mutationCursor.precedingState();
-            if (coveringStateApplies(content))
-                content = content.asBoundary(Direction.FORWARD);
-            else
-                content = mutationCursor.content();
-
             int depth = state.currentDepth;
+            long position = mutationCursor.encodedPosition();
+            assert !Cursor.isOnReturnPath(position) : "Cursor cannot start with position on return path.";
             while (true)
             {
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
+                S content = mutationCursor.content();
                 if (content != null)
-                {
-                    applyCoveringContent(content);
-                    S mutationCoveringState = content.succedingState(Direction.FORWARD); // Use the right side of the deletion
-                    if (coveringStateApplies(mutationCoveringState))
-                    {
-                        boolean done = !applyDeletionRange(mutationCoveringState);
-                        if (done)
-                            break;
-                    }
-                }
+                    applyDeletionRange(position);
 
-                long position = mutationCursor.advance();
-                // TODO: deal with ascend path
-                assert !Cursor.isOnReturnPath(position) : "FIXME";
-
-                depth = Cursor.depth(position) + initialDepth;
-                // Descend but do not modify anything yet.
-                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
+                position = mutationCursor.advance();
+                depth = Cursor.depth(position);
+                // Descend but do not modify anything yet. If the position is on the return path, we can still follow
+                // it, `applyDeletionRange` will take care to not apply it to content or descendants.
+                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
                     break;
-
-                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
-                content = mutationCursor.content();
+                assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
             }
 
             assert state.currentDepth == initialDepth;
@@ -318,65 +301,55 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         /// Walk all existing content covered under a deletion. Returns true if the caller needs to continue processing
         /// the mutation cursor, and false if the mutation has been exhausted (i.e. the range was open on the right
         /// and we have consumed all existing content).
-        boolean applyDeletionRange(S mutationCoveringState) throws TrieSpaceExhaustedException
+        void applyDeletionRange(long position) throws TrieSpaceExhaustedException
         {
+            S mutationCoveringState = null;
             boolean atMutation = true;
-            long position = mutationCursor.encodedPosition();
             int depth = Cursor.depth(position) + initialDepth;
             int transition = Cursor.incomingTransition(position);
+            boolean onReturnPath = Cursor.isOnReturnPath(position);
             // We are walking both tries in parallel.
             while (true)
             {
                 if (atMutation)
                 {
+                    if (state.currentDepth < forcedCopyDepth)
+                        forcedCopyDepth = needsForcedCopy.test(this) ? state.currentDepth : Integer.MAX_VALUE;
+
+                    S mutationContent = mutationCursor.content();
+
+                    if (mutationContent != null)
+                    {
+                        if (!onReturnPath)
+                            applyContent(mutationContent);
+                        mutationCoveringState = mutationContent.succedingState(Direction.FORWARD);
+                    }
+                    else if (!onReturnPath)
+                        applyContent(mutationCoveringState);
+
+                    if (mutationCoveringState == null)
+                        return;
 
                     position = mutationCursor.advance();
                     depth = Cursor.depth(position) + initialDepth;
                     transition = Cursor.incomingTransition(position);
-                    atMutation = false;
+                    onReturnPath = Cursor.isOnReturnPath(position);
                 }
+                else
+                    applyContent(mutationCoveringState);
 
-                // Mutation can be open on the right (i.e. not have a closing marker).
-                if (depth > 0)
-                {
-                    if (depth < forcedCopyDepth)
-                        forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
-                    atMutation = !state.advanceToNextExistingOr(depth, transition, forcedCopyDepth);
-                }
-                else if (!state.advanceToNextExisting(forcedCopyDepth))
-                    return false;
-
-                T existingContent = state.getDescentPathContent();
-                S mutationContent = atMutation ? mutationCursor.content() : null;
-                if (mutationContent != null)
-                {
-                    applyCoveringContent(mutationContent);
-                    mutationCoveringState = mutationContent.succedingState(Direction.FORWARD);
-                    if (!coveringStateApplies(mutationCoveringState))
-                        return true; // mutation deletion range was closed, we can continue normal mutation cursor iteration
-                }
-                else if (existingContent != null)
-                    applyCoveringContent(mutationCoveringState);
+                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth);
             }
         }
 
-        private static <S extends RangeState<S>> boolean coveringStateApplies(S state)
+        void applyContent(S content) throws TrieSpaceExhaustedException
         {
-            // Sets return non-null state (START_END_PREFIX) for regions that they do not cover. Check that too.
-            return state != null && state != TrieSetCursor.RangeState.NOT_CONTAINED;
-        }
-
-        void applyCoveringContent(S content) throws TrieSpaceExhaustedException
-        {
-            if (content != null)
+            T existingContent = state.getDescentPathContent();
+            if (existingContent != null)
             {
-                T existingContent = state.getDescentPathContent();
-                if (existingContent != null)
-                {
-                    T combinedContent = transformer.apply(existingContent, content, state);
-                    state.setDescentPathContent(combinedContent, // can be null
-                                     state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
-                }
+                T combinedContent = transformer.apply(existingContent, content, state);
+                state.setDescentPathContent(combinedContent, // can be null
+                                            state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
             }
         }
 

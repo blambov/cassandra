@@ -1109,9 +1109,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         ///
         /// The `limitDepth` and `limitTransition` parameters specify the limit position. This must be a valid
         /// non-exhausted position.
-        boolean advanceToNextExistingOr(int limitDepth, int limitTransition, int forcedCopyDepth) throws TrieSpaceExhaustedException
+        boolean advanceToNextExistingOr(int limitDepth, int limitTransition, boolean limitIsOnReturnPath, int forcedCopyDepth) throws TrieSpaceExhaustedException
         {
-            assert limitDepth > 0;
+            assert limitDepth >= 0;
             while (true)
             {
                 int currentTransition = transition();
@@ -1126,6 +1126,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                     descend(nextTransition);
                     return true;
                 }
+
+                if (limitIsOnReturnPath && currentDepth == limitDepth && (limitDepth == 0 || transitionAtDepth(currentDepth - 1) == limitTransition))
+                    return false;
 
                 attachAndMoveToParentState(forcedCopyDepth);
             }

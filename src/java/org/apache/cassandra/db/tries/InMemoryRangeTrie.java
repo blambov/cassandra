@@ -304,7 +304,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         {
             while (currentDepth >= Math.max(depth, 1))
             {
-                if (isOnReturnPath && depth == currentDepth && transition == transition())
+                if (isOnReturnPath && depth == currentDepth && transition == transitionAtDepth(currentDepth - 1))
                     return true;
 
                 // There are no more children. Ascend to the parent state to continue walk.
@@ -483,10 +483,10 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
                 U content = mutationCursor.content();
-                if (content != null)
+                if (content != null && content.succedingState(Direction.FORWARD) != null)
                 {
                     S existingCoveringState = getExistingCoveringState(Cursor.isOnReturnPath(position));
-                    applyDeletionRange(rightSideAsCovering(existingCoveringState));
+                    applyDeletionRange(rightSideAsCovering(existingCoveringState), position);
                 }
 
                 position = mutationCursor.advance();
@@ -507,11 +507,10 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             state.attachAndMoveToParentStateWithAscentPathContent(combinedId, forcedCopyDepth);
         }
 
-        void applyDeletionRange(S existingCoveringState)
+        void applyDeletionRange(S existingCoveringState, long position)
         throws TrieSpaceExhaustedException
         {
             AdvanceResult advance = AdvanceResult.AT_LIMIT;
-            long position = mutationCursor.encodedPosition();
             int limitDepth = Cursor.depth(position);
             int limitTransition = Cursor.incomingTransition(position);
             boolean limitOnReturnPath = Cursor.isOnReturnPath(position);

@@ -27,11 +27,15 @@ import java.util.NavigableMap;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.config.CassandraRelevantProperties;
@@ -48,6 +52,7 @@ import static org.apache.cassandra.db.tries.TrieUtil.toBound;
 import static org.apache.cassandra.utils.bytecomparable.ByteComparable.Preencoded;
 import static org.junit.Assert.assertEquals;
 
+@RunWith(Parameterized.class)
 public class IntersectionTrieTest
 {
     @BeforeClass
@@ -60,8 +65,17 @@ public class IntersectionTrieTest
     Random rand = new Random();
     int seed = rand.nextInt();
     final static int bitsNeeded = 4;
-    int bits = bitsNeeded;
 
+    @Parameterized.Parameters(name = "bits per transition {0}")
+    public static List<Object> data()
+    {
+        return IntStream.rangeClosed(1, bitsNeeded)
+                        .mapToObj(x -> x)
+                        .collect(Collectors.toList());
+    }
+
+    @Parameterized.Parameter(0)
+    public final int bits = bitsNeeded;
 
     public static final Trie.CollectionMergeResolver<Integer> RESOLVER = new Trie.CollectionMergeResolver<>()
     {
@@ -182,7 +196,6 @@ public class IntersectionTrieTest
     @Test
     public void testSimpleSubtrie() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 
@@ -208,7 +221,6 @@ public class IntersectionTrieTest
     @Test
     public void testRangeOnSubtrie() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 
@@ -266,7 +278,6 @@ public class IntersectionTrieTest
     @Test
     public void testSimpleRanges() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 
@@ -305,18 +316,18 @@ public class IntersectionTrieTest
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8, 9), trie,
                              TrieSet.ranges(VERSION, null, before(6), before(7), null));
 
-//            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie,
-//                             TrieSet.ranges(VERSION, before(3), before(6), before(6), before(9)));
+            // Test some touching slices.
+            testIntersection("", asList(3, 4, 5, 6, 7, 8), trie,
+                             TrieSet.slices(VERSION, before(3), before(6), before(6), before(9)));
 
-//            testIntersection("", asList(3, 4, 5, 7, 8), trie,
-//                             TrieSet.ranges(VERSION, before(3), before(6), before(6), before(6), before(7), before(9)));
+            testIntersection("", asList(3, 4, 5, 7, 8), trie,
+                             TrieSet.slices(VERSION, before(3), before(6), before(6), before(6), before(7), before(9)));
         }
     }
 
     @Test
     public void testRangesOnRangesOne() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             Trie<Integer> trie = fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
 
@@ -354,24 +365,21 @@ public class IntersectionTrieTest
     @Test
     public void testRangesOnRanges() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
+        testIntersections(fromList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
     }
 
     @Test
     public void testRangesOnMerge() throws TrieSpaceExhaustedException
     {
 
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(Trie.merge(ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
-                                                          fromList(4, 6, 7, 9, 10, 11, 12, 13)),
-                                         RESOLVER));
+        testIntersections(Trie.merge(ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
+                                                      fromList(4, 6, 7, 9, 10, 11, 12, 13)),
+                                     RESOLVER));
     }
 
     @Test
     public void testRangesOnCollectionMerge2() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
         {
             List<Trie<Integer>> inputs = ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
                                                           fromList(4, 6, 7, 9, 10, 11, 12, 13));
@@ -382,30 +390,28 @@ public class IntersectionTrieTest
     @Test
     public void testRangesOnCollectionMerge3() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(Trie.merge(
-                    ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
-                                     fromList(4, 6, 9, 10),
-                                     fromList(4, 7, 11, 12, 13)),
-                    RESOLVER));
+        testIntersections(Trie.merge(
+            ImmutableList.of(fromList(0, 1, 2, 3, 5, 8, 9, 13, 14),
+                             fromList(4, 6, 9, 10),
+                             fromList(4, 7, 11, 12, 13)),
+            RESOLVER));
     }
 
     @Test
     public void testRangesOnCollectionMerge10() throws TrieSpaceExhaustedException
     {
-        for (bits = bitsNeeded; bits > 0; --bits)
-            testIntersections(Trie.merge(
-                    ImmutableList.of(fromList(0, 14),
-                                     fromList(1, 2),
-                                     fromList(2, 13),
-                                     fromList(3),
-                                     fromList(4, 7),
-                                     fromList(5, 9, 12),
-                                     fromList(6, 8),
-                                     fromList(7),
-                                     fromList(8),
-                                     fromList(10, 11)),
-                    RESOLVER));
+        testIntersections(Trie.merge(
+            ImmutableList.of(fromList(0, 14),
+                             fromList(1, 2),
+                             fromList(2, 13),
+                             fromList(3),
+                             fromList(4, 7),
+                             fromList(5, 9, 12),
+                             fromList(6, 8),
+                             fromList(7),
+                             fromList(8),
+                             fromList(10, 11)),
+            RESOLVER));
     }
 
     private void testIntersections(Trie<Integer> trie)
