@@ -82,7 +82,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         InMemoryRangeCursor(InMemoryReadTrie<S> trie, Direction direction, int root)
         {
-            super(trie, direction, root);
+            super(trie, direction, root, true);
             activeIsSet = true;
             activeRange = null;
             prevContent = null;
@@ -191,9 +191,9 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         private S getNearestContent()
         {
-            // Walk a copy of this cursor (non-range because we are not doing anything smart with it) to find the
-            // nearest child content in the direction of the cursor.
-            return new InMemoryCursor<>(trie, direction, currentNode).advanceToContent(null);
+            // Walk a copy of this cursor to find the nearest child content in the direction of the cursor.
+            // (Note: we can't use a non-range cursor because that does not use secondary content in prefixes.)
+            return new InMemoryRangeCursor<>(trie, direction, currentNode).advanceToContent(null);
         }
 
         @Override
@@ -348,7 +348,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         int getReturnPathContentId(int fullNode)
         {
-            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH_FORWARD) != 0)
+            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH) != 0)
                 return fullNode;
             else if (offset(fullNode) == PREFIX_OFFSET)
                 return trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET);
@@ -358,7 +358,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         int getDescentPathContentId(int fullNode)
         {
-            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH_FORWARD) == 0)
+            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH) == 0)
                 return fullNode;
             else if (offset(fullNode) == PREFIX_OFFSET)
                 return trie().getIntVolatile(fullNode + PREFIX_CONTENT_OFFSET);

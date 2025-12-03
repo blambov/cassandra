@@ -119,7 +119,7 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
     {
         // Note: Because we don't ensure order when calling resolve, just use a hash of the key as payload
         // (so that all sources have the same value).
-        int payload = InMemoryTrieTestBase.asString(b).hashCode();
+        int payload = InMemoryTrieTestBase.asString(b).hashCode() & 0x7fffffff; // must be positive for TestRangeState
         ByteBuffer v = ByteBufferUtil.bytes(payload);
         content.put(b, v);
         if (InMemoryTrieTestBase.VERBOSE)
@@ -161,7 +161,11 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
                                        return (v instanceof ByteBuffer) ? (ByteBuffer) v : null;
 
                                    assert rs != null;
-                                   return ByteBufferUtil.bytes(rs.leftSide);
+                                   // We only want one side of the branch deletion marker pairs.
+                                   if (rs.rightSide == -1)
+                                       return null;
+
+                                   return ByteBufferUtil.bytes(rs.rightSide);
                                });
     }
 }

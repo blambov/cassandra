@@ -117,7 +117,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     public InMemoryCursor<T> makeCursor(Direction direction)
     {
-        return new InMemoryCursor<>(this, direction, root);
+        return new InMemoryCursor<>(this, direction, root, presentForwardPathContentBeforeBranch);
     }
 
     protected long emptySizeOnHeap()

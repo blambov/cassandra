@@ -91,7 +91,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     {
         DeletionAwareInMemoryCursor(InMemoryDeletionAwareTrie<T, D> trie, Direction direction, int root)
         {
-            super(trie, direction, root);
+            super(trie, direction, root, trie.presentForwardPathContentBeforeBranch);
         }
 
         @Override

@@ -63,7 +63,7 @@ public class RangeTrieMergeTest
     }
 
     @Parameterized.Parameter(0)
-    public int bits = bitsNeeded;
+    public final int bits = bitsNeeded;
 
     @Parameterized.Parameter(1)
     public final boolean useNulls = true;

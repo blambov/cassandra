@@ -428,6 +428,8 @@ tails on the root branch.
 
   Merges clear the flag.
 
+- Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
+
 - Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
 

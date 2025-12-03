@@ -176,11 +176,7 @@ public abstract class InMemoryReadTrie<T>
     static final int CONTENT_FLAGS_SHIFT = 29;
     static final int CONTENT_INDEX_MASK = (1 << CONTENT_FLAGS_SHIFT) - 1;
 
-    // metadata has neither
-    // lower bounds and ordered content have CONTENT_AFTER_BRANCH_REVERSE
-    // upper bounds have CONTENT_AFTER_BRANCH_FORWARD
-    static final int CONTENT_AFTER_BRANCH_FORWARD = 1 << 30;
-    static final int CONTENT_AFTER_BRANCH_REVERSE = 1 << 29;
+    static final int CONTENT_AFTER_BRANCH = 1 << 30;
 
 
     /// Value used as null for node pointers.
@@ -657,11 +653,13 @@ public abstract class InMemoryReadTrie<T>
         protected int depth;
         protected T content;
         final Direction direction;
+        final boolean presentForwardPathContentBeforeBranch;
 
-        InMemoryCursor(InMemoryReadTrie<T> trie, Direction direction, int root)
+        InMemoryCursor(InMemoryReadTrie<T> trie, Direction direction, int root, boolean presentForwardPathContentBeforeBranch)
         {
             this.trie = trie;
             this.direction = direction;
+            this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
             depth = 0;
             currentPosition = Cursor.rootPosition(direction);
             setCurrentNodeAndApplyPrefixes(root, 0, 0);
@@ -771,7 +769,7 @@ public abstract class InMemoryReadTrie<T>
         public Cursor<T> tailCursor(Direction dir)
         {
             assert !Cursor.isExhausted(currentPosition) : "tailCursor called on exhausted cursor";
-            return new InMemoryCursor<>(trie, dir, currentFullNode);
+            return new InMemoryCursor<>(trie, dir, currentFullNode, presentForwardPathContentBeforeBranch);
         }
 
         long exhausted()
@@ -1205,7 +1203,12 @@ public abstract class InMemoryReadTrie<T>
 
         protected boolean shouldPresentOnTheReturnPath(int node)
         {
-            return (node & direction.select(CONTENT_AFTER_BRANCH_FORWARD, CONTENT_AFTER_BRANCH_REVERSE)) != 0;
+            if (direction.isForward())
+                return (node & CONTENT_AFTER_BRANCH) != 0;
+            else if (presentForwardPathContentBeforeBranch)
+                return (node & CONTENT_AFTER_BRANCH) == 0;
+            else
+                return false;
         }
 
         long descendInto(int child, int transition)
@@ -1399,8 +1402,7 @@ public abstract class InMemoryReadTrie<T>
             return "NONE";
         else if (isLeaf(node))
             return "~" + (node & CONTENT_INDEX_MASK) +
-                   ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0 ? "↑" : "") +
-                   ((node & CONTENT_AFTER_BRANCH_REVERSE) != 0 ? "↓" : "");
+                   ((node & CONTENT_AFTER_BRANCH) != 0 ? "↑" : "");
         else
         {
             StringBuilder builder = new StringBuilder();

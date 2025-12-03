@@ -65,7 +65,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     final MemoryAllocationStrategy cellAllocator;
     final MemoryAllocationStrategy objectAllocator;
 
-    final boolean markForwardPathContentBeforeBranch;
+    final boolean presentForwardPathContentBeforeBranch;
 
     // constants for space calculations
     private static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
@@ -75,14 +75,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         SHORT, LONG
     }
 
-    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean markForwardPathContentBeforeBranch)
+    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean presentForwardPathContentBeforeBranch)
     {
         super(byteComparableVersion,
               new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
               new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
-        this.markForwardPathContentBeforeBranch = markForwardPathContentBeforeBranch;
+        this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
 
         switch (lifetime)
         {
@@ -212,9 +212,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     private int formContentId(int index, boolean contentAfterBranch)
     {
-        return index | (1 << 31) | (contentAfterBranch ? CONTENT_AFTER_BRANCH_FORWARD
-                                                       : markForwardPathContentBeforeBranch ? CONTENT_AFTER_BRANCH_REVERSE
-                                                                                            : 0);
+        return index | (1 << 31) | (contentAfterBranch ? CONTENT_AFTER_BRANCH : 0);
     }
 
     /// Change the content associated with a given content id.
@@ -1179,7 +1177,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             int existingPostContentNode;
             if (isLeaf(existingFullNode))
             {
-                existingContentId = (existingFullNode & CONTENT_AFTER_BRANCH_FORWARD) == 0 ? existingFullNode : NONE;
+                existingContentId = (existingFullNode & CONTENT_AFTER_BRANCH) == 0 ? existingFullNode : NONE;
                 existingPostContentNode = NONE;
             }
             else if (offset(existingFullNode) == PREFIX_OFFSET)
@@ -1685,7 +1683,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
             T newContent = transformer.apply(getContent(contentId), value);
 
-            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH_FORWARD) != 0))
+            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH) != 0))
             {
                 // We already have content, but we also need to add content on the other side of the branch.
                 if (newContent == null)
