@@ -33,7 +33,6 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -395,7 +394,7 @@ public class TrieUtil
 
     public static <S extends RangeState<S>> RangeTrie<S> withRootMetadata(RangeTrie<S> wrapped, S metadata)
     {
-        return wrapped.mergeWith(RangeTrie.metadata(ByteComparable.EMPTY, VERSION, metadata), Trie.throwingResolver());
+        return wrapped.mergeWith(RangeTrie.point(ByteComparable.EMPTY, VERSION, true, metadata), Trie.throwingResolver());
     }
 
     public static <T, D extends RangeState<D>> DeletionAwareTrie<T, D> withRootMetadata(DeletionAwareTrie<T, D> wrapped, T metadata)

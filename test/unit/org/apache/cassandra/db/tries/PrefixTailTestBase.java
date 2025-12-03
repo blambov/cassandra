@@ -433,7 +433,15 @@ public abstract class PrefixTailTestBase<T extends InMemoryBaseTrie<Object>, Q e
                 ByteBuffer updateAsBuf = null;
 
                 if (update instanceof TestRangeState)
-                    updateAsBuf = ByteBufferUtil.bytes(((TestRangeState) update).leftSide);
+                {
+                    TestRangeState rs = (TestRangeState) update;
+                    if (rs.leftSide >= 0)
+                        updateAsBuf = ByteBufferUtil.bytes(rs.leftSide);
+                    else if (rs.rightSide >= 0)
+                        updateAsBuf = ByteBufferUtil.bytes(rs.rightSide);
+                    else
+                        output.append("Invalid range state " + rs);
+                }
                 else if (update instanceof ByteBuffer)
                     updateAsBuf = (ByteBuffer) update;
                 else

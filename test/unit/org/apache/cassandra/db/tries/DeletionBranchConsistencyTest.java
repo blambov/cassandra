@@ -97,7 +97,7 @@ extends ConsistencyTestBase<ConsistencyTestBase.TestStateMetadata,
     @Override
     DeletionAwareTrie<TestStateMetadata, TestRangeState> makeSingleton(ByteComparable b, TestStateMetadata content)
     {
-        return DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, VERSION, RangeTrie.metadata(b, VERSION, content));
+        return DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, VERSION, RangeTrie.point(b, VERSION, true, content));
     }
 
     @Override
@@ -108,7 +108,7 @@ extends ConsistencyTestBase<ConsistencyTestBase.TestStateMetadata,
 
     @Override
     DeletionAwareTrie<TestStateMetadata, TestRangeState> merge(Collection<DeletionAwareTrie<TestStateMetadata, TestRangeState>> tries,
-                                                      Trie.CollectionMergeResolver<TestStateMetadata> mergeResolver)
+                                                               Trie.CollectionMergeResolver<TestStateMetadata> mergeResolver)
     {
         return DeletionAwareTrie.merge(tries,
                                       mergeResolver,

@@ -348,22 +348,26 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         int getReturnPathContentId(int fullNode)
         {
-            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH) != 0)
-                return fullNode;
-            else if (offset(fullNode) == PREFIX_OFFSET)
-                return trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET);
-            else
+            if (isNull(fullNode))
                 return NONE;
+            if (isLeaf(fullNode))
+                return (fullNode & CONTENT_AFTER_BRANCH) != 0 ? fullNode : NONE;
+            if (offset(fullNode) == PREFIX_OFFSET)
+                return trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET);
+
+            return NONE;
         }
 
         int getDescentPathContentId(int fullNode)
         {
-            if (isLeaf(fullNode) && (fullNode & CONTENT_AFTER_BRANCH) == 0)
-                return fullNode;
-            else if (offset(fullNode) == PREFIX_OFFSET)
-                return trie().getIntVolatile(fullNode + PREFIX_CONTENT_OFFSET);
-            else
+            if (isNull(fullNode))
                 return NONE;
+            if (isLeaf(fullNode))
+                return (fullNode & CONTENT_AFTER_BRANCH) == 0 ? fullNode : NONE;
+            if (offset(fullNode) == PREFIX_OFFSET)
+                return trie().getIntVolatile(fullNode + PREFIX_CONTENT_OFFSET);
+
+            return NONE;
         }
 
         int getReturnPathContentId()
@@ -483,7 +487,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
                 U content = mutationCursor.content();
-                if (content != null && content.succedingState(Direction.FORWARD) != null)
+                if (content != null)
                 {
                     S existingCoveringState = getExistingCoveringState(Cursor.isOnReturnPath(position));
                     applyDeletionRange(rightSideAsCovering(existingCoveringState), position);

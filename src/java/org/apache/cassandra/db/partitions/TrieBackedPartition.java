@@ -382,7 +382,7 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
+            trie.apply(DeletionAwareTrie.deletionRange(ByteComparable.EMPTY,
                                                        start,
                                                        end,
                                                        BYTE_COMPARABLE_VERSION,
