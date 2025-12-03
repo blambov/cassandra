@@ -54,6 +54,7 @@ import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieEntriesIterator;
 import org.apache.cassandra.db.tries.TrieSet;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
@@ -334,10 +335,9 @@ public class TrieBackedPartition implements Partition
         ByteComparable comparableClustering = comparator.asByteComparable(clustering);
         if (!deletionTime.isLive())
         {
-            putDeletionInTrie(trie,
-                              comparableClustering,
-                              comparableClustering,
-                              deletionTime);
+            putRowDeletionInTrie(trie,
+                                 comparableClustering,
+                                 deletionTime);
         }
         if (!row.isEmptyAfterDeletion())
         {
@@ -375,6 +375,31 @@ public class TrieBackedPartition implements Partition
                           deletionTime);
     }
 
+    static void putRowDeletionInTrie(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie,
+                                     ByteComparable key,
+                                     DeletionTime deletionTime)
+    {
+        try
+        {
+            trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                        BYTE_COMPARABLE_VERSION,
+                                                        RangeTrie.point(key,
+                                                                        BYTE_COMPARABLE_VERSION,
+                                                                        true,
+                                                                        TrieTombstoneMarker.point(deletionTime))),
+                       noConflictInData(),
+                       mergeTombstoneRanges(),
+                       noIncomingSelfDeletion(),
+                       noExistingSelfDeletion(),
+                       true,
+                       x -> false);
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
     static void putDeletionInTrie(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie,
                                   ByteComparable start,
                                   ByteComparable end,
@@ -382,7 +407,7 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletionRange(ByteComparable.EMPTY,
+            trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
                                                        start,
                                                        end,
                                                        BYTE_COMPARABLE_VERSION,

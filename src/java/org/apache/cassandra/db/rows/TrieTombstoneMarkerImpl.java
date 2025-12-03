@@ -49,6 +49,11 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         return new Covering(deletionTime);
     }
 
+    static Point point(DeletionTime deletionTime)
+    {
+        return new Point(covering(deletionTime), null);
+    }
+
     static Covering combine(Covering left, Covering right)
     {
         if (left == null)
