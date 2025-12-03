@@ -1107,9 +1107,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         ///
         /// The `limitDepth` and `limitTransition` parameters specify the limit position. This must be a valid
         /// non-exhausted position.
-        boolean advanceToNextExistingOr(int limitDepth, int limitTransition, boolean limitIsOnReturnPath, int forcedCopyDepth) throws TrieSpaceExhaustedException
+        boolean advanceToNextExistingOr(int limitDepth, int limitTransition, boolean limitIsOnReturnPath, int forcedCopyDepth, int initialDepth) throws TrieSpaceExhaustedException
         {
-            assert limitDepth >= 0;
+            assert limitDepth >= initialDepth;
             while (true)
             {
                 int currentTransition = transition();
@@ -1125,7 +1125,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                     return true;
                 }
 
-                if (limitIsOnReturnPath && currentDepth == limitDepth && (limitDepth == 0 || transitionAtDepth(currentDepth - 1) == limitTransition))
+                if (limitIsOnReturnPath && currentDepth == limitDepth &&
+                    (limitDepth == initialDepth || transitionAtDepth(currentDepth - 1) == limitTransition))
                     return false;
 
                 attachAndMoveToParentState(forcedCopyDepth);
@@ -1361,11 +1362,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
             if (updatedFullNode != existingFullNode)
                 attachChild(transition(), updatedFullNode, currentDepth >= forcedCopyDepth);
-        }
-
-        int completeBranch(int forcedCopyDepth) throws TrieSpaceExhaustedException
-        {
-            return applyContent(currentDepth >= forcedCopyDepth);
         }
 
         /// Ascend and update the root at the end of processing.

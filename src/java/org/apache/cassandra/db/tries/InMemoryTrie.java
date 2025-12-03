@@ -338,7 +338,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 else
                     applyContent(mutationCoveringState);
 
-                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth);
+                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, initialDepth);
             }
         }
 

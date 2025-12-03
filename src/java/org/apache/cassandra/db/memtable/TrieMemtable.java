@@ -500,6 +500,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             return HEAP_SIZE;
         }
+
+        public void clearStats()
+        {
+            rowCountIncludingStatic = 0;
+            tombstoneCount = 0;
+        }
     }
 
     class KeySizeAndCountCollector extends TrieEntriesWalker<Object, Void>

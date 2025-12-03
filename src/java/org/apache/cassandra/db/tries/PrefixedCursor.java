@@ -75,10 +75,9 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         if (prefixDone())
             return completeAdvanceInTail(tail.advance());
 
-        currentPosition = Cursor.positionForDescentWithByte(currentPosition, nextPrefixByte);
+        long nextPosition = Cursor.positionForDescentWithByte(currentPosition, nextPrefixByte);
         nextPrefixByte = prefixBytes.next();
-        checkPrefixDone();
-        return currentPosition;
+        return setPositionAndCheckPrefixDone(nextPosition);
     }
 
     @Override
@@ -99,10 +98,10 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             incomingTransition = nextPrefixByte;
             nextPrefixByte = prefixBytes.next();
         }
-        currentPosition = Cursor.encode(depthOfPrefix, incomingTransition, direction());
-        checkPrefixDone();
-        // We can't continue with a tail advance, because there may be content or other features at the tail's root.
-        return currentPosition;
+        // Note: we can't end with applying a tail advance, because there may be content or other features at the tail's
+        // root.
+
+        return setPositionAndCheckPrefixDone(Cursor.encode(depthOfPrefix, incomingTransition, direction()));
     }
 
     @Override
@@ -118,20 +117,21 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             : "Invalid advance request to " + Cursor.toString(encodedSkipPosition) +
               " to cursor at " + Cursor.toString(currentPosition);
         nextPrefixByte = prefixBytes.next();
-        currentPosition = nextPosition;
-        checkPrefixDone();
-        return currentPosition;
+        return setPositionAndCheckPrefixDone(nextPosition);
     }
 
-    private void checkPrefixDone()
+    private long setPositionAndCheckPrefixDone(long position)
     {
         if (nextPrefixByte == ByteSource.END_OF_STREAM)
-            depthAdjustment = Cursor.depthCorrectionValue(currentPosition);
+            depthAdjustment = Cursor.depthCorrectionValue(position);
+        currentPosition = position;
+        return position;
     }
 
     private long exhausted()
     {
         currentPosition = Cursor.exhaustedPosition(currentPosition);
+        nextPrefixByte = 0; // make sure prefixDone is not engaged (we could return content or tail if it is)
         return currentPosition;
     }
 

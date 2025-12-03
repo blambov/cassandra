@@ -147,25 +147,38 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
     public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
-        assert existingContent instanceof RowData; // must be non-null, and can't be partition root
-        RowData existing = (RowData) existingContent;
+        if (existingContent instanceof TrieMemtable.PartitionData)
+            return applyPartitionDeletion((TrieMemtable.PartitionData) existingContent, updateMarker);
+        else if (existingContent instanceof RowData)
+            return applyRowDeletion((RowData) existingContent, updateMarker, keyState);
+        else
+            throw new AssertionError("Unexpected content in trie: " + existingContent);
+    }
+
+    public Object applyPartitionDeletion(TrieMemtable.PartitionData existing, TrieTombstoneMarker updateMarker)
+    {
+        indexer.onPartitionDeletion(updateMarker.deletionTime()); // static clustering is deleted only on partition deletion
+        existing.clearStats();
+        return existing;
+    }
+
+    public Object applyRowDeletion(RowData existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    {
         RowData updated = existing.delete(updateMarker.deletionTime());
         if (updated != existing)
             this.heapSize += (updated != null ? updated.unsharedHeapSizeExcludingData() : 0) - existing.unsharedHeapSizeExcludingData();
         if (updated == null)
             currentPartition.markInsertedRows(-1);
 
-        if (indexer != UpdateTransaction.NO_OP && updated != existingContent)
+        if (indexer != UpdateTransaction.NO_OP && updated != existing)
         {
             Clustering<?> clustering = clusteringFor(keyState);
             if (updated != null)
                 indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
                                   updated.toRow(clustering, DeletionTime.LIVE));
-            else if (clustering != Clustering.STATIC_CLUSTERING)
+            else
                 indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
                                   BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(updateMarker.deletionTime())));
-            else
-                indexer.onPartitionDeletion(updateMarker.deletionTime()); // static clustering is deleted only on partition deletion
         }
         return updated;
     }

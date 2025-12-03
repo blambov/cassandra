@@ -397,7 +397,12 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             if (currentDepth > 0)
                 super.attachBranchAndMoveToParentState(updatedFullNode, forcedCopyDepth);
             else
-                attachRoot(updatedFullNode, forcedCopyDepth);
+            {
+                // we need to update the root -- leave that job to complete() and abuse existingFullNode to tell it
+                // what value to use
+                setExistingFullNode(updatedFullNode);
+                --currentDepth;
+            }
         }
 
         protected int applyAscentPathContent(int ascentPathContentId, boolean forcedCopy) throws TrieSpaceExhaustedException
@@ -431,6 +436,17 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                                      ascentPathContentId,
                                      forcedCopy);
         }
+
+        void attachPreparedRoot(int updatedFullNode) throws TrieSpaceExhaustedException
+        {
+            if (updatedFullNode != trie.root)
+            {
+                // Only write to root if they are different (value doesn't change, but
+                // we don't want to invalidate the value in other cores' caches unnecessarily).
+                trie.root = updatedFullNode;
+            }
+        }
+
     }
 
     static class Mutation<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutation<S, U, RangeCursor<U>, ApplyState<S>>
@@ -458,7 +474,20 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         {
             if (state.currentDepth == 0)
                 super.complete();
-            // else we have already attached the root because of a return-path update to the root node
+            else if (state.currentDepth == -1) // root already prepared because of return-path update to the root node
+                state.attachPreparedRoot(state.existingFullNodeAtDepth(0));
+            else
+                throw new AssertionError("Unexpected depth value " + state.currentDepth);
+        }
+
+        int completeBranch() throws TrieSpaceExhaustedException
+        {
+            if (state.currentDepth == 0)
+                return state.applyContent(state.currentDepth >= forcedCopyDepth);
+            else if (state.currentDepth == -1) // root already prepared because of return-path update to the root node
+                return state.existingFullNodeAtDepth(0);
+            else
+                throw new AssertionError("Unexpected depth value " + state.currentDepth);
         }
 
         void applyContent(S existingState, U mutationState) throws TrieSpaceExhaustedException
