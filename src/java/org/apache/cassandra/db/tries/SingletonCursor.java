@@ -52,25 +52,22 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public long advance()
     {
-        if (nextTransition != ByteSource.END_OF_STREAM)
-        {
-            int currentTransition = nextTransition;
-            nextTransition = src.next();
-            long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
-            currentPosition = Cursor.positionForDescentWithByte(currentPosition, currentTransition) | returnBit;
-            return currentPosition;
-        }
-        else
-        {
-            return done();
-        }
+        if (nextTransition == ByteSource.END_OF_STREAM)
+            return doneOrRootReturnPath();
+
+        int currentTransition = nextTransition;
+        nextTransition = src.next();
+        long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
+        currentPosition = Cursor.positionForDescentWithByte(currentPosition, currentTransition) | returnBit;
+        return currentPosition;
     }
 
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
         if (nextTransition == ByteSource.END_OF_STREAM)
-            return done();
+            return doneOrRootReturnPath();
+
         int current = nextTransition;
         int depth = Cursor.depth(currentPosition);
         int next = src.next();
@@ -88,28 +85,45 @@ class SingletonCursor<T> implements Cursor<T>
         return currentPosition;
     }
 
+    private long doneOrRootReturnPath()
+    {
+        if (currentPosition == Cursor.rootPosition(direction) && presentOnReturnPath)
+            return currentPosition |= ON_RETURN_PATH_BIT;
+        return done();
+    }
+
+    private long doneOrRootReturnPath(long targetPosition)
+    {
+        if (currentPosition == Cursor.rootPosition(direction) && presentOnReturnPath)
+        {
+            currentPosition |= ON_RETURN_PATH_BIT;
+            if (Cursor.compare(targetPosition, currentPosition) <= 0)
+                return currentPosition;
+        }
+        return done();
+    }
+
     @Override
     public long skipTo(long encodedSkipPosition)
     {
-        if (nextTransition != ByteSource.END_OF_STREAM)
-        {
-            long nextPosition = Cursor.positionForDescentWithByte(currentPosition, nextTransition);
-            if (Cursor.compare(encodedSkipPosition, nextPosition) > 0)
-                return done();
+        if (nextTransition == ByteSource.END_OF_STREAM)
+            return doneOrRootReturnPath(encodedSkipPosition);
 
-            assert Cursor.depth(encodedSkipPosition) == Cursor.depth(nextPosition)
-                : "Invalid advance request to " + Cursor.toString(encodedSkipPosition) +
-                  " to cursor at " + Cursor.toString(currentPosition);
-
-            nextTransition = src.next();
-            long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
-            currentPosition = nextPosition | returnBit;
-            return currentPosition;
-        }
-        else
-        {
+        long nextPosition = Cursor.positionForDescentWithByte(currentPosition, nextTransition);
+        // Accept requests for the return path; we will recheck below.
+        if (Cursor.compare(encodedSkipPosition, nextPosition | ON_RETURN_PATH_BIT) > 0)
             return done();
-        }
+
+        assert Cursor.depth(encodedSkipPosition) == Cursor.depth(nextPosition)
+            : "Invalid advance request to " + Cursor.toString(encodedSkipPosition) +
+              " to cursor at " + Cursor.toString(currentPosition);
+
+        nextTransition = src.next();
+        long returnBit = presentOnReturnPath && (nextTransition == ByteSource.END_OF_STREAM) ? ON_RETURN_PATH_BIT : 0;
+        currentPosition = nextPosition | returnBit;
+        if (Cursor.compare(encodedSkipPosition, currentPosition) > 0)
+            return done();
+        return currentPosition;
     }
 
     private long done()
@@ -119,7 +133,9 @@ class SingletonCursor<T> implements Cursor<T>
 
     protected boolean atEnd()
     {
-        return nextTransition == ByteSource.END_OF_STREAM && !Cursor.isExhausted(currentPosition);
+        return nextTransition == ByteSource.END_OF_STREAM &&
+               !Cursor.isExhausted(currentPosition) &&
+               (!presentOnReturnPath || Cursor.isOnReturnPath(currentPosition));
     }
 
     @Override

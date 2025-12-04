@@ -141,7 +141,13 @@ public interface VerificationCursor
         public long skipTo(long encodedSkipPosition)
         {
             verifySkipRequest(encodedSkipPosition);
-            return verify(source.skipTo(encodedSkipPosition));
+            long newPosition = source.skipTo(encodedSkipPosition);
+            assert Cursor.compare(newPosition, encodedSkipPosition) >= 0 :
+                String.format("Skip advanced to a position %s before seek target %s\n%s",
+                              Cursor.toString(newPosition),
+                              Cursor.toString(encodedSkipPosition),
+                              this);
+            return verify(newPosition);
         }
 
         private void verifySkipRequest(long encodedSkipPosition)

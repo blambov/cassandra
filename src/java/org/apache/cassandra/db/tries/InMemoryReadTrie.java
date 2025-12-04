@@ -662,7 +662,7 @@ public abstract class InMemoryReadTrie<T>
             this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
             depth = 0;
             currentPosition = Cursor.rootPosition(direction);
-            setCurrentNodeAndApplyPrefixes(root, 0, 0);
+            setCurrentNodeAndApplyPrefixes(root, 0, 0, true);
         }
 
         @Override
@@ -708,8 +708,7 @@ public abstract class InMemoryReadTrie<T>
         {
             int skipDepth = Cursor.depth(encodedSkipPosition);
             int skipTransition = Cursor.incomingTransition(encodedSkipPosition);
-            if (Cursor.isOnReturnPath(encodedSkipPosition))
-                skipTransition += direction.increase;
+            boolean onReturnPath = Cursor.isOnReturnPath(encodedSkipPosition);
             if (skipDepth > depth)
             {
                 // Descent requested. Jump to the given child transition or greater, and backtrack if there's no such.
@@ -717,6 +716,13 @@ public abstract class InMemoryReadTrie<T>
                 long advancedPosition = advanceToChildWithTarget(currentNode, skipTransition);
                 if (advancedPosition == NOT_FOUND)
                     return backtrack();
+
+                if (onReturnPath && Cursor.compare(advancedPosition, encodedSkipPosition) < 0)
+                {
+                    // Requested return path but we seeked to the forward. If there's an entry matching the request,
+                    // it will be the immediate backtrack. If not, we still need to backtrack to find the next.
+                    return backtrack();
+                }
 
                 assert Cursor.depth(advancedPosition) == skipDepth;
                 return advancedPosition;
@@ -733,9 +739,20 @@ public abstract class InMemoryReadTrie<T>
 
                 if (depth == skipDepth - 1)
                 {
-                    long advancedDepth = advanceToNextChildWithTarget(node(backtrackDepth), data(backtrackDepth), skipTransition);
-                    if (advancedDepth != NOT_FOUND)
-                        return advancedDepth;
+                    if (onReturnPath && isLeaf(node(backtrackDepth)) && data(backtrackDepth) == skipTransition)
+                    {
+                        // Found a backtrack entry that matches the seek position.
+                        return descendInto(node(backtrackDepth), skipTransition);
+                    }
+
+                    long advancedPosition = advanceToNextChildWithTarget(node(backtrackDepth), data(backtrackDepth), skipTransition);
+                    if (advancedPosition != NOT_FOUND)
+                    {
+                        if (!onReturnPath || Cursor.compare(advancedPosition, encodedSkipPosition) >= 0)
+                            return advancedPosition;
+                        // We found an exact match that is not on the return path. A return path backtrack may have just
+                        // been inserted. The next iteration of the loop should find it.
+                    }
                 }
             }
             return exhausted();
@@ -841,7 +858,9 @@ public abstract class InMemoryReadTrie<T>
 
         private long advanceToNextChildWithTarget(int node, int data, int transition)
         {
-            assert (!isNullOrLeaf(node));
+            assert (!isNull(node));
+            if (isLeaf(node))
+                return descendInto(node, data);
 
             switch (offset(node))
             {
@@ -1163,14 +1182,29 @@ public abstract class InMemoryReadTrie<T>
                 return descendInto(buffer.getIntVolatile(inBufferNode + 1), transition);
         }
 
-        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition)
+        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition, boolean isInitialState)
         {
             currentFullNode = node;
             if (isLeaf(node))
             {
                 if (shouldPresentOnTheReturnPath(node))
-                    currentPosition |= ON_RETURN_PATH_BIT;
-                content = trie.getContent(node);
+                {
+                    if (isInitialState)
+                    {
+                        // We are just starting, we need to present the forward-direction root first.
+                        addBacktrack(node, transition, depth - 1);
+                        content = null;
+                    }
+                    else
+                    {
+                        // There's no reason to delay going to the position of the content.
+                        currentPosition |= ON_RETURN_PATH_BIT;
+                        content = trie.getContent(node);
+                    }
+                }
+                else
+                    content = trie.getContent(node);
+
                 currentNode = NONE;
             }
             else if (offset(node) == PREFIX_OFFSET)
@@ -1215,7 +1249,7 @@ public abstract class InMemoryReadTrie<T>
         {
             ++depth;
             currentPosition = Cursor.encode(depth, transition, direction);
-            setCurrentNodeAndApplyPrefixes(child, depth, transition);
+            setCurrentNodeAndApplyPrefixes(child, depth, transition, false);
             return currentPosition;
         }
 

@@ -103,9 +103,9 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
         /// Range tries may have two content values. Handle this possibility here.
         @Override
-        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition)
+        void setCurrentNodeAndApplyPrefixes(int node, int depth, int transition, boolean isInitialState)
         {
-            super.setCurrentNodeAndApplyPrefixes(node, depth, transition);
+            super.setCurrentNodeAndApplyPrefixes(node, depth, transition, isInitialState);
 
             if (isNullOrLeaf(node) || offset(node) != PREFIX_OFFSET)
                 return;

@@ -411,7 +411,15 @@ tails on the root branch.
 
 - Change SAI's usages to use orderer trie
 
+- Test return path seeks
+
 # TODOs
+
+- Implement cell-level trie
+
+- Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
+
+- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
 - Add tests for prefixed ranged throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware)
 
@@ -431,10 +439,6 @@ tails on the root branch.
     Cleared by merge.
 
   Merges clear the flag.
-
-- Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
-
-- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
 
 ## CollectionMergeCursor

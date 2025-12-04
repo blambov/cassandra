@@ -25,12 +25,9 @@ import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.BiFunction;
-import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import com.google.common.collect.Maps;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
