@@ -405,9 +405,13 @@ tails on the root branch.
 
 - implement proper return path treatment in InMemoryTrie delete
 
-# TODOs
-
 - implement everything needed for deletion-aware
+
+- Adjust TrieBackedPartition, including change partition deletion to be on partition root
+
+- Change SAI's usages to use orderer trie
+
+# TODOs
 
 - Add tests for prefixed ranged throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware)
 
