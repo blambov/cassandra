@@ -64,6 +64,7 @@ public abstract class MemtableSizeTestBase extends CQLTester
         return ImmutableList.of("SkipListMemtable",
                                 "TrieMemtableStage1",
                                 "TrieMemtableStage2",
+                                "TrieMemtableStage3",
                                 "TrieMemtable");
     }
 
@@ -175,6 +176,10 @@ public abstract class MemtableSizeTestBase extends CQLTester
 
             if (memtable instanceof TrieMemtable)
                 ((TrieMemtable) memtable).releaseReferencesUnsafe();
+            if (memtable instanceof TrieMemtableStage2)
+                ((TrieMemtableStage2) memtable).releaseReferencesUnsafe();
+            if (memtable instanceof TrieMemtableStage3)
+                ((TrieMemtableStage3) memtable).releaseReferencesUnsafe();
 
 //            System.out.println("Take jmap -histo:live <pid>");
 //            Thread.sleep(10000);

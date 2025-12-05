@@ -97,7 +97,6 @@ import org.github.jamm.Unmetered;
 public class TrieMemtableStage2 extends AbstractAllocatorMemtable
 {
     private static final Logger logger = LoggerFactory.getLogger(TrieMemtableStage2.class);
-    public static final String TRIE_MEMTABLE_CONFIG_OBJECT_NAME = "org.apache.cassandra.db:type=TrieMemtableConfig";
 
     public static final Factory FACTORY = new TrieMemtableStage2.Factory();
 

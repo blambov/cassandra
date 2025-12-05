@@ -68,8 +68,6 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TrieMemtableMetricsView;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -81,7 +79,6 @@ import org.github.jamm.Unmetered;
 public class TrieMemtableStage3 extends AbstractAllocatorMemtable
 {
     private static final Logger logger = LoggerFactory.getLogger(TrieMemtableStage3.class);
-    public static final String TRIE_MEMTABLE_CONFIG_OBJECT_NAME = "org.apache.cassandra.db:type=TrieMemtableConfig";
 
     public static final Factory FACTORY = new TrieMemtableStage3.Factory();
 
@@ -103,8 +100,6 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
         default:
             throw new AssertionError();
         }
-
-        MBeanWrapper.instance.registerMBean(new TrieMemtableConfig(), TRIE_MEMTABLE_CONFIG_OBJECT_NAME, MBeanWrapper.OnException.LOG);
     }
 
     /// Force copy checker (see [InMemoryTrie#apply]) ensuring all modifications apply atomically and consistently to
@@ -141,29 +136,11 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
     /// last update. This estimate is not very accurate but should be ok for planning or diagnostic purposes.
     private volatile MemtableAverageRowSize estimatedAverageRowSize;
 
-    private static volatile int SHARD_COUNT = CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.getInt(autoShardCount());
-    private static volatile boolean SHARD_LOCK_FAIRNESS = CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_LOCK_FAIRNESS.getBoolean();
-
-    private static int autoShardCount()
-    {
-        return 4 * FBUtilities.getAvailableProcessors();
-    }
-
-    public static int shardCount()
-    {
-        return SHARD_COUNT;
-    }
-
-    public static boolean shardLockFairness()
-    {
-        return SHARD_LOCK_FAIRNESS;
-    }
-
     // only to be used by init(), to setup the very first memtable for the cfs
     TrieMemtableStage3(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner)
     {
         super(commitLogLowerBound, metadataRef, owner);
-        this.boundaries = owner.localRangeSplits(SHARD_COUNT);
+        this.boundaries = owner.localRangeSplits(TrieMemtable.shardCount());
         this.metrics = TrieMemtableMetricsView.getOrCreate(metadataRef.keyspace, metadataRef.name);
         this.shards = generatePartitionShards(boundaries.shardCount(), metadataRef, metrics, owner.readOrdering());
         this.mergedTrie = makeMergedTrie(shards);
@@ -592,7 +569,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
         private volatile int partitionCount = 0;
 
         @Unmetered
-        private ReentrantLock writeLock = new ReentrantLock(SHARD_LOCK_FAIRNESS);
+        private ReentrantLock writeLock = new ReentrantLock(TrieMemtable.shardLockFairness());
 
         /// Content map for the given shard. This is implemented as an in-memory trie which uses the prefix-free
         /// byte-comparable [ByteSource] representations of keys to address partitions and individual rows within
@@ -877,54 +854,4 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
         for (MemtableShard shard : shards)
             shard.data.releaseReferencesUnsafe();
     }
-
-    @VisibleForTesting
-    public static class TrieMemtableConfig implements TrieMemtableConfigMXBean
-    {
-        @Override
-        public void setShardCount(String shardCount)
-        {
-            if ("auto".equalsIgnoreCase(shardCount))
-            {
-                SHARD_COUNT = autoShardCount();
-                CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.setInt(SHARD_COUNT);
-            }
-            else
-            {
-                try
-                {
-                    SHARD_COUNT = Integer.valueOf(shardCount);
-                    CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.setInt(SHARD_COUNT);
-                }
-                catch (NumberFormatException ex)
-                {
-                    logger.warn("Unable to parse {} as valid value for shard count; leaving it as {}",
-                                shardCount, SHARD_COUNT);
-                    return;
-                }
-            }
-            logger.info("Requested setting shard count to {}; set to: {}", shardCount, SHARD_COUNT);
-        }
-
-        @Override
-        public String getShardCount()
-        {
-            return "" + SHARD_COUNT;
-        }
-
-        @Override
-        public void setLockFairness(String fairness)
-        {
-            SHARD_LOCK_FAIRNESS = Boolean.parseBoolean(fairness);
-            CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_LOCK_FAIRNESS.setBoolean(SHARD_LOCK_FAIRNESS);
-            logger.info("Requested setting shard lock fairness to {}; set to: {}", fairness, SHARD_LOCK_FAIRNESS);
-        }
-
-        @Override
-        public String getLockFairness()
-        {
-            return "" + SHARD_LOCK_FAIRNESS;
-        }
-    }
-
 }
