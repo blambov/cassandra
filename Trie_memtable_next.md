@@ -403,33 +403,31 @@ tails on the root branch.
     - deletion-aware can have normal content (ordered or not) and alternate branches
     - alternate branches are range tries, with their two slots and logic
 
-- implement proper return path treatment in InMemoryTrie delete
+- Implement proper return path treatment in InMemoryTrie delete.
 
-- implement everything needed for deletion-aware
+- Implement everything needed for deletion-aware.
 
-- Adjust TrieBackedPartition, including change partition deletion to be on partition root
+- Adjust TrieBackedPartition, including change partition deletion to be on partition root.
 
-- Change SAI's usages to use orderer trie
+- Change SAI's usages to use orderer trie.
 
-- Test return path seeks
+- Test return path seeks.
 
 # TODOs
 
-- Implement cell-level trie
+- Implement cell-level trie with pojo content.
 
-- Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
-
-- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
-
-- Add tests for prefixed ranged throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware)
+- Add tests for prefixed ranges throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware).
 
 - `hasContent` flag
 - `hasDeletionBranch` flag on deletion-aware
 
-- `hasChildren` flag
+- Implement directly-stored content and adjust cell-level trie to make it fully off-heap.
 
-- applicableBefore/applicableAfter flags on sets 
-- `hasPrecedingState`/`hasSucceedingState` flag on range cursors
+Maybe:
+- `hasPrecedingState`/`hasSucceedingState` flag on range cursors (including sets)
+
+- `hasChildren` flag
 
 - (Not necessary) Multiple children flag. Perhaps two variations:
   - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
@@ -439,6 +437,10 @@ tails on the root branch.
     Cleared by merge.
 
   Merges clear the flag.
+
+Difficult:
+- Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
+- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
 
 ## CollectionMergeCursor
