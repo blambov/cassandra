@@ -269,9 +269,7 @@ public abstract class Rows
      */
     public static Row merge(Row existing, Row update, ColumnData.PostReconciliationFunction onReconcile)
     {
-        assert existing instanceof BTreeRow;
-        assert update instanceof BTreeRow;
-        return BTreeRow.merge((BTreeRow) existing, (BTreeRow) update, onReconcile);
+        return existing.mergeWith(update, onReconcile);
     }
 
     /**

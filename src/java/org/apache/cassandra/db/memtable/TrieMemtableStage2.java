@@ -30,7 +30,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -667,12 +666,10 @@ public class TrieMemtableStage2 extends AbstractAllocatorMemtable
                     // the allocator to block while we are trying to flush a memtable and become a deadlock.
                     long onHeap = data.isEmpty() ? 0 : data.usedSizeOnHeap();
                     long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
-                    // Use the fast recursive put if we know the key is small enough to not cause a stack overflow.
+
                     try
                     {
-                        data.apply(TriePartitionUpdateStage2.asMergableTrie(update),
-                                   updater,
-                                   FORCE_COPY_PARTITION_BOUNDARY);
+                        updater.apply(data, TriePartitionUpdateStage2.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {

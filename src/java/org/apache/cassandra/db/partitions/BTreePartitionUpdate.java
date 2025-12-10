@@ -34,13 +34,16 @@ import org.apache.cassandra.db.MutableDeletionInfo;
 import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.index.IndexRegistry;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
@@ -324,13 +327,21 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
         return marks;
     }
 
-    private static void addMarksForRow(Row row, List<CounterMark> marks)
+    private void addMarksForRow(Row row, List<CounterMark> marks)
     {
         for (Cell<?> cell : row.cells())
         {
             if (cell.isCounterCell())
-                marks.add(new CounterMark(row, cell.column(), cell.path()));
+                marks.add(new CounterMark(this, row, cell.column(), cell.path()));
         }
+    }
+
+    @Override
+    public void setCounterMarkValue(CounterMark mark, ByteBuffer value)
+    {
+        // Please read the warning in BTreeRow.setValue before using this method.
+        BTreeRow row = (BTreeRow) mark.row();
+        row.setValue(mark.column(), mark.path(), value);
     }
 
     @Override

@@ -18,8 +18,6 @@
 
 package org.apache.cassandra.utils.bytecomparable;
 
-import com.google.common.base.Preconditions;
-
 import java.nio.ByteBuffer;
 
 abstract class PreencodedByteComparable implements ByteComparable.Preencoded
@@ -35,6 +33,20 @@ abstract class PreencodedByteComparable implements ByteComparable.Preencoded
     public Version encodingVersion()
     {
         return version;
+    }
+
+    @Override
+    public boolean equals(Object other)
+    {
+        if (!(other instanceof ByteComparable))
+            return false;
+        return compareTo((ByteComparable) other) == 0;
+    }
+
+    @Override
+    public String toString()
+    {
+        return byteComparableAsString(encodingVersion());
     }
 
     static class Array extends PreencodedByteComparable

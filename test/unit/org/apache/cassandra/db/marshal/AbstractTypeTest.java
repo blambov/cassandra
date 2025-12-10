@@ -55,6 +55,8 @@ import com.google.common.collect.Streams;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,6 +74,7 @@ import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -107,6 +110,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.quicktheories.QuickTheory.qt;
 
 @SuppressWarnings({ "unchecked", "rawtypes" })
+@RunWith(Parameterized.class)
 public class AbstractTypeTest
 {
     private final static Logger logger = LoggerFactory.getLogger(AbstractTypeTest.class);
@@ -118,6 +122,20 @@ public class AbstractTypeTest
                                                                    .setScanners(Scanners.SubTypes)
                                                                    .setExpandSuperTypes(true)
                                                                    .setParallel(true));
+
+    enum RowImplementation
+    {
+        BTREE, TRIE_BACKED
+    }
+
+    @Parameterized.Parameter(0)
+    public static RowImplementation implementation;
+
+    @Parameterized.Parameters(name = "{0}")
+    public static RowImplementation[] implementations()
+    {
+        return RowImplementation.values();
+    }
 
     private static TypesCompatibility currentTypesCompatibility;
     private static LoadedTypesCompatibility legacyCC40TypesCompatibility;
@@ -447,7 +465,7 @@ public class AbstractTypeTest
             UnfilteredSerializer.serializer.serialize(rightRow, rightHelper, out, MessagingService.current_version);
             try (DataInputBuffer in = new DataInputBuffer(out.getData()))
             {
-                Row.Builder builder = BTreeRow.sortedBuilder();
+                Row.Builder builder = implementation == RowImplementation.BTREE ? BTreeRow.sortedBuilder() : TrieBackedRow.builder(rightTable.regularAndStaticColumns());
                 builder.addPrimaryKeyLivenessInfo(rightRow.primaryKeyLivenessInfo());
                 Row leftRow = (Row) UnfilteredSerializer.serializer.deserialize(in, leftHeader, leftHelper, builder);
                 ComplexColumnData leftData1 = leftRow.getComplexColumnData(leftColumn1);
@@ -483,7 +501,7 @@ public class AbstractTypeTest
             UnfilteredSerializer.serializer.serialize(rightRow, rightHelper, out, MessagingService.current_version);
             try (DataInputBuffer in = new DataInputBuffer(out.getData()))
             {
-                Row.Builder builder = BTreeRow.sortedBuilder();
+                Row.Builder builder = implementation == RowImplementation.BTREE ? BTreeRow.sortedBuilder() : TrieBackedRow.builder(rightTable.regularAndStaticColumns());
                 builder.addPrimaryKeyLivenessInfo(rightRow.primaryKeyLivenessInfo());
                 Row leftRow = (Row) UnfilteredSerializer.serializer.deserialize(in, leftHeader, leftHelper, builder);
                 Cell leftData = (Cell) leftRow.getColumnData(leftColumn);
@@ -508,7 +526,7 @@ public class AbstractTypeTest
             UnfilteredSerializer.serializer.serialize(rightRow, rightHelper, out, MessagingService.current_version);
             try (DataInputBuffer in = new DataInputBuffer(out.getData()))
             {
-                Row.Builder builder = BTreeRow.sortedBuilder();
+                Row.Builder builder = implementation == RowImplementation.BTREE ? BTreeRow.sortedBuilder() : TrieBackedRow.builder(rightTable.regularAndStaticColumns());
                 builder.addPrimaryKeyLivenessInfo(rightRow.primaryKeyLivenessInfo());
                 Row leftRow = (Row) UnfilteredSerializer.serializer.deserialize(in, leftHeader, leftHelper, builder);
                 ComplexColumnData leftData = leftRow.getComplexColumnData(leftColumn);
@@ -520,8 +538,11 @@ public class AbstractTypeTest
                     Cell rightCell = rightData.getCellByIndex(i);
                     checks.assertThat(leftCell.buffer()).describedAs(bytesToHex(leftCell.buffer())).isEqualTo(rightCell.buffer()).describedAs(bytesToHex(rightCell.buffer()));
                     checks.assertThat(leftCell.path().size()).describedAs(typeRelDesc(".cellPathSizeIsEqualTo", left, right)).isEqualTo(rightCell.path().size());
-                    for (int j = 0; j < leftCell.path().size(); j++)
-                        checks.assertThat(leftCell.path().get(j)).describedAs(bytesToHex(leftCell.path().get(j))).isEqualTo(rightCell.path().get(j)).describedAs(bytesToHex(rightCell.path().get(j)));
+
+                    // All collections have one key component of type given by the name comparator. Though bytes returned may vary due to encoding paths as byte
+                    // comparables, the keys have to compare equal.
+                    AbstractType<?> keyType = ((MultiCellCapableType) left).nameComparator();
+                    checks.assertThat(keyType.compare(leftCell.path().get(0), rightCell.path().get(0))).isZero().describedAs(keyType.getString(leftCell.path().get(0)) + " != " + keyType.getString(rightCell.path().get(0)));
                 }
             }
         }

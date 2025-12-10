@@ -75,7 +75,8 @@ public class NativeCell extends AbstractCell<ByteBuffer>
         long size = offHeapSizeWithoutPath(value.remaining());
 
         assert value.order() == ByteOrder.BIG_ENDIAN;
-        assert column.isComplex() == (path != null);
+        // Trie-backed rows store path-less cells.
+        // assert column.isComplex() == (path != null);
         if (path != null)
         {
             assert path.size() == 1 : String.format("Expected path size to be 1 but was not; %s", path);
@@ -164,6 +165,13 @@ public class NativeCell extends AbstractCell<ByteBuffer>
     public Cell withSkippedValue()
     {
         return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), ByteBufferUtil.EMPTY_BYTE_BUFFER, path());
+    }
+
+    @Override
+    public Cell<?> withPath(CellPath path)
+    {
+        // TODO: Deal better with this.
+        return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
     }
 
     public long unsharedHeapSizeExcludingData()

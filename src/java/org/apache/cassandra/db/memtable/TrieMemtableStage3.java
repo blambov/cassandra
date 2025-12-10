@@ -30,7 +30,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -104,7 +103,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
 
     /// Force copy checker (see [InMemoryTrie#apply]) ensuring all modifications apply atomically and consistently to
     /// the whole partition.
-    public static final Predicate<InMemoryBaseTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION_BOUNDARY =
+    public static final Predicate<InMemoryBaseTrie.NodeFeatures<?>> FORCE_COPY_PARTITION_BOUNDARY =
         features -> TrieBackedPartitionStage3.isPartitionBoundary(features.content());
 
     /// Set to true when the memtable requests a switch (e.g. for trie size limit being reached) to ensure only one
@@ -616,7 +615,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
 
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         {
-            TriePartitionUpdaterStage3 updater = new TriePartitionUpdaterStage3(allocator.cloner(opGroup), indexer, update.partitionLevelDeletion(), metadata.get(), this);
+            TriePartitionUpdaterStage3 updater = new TriePartitionUpdaterStage3(data, allocator.cloner(opGroup), indexer, metadata.get(), this);
             boolean locked = writeLock.tryLock();
             if (locked)
             {
@@ -641,13 +640,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
                     long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
                     try
                     {
-                        data.apply(TriePartitionUpdateStage3.asMergableTrie(update),
-                                   updater,
-                                   updater::mergeMarkers,
-                                   updater::applyIncomingMarker,
-                                   updater::applyExistingMarkerToIncomingRow,
-                                   true,
-                                   FORCE_COPY_PARTITION_BOUNDARY);
+                        updater.apply(TriePartitionUpdateStage3.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {
@@ -734,7 +727,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
         }
     }
 
-    static class PartitionIterator extends TrieTailsIterator.DeletionAware<Object, TrieTombstoneMarker, TrieBackedPartitionStage3>
+    static class PartitionIterator extends TrieTailsIterator.DeletionAwareWithoutCoveringDeletions<Object, TrieTombstoneMarker, TrieBackedPartitionStage3>
     {
         final TableMetadata metadata;
         final EnsureOnHeap ensureOnHeap;
