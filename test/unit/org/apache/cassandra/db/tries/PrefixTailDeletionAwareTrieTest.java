@@ -128,7 +128,7 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
         try
         {
             DeletionAwareTrie<Object, TestRangeState> toInsert = ((payload & 1) == 1)
-                           ? DeletionAwareTrie.deletionRange(ByteComparable.EMPTY, b, b, VERSION, new TestRangeState(b, payload, payload))
+                           ? DeletionAwareTrie.deletedRange(ByteComparable.EMPTY, b, b, VERSION, new TestRangeState(b, payload, payload))
                            : DeletionAwareTrie.singleton(b, VERSION, v);
 
             trie.apply(toInsert,

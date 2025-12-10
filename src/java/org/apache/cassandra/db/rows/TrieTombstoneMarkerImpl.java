@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.Objects;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 import org.apache.cassandra.db.ClusteringComparator;
@@ -54,6 +55,16 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         return new Point(covering(deletionTime), null);
     }
 
+    static Covering covering(long deletedAt, int localDeletionTime)
+    {
+        return new Covering(deletedAt, localDeletionTime);
+    }
+
+    static Point point(long deletedAt, int localDeletionTime)
+    {
+        return new Point(covering(deletedAt, localDeletionTime), null);
+    }
+
     static Covering combine(Covering left, Covering right)
     {
         if (left == null)
@@ -64,6 +75,18 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             return right;
         else
             return left;
+    }
+
+    static Covering applyDeletion(Covering value, Covering deletion)
+    {
+        if (value == null)
+            return null;
+        if (deletion == null)
+            return value;
+        if (value.supersedes(deletion))
+            return value;
+        else
+            return null;
     }
 
     static TrieTombstoneMarker make(Covering left, Covering right)
@@ -130,9 +153,34 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
+        public TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion)
+        {
+            if (deletion == null)
+                return this;
+
+            if (deletion instanceof Covering)
+                return applyDeletion(this, (Covering) deletion);
+
+            assert !deletion.hasPointData() : "Boundary cannot be merged with point deletion";
+            TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) deletion;
+            Covering newLeft = applyDeletion(this, other.leftDeletion());
+            Covering newRight = applyDeletion(this, other.rightDeletion());
+            return make(newLeft, newRight);
+        }
+
+        @Override
         public Covering withUpdatedTimestamp(long l)
         {
             return new Covering(l, localDeletionTime());
+        }
+
+        @Override
+        public @Nullable Covering map(Function<DeletionTime, DeletionTime> mapper)
+        {
+            DeletionTime mapped = mapper.apply(this);
+            if (mapped == this)
+                return this;
+            return new Covering(mapped);
         }
 
         @Override
@@ -171,6 +219,8 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             // Note: HEAP_SIZE is used directly by Point and Boundary. Make sure to apply any changes there too.
             return HEAP_SIZE;
         }
+
+        // inherits equals and hashcode
     }
 
     static class Boundary implements TrieTombstoneMarkerImpl
@@ -262,10 +312,35 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
+        public TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion)
+        {
+            if (deletion == null)
+                return this;
+
+            assert !deletion.hasPointData() : "Boundary cannot be merged with point deletion";
+            TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) deletion;
+            Covering newLeft = applyDeletion(leftDeletion, other.leftDeletion());
+            Covering newRight = applyDeletion(rightDeletion, other.rightDeletion());
+            if (leftDeletion == newLeft && rightDeletion == newRight)
+                return this;
+            return make(newLeft, newRight);
+        }
+
+        @Override
         public TrieTombstoneMarker withUpdatedTimestamp(long l)
         {
             Covering newLeft = leftDeletion != null ? leftDeletion.withUpdatedTimestamp(l) : null;
             Covering newRight = rightDeletion != null ? rightDeletion.withUpdatedTimestamp(l) : null;
+            if (Objects.equals(newLeft, newRight))
+                return null;
+            return new Boundary(newLeft, newRight);
+        }
+
+        @Override
+        public @Nullable Boundary map(Function<DeletionTime, DeletionTime> mapper)
+        {
+            Covering newLeft = leftDeletion != null ? leftDeletion.map(mapper) : null;
+            Covering newRight = rightDeletion != null ? rightDeletion.map(mapper) : null;
             if (Objects.equals(newLeft, newRight))
                 return null;
             return new Boundary(newLeft, newRight);
@@ -411,6 +486,46 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
+        public TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion)
+        {
+            if (deletion == null)
+                return this;
+
+            if (deletion instanceof Covering)
+            {
+                Covering deletionCovering = (Covering) deletion;
+                if (!pointDeletion.supersedes(deletionCovering))
+                {
+                    if (coveringDeletion == null || !coveringDeletion.supersedes(deletionCovering))
+                        return null;
+                    else
+                        return coveringDeletion;
+                }
+
+                Covering newCovering = applyDeletion(coveringDeletion, deletionCovering);
+                if (newCovering == coveringDeletion)
+                    return this;
+                else
+                    return new Point(pointDeletion, newCovering);
+            }
+            else if (deletion instanceof Point)
+            {
+                Point existingPoint = (Point) deletion;
+                Covering newCovering = applyDeletion(coveringDeletion, existingPoint.coveringDeletion);
+                Covering newPoint = applyDeletion(pointDeletion, existingPoint.pointDeletion);
+                if (newCovering == coveringDeletion && newPoint == pointDeletion)
+                    return this;
+                if (newPoint == null)
+                    return newCovering;
+
+                return new Point(newPoint, newCovering);
+            }
+            else
+                throw new AssertionError("Boundaries cannot be positioned on row clusterings.");
+        }
+
+
+        @Override
         public boolean hasPointData()
         {
             return true;
@@ -420,8 +535,20 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         public TrieTombstoneMarker withUpdatedTimestamp(long l)
         {
             if (coveringDeletion != null)
-                return new Covering(l, coveringDeletion.localDeletionTime()); // subsumed by range deletion
+                return null; // subsumed by range deletion
             return new Point(new Covering(l, pointDeletion.localDeletionTime()), null);
+        }
+
+        @Override
+        public @Nullable TrieTombstoneMarker map(Function<DeletionTime, DeletionTime> mapper)
+        {
+            Covering newPoint = pointDeletion.map(mapper);
+            if (newPoint == null)
+                return null;
+            Covering newCovering = coveringDeletion != null ? coveringDeletion.map(mapper) : null;
+            if (newCovering != null && !newPoint.supersedes(newCovering))
+                return null;
+            return new Point(newPoint, newCovering);
         }
 
         @Override

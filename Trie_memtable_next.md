@@ -368,6 +368,49 @@ This is basically the effect of the four-state adjustment without the extra stat
 tails on the root branch.
 
 
+# Trie-backed rows
+
+## TTL and expiration
+
+Definition: An expiring cell has `localDeletionTime` defined. When `nowInSec` is below the deletion time, the cell is
+live, i.e. has a value. When `nowInSec` is above the deletion time, the cell is deleted, i.e. its timestamp and
+local deletion time now for a DeletionTime for it.
+
+One idea was to split expiring cells into tombstone and value, but that's a lot of extra data for no real benefit, and
+it doesn't help the main issue.
+
+Main issue: We need to walk over dead cells to find the next live cell when data is read. We can't rely on compaction
+alone to avoid it.
+
+Secondary problem: We need to convert data branch to tombstone during or after merges to move expired cells to deletion
+branch. Skipping this makes main issue worse.
+
+Main solution is branch metadata: 
+- If we store max local deletion time:
+  - we know if branch has any non-expired data and can fully skip it
+  - we can fully purge tombstone branches
+- If we store min local deletion time:
+  - we know if we there's anything in the branch that needs to be converted to tombstone
+  - we know if we need to apply any tombstone purging
+- With max timestamp, we can drop branches that are fully deleted during merges when there are no deletion path children.
+
+
+We can also perform compaction on the merged tries, writing out data and tombstones to separate sections of the file.
+
+This avoids having to go back and reread branches in order to apply
+- deletions to data and deletions to deletions
+- data to data and expired data to deletions
+
+
+## Column IDs
+
+Use column index as cell key -- note that this changes because it is ordered by name, not by addition time.
+
+If there's a mismatch, switch to materialized rows and using legacy iterator merging etc.
+
+In later iterations we can assign fixed indexes to columns and reorder in coordinator/client. 
+
+
 # Done
 
 - Include direction bit/byte in the encoding
@@ -414,6 +457,19 @@ tails on the root branch.
 - Test return path seeks.
 
 # TODOs
+
+- `TrieBackedRow`:
+  - RowData is liveness info (with maybe stats later)
+  - Markers for complex column roots
+  - `TrieBackedComplexColumn` implementation
+  - Cell<?> without path (but with column reference) at leaves
+
+- Implement `mapValues` throughout hierarchy. Test. `mapValuesAndDeletions` for deletion-aware.
+
+- Implement `DeletionAwareTrie.mergeWithDeletion(RangeTrie)` equivalent to `mergeWith(deletionBranch(EMPTY, rangeTrie))`.
+  Test.
+
+- Make deletion-aware `tailTrie` include deletion branch. Test.
 
 - Implement cell-level trie with pojo content.
 

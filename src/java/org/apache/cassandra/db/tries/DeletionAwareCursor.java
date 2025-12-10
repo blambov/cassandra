@@ -77,9 +77,9 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     DeletionAwareCursor<T, D> tailCursor(Direction direction);
 
 
-    /// Process the trie using the given [DeletionAwareTrie.DeletionAwareWalker], providing access to both live and
+    /// Process the trie using the given [DeletionAwareWalker], providing access to both live and
     /// deletion branches.
-    default <R> R process(DeletionAwareTrie.DeletionAwareWalker<? super T, ? super D, R> walker)
+    default <R> R process(DeletionAwareWalker<? super T, ? super D, R> walker)
     {
         assertFresh();
         long currentPosition = encodedPosition();
@@ -109,7 +109,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     }
 
     /// Process a deletion branch using the given walker.
-    private static <D> void processDeletionBranch(DeletionAwareTrie.DeletionAwareWalker<?, ? super D, ?> walker, Cursor<D> cursor)
+    private static <D> void processDeletionBranch(DeletionAwareWalker<?, ? super D, ?> walker, Cursor<D> cursor)
     {
         cursor.assertFresh();
         D content = cursor.content();   // handle content on the root node
@@ -120,6 +120,30 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         {
             walker.deletionMarker(content);
             content = cursor.advanceToContent(walker);
+        }
+    }
+
+    /// Walker interface extended to also process deletion branches.
+    interface DeletionAwareWalker<T, D, R> extends Walker<T, R>
+    {
+        /// Called when a deletion branch is found. Return null to skip over it, or the walker to use to descend inside
+        /// it.
+        ///
+        /// Note that the depth given by `resetPathLength` in the deletion branch will be relative to the root of the
+        /// deletion branch. See [TrieDumper] for an example of handling this.
+        default boolean enterDeletionsBranch()
+        {
+            // do nothing by default
+            return true;
+        }
+
+        /// Called for every deletion marker found in the deletion branch.
+        void deletionMarker(D marker);
+
+        /// Called when the deletion branch is exited.
+        default void exitDeletionsBranch()
+        {
+            // do nothing by default
         }
     }
 

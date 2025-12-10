@@ -25,6 +25,7 @@ import java.util.function.Predicate;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /// In-memory implementation of deletion-aware tries with concurrent access support.
@@ -486,6 +487,74 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         apply(mutation,
                 (UpsertTransformerWithKeyProducer<T, V>) dataTransformer,
                 deletionTransformer, existingDeleter, insertedDeleter, deletionsAtFixedPoints, needsForcedCopy);
+    }
+
+
+    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+    /// All of the deletions in the given mutation trie will be applied, removing any content and trie paths that become
+    /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
+    /// of the trie will be combined with the incoming deletions.
+    ///
+    /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+    /// different than the element type for this memtable trie.
+    /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
+    /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
+    /// deletions cancel out or should not be preserved.
+    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
+    /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
+    /// only called if there is both content and deletion at a given covered point. It should return null if the entry
+    /// is to be deleted.
+    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions.
+    /// @see DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints
+    public <V, E extends RangeState<E>>
+    void delete(RangeTrie<E> mutation,
+                final UpsertTransformerWithKeyProducer<T, E> existingDeleter,
+                final UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
+                boolean deletionsAtFixedPoints,
+                Predicate<NodeFeatures<V>> needsForcedCopy)
+    throws TrieSpaceExhaustedException
+    {
+        DeletionAwareCursor<V, E> mutationCursor = new SingletonCursor.DeletionBranch<>(Direction.FORWARD,
+                                                                                        ByteSource.EMPTY,
+                                                                                        byteComparableVersion,
+                                                                                        mutation);
+
+        try
+        {
+            Mutation<T, D, V, E> m = new Mutation<>(null, // no incoming data
+                                                    deletionTransformer,
+                                                    existingDeleter,
+                                                    null, // no incoming data
+                                                    needsForcedCopy,
+                                                    deletionsAtFixedPoints,
+                                                    mutationCursor,
+                                                    applyState.start(),
+                                                    deletionState);
+            m.apply();
+            m.complete();
+            completeMutation();
+        }
+        catch (Throwable t)
+        {
+            abortMutation();
+            throw t;
+        }
+    }
+
+    public <V, E extends RangeState<E>>
+    void delete(RangeTrie<E> mutation,
+                final UpsertTransformer<T, E> existingDeleter,
+                final UpsertTransformer<D, E> deletionTransformer,
+                boolean deletionsAtFixedPoints,
+                Predicate<NodeFeatures<V>> needsForcedCopy)
+    throws TrieSpaceExhaustedException
+    {
+        delete(mutation,
+               (UpsertTransformerWithKeyProducer<T, E>) existingDeleter,
+               deletionTransformer,
+               deletionsAtFixedPoints,
+               needsForcedCopy);
     }
 
     class DumpCursor extends InMemoryReadTrie<T>.DumpCursor<DeletionAwareInMemoryCursor<T, D>> implements DeletionAwareCursor<String, D>

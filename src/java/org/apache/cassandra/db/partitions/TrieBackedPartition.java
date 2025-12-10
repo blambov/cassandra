@@ -37,10 +37,10 @@ import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
+import org.apache.cassandra.db.rows.BTreeComplexColumn;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.ColumnData;
-import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
@@ -175,7 +175,7 @@ public class TrieBackedPartition implements Partition
             {
                 ColumnMetadata column = cd.column();
                 if (column.isComplex())
-                    return ((ComplexColumnData) cd).delete(activeDeletion);
+                    return ((BTreeComplexColumn) cd).delete(activeDeletion);
 
                 Cell<?> cell = (Cell<?>) cd;
                 return activeDeletion.deletes(cell) ? null : cell;
@@ -368,11 +368,10 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
-                                                        BYTE_COMPARABLE_VERSION,
-                                                        RangeTrie.branch(ByteComparable.EMPTY,
-                                                                         BYTE_COMPARABLE_VERSION,
-                                                                         TrieTombstoneMarker.covering(deletionTime))),
+            trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
+                                                       ByteComparable.EMPTY,
+                                                       BYTE_COMPARABLE_VERSION,
+                                                       TrieTombstoneMarker.covering(deletionTime)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
@@ -395,9 +394,9 @@ public class TrieBackedPartition implements Partition
             trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
                                                         BYTE_COMPARABLE_VERSION,
                                                         RangeTrie.point(key,
-                                                                        BYTE_COMPARABLE_VERSION,
-                                                                        true,
-                                                                        TrieTombstoneMarker.point(deletionTime))),
+                                                                      BYTE_COMPARABLE_VERSION,
+                                                                      true,
+                                                                      TrieTombstoneMarker.point(deletionTime))),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
@@ -418,11 +417,11 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
-                                                       start,
-                                                       end,
-                                                       BYTE_COMPARABLE_VERSION,
-                                                       TrieTombstoneMarker.covering(deletionTime)),
+            trie.apply(DeletionAwareTrie.deletedSlice(ByteComparable.EMPTY,
+                                                      start,
+                                                      end,
+                                                      BYTE_COMPARABLE_VERSION,
+                                                      TrieTombstoneMarker.covering(deletionTime)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),

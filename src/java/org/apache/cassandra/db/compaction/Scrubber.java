@@ -888,26 +888,13 @@ public class Scrubber implements Closeable
 
         private Unfiltered fixNegativeLocalExpirationTime(Row row)
         {
-            LivenessInfo livenessInfo = row.primaryKeyLivenessInfo();
-            if (livenessInfo.isExpiring() && livenessInfo.localExpirationTime() < 0)
-                livenessInfo = livenessInfo.withUpdatedTimestampAndLocalDeletionTime(livenessInfo.timestamp() + 1, AbstractCell.MAX_DELETION_TIME);
-
-            return row.transformAndFilter(livenessInfo, row.deletion(), cd -> {
-                if (cd.column().isSimple())
-                {
-                    Cell cell = (Cell)cd;
-                    return cell.isExpiring() && cell.localDeletionTime() < 0
-                           ? cell.withUpdatedTimestampAndLocalDeletionTime(cell.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
-                           : cell;
-                }
-                else
-                {
-                    ComplexColumnData complexData = (ComplexColumnData)cd;
-                    return complexData.transformAndFilter(cell -> cell.isExpiring() && cell.localDeletionTime() < 0
-                                                                  ? cell.withUpdatedTimestampAndLocalDeletionTime(cell.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
-                                                                  : cell);
-                }
-            }).clone(HeapCloner.instance);
+            return row.transformAndFilter(livenessInfo -> (livenessInfo.isExpiring() && livenessInfo.localExpirationTime() < 0)
+                                                          ? livenessInfo.withUpdatedTimestampAndLocalDeletionTime(livenessInfo.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
+                                                          : livenessInfo,
+                                          cell -> cell.isExpiring() && cell.localDeletionTime() < 0
+                                                  ? cell.withUpdatedTimestampAndLocalDeletionTime(cell.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
+                                                  : cell)
+                      .clone(HeapCloner.instance);
         }
     }
 }

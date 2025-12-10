@@ -119,8 +119,10 @@ public abstract class ColumnData
             }
             else
             {
-                ComplexColumnData existingComplex = (ComplexColumnData) existing;
-                ComplexColumnData updateComplex = (ComplexColumnData) update;
+                // This shouldn't be called for TrieBackedComplexColumn
+                assert !(existing instanceof TrieBackedComplexColumn);
+                BTreeComplexColumn existingComplex = (BTreeComplexColumn) existing;
+                BTreeComplexColumn updateComplex = (BTreeComplexColumn) update;
 
                 DeletionTime existingDeletion = existingComplex.complexDeletion();
                 DeletionTime updateDeletion = updateComplex.complexDeletion();
@@ -151,7 +153,7 @@ public abstract class ColumnData
                     }
                     cells = BTree.update(existingTree, updateTree, existingComplex.column.cellComparator(), (UpdateFunction) reconciler);
                 }
-                return new ComplexColumnData(existingComplex.column, cells, maxComplexDeletion);
+                return new BTreeComplexColumn(existingComplex.column, cells, maxComplexDeletion);
             }
         }
 
@@ -201,11 +203,12 @@ public abstract class ColumnData
             }
             else
             {
-                ComplexColumnData existingComplex = (ComplexColumnData) existing;
+                // This shouldn't be called for TrieBackedComplexColumn
+                BTreeComplexColumn existingComplex = (BTreeComplexColumn) existing;
                 if (activeDeletion.supersedes(existingComplex.complexDeletion()))
                 {
                     Object[] cells = BTree.transformAndFilter(existingComplex.tree(), (ColumnData cd) -> removeShadowed(cd, recordDeletion));
-                    return BTree.isEmpty(cells) ? null : new ComplexColumnData(existingComplex.column, cells, DeletionTime.LIVE);
+                    return BTree.isEmpty(cells) ? null : new BTreeComplexColumn(existingComplex.column, cells, DeletionTime.LIVE);
                 }
             }
 

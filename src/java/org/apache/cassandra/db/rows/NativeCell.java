@@ -166,6 +166,13 @@ public class NativeCell extends AbstractCell<ByteBuffer>
         return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), ByteBufferUtil.EMPTY_BYTE_BUFFER, path());
     }
 
+    @Override
+    public Cell<?> withPath(CellPath path)
+    {
+        // TODO: Deal better with this.
+        return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
+    }
+
     public long unsharedHeapSizeExcludingData()
     {
         return EMPTY_SIZE;

@@ -27,6 +27,7 @@ import java.util.function.Function;
 
 import com.google.common.collect.ImmutableList;
 
+import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -113,7 +114,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param deletion A _covering_ range state that defines the deletion information
     /// @return A deletion-aware trie containing the deletion range
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletionRange(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    DeletionAwareTrie<T, D> deletedRange(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.range(left, right, byteComparableVersion, deletion);
         return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
@@ -135,12 +136,18 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param deletion A _covering_ range state that defines the deletion information
     /// @return A deletion-aware trie containing the deletion range
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletionSlice(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    DeletionAwareTrie<T, D> deletedSlice(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.slice(left, right, byteComparableVersion, deletion);
         return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
     }
 
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> deletedBranch(ByteComparable prefixInDataTrie, ByteComparable branch, ByteComparable.Version byteComparableVersion, D deletion)
+    {
+        RangeTrie<D> rangeTrie = RangeTrie.branch(branch, byteComparableVersion, deletion);
+        return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
+    }
 
     /// Creates a deletion-aware trie from an existing range trie representing deletions.
     ///
@@ -259,6 +266,21 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     default DeletionAwareTrie<T, D> mergeWith(DeletionAwareTrie<T, D> other, MergeResolver<T, D> mergeResolver)
     {
         return mergeWith(other, mergeResolver, mergeResolver::resolveMarkers, mergeResolver::applyMarker, mergeResolver.deletionsAtFixedPoints());
+    }
+
+    default DeletionAwareTrie<T, D> mergeWithDeletion(RangeTrie<D> deletionTrie,
+                                                      BiFunction<D, T, T> deleter,
+                                                      Trie.MergeResolver<D> deletionResolver,
+                                                      boolean deletionsAtFixedPoints)
+    {
+        // TODO: Optimize/simplify
+        return mergeWith(deletionBranch(ByteComparable.EMPTY,
+                                        deletionTrie.cursor(Direction.FORWARD).byteComparableVersion(),
+                                        deletionTrie),
+                         throwingResolver(),
+                         deletionResolver,
+                         deleter,
+                         deletionsAtFixedPoints);
     }
 
     /// See [MergeResolver]
@@ -392,21 +414,31 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         }
     };
 
-    /// Walker interface extended to also process deletion branches.
-    interface DeletionAwareWalker<T, D, R> extends Cursor.Walker<T, R>
+    interface ValueConsumer<T, D> extends DeletionAwareCursor.DeletionAwareWalker<T, D, Void>
     {
-        /// Called when a deletion branch is found. Return null to skip over it, or the walker to use to descend inside
-        /// it.
-        ///
-        /// Note that the depth given by `resetPathLength` in the deletion branch will be relative to the root of the
-        /// deletion branch. See [TrieDumper] for an example of handling this.
-        boolean enterDeletionsBranch();
+        @Override
+        default Void complete()
+        {
+            return null;
+        }
 
-        /// Called for every deletion marker found in the deletion branch.
-        void deletionMarker(D marker);
+        @Override
+        default void resetPathLength(int newDepth)
+        {
+            // not tracking path
+        }
 
-        /// Called when the deletion branch is exited.
-        void exitDeletionsBranch();
+        @Override
+        default void addPathByte(int nextByte)
+        {
+            // not tracking path
+        }
+
+        @Override
+        default void addPathBytes(DirectBuffer buffer, int pos, int count)
+        {
+            // not tracking path
+        }
     }
 
     @Override
@@ -421,8 +453,8 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return process(Direction.FORWARD, new TrieDumper.DeletionAware<>(contentToString, rangeToString));
     }
 
-    /// Process the trie using the given [DeletionAwareWalker].
-    default <R> R process(Direction direction, DeletionAwareWalker<? super T, ? super D, R> walker)
+    /// Process the trie using the given [DeletionAwareCursor.DeletionAwareWalker].
+    default <R> R process(Direction direction, DeletionAwareCursor.DeletionAwareWalker<? super T, ? super D, R> walker)
     {
         return cursor(direction).process(walker);
     }
@@ -525,6 +557,16 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     default Iterable<Map.Entry<ByteComparable.Preencoded, DeletionAwareTrie<T, D>>> tailTries(Direction direction, Class<? extends T> clazz)
     {
         return () -> new TrieTailsIterator.AsEntriesDeletionAware<>(cursor(direction), clazz);
+    }
+
+    default <V> DeletionAwareTrie<V, D> mapValues(Function<T, V> mapper)
+    {
+        return dir -> new ContentMappingCursor.DeletionAwareValuesOnly<>(mapper, cursor(dir));
+    }
+
+    default <V, E extends RangeState<E>> DeletionAwareTrie<V, E> mapValuesAndDeletions(Function<T, V> mapper, Function<D, E> deletionMapper)
+    {
+        return dir -> new ContentMappingCursor.DeletionAware<>(mapper, deletionMapper, cursor(dir));
     }
 
     DeletionAwareCursor<T, D> makeCursor(Direction direction);

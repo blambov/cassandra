@@ -18,6 +18,11 @@
 
 package org.apache.cassandra.db.rows;
 
+import java.util.Collection;
+import java.util.Optional;
+import java.util.function.Function;
+import javax.annotation.Nullable;
+
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.DeletionTime;
@@ -54,6 +59,23 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
     /// equal) which is not stored or reported.
     TrieTombstoneMarker mergeWith(TrieTombstoneMarker existing);
 
+    static TrieTombstoneMarker merge(Collection<TrieTombstoneMarker> markers)
+    {
+        TrieTombstoneMarker acc = null;
+        for (TrieTombstoneMarker marker : markers)
+        {
+            if (acc == null)
+                acc = marker;
+            else
+                acc = acc.mergeWith(marker);
+        }
+        return acc;
+    }
+
+    /// Apply an incoming marker and drop the parts of this marker that do not survive (i.e. supercede) the incoming
+    /// deletion. The result may be null, this, or a partial version of this.
+    @Nullable TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion);
+
     boolean hasPointData();
 
     static TrieTombstoneMarker covering(DeletionTime deletionTime)
@@ -66,5 +88,18 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
         return TrieTombstoneMarkerImpl.point(deletionTime);
     }
 
+    static TrieTombstoneMarker point(long deletedAt, int localDeletionTime)
+    {
+        return TrieTombstoneMarkerImpl.point(new DeletionTime(deletedAt, localDeletionTime));
+    }
+
     TrieTombstoneMarker withUpdatedTimestamp(long l);
+
+    static @Nullable DeletionTime deletionOfCovering(@Nullable TrieTombstoneMarker marker)
+    {
+        // Covering instances implement DeletionTime.
+        return (DeletionTime) marker;
+    }
+
+    @Nullable TrieTombstoneMarker map(Function<DeletionTime, DeletionTime> mapper);
 }

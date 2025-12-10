@@ -197,10 +197,10 @@ interface DataPoint
                     assert startMarker != null;
                     int prefixLength = ByteComparable.diffPoint(startMarker.position, marker.position, VERSION) - 1;
                     trie.apply(
-                            DeletionAwareTrie.deletionSlice(ByteComparable.cut(startMarker.position, prefixLength),
-                                    ByteComparable.skipFirst(startMarker.position, prefixLength),
-                                    ByteComparable.skipFirst(marker.position, prefixLength),
-                                    VERSION, marker.leftSideAsCovering),
+                            DeletionAwareTrie.deletedSlice(ByteComparable.cut(startMarker.position, prefixLength),
+                                                           ByteComparable.skipFirst(startMarker.position, prefixLength),
+                                                           ByteComparable.skipFirst(marker.position, prefixLength),
+                                                           VERSION, marker.leftSideAsCovering),
                             DataPoint::combineLive,
                             DataPoint::combineDeletion,
                             DataPoint::deleteLive,

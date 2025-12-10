@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import com.google.common.base.Preconditions;
 
@@ -106,7 +107,13 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
         RangeCursor<S> cursor = cursor(Direction.FORWARD);
         final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
         if (cursor.descendAlong(bytes))
-            return cursor.state();
+        {
+            S state = cursor.state();
+            if (state == null)
+                return null;
+            // If this is a boundary, the state that applies to the branch is its right side.
+            return state.succedingState(Direction.FORWARD);
+        }
         else
             return cursor.precedingState();
     }
@@ -193,6 +200,11 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     default Iterable<Map.Entry<ByteComparable.Preencoded, RangeTrie<S>>> tailTries(Direction direction, Class<? extends S> clazz)
     {
         return () -> new TrieTailsIterator.AsEntriesRange<>(cursor(direction), clazz);
+    }
+
+    default <E extends RangeState<E>> RangeTrie<E> mapValues(Function<S, E> mapper)
+    {
+        return dir -> new ContentMappingCursor.Range<>(mapper, cursor(dir));
     }
 
     RangeCursor<S> makeCursor(Direction direction);

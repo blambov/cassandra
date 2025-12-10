@@ -135,6 +135,12 @@ public class BufferCell extends AbstractCell<ByteBuffer>
     }
 
     @Override
+    public Cell<?> withPath(CellPath path)
+    {
+        return new BufferCell(column, timestamp, ttl, localDeletionTime, value, path);
+    }
+
+    @Override
     public Cell<?> clone(ByteBufferCloner cloner)
     {
         if (!value.hasRemaining() && path == null)

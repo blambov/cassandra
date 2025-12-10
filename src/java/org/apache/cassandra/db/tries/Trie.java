@@ -23,6 +23,8 @@ import com.google.common.collect.Iterables;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Function;
+
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -277,6 +279,11 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
     default Iterable<Map.Entry<ByteComparable.Preencoded, Trie<T>>> tailTries(Direction direction, Class<? extends T> clazz)
     {
         return () -> new TrieTailsIterator.AsEntries<>(cursor(direction), clazz);
+    }
+
+    default <V> Trie<V> mapValues(Function<T, V> mapper)
+    {
+        return dir -> new ContentMappingCursor.Plain<>(mapper, cursor(dir));
     }
 
     static <T> Trie<T> empty(ByteComparable.Version byteComparableVersion)

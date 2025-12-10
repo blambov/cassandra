@@ -26,12 +26,14 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.memory.ByteBufferCloner;
 
 /**
  * A path for a cell belonging to a complex column type (non-frozen collection or UDT).
  */
-public abstract class CellPath
+public abstract class CellPath implements ByteComparable
 {
     public static final CellPath BOTTOM = new EmptyCellPath();
     public static final CellPath TOP = new EmptyCellPath();
@@ -130,6 +132,12 @@ public abstract class CellPath
         {
             return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(value);
         }
+
+        @Override
+        public ByteSource asComparableBytes(Version version)
+        {
+            return ByteSource.withTerminator(ByteSource.TERMINATOR, ByteSource.of(value, version));
+        }
     }
 
     private static class EmptyCellPath extends CellPath
@@ -153,6 +161,12 @@ public abstract class CellPath
         public long unsharedHeapSizeExcludingData()
         {
             return 0;
+        }
+
+        @Override
+        public ByteSource asComparableBytes(Version version)
+        {
+            return ByteSource.oneByte(ByteSource.TERMINATOR);
         }
     }
 }

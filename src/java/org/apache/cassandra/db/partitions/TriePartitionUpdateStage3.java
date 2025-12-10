@@ -495,11 +495,10 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         {
             try
             {
-                trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
-                                                            BYTE_COMPARABLE_VERSION,
-                                                            RangeTrie.branch(ByteComparable.EMPTY,
-                                                                             BYTE_COMPARABLE_VERSION,
-                                                                             TrieTombstoneMarker.covering(deletionTime))),
+                trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
+                                                           ByteComparable.EMPTY,
+                                                           BYTE_COMPARABLE_VERSION,
+                                                           TrieTombstoneMarker.covering(deletionTime)),
                            noConflictInData(),
                            mergeTombstoneRanges(),
                            noIncomingSelfDeletion(),
@@ -517,11 +516,11 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         {
             try
             {
-                trie.apply(DeletionAwareTrie.deletionSlice(ByteComparable.EMPTY,
-                                                           start,
-                                                           end,
-                                                           BYTE_COMPARABLE_VERSION,
-                                                           TrieTombstoneMarker.covering(deletionTime)),
+                trie.apply(DeletionAwareTrie.deletedSlice(ByteComparable.EMPTY,
+                                                          start,
+                                                          end,
+                                                          BYTE_COMPARABLE_VERSION,
+                                                          TrieTombstoneMarker.covering(deletionTime)),
                            this::merge,
                            this::mergeTombstones,
                            this::applyTombstone,
@@ -629,7 +628,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         @Override
         public DeletionTime partitionLevelDeletion()
         {
-            TrieTombstoneMarker applicableRange = trie.deletionOnlyTrie().applicableRange(STATIC_CLUSTERING_PATH);
+            TrieTombstoneMarker applicableRange = trie.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY);
             return applicableRange != null ? applicableRange.deletionTime() : DeletionTime.LIVE;
         }
 
