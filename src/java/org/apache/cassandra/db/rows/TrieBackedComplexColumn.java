@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.rows;
 
-import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.function.Function;
 
@@ -28,31 +27,23 @@ import com.google.common.collect.Iterators;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Digest;
-import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
-import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.Trie;
 import org.apache.cassandra.db.tries.TrieEntriesIterator;
-import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
+import org.apache.cassandra.db.tries.TrieEntriesWalker;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.BiLongAccumulator;
 import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
-import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
 import org.apache.cassandra.utils.memory.Cloner;
 
-import static org.apache.cassandra.db.partitions.TrieBackedPartition.BYTE_COMPARABLE_VERSION;
-
 /**
- * The data for a complex column, that is it's cells and potential complex
- * deletion time.
+ * The data for a complex column, that is its cells and potential complex deletion time.
  */
 public class TrieBackedComplexColumn extends ComplexColumnData
 {
-    static final DeletionAwareTrie<Object, TrieTombstoneMarker> NO_CELLS = DeletionAwareTrie.empty(BYTE_COMPARABLE_VERSION);
-
     // The cells for 'column' sorted by cell path.
     private final DeletionAwareTrie<Object, TrieTombstoneMarker> data;
 
@@ -75,15 +66,20 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     public Cell<?> getCell(CellPath path)
     {
-        // TODO: change users to avoid
-        // TODO: deleted cells?
-        return (Cell<?>) data.contentOnlyTrie().get(path);
+        Cell<?> cell = (Cell<?>) data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
+        if (cell == null)
+            return null;
+        return cell.withPath(path);
     }
 
     public Cell<?> getCellByIndex(int idx)
     {
-        // TODO: should deleted cells be included?
-        return (Cell<?>) Iterators.get(data.contentOnlyTrie().valueIterator(), idx, null);
+//        if (true) return (Cell<?>) Iterators.get(data.contentOnlyTrie().valueIterator(), idx, null);
+        var entry = Iterators.get(data.contentOnlyTrie().filteredEntryIterator(Direction.FORWARD, Cell.class), idx, null);
+        if (entry == null)
+            return null;
+        Cell<?> cell = entry.getValue();
+        return cell.withPath(TrieBackedRow.cellPath(cell.column, entry.getKey().getPreencodedBytes()));
     }
 
     /**
@@ -102,14 +98,8 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         return TrieTombstoneMarker.deletionOfCovering(data.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY));
     }
 
-    DeletionAwareTrie<Object, TrieTombstoneMarker> tree()
-    {
-        return data;
-    }
-
     static class CellsWithPath extends TrieEntriesIterator<Object, Cell<?>>
     {
-        // TODO: deleted cells?
         protected CellsWithPath(Trie<Object> trie, Direction direction)
         {
             super(trie, direction, Predicates.alwaysTrue());
@@ -125,41 +115,25 @@ public class TrieBackedComplexColumn extends ComplexColumnData
             if (c.path() != null)
                 return c;
             ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-            return c.withPath(CellPath.create(ByteBuffer.wrap(ByteSourceInverse.getUnescapedBytes(pathBytes))));
+            return c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
         }
     }
 
     public Iterator<Cell<?>> iterator()
     {
-        // TODO: what about deleted cells?
         return new CellsWithPath(data.contentOnlyTrie(), Direction.FORWARD);
     }
 
     public Iterator<Cell<?>> reverseIterator()
     {
-        // TODO: what about deleted cells?
         return new CellsWithPath(data.contentOnlyTrie(), Direction.REVERSE);
     }
 
     @Override
     public ComplexColumnData transformAndFilter(Function<? super Cell<?>, ? extends Cell<?>> function)
     {
-        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> transformedData = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
-        try
-        {
-            transformedData.apply(data,
-                                  (empty, v) -> function.apply((Cell<?>) v),
-                                  TrieBackedPartition.mergeTombstoneRanges(),
-                                  TrieBackedPartition.noIncomingSelfDeletion(),
-                                  TrieBackedPartition.noExistingSelfDeletion(),
-                                  true,
-                                  Predicates.alwaysFalse());
-        }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e);
-        }
-        return new TrieBackedComplexColumn(column, transformedData);
+        return new TrieBackedComplexColumn(column, data.mapValues(x -> x instanceof Cell ? function.apply((Cell<?>) x)
+                                                                                         : x));
     }
 
     @Override
@@ -171,51 +145,63 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     @Override
     public long accumulate(LongAccumulator<Cell<?>> accumulator, long initialValue)
     {
-        class Accumulator implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
+        class Accumulator extends TrieEntriesWalker<Object, Accumulator>
         {
-            long longValue;
+            long longValue = initialValue;
 
             @Override
-            public void deletionMarker(TrieTombstoneMarker marker)
+            protected void content(Object content, byte[] bytes, int byteLength)
             {
-                // TODO: process deleted cells?
+                if (!(content instanceof Cell))
+                    return;
+
+                Cell<?> c = (Cell<?>) content;
+                if (c.path() == null)
+                {
+                    ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
+                    c = c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
+                }
+                longValue = accumulator.apply(c, longValue);
             }
 
             @Override
-            public void content(Object content)
+            public Accumulator complete()
             {
-                // TODO: does this need paths?
-                longValue = accumulator.apply((Cell<?>) content, longValue);
+                return this;
             }
         }
-        Accumulator consumer = new Accumulator();
-        data.process(Direction.FORWARD, consumer);
-        return consumer.longValue;
+        return data.process(Direction.FORWARD, new Accumulator()).longValue;
     }
 
     @Override
     public <A> long accumulate(BiLongAccumulator<A, Cell<?>> accumulator, A arg, long initialValue)
     {
-        class Accumulator implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
+        class Accumulator extends TrieEntriesWalker<Object, Accumulator>
         {
-            long longValue;
+            long longValue = initialValue;
 
             @Override
-            public void deletionMarker(TrieTombstoneMarker marker)
+            protected void content(Object content, byte[] bytes, int byteLength)
             {
-                // TODO: process deleted cells?
+                if (!(content instanceof Cell))
+                    return;
+
+                Cell<?> c = (Cell<?>) content;
+                if (c.path() == null)
+                {
+                    ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
+                    c = c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
+                }
+                longValue = accumulator.apply(arg, c, longValue);
             }
 
             @Override
-            public void content(Object content)
+            public Accumulator complete()
             {
-                // TODO: does this need paths?
-                longValue = accumulator.apply(arg, (Cell<?>) content, longValue);
+                return this;
             }
         }
-        Accumulator consumer = new Accumulator();
-        data.process(Direction.FORWARD, consumer);
-        return consumer.longValue;
+        return data.process(Direction.FORWARD, new Accumulator()).longValue;
     }
 
     public int dataSize()
@@ -257,42 +243,27 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     public TrieBackedComplexColumn purge(DeletionPurger purger, int nowInSec)
     {
         throw new AssertionError("Should be done by TrieBackedRow");
-//        DeletionTime newDeletion = complexDeletion.isLive() || purger.shouldPurge(complexDeletion) ? DeletionTime.LIVE : complexDeletion;
-//        return transformAndFilter(newDeletion, (cell) -> cell.purge(purger, nowInSec));
     }
 
     @Override
     public ColumnData clone(Cloner cloner)
     {
         throw new AssertionError("Should be done by TrieBackedRow");
-//        return transform(c -> cloner.clone(c));
     }
 
     public TrieBackedComplexColumn updateAllTimestamp(long newTimestamp)
     {
         throw new AssertionError("Should be done by TrieBackedRow");
-//        DeletionTime newDeletion = complexDeletion.isLive() ? complexDeletion : new DeletionTime(newTimestamp - 1, complexDeletion.localDeletionTime());
-//        return transformAndFilter(newDeletion, (cell) -> (Cell<?>) cell.updateAllTimestamp(newTimestamp));
     }
 
     public long maxTimestamp()
     {
         throw new AssertionError("Should be collected by TrieBackedRow");
-//        long timestamp = complexDeletion.markedForDeleteAt();
-//        for (Cell<?> cell : this)
-//            timestamp = Math.max(timestamp, cell.timestamp());
-//        return timestamp;
     }
 
     public long minTimestamp()
     {
         throw new AssertionError("Should be collected by TrieBackedRow");
-//        long timestamp = complexDeletion.isLive()
-//                         ? Long.MAX_VALUE
-//                         : complexDeletion.markedForDeleteAt();
-//        for (Cell cell : this)
-//            timestamp = Math.min(timestamp, cell.timestamp());
-//        return timestamp;
     }
 
     @Override
@@ -301,10 +272,10 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         if (this == other)
             return true;
 
-        if(!(other instanceof TrieBackedComplexColumn))
+        if(!(other instanceof ComplexColumnData))
             return false;
 
-        TrieBackedComplexColumn that = (TrieBackedComplexColumn)other;
+        ComplexColumnData that = (ComplexColumnData)other;
         return this.column().equals(that.column())
                && Iterables.elementsEqual(this, that);
     }
@@ -313,8 +284,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     public int hashCode()
     {
         throw new AssertionError("Should not be used");
-//        return Objects.hash(column(), complexDeletion(), Iterables.
-//                            BTree.hashCode(cells));
     }
 
     @Override

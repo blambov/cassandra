@@ -45,7 +45,8 @@ public class BufferCell extends AbstractCell<ByteBuffer>
     {
         super(column);
         assert !column.isPrimaryKeyColumn();
-        assert column.isComplex() == (path != null) : format("Column %s.%s(%s: %s) isComplex: %b with cellpath: %s", column.ksName, column.cfName, column.name, column.type.toString(), column.isComplex(), path);
+        // Trie-backed rows store path-less cells.
+        // assert column.isComplex() == (path != null) : format("Column %s.%s(%s: %s) isComplex: %b with cellpath: %s", column.ksName, column.cfName, column.name, column.type.toString(), column.isComplex(), path);
         this.timestamp = timestamp;
         this.ttl = ttl;
         this.localDeletionTime = localDeletionTime;

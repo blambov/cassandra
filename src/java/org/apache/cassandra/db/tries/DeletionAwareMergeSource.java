@@ -179,7 +179,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
         if (atDeletions)
             return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction));
         else
-            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction));
+            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.precedingStateCursor(direction));
     }
 
     @Override

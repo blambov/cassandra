@@ -312,6 +312,13 @@ public class RowWithSourceTable implements Row
     }
 
     @Override
+    public Row mergeWith(Row updateAsRow,
+                         ColumnData.PostReconciliationFunction reconcileF)
+    {
+        return maybeWrapRow(row.mergeWith(updateAsRow, reconcileF));
+    }
+
+    @Override
     public Iterator<ColumnData> iterator()
     {
         return Iterators.transform(row.iterator(), this::wrapColumnData);

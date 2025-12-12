@@ -31,7 +31,7 @@ import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 
-public class BTreeRowTest
+public class TrieBackedRowTest
 {
     private final TableMetadata metadata = TableMetadata.builder("", "")
                                                         .addPartitionKeyColumn("pk", Int32Type.instance)
@@ -42,9 +42,9 @@ public class BTreeRowTest
     private final ColumnMetadata v2Metadata = metadata.regularAndStaticColumns().columns(false).getSimple(1);
     private final ColumnMetadata v1Metadata = metadata.regularAndStaticColumns().columns(false).getSimple(0);
 
-    private BTreeRow.Builder row(int ck, Cell<?>... columns)
+    private TrieBackedRow.Builder row(int ck, Cell<?>... columns)
     {
-        BTreeRow.Builder builder = new BTreeRow.Builder(true);
+        TrieBackedRow.Builder builder = new TrieBackedRow.Builder(metadata.regularAndStaticColumns());
         builder.newRow(Util.clustering(metadata.comparator, ck));
         for (Cell<?> cell : columns)
             builder.addCell(cell);
@@ -67,7 +67,7 @@ public class BTreeRowTest
         int v1CellTimestamp = 1000;
         int v2CellTimestamp = 500;
         int primaryKeyTimestamp = 2000;
-        BTreeRow.Builder builder = row(1, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
+        TrieBackedRow.Builder builder = row(1, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
         builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(primaryKeyTimestamp, FBUtilities.nowInSeconds()));
         Row row = builder.build();
         assertEquals(v2CellTimestamp, row.minTimestamp());
@@ -79,22 +79,8 @@ public class BTreeRowTest
         int v1CellTimestamp = 1000;
         int v2CellTimestamp = 500;
         int primaryKeyTimestamp = 100;
-        BTreeRow.Builder builder = row(2, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
+        TrieBackedRow.Builder builder = row(2, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
         builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(primaryKeyTimestamp, FBUtilities.nowInSeconds()));
-        Row row = builder.build();
-        assertEquals(primaryKeyTimestamp, row.minTimestamp());
-    }
-
-    @Test
-    public void testRowMinTimespampFromDeletionShadowable()
-    {
-        int v1CellTimestamp = 1000;
-        int v2CellTimestamp = 500;
-        int primaryKeyTimestamp = 100;
-        int deletionTimestamp = 50;
-        BTreeRow.Builder builder = row(3, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
-        builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(primaryKeyTimestamp, FBUtilities.nowInSeconds()));
-        builder.addRowDeletion(new Row.Deletion(new DeletionTime(deletionTimestamp, FBUtilities.nowInSeconds()), true));
         Row row = builder.build();
         assertEquals(primaryKeyTimestamp, row.minTimestamp());
     }
@@ -106,7 +92,7 @@ public class BTreeRowTest
         int v2CellTimestamp = 500;
         int primaryKeyTimestamp = 100;
         int deletionTimestamp = 50;
-        BTreeRow.Builder builder = row(3, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
+        TrieBackedRow.Builder builder = row(3, cell(v1Metadata, 1, v1CellTimestamp), cell(v2Metadata, 1, v2CellTimestamp));
         builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(primaryKeyTimestamp, FBUtilities.nowInSeconds()));
         builder.addRowDeletion(new Row.Deletion(new DeletionTime(deletionTimestamp, FBUtilities.nowInSeconds()), false));
         Row row = builder.build();

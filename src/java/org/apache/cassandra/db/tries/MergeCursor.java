@@ -298,7 +298,7 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 assert !c2.hasDeletions();
             }
 
-            if (atC1 && atC2)
+            if (atC1 && atC2 && (!deletionsAtFixedPoints || deletionBranchDepth == -1))
             {
                 maybeAddDeletionsBranch(c1, c2);
                 maybeAddDeletionsBranch(c2, c1);
@@ -319,10 +319,6 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             // If tgt already has deletions applied, no need to add more (we cannot have a deletion branch covering
             // another deletion branch).
             if (tgt.hasDeletions())
-                return;
-            // Additionally, if `deletionsAtFixedPoints` is in force, we don't need to look for deletions below this
-            // point when we already have applied tgt's deletions to src.
-            if (deletionsAtFixedPoints && src.hasDeletions())
                 return;
 
             // TODO: Use flag before asking for deletion branch cursor

@@ -585,16 +585,20 @@ public class BTreeRow extends AbstractRow
             ((BTreeComplexColumn) current).setValue(path, value);
     }
 
-    public static Row merge(BTreeRow existing,
-                            BTreeRow update,
-                            ColumnData.PostReconciliationFunction reconcileF)
+    @Override
+    public Row mergeWith(Row updateAsRow,
+                         ColumnData.PostReconciliationFunction reconcileF)
     {
-        Object[] existingBtree = existing.btree;
+        if (!(updateAsRow instanceof BTreeRow))
+            throw new IllegalArgumentException("Merging different row types.");
+        BTreeRow update = (BTreeRow) updateAsRow;
+
+        Object[] existingBtree = this.btree;
         Object[] updateBtree = update.btree;
 
-        LivenessInfo livenessInfo = LivenessInfo.merge(update.primaryKeyLivenessInfo(), existing.primaryKeyLivenessInfo());
+        LivenessInfo livenessInfo = LivenessInfo.merge(update.primaryKeyLivenessInfo(), this.primaryKeyLivenessInfo());
 
-        Row.Deletion rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
+        Row.Deletion rowDeletion = this.deletion().supersedes(update.deletion()) ? this.deletion() : update.deletion();
 
         if (rowDeletion.deletes(livenessInfo))
             livenessInfo = LivenessInfo.EMPTY;
@@ -602,8 +606,8 @@ public class BTreeRow extends AbstractRow
             rowDeletion = Row.Deletion.LIVE;
 
         DeletionTime deletion = rowDeletion.time();
-        Object[] tree = mergeRowBTrees(reconcileF, existingBtree, updateBtree, deletion, existing.deletion().time());
-        return new BTreeRow(existing.clustering, livenessInfo, rowDeletion, tree, minDeletionTime(tree, livenessInfo, deletion));
+        Object[] tree = mergeRowBTrees(reconcileF, existingBtree, updateBtree, deletion, this.deletion().time());
+        return new BTreeRow(this.clustering, livenessInfo, rowDeletion, tree, minDeletionTime(tree, livenessInfo, deletion));
     }
 
     public static Object[] mergeRowBTrees(ColumnData.PostReconciliationFunction reconcileF,

@@ -303,6 +303,8 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IDataSize
 
     public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, long initialValue);
 
+    public Row mergeWith(Row update, ColumnData.PostReconciliationFunction onReconcile);
+
     /**
      * A row deletion/tombstone.
      * <p>

@@ -26,11 +26,14 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// Iterator of trie entries that constructs tail tries for the content-bearing branches that satisfy the given predicate
 /// and skips over the returned branches.
+///
+/// The [#mapContent] function is called only for branches that satisfy the predicate to form output. If the latter
+/// returns null, the entry is filtered out from the iterator output, but the branch is still skipped.
 public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TriePathReconstructor implements Iterator<V>
 {
     final C cursor;
     private final Predicate<T> predicate;
-    private T next;
+    private V next;
     private boolean gotNext;
 
     TrieTailsIterator(C cursor, Predicate<T> predicate)
@@ -50,34 +53,45 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
                 // if we are not just starting, we have returned a branch and must skip over it
                 long pos = cursor.skipTo(Cursor.positionForSkippingBranch(cursor.encodedPosition()));
                 if (Cursor.isExhausted(pos))
-                    return false;
+                    return done();
                 resetPathLength(Cursor.depth(pos) - 1);
                 addPathByte(Cursor.incomingTransition(pos));
             }
 
-            next = cursor.content();
-            if (next != null)
-                gotNext = predicate.test(next);
+            boolean gotNextContent = false;
+            T nextContent = cursor.content();
+            if (nextContent != null)
+                gotNext = predicate.test(nextContent);
 
-            while (!gotNext)
+            while (!gotNextContent)
             {
-                next = cursor.advanceToContent(this);
-                if (next != null)
-                    gotNext = predicate.test(next);
+                nextContent = cursor.advanceToContent(this);
+                if (nextContent != null)
+                    gotNextContent = predicate.test(nextContent);
                 else
-                    gotNext = true;
+                    return done();
             }
+
+            next = getContent(nextContent);
+            gotNext = next != null;
         }
 
         return next != null;
     }
 
+    private boolean done()
+    {
+        gotNext = true;
+        next = null;
+        return false;
+    }
+
     public V next()
     {
         gotNext = false;
-        T v = next;
+        V v = next;
         next = null;
-        return getContent(v);
+        return v;
     }
 
     protected abstract V getContent(T v);
@@ -109,7 +123,9 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
         @Override
         protected V getContent(T v)
         {
-            return mapContent(v, dir -> cursor.tailCursor(dir), keyBytes, keyPos);
+            // Fix the location of the tail trie source.
+            Cursor<T> tailCursor = cursor.tailCursor(cursor.direction());
+            return mapContent(v, dir -> tailCursor.tailCursor(dir), keyBytes, keyPos);
         }
 
         protected abstract V mapContent(T value, Trie<T> tailTrie, byte[] bytes, int byteLength);
@@ -137,7 +153,9 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
         @Override
         protected V getContent(S v)
         {
-            return mapContent(v, dir -> cursor.tailCursor(dir), keyBytes, keyPos);
+            // Fix the location of the tail trie source.
+            RangeCursor<S> tailCursor = cursor.tailCursor(cursor.direction());
+            return mapContent(v, dir -> tailCursor.tailCursor(dir), keyBytes, keyPos);
         }
 
         protected abstract V mapContent(S value, RangeTrie<S> tailTrie, byte[] bytes, int byteLength);
@@ -165,7 +183,9 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
         @Override
         protected V getContent(T v)
         {
-            return mapContent(v, dir -> cursor.tailCursor(dir), keyBytes, keyPos);
+            // Fix the location of the tail trie source.
+            DeletionAwareCursor<T, D> tailCursor = cursor.tailCursor(cursor.direction());
+            return mapContent(v, dir -> tailCursor.tailCursor(dir), keyBytes, keyPos);
         }
 
         protected abstract V mapContent(T value, DeletionAwareTrie<T, D> tailTrie, byte[] bytes, int byteLength);

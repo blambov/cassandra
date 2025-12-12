@@ -456,22 +456,25 @@ In later iterations we can assign fixed indexes to columns and reorder in coordi
 
 - Test return path seeks.
 
-# TODOs
+- Implement `mapValues` throughout hierarchy. `mapValuesAndDeletions` for deletion-aware.
 
 - `TrieBackedRow`:
-  - RowData is liveness info (with maybe stats later)
-  - Markers for complex column roots
-  - `TrieBackedComplexColumn` implementation
-  - Cell<?> without path (but with column reference) at leaves
+    - RowData is liveness info (with maybe stats later)
+    - Markers for complex column roots
+    - `TrieBackedComplexColumn` implementation
+    - Cell<?> without path (but with column reference) at leaves
+    - Don't move deleted cells to deletion branch for now
 
-- Implement `mapValues` throughout hierarchy. Test. `mapValuesAndDeletions` for deletion-aware.
+# TODOs
 
-- Implement `DeletionAwareTrie.mergeWithDeletion(RangeTrie)` equivalent to `mergeWith(deletionBranch(EMPTY, rangeTrie))`.
+- Implement cell-level trie with pojo content.
+
+- Test `mapValues`.
+
+- Implement specialized `DeletionAwareTrie.mergeWithDeletion(RangeTrie)` and `InMemoryDeletionAwareTrie.delete(RangeTrie)`.
   Test.
 
 - Make deletion-aware `tailTrie` include deletion branch. Test.
-
-- Implement cell-level trie with pojo content.
 
 - Add tests for prefixed ranges throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware).
 

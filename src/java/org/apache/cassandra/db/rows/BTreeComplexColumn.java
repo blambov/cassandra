@@ -115,11 +115,6 @@ public class BTreeComplexColumn extends ComplexColumnData
         return BTree.iterator(cells);
     }
 
-    public SearchIterator<CellPath, Cell> searchIterator()
-    {
-        return BTree.slice(cells, column().asymmetricCellPathComparator(), BTree.Dir.ASC);
-    }
-
     public Iterator<Cell<?>> reverseIterator()
     {
         return BTree.iterator(cells, BTree.Dir.DESC);
