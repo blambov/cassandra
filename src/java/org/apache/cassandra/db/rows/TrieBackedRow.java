@@ -34,6 +34,7 @@ import com.google.common.collect.Iterators;
 import com.google.common.primitives.Ints;
 
 import org.agrona.collections.Object2IntHashMap;
+import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.DeletionPurger;
@@ -89,7 +90,7 @@ public class TrieBackedRow extends AbstractRow
     };
 
     private final Clustering<?> clustering;
-    private final Object2IntHashMap<ColumnMetadata> columnIds;
+    private final Object2IntHashMap<ColumnIdentifier> columnIds;
     private final Columns columns;
 
     // We need to filter the tombstones of a row on every read (twice in fact: first to remove purgeable tombstone, and then after reconciliation to remove
@@ -140,7 +141,7 @@ public class TrieBackedRow extends AbstractRow
 
 
     private TrieBackedRow(Columns columns,
-                          Object2IntHashMap<ColumnMetadata> columnIds,
+                          Object2IntHashMap<ColumnIdentifier> columnIds,
                           Clustering<?> clustering,
                           DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
@@ -150,15 +151,15 @@ public class TrieBackedRow extends AbstractRow
         this.data = data;
     }
 
-    private static Object2IntHashMap<ColumnMetadata> makeColumnIdsMap(Columns columns)
+    private static Object2IntHashMap<ColumnIdentifier> makeColumnIdsMap(Columns columns)
     {
-        Object2IntHashMap<ColumnMetadata> columnIds = new Object2IntHashMap<>(columns.size());
+        Object2IntHashMap<ColumnIdentifier> columnIds = new Object2IntHashMap<>(COLUMN_NOT_PRESENT);
         for (int i = 0; i < columns.size(); i++)
-            columnIds.put(columns.getSimple(i), i);
+            columnIds.put(columns.getSimple(i).name, i);
         return columnIds;
     }
 
-    public static TrieBackedRow create(Columns columns, Object2IntHashMap<ColumnMetadata> columnIds, Clustering clustering, LivenessInfo livenessInfo, InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data) throws TrieSpaceExhaustedException
+    public static TrieBackedRow create(Columns columns, Object2IntHashMap<ColumnIdentifier> columnIds, Clustering clustering, LivenessInfo livenessInfo, InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data) throws TrieSpaceExhaustedException
     {
         data.putRecursive(ByteComparable.EMPTY, RowData.maybeWrap(livenessInfo), noConflictInData());
 
@@ -168,7 +169,7 @@ public class TrieBackedRow extends AbstractRow
     static final DeletionAwareTrie<Object, TrieTombstoneMarker> EMPTY_ROW = DeletionAwareTrie.singleton(ByteComparable.EMPTY,
                                                                                                         BYTE_COMPARABLE_VERSION,
                                                                                                         RowData.NO_LIVENESS);
-    static final Object2IntHashMap<ColumnMetadata> EMPTY_COLUMN_IDS = makeColumnIdsMap(Columns.NONE);
+    static final Object2IntHashMap<ColumnIdentifier> EMPTY_COLUMN_IDS = makeColumnIdsMap(Columns.NONE);
 
     public static TrieBackedRow emptyRow(Clustering<?> clustering)
     {
@@ -180,7 +181,7 @@ public class TrieBackedRow extends AbstractRow
         try
         {
             Columns columns = Columns.of(cell.column);
-            Object2IntHashMap<ColumnMetadata> columnIds = makeColumnIdsMap(columns);
+            Object2IntHashMap<ColumnIdentifier> columnIds = makeColumnIdsMap(columns);
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
             ByteComparable cellKey = cellKey(columnIds, cell);
             if (cell.column.isComplex())
@@ -385,15 +386,15 @@ public class TrieBackedRow extends AbstractRow
         return Deletion.regular(marker.deletionTime());
     }
 
-    static ByteComparable cellKey(Object2IntHashMap<ColumnMetadata> columnIds, Cell<?> cell)
+    static ByteComparable cellKey(Object2IntHashMap<ColumnIdentifier> columnIds, Cell<?> cell)
     {
         ColumnMetadata column = cell.column;
         return cellKey(columnIds, column, cell.path());
     }
 
-    private static ByteComparable cellKey(Object2IntHashMap<ColumnMetadata> columnIds, ColumnMetadata column, CellPath path)
+    private static ByteComparable cellKey(Object2IntHashMap<ColumnIdentifier> columnIds, ColumnMetadata column, CellPath path)
     {
-        int id = columnIds.get(column);
+        int id = columnIds.get(column.name);
         assert id != COLUMN_NOT_PRESENT;
         if (!column.isComplex())
             return v -> ByteSource.variableLengthInteger(id);
@@ -434,9 +435,9 @@ public class TrieBackedRow extends AbstractRow
         return ((MultiCellCapableType<Object>) column.type).nameComparator();
     }
 
-    private static ByteComparable columnKey(Object2IntHashMap<ColumnMetadata> columnIds, ColumnMetadata column)
+    private static ByteComparable columnKey(Object2IntHashMap<ColumnIdentifier> columnIds, ColumnMetadata column)
     {
-        int id = columnIds.get(column);
+        int id = columnIds.getValue(column.name);
         assert id != COLUMN_NOT_PRESENT;
         return v -> ByteSource.variableLengthInteger(id);
     }
@@ -697,7 +698,7 @@ public class TrieBackedRow extends AbstractRow
         BitSet fetchedIds = new BitSet();
         for (ColumnMetadata c : fetched)
         {
-            int idx = columnIds.get(c);
+            int idx = columnIds.get(c.name);
             if (idx == COLUMN_NOT_PRESENT)
                 continue;
             fetchedIds.set(idx);
@@ -1030,10 +1031,10 @@ public class TrieBackedRow extends AbstractRow
     public static class Builder implements Row.Builder
     {
         protected final RegularAndStaticColumns regularAndStaticColumns;
-        protected final Object2IntHashMap<ColumnMetadata> regularColumnIds;
-        protected final Object2IntHashMap<ColumnMetadata> staticColumnIds;
+        protected final Object2IntHashMap<ColumnIdentifier> regularColumnIds;
+        protected final Object2IntHashMap<ColumnIdentifier> staticColumnIds;
         protected Clustering<?> clustering;
-        protected Object2IntHashMap<ColumnMetadata> columnIds;
+        protected Object2IntHashMap<ColumnIdentifier> columnIds;
         private InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data;
 
         // For complex column at index i of 'columns', we store at complexDeletions[i] its complex deletion.

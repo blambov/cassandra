@@ -61,7 +61,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     public int cellsCount()
     {
-        return Iterators.size(data.contentOnlyTrie().valueIterator());
+        return Iterators.size(data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class));
     }
 
     public Cell<?> getCell(CellPath path)
@@ -74,7 +74,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     public Cell<?> getCellByIndex(int idx)
     {
-//        if (true) return (Cell<?>) Iterators.get(data.contentOnlyTrie().valueIterator(), idx, null);
         var entry = Iterators.get(data.contentOnlyTrie().filteredEntryIterator(Direction.FORWARD, Cell.class), idx, null);
         if (entry == null)
             return null;
