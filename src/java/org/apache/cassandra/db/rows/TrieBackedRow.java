@@ -22,6 +22,7 @@ import java.util.AbstractCollection;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -110,7 +111,25 @@ public class TrieBackedRow extends AbstractRow
     ///  - Deletion branch with tombstones
     private final DeletionAwareTrie<Object, TrieTombstoneMarker> data;
 
-    static class RowData extends LivenessInfo
+    public static TrieBackedRow from(TableMetadata metadata, Row row)
+    {
+        Builder builder = builder(metadata, row.clustering());
+        for (ColumnData cd : row)
+        {
+            if (cd.column.isSimple())
+                builder.addCell((Cell<?>) cd);
+            else
+            {
+                var ccd = (ComplexColumnData) cd;
+                builder.addComplexDeletion(ccd.column, ccd.complexDeletion());
+                for (Cell<?> cell : ccd)
+                    builder.addCell(cell);
+            }
+        }
+        return builder.build();
+    }
+
+    public static class RowData extends LivenessInfo
     {
         private final int ttl;
         private final int localExpirationTime;
@@ -139,12 +158,29 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
+    private static final Map<Columns, Object2IntHashMap<ColumnIdentifier>> columnsMapCache = new HashMap<>();
+
+    public static TrieBackedRow create(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        return new TrieBackedRow(tableMetadata, clustering, data);
+    }
+
+    TrieBackedRow(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        this(tableMetadata.regularAndStaticColumns().columns(clustering == Clustering.STATIC_CLUSTERING), clustering, data);
+    }
+
+    TrieBackedRow(Columns columns, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        this(columns, columnsMapCache.computeIfAbsent(columns, TrieBackedRow::makeColumnIdsMap), clustering, data);
+    }
 
     private TrieBackedRow(Columns columns,
                           Object2IntHashMap<ColumnIdentifier> columnIds,
                           Clustering<?> clustering,
                           DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
+        // TODO: No liveness info on deleted-only rows.
         this.columns = columns;
         this.columnIds = columnIds;
         this.clustering = clustering;
@@ -459,14 +495,12 @@ public class TrieBackedRow extends AbstractRow
 
     public Cell<?> getCell(ColumnMetadata c)
     {
-        // TODO: deleted cells?
         assert !c.isComplex();
         return (Cell<?>) data.get(cellKey(columnIds, c, null));
     }
 
     public Cell<?> getCell(ColumnMetadata c, CellPath path)
     {
-        // TODO: deleted cells?
         assert c.isComplex();
         return (Cell<?>) data.get(cellKey(columnIds, c, path));
     }
@@ -762,7 +796,10 @@ public class TrieBackedRow extends AbstractRow
                != 0;
     }
 
-
+    public DeletionAwareTrie<Object, TrieTombstoneMarker> trie()
+    {
+        return data;
+    }
 
     /**
      * Returns a copy of the row where all timestamps for live data have replaced by {@code newTimestamp} and
@@ -923,6 +960,13 @@ public class TrieBackedRow extends AbstractRow
             function.accept(arg, cd);
     }
 
+    private static Builder builder(TableMetadata metadata, Clustering<?> clustering)
+    {
+        Builder builder = new Builder(metadata.regularAndStaticColumns());
+        builder.newRow(clustering);
+        return builder;
+    }
+
     public static Row.Builder builder(RegularAndStaticColumns regularAndStaticColumns)
     {
         return new Builder(regularAndStaticColumns);
@@ -1042,8 +1086,8 @@ public class TrieBackedRow extends AbstractRow
         protected Builder(RegularAndStaticColumns regularAndStaticColumns)
         {
             this.regularAndStaticColumns = regularAndStaticColumns;
-            regularColumnIds = makeColumnIdsMap(regularAndStaticColumns.regulars);
-            staticColumnIds = makeColumnIdsMap(regularAndStaticColumns.statics);
+            regularColumnIds = columnsMapCache.computeIfAbsent(regularAndStaticColumns.regulars, TrieBackedRow::makeColumnIdsMap);
+            staticColumnIds = columnsMapCache.computeIfAbsent(regularAndStaticColumns.statics, TrieBackedRow::makeColumnIdsMap);
             data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
         }
 
@@ -1173,12 +1217,12 @@ public class TrieBackedRow extends AbstractRow
             }
         }
 
-        public Row build()
+        public TrieBackedRow build()
         {
-            Row row = new TrieBackedRow(regularAndStaticColumns.columns(clustering == Clustering.STATIC_CLUSTERING),
-                                        columnIds,
-                                        clustering,
-                                        data);
+            TrieBackedRow row = new TrieBackedRow(regularAndStaticColumns.columns(clustering == Clustering.STATIC_CLUSTERING),
+                                                  columnIds,
+                                                  clustering,
+                                                  data);
             reset();
             return row;
         }

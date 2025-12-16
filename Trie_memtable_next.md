@@ -411,6 +411,22 @@ If there's a mismatch, switch to materialized rows and using legacy iterator mer
 In later iterations we can assign fixed indexes to columns and reorder in coordinator/client. 
 
 
+## Deletion-only rows
+
+We need to be able to identify the root of a deletion-only row for iterating rows and unfiltereds. We can't rely on the
+row deletion for this, because we can have a deletion-only row for column- or cell-level tombstones.
+
+So a row needs two markers:
+- RowData with liveness info on the live path, if there is liveness info or any data on the live path.
+- TrieTombstoneMarker.Point on the deletion path, if there is any deletion present.
+
+The point deletion should disappear when a covering deletion deletes all of its children; easiest way to do this is to
+give it the superseding deletion time of all children deletions (this should also work with purging). This means that
+the superseding deletion needs to be collected on insertion (merger/upserter can do this).
+
+Note that this means we need to be able to have boundary + point TrieTombstoneMarker for row deletions.
+
+
 # Done
 
 - Include direction bit/byte in the encoding
@@ -473,6 +489,10 @@ In later iterations we can assign fixed indexes to columns and reorder in coordi
 # TODOs
 
 - Implement cell-level trie with pojo content.
+
+- Change TrieTombstone marker to be able to indicate row/complex-column deletion level 
+
+- Change FlexibleMergeCursor.WithMappedContent to take a direction argument in the resolver (with direction-less version)
 
 - Test `mapValues`.
 
