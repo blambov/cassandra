@@ -255,7 +255,8 @@ public class TrieBackedPartition implements Partition
         putDeletionInTrie(trie,
                           comparator.asByteComparable(openMarker.clustering()),
                           comparator.asByteComparable(closeMarker.clustering()),
-                          deletionTime);
+                          deletionTime,
+                          TrieTombstoneMarker.MarkerType.RANGE);
     }
 
     protected static void putPartitionDeletionInTrie(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie,
@@ -266,7 +267,8 @@ public class TrieBackedPartition implements Partition
             trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
                                                        ByteComparable.EMPTY,
                                                        BYTE_COMPARABLE_VERSION,
-                                                       TrieTombstoneMarker.covering(deletionTime)),
+                                                       TrieTombstoneMarker.covering(deletionTime,
+                                                                                    TrieTombstoneMarker.MarkerType.PARTITION)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
@@ -283,7 +285,8 @@ public class TrieBackedPartition implements Partition
     static void putDeletionInTrie(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie,
                                   ByteComparable start,
                                   ByteComparable end,
-                                  DeletionTime deletionTime)
+                                  DeletionTime deletionTime,
+                                  TrieTombstoneMarker.MarkerType markerType)
     {
         try
         {
@@ -291,7 +294,7 @@ public class TrieBackedPartition implements Partition
                                                       start,
                                                       end,
                                                       BYTE_COMPARABLE_VERSION,
-                                                      TrieTombstoneMarker.covering(deletionTime)),
+                                                      TrieTombstoneMarker.covering(deletionTime, markerType)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
