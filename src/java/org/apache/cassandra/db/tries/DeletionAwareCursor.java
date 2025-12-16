@@ -192,6 +192,25 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                     throw new AssertionError();
             }
         }
+
+        /// Returns an unmodified tail cursor that includes the data and deletion branches applicable to the current
+        /// point. Used by [TrieTailsIterator.DeletionAware].
+        public DeletionAwareTrie<T, D> deletionAwareTail()
+        {
+            switch (state)
+            {
+                case C1_ONLY:
+                    return combineTails(c1, null);
+                case AT_C2:
+                    return combineTails(null, c2);
+                case AT_C1:
+                    return combineTails(c1, c2.precedingStateCursor(direction()));
+                case AT_BOTH:
+                    return combineTails(c1, c2);
+                default:
+                    throw new AssertionError();
+            }
+        }
     }
 
     /// A variant of [LiveAndDeletionsMergeCursor] that can be asked to stop issuing deletion markers.
@@ -322,5 +341,38 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         {
             return new DeletionAwareCursor.Empty<>(direction, byteComparableVersion());
         }
+    }
+
+    static <T, D extends RangeState<D>> DeletionAwareTrie<T, D>
+    combineTails(DeletionAwareCursor<T, D> c, RangeCursor<D> deletionBranch)
+    {
+        if (c == null && deletionBranch == null)
+            return null;
+
+        // Create a trie cursor now to make sure changes to c or deletionBranch do not affect it.
+        DeletionAwareCursor<T, D> cursor = combineTailCursors(c, deletionBranch);
+
+        return dir -> cursor.tailCursor(dir);
+    }
+
+    private static <T, D extends RangeState<D>> DeletionAwareCursor<T, D>
+    combineTailCursors(DeletionAwareCursor<T, D> c, RangeCursor<D> deletionBranch)
+    {
+        if (c != null)
+        {
+            if (deletionBranch != null)
+                return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
+                                                                    c.tailCursor(c.direction()),
+                                                                    deletionBranch);
+            else
+                return c.tailCursor(c.direction());
+        }
+        else if (deletionBranch != null)
+            return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
+                                                                new Empty<T, D>(deletionBranch.direction(),
+                                                                                deletionBranch.byteComparableVersion()),
+                                                                deletionBranch);
+        else
+            return null;
     }
 }

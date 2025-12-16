@@ -96,7 +96,11 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
     default RangeCursor<S> precedingStateCursor(Direction direction)
     {
         // This needs to turn into a range covering the whole branch.
-        return new FromSet<>(RangesCursor.full(direction, byteComparableVersion()), precedingState());
+        S precedingState = precedingState();
+        if (precedingState == null)
+            return null;
+
+        return new FromSet<>(RangesCursor.full(direction, byteComparableVersion()), precedingState);
     }
 
     class Empty<S extends RangeState<S>> extends Cursor.Empty<S> implements RangeCursor<S>

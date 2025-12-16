@@ -734,7 +734,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
         }
     }
 
-    static class PartitionIterator extends TrieTailsIterator.DeletionAware<Object, TrieTombstoneMarker, TrieBackedPartitionStage3>
+    static class PartitionIterator extends TrieTailsIterator.DeletionAwareWithoutCoveringDeletions<Object, TrieTombstoneMarker, TrieBackedPartitionStage3>
     {
         final TableMetadata metadata;
         final EnsureOnHeap ensureOnHeap;

@@ -465,6 +465,11 @@ In later iterations we can assign fixed indexes to columns and reorder in coordi
     - Cell<?> without path (but with column reference) at leaves
     - Don't move deleted cells to deletion branch for now
 
+- Make deletion-aware `tailTrie` include deletion branch.
+- Make deletion-aware `tailTrieIterator` include deletion branches.
+- Make deletion-aware `tailTrieIterator` switchably ignore all deletion branches.
+
+
 # TODOs
 
 - Implement cell-level trie with pojo content.
@@ -474,7 +479,9 @@ In later iterations we can assign fixed indexes to columns and reorder in coordi
 - Implement specialized `DeletionAwareTrie.mergeWithDeletion(RangeTrie)` and `InMemoryDeletionAwareTrie.delete(RangeTrie)`.
   Test.
 
-- Make deletion-aware `tailTrie` include deletion branch. Test.
+- Test deletion-aware `tailTrie` including deletion branch.
+
+- Test deletion-aware `tailTrieIterator` including deletion branches.
 
 - Add tests for prefixed ranges throughout (subtrie, ranges, intersection, range merge, range intersection, deletion-aware).
 

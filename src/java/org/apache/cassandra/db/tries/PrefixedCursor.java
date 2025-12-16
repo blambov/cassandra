@@ -228,6 +228,11 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
             super(firstPrefixByte, prefix, tail);
         }
 
+        DeletionAware(DeletionAware<T, D> copyFrom, Direction direction)
+        {
+            this(copyFrom.nextPrefixByte, copyFrom.duplicateSource(), copyFrom.tail.tailCursor(direction));
+        }
+
         @Override
         public RangeCursor<D> deletionBranchCursor(Direction direction)
         {
@@ -243,8 +248,44 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return tail.tailCursor(direction);
             else
             {
-                return new DeletionAware<>(nextPrefixByte, duplicateSource(), tail.tailCursor(direction));
+                return new DeletionAware<>(this, direction);
             }
+        }
+    }
+
+
+    static class DeletionAwareSeparately<T, D extends RangeState<D>>
+    extends DeletionAware<T, D>
+    {
+        final RangeCursor<D> deletionBranch;
+
+        DeletionAwareSeparately(ByteComparable prefix, DeletionAwareCursor<T, D> contentBranch, RangeCursor<D> deletionBranch)
+        {
+            super(prefix, contentBranch);
+            this.deletionBranch = deletionBranch != null ? new Range<>(prefix, deletionBranch) : null;
+        }
+
+        DeletionAwareSeparately(DeletionAwareSeparately<T, D> copyFrom, Direction direction)
+        {
+            super(copyFrom, direction);
+            this.deletionBranch = copyFrom.deletionBranch;
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
+        {
+            return Cursor.isRootPosition(encodedPosition()) && deletionBranch != null
+                   ? deletionBranch.tailCursor(direction)
+                   : null;
+        }
+
+        @Override
+        public DeletionAwareCursor<T, D> tailCursor(Direction direction)
+        {
+            if (Cursor.isRootPosition(encodedPosition()))
+                return new DeletionAwareSeparately<>(this, direction);
+            else
+                return super.tailCursor(direction);
         }
     }
 }

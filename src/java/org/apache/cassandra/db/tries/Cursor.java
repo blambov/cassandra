@@ -209,6 +209,11 @@ interface Cursor<T>
         return EXHAUSTED_POSITION_DEPTH | ((((long) ((int) prevPosition) >> 31)) & TRANSITION_MASK);
     }
 
+    static boolean isRootPosition(long encodedPosition)
+    {
+        return encodedPosition == ROOT_POSITION_FORWARD || encodedPosition == ROOT_POSITION_REVERSE;
+    }
+
     static long encode(int depth, int transition, Direction direction)
     {
         assert depth >= -1;

@@ -538,18 +538,55 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new PrefixedCursor.DeletionAware<>(prefix, cursor(dir));
     }
 
+    /// A variation of [#prefixedBy] with the same effective result, but where content and deletion portions are
+    /// separately prefixed by `prefix`.
+    default DeletionAwareTrie<T, D> prefixedBySeparately(ByteComparable prefix, boolean deletionsMustBeAtRoot)
+    {
+        return dir ->
+        {
+            DeletionAwareCursor<T, D> cursor = cursor(dir);
+            if (deletionsMustBeAtRoot)
+                return new PrefixedCursor.DeletionAwareSeparately<>(prefix, cursor, cursor.deletionBranchCursor(dir));
+            else // TODO: remove?
+                return new PrefixedCursor.DeletionAwareSeparately<>(prefix, cursor, new DeletionAwareCursor.DeletionsTrieCursor<>(cursor.tailCursor(dir)));
+        };
+    }
+
     /// @inheritDoc
     ///
-    /// Note: if the cursor is positioned below a deletion branch root, the tail will not include any information about
-    /// that deletion branch, even if it applies to the current position.
+    /// Note: if the cursor is positioned below a deletion branch root and a deletion applies to the prefix, the tail
+    /// will include it as a deletion branch at the root of the returned tail trie.
     @Override
     default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix)
     {
         DeletionAwareCursor<T, D> c = cursor(Direction.FORWARD);
-        if (c.descendAlong(prefix.asComparableBytes(c.byteComparableVersion())))
-            return c::tailCursor;
-        else
-            return null;
+        ByteSource bytes = prefix.asComparableBytes(c.byteComparableVersion());
+        while (true)
+        {
+            RangeCursor<D> deletionBranch = c.deletionBranchCursor(Direction.FORWARD);
+            if (deletionBranch != null)
+                return tailTrieSeparately(ByteSource.duplicatable(bytes), c, deletionBranch);
+
+            int next = bytes.next();
+            long position = c.encodedPosition();
+            if (next == ByteSource.END_OF_STREAM)
+                return c::tailCursor;
+            long nextPosition = Cursor.positionForDescentWithByte(position, next);
+            if (Cursor.compare(c.skipTo(nextPosition), nextPosition) != 0)
+                return null;
+        }
+    }
+
+    private static <T, D extends RangeState<D>> DeletionAwareTrie<T, D>
+    tailTrieSeparately(ByteSource.Duplicatable bytes, DeletionAwareCursor<T, D> c, RangeCursor<D> deletionBranch)
+    {
+        ByteSource.Duplicatable bytesDeletion = bytes.duplicate();
+        if (!deletionBranch.descendAlong(bytesDeletion))
+            deletionBranch = deletionBranch.precedingStateCursor(Direction.FORWARD);
+        if (!c.descendAlong(bytes))
+            c = null;
+
+        return DeletionAwareCursor.combineTails(c, deletionBranch);
     }
 
     /// Returns an entry set containing all tail tree constructed at the points that contain content of
@@ -557,6 +594,17 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     default Iterable<Map.Entry<ByteComparable.Preencoded, DeletionAwareTrie<T, D>>> tailTries(Direction direction, Class<? extends T> clazz)
     {
         return () -> new TrieTailsIterator.AsEntriesDeletionAware<>(cursor(direction), clazz);
+    }
+
+    /// Returns an entry set containing all tail tree constructed at the points that contain content of
+    /// the given type.
+    ///
+    /// Any deletion branches presented above the position of the selected content will be ignored. This method is to
+    /// be used when it is known that all deletion branches are introduced at or below the selected positions.
+    default Iterable<Map.Entry<ByteComparable.Preencoded, DeletionAwareTrie<T, D>>>
+    tailTriesWithoutCoveringDeletions(Direction direction, Class<? extends T> clazz)
+    {
+        return () -> new TrieTailsIterator.AsEntriesDeletionAwareWithoutCoveringDeletions<>(cursor(direction), clazz);
     }
 
     default <V> DeletionAwareTrie<V, D> mapValues(Function<T, V> mapper)

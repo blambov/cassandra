@@ -87,14 +87,14 @@ class SingletonCursor<T> implements Cursor<T>
 
     private long doneOrRootReturnPath()
     {
-        if (currentPosition == Cursor.rootPosition(direction) && presentOnReturnPath)
+        if (Cursor.isRootPosition(currentPosition) && presentOnReturnPath)
             return currentPosition |= ON_RETURN_PATH_BIT;
         return done();
     }
 
     private long doneOrRootReturnPath(long targetPosition)
     {
-        if (currentPosition == Cursor.rootPosition(direction) && presentOnReturnPath)
+        if (Cursor.isRootPosition(currentPosition) && presentOnReturnPath)
         {
             currentPosition |= ON_RETURN_PATH_BIT;
             if (Cursor.compare(targetPosition, currentPosition) <= 0)
