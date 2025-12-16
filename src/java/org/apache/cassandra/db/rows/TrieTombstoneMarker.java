@@ -72,36 +72,25 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
         return acc;
     }
 
-    enum MarkerType
-    {
-        PARTITION,
-        RANGE,
-        ROW,
-        COLUMN
-    }
-
     /// Apply an incoming marker and drop the parts of this marker that do not survive (i.e. supercede) the incoming
     /// deletion. The result may be null, this, or a partial version of this.
     @Nullable TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion);
 
     boolean hasPointData();
 
-    /// Only to be implemented by Covering
-    MarkerType markerType();
-
-    static TrieTombstoneMarker covering(DeletionTime deletionTime, MarkerType markerType)
+    static TrieTombstoneMarker covering(DeletionTime deletionTime)
     {
-        return TrieTombstoneMarkerImpl.covering(deletionTime, markerType);
+        return TrieTombstoneMarkerImpl.covering(deletionTime);
     }
 
-    static TrieTombstoneMarker point(DeletionTime deletionTime, MarkerType markerType)
+    static TrieTombstoneMarker point(DeletionTime deletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(deletionTime, markerType);
+        return TrieTombstoneMarkerImpl.point(deletionTime);
     }
 
-    static TrieTombstoneMarker point(long deletedAt, int localDeletionTime, MarkerType markerType)
+    static TrieTombstoneMarker point(long deletedAt, int localDeletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(new DeletionTime(deletedAt, localDeletionTime), markerType);
+        return TrieTombstoneMarkerImpl.point(new DeletionTime(deletedAt, localDeletionTime));
     }
 
     TrieTombstoneMarker withUpdatedTimestamp(long l);

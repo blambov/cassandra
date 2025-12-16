@@ -239,8 +239,7 @@ public class TrieBackedRow extends AbstractRow
             trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
                                                        ByteComparable.EMPTY,
                                                        BYTE_COMPARABLE_VERSION,
-                                                       TrieTombstoneMarker.covering(deletion,
-                                                                                    TrieTombstoneMarker.MarkerType.ROW)),
+                                                       TrieTombstoneMarker.covering(deletion)),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
@@ -643,9 +642,7 @@ public class TrieBackedRow extends AbstractRow
                 {
                     drops.add(RangeTrie.branch(columnKey(columnIds, c),
                                                BYTE_COMPARABLE_VERSION,
-                                               TrieTombstoneMarker.covering(new DeletionTime(dropped.droppedTime,
-                                                                                             Integer.MIN_VALUE),
-                                                                            TrieTombstoneMarker.MarkerType.COLUMN)));
+                                               TrieTombstoneMarker.covering(new DeletionTime(dropped.droppedTime, Integer.MIN_VALUE))));
                 }
             }
             if (!drops.isEmpty())
@@ -688,8 +685,7 @@ public class TrieBackedRow extends AbstractRow
         {
             filteredData = filteredData.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
                                                                            BYTE_COMPARABLE_VERSION,
-                                                                           TrieTombstoneMarker.covering(activeDeletion,
-                                                                                                        TrieTombstoneMarker.MarkerType.ROW)),
+                                                                           TrieTombstoneMarker.covering(activeDeletion)),
                                                           TrieBackedRow::deleteData,
                                                           setActiveDeletionToRow ? TrieTombstoneMarker::mergeWith
                                                                                  : TrieTombstoneMarker::dropShadowed,
@@ -825,8 +821,7 @@ public class TrieBackedRow extends AbstractRow
         return new TrieBackedRow(columns, columnIds, clustering,
                                  data.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
                                                                          BYTE_COMPARABLE_VERSION,
-                                                                         TrieTombstoneMarker.covering(newDeletion,
-                                                                                                      TrieTombstoneMarker.MarkerType.ROW)),
+                                                                         TrieTombstoneMarker.covering(newDeletion)),
                                                         TrieBackedRow::deleteData,
                                                         TrieTombstoneMarker::mergeWith,
                                                         true));
@@ -1171,10 +1166,7 @@ public class TrieBackedRow extends AbstractRow
 
             try
             {
-                data.delete(RangeTrie.branch(ByteComparable.EMPTY,
-                                             BYTE_COMPARABLE_VERSION,
-                                             TrieTombstoneMarker.covering(deletion.time(),
-                                                                          TrieTombstoneMarker.MarkerType.ROW)),
+                data.delete(RangeTrie.branch(ByteComparable.EMPTY, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletion.time())),
                             TrieBackedRow::deleteData,
                             TrieBackedPartition.mergeTombstoneRanges(),
                             true,
@@ -1213,10 +1205,7 @@ public class TrieBackedRow extends AbstractRow
             ByteComparable key = columnKey(columnIds, column);
             try
             {
-                data.delete(RangeTrie.branch(key,
-                                             BYTE_COMPARABLE_VERSION,
-                                             TrieTombstoneMarker.covering(deletion,
-                                                                          TrieTombstoneMarker.MarkerType.COLUMN)),
+                data.delete(RangeTrie.branch(key, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletion)),
                             TrieBackedRow::deleteData,
                             TrieBackedPartition.mergeTombstoneRanges(),
                             true,

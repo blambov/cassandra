@@ -44,24 +44,25 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         return precedingState(direction.opposite());
     }
 
-    static Covering covering(DeletionTime deletionTime, MarkerType markerType)
+
+    static Covering covering(DeletionTime deletionTime)
     {
-        return new Covering(deletionTime, markerType);
+        return new Covering(deletionTime);
     }
 
-    static Point point(DeletionTime deletionTime, MarkerType markerType)
+    static Point point(DeletionTime deletionTime)
     {
-        return new Point(covering(deletionTime, markerType), null);
+        return new Point(covering(deletionTime), null);
     }
 
-    static Covering covering(long deletedAt, int localDeletionTime, MarkerType markerType)
+    static Covering covering(long deletedAt, int localDeletionTime)
     {
-        return new Covering(deletedAt, localDeletionTime, markerType);
+        return new Covering(deletedAt, localDeletionTime);
     }
 
-    static Point point(long deletedAt, int localDeletionTime, MarkerType markerType)
+    static Point point(long deletedAt, int localDeletionTime)
     {
-        return new Point(covering(deletedAt, localDeletionTime, markerType), null);
+        return new Point(covering(deletedAt, localDeletionTime), null);
     }
 
     static Covering combine(Covering left, Covering right)
@@ -101,20 +102,16 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
 
     static class Covering extends DeletionTime implements TrieTombstoneMarkerImpl
     {
-        static final long HEAP_SIZE = ObjectSizes.measure(new Covering(DeletionTime.LIVE, MarkerType.ROW));
+        static final long HEAP_SIZE = ObjectSizes.measure(new Covering(DeletionTime.LIVE));
 
-        final MarkerType markerType;
-
-        private Covering(DeletionTime deletionTime, MarkerType markerType)
+        private Covering(DeletionTime deletionTime)
         {
             super(deletionTime.markedForDeleteAt(), deletionTime.localDeletionTime());
-            this.markerType = markerType;
         }
 
-        private Covering(long markedForDeleteAt, int localDeletionTime, MarkerType markerType)
+        private Covering(long markedForDeleteAt, int localDeletionTime)
         {
             super(markedForDeleteAt, localDeletionTime);
-            this.markerType = markerType;
         }
 
         @Override
@@ -142,12 +139,6 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         public boolean hasPointData()
         {
             return false;
-        }
-
-        @Override
-        public MarkerType markerType()
-        {
-            return markerType;
         }
 
         @Override
@@ -180,7 +171,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         @Override
         public Covering withUpdatedTimestamp(long l)
         {
-            return new Covering(l, localDeletionTime(), markerType);
+            return new Covering(l, localDeletionTime());
         }
 
         @Override
@@ -189,7 +180,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             DeletionTime mapped = mapper.apply(this);
             if (mapped == this)
                 return this;
-            return new Covering(mapped, markerType);
+            return new Covering(mapped);
         }
 
         @Override
@@ -238,7 +229,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         // interrupt is already accounted for by its end boundaries, so with every new Boundary we add this object's
         // size plus one half of a Covering.
         static final long UNSHARED_HEAP_SIZE =
-            ObjectSizes.measure(new Boundary(new Covering(0, 0, MarkerType.ROW), null)) +
+            ObjectSizes.measure(new Boundary(new Covering(0, 0), null)) +
             Covering.HEAP_SIZE / 2;
 
         final @Nullable Covering leftDeletion;
@@ -269,12 +260,6 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         public boolean hasPointData()
         {
             return false;
-        }
-
-        @Override
-        public MarkerType markerType()
-        {
-            throw new AssertionError("Boundaries don't have a single marker type");
         }
 
         @Override
@@ -420,7 +405,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         // Every point deletion introduces a new deletion time. If it interrupts an existing deletion, it will reuse
         // the Covering object provided by its end bounds. Thus, the unshared size is this object + the size of
         // one Covering.
-        static final long UNSHARED_HEAP_SIZE = ObjectSizes.measure(new Point(new Covering(0, 0, MarkerType.ROW),
+        static final long UNSHARED_HEAP_SIZE = ObjectSizes.measure(new Point(new Covering(0, 0),
                                                                              null)) +
                                                Covering.HEAP_SIZE;
 
@@ -547,17 +532,11 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
-        public MarkerType markerType()
-        {
-            return pointDeletion.markerType;
-        }
-
-        @Override
         public TrieTombstoneMarker withUpdatedTimestamp(long l)
         {
             if (coveringDeletion != null)
                 return null; // subsumed by range deletion
-            return new Point(new Covering(l, pointDeletion.localDeletionTime(), pointDeletion.markerType), null);
+            return new Point(new Covering(l, pointDeletion.localDeletionTime()), null);
         }
 
         @Override
