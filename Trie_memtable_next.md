@@ -510,17 +510,19 @@ Options:
 
 - Implement cell-level trie with pojo content.
 
+- TrieTombstoneMarker point + boundary combination
 
 # TODOs
 
-- TrieTombstoneMarker point + boundary combination
-- Row data liveness methods
+- Row data liveness info methods
 
 - Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
 
 - Change TrieTombstone marker to be able to indicate row/complex-column deletion level 
 
 - Change FlexibleMergeCursor.WithMappedContent to take a direction argument in the resolver (with direction-less version)
+
+- Test TrieTombstoneMarker
 
 - Test `mapValues`.
 
