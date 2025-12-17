@@ -314,6 +314,9 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             if (existing == null)
                 return this;
 
+            if (existing instanceof Point)
+                return existing.mergeWith(this);
+
             assert !existing.hasPointData(PointDataType.ROW) : "Boundary cannot be merged with point deletion";
             TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) existing;
             Covering otherLeft = other.leftDeletion();

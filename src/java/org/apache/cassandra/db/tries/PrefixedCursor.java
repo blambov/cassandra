@@ -268,7 +268,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
         DeletionAwareSeparately(DeletionAwareSeparately<T, D> copyFrom, Direction direction)
         {
             super(copyFrom, direction);
-            this.deletionBranch = copyFrom.deletionBranch;
+            this.deletionBranch = copyFrom.deletionBranch; // no need to take tailCursor as we do that when we return it
         }
 
         @Override

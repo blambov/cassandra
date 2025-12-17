@@ -245,9 +245,15 @@ public class TrieBackedRow extends AbstractRow
 
     private static RangeTrie<TrieTombstoneMarker> withDeletionRoot(RangeTrie<TrieTombstoneMarker> trie, DeletionTime deletion)
     {
+        // Range tries present separate content in the two directions. We need to add a marker in both.
         return trie.mergeWith(RangeTrie.point(ByteComparable.EMPTY,
                                               BYTE_COMPARABLE_VERSION,
                                               true,
+                                              TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
+                              TrieTombstoneMarker::mergeWith)
+                   .mergeWith(RangeTrie.point(ByteComparable.EMPTY,
+                                              BYTE_COMPARABLE_VERSION,
+                                              false,
                                               TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
                               TrieTombstoneMarker::mergeWith);
     }
@@ -553,7 +559,7 @@ public class TrieBackedRow extends AbstractRow
 
         ColumnDataIterator(Columns columns, DeletionAwareTrie<Object, TrieTombstoneMarker> trie, Direction direction)
         {
-            super(trie, direction, TrieBackedRow::combineDataAndDeletion);
+            super(trie, direction, TrieBackedRow::combineDataAndDeletion, false);
             this.columns = columns;
         }
 

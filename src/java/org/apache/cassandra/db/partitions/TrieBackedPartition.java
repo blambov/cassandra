@@ -179,10 +179,13 @@ public class TrieBackedPartition implements Partition
         public RowIterator(DeletionAwareTrie<Object, TrieTombstoneMarker> trie, Direction direction)
         {
             // Even though this is a row iterator, it must list deleted rows (but not range deletions).
-            super(trie, direction, (live, marker) ->
-                                   live instanceof LivenessInfo ? live
-                                                                : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
-                                                                                                                             : null);
+            super(trie,
+                  direction,
+                  (live, marker) ->
+                      live instanceof LivenessInfo ? live
+                                                   : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
+                                                                                                                : null,
+                  false);
         }
 
         @Override
@@ -456,7 +459,7 @@ public class TrieBackedPartition implements Partition
 
         private UnfilteredIterator(ColumnFilter selection, DeletionAwareTrie<Object, TrieTombstoneMarker> trie, boolean reversed, DeletionTime partitionLevelDeletion)
         {
-            super(trie, Direction.fromBoolean(reversed), TrieBackedPartition::combineDataAndDeletion);
+            super(trie, Direction.fromBoolean(reversed), TrieBackedPartition::combineDataAndDeletion, false);
             this.selection = selection;
             this.reversed = reversed;
             this.partitionLevelDeletion = partitionLevelDeletion;

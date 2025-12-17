@@ -195,7 +195,9 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
 
         /// Returns an unmodified tail cursor that includes the data and deletion branches applicable to the current
         /// point. Used by [TrieTailsIterator.DeletionAware].
-        public DeletionAwareTrie<T, D> deletionAwareTail()
+        /// @param includeCoveringDeletions If false, covering deletions will not be included in the tail deletion
+        ///        branch.
+        public DeletionAwareTrie<T, D> deletionAwareTail(boolean includeCoveringDeletions)
         {
             if (Cursor.isOnReturnPath(encodedPosition()))
                 return null;
@@ -205,14 +207,39 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                 case C1_ONLY:
                     return combineTails(c1, null);
                 case AT_C2:
-                    return combineTails(null, c2);
+                    return combineTails(null, includeCoveringDeletions ? c2 : dropCoveringDeletions(c2));
                 case AT_C1:
-                    return combineTails(c1, c2.precedingStateCursor(direction()));
+                    return combineTails(c1, includeCoveringDeletions ? c2.precedingStateCursor(direction()) : null);
                 case AT_BOTH:
-                    return combineTails(c1, c2);
+                    return combineTails(c1, includeCoveringDeletions ? c2 : dropCoveringDeletions(c2));
                 default:
                     throw new AssertionError();
             }
+        }
+
+        private static <D extends RangeState<D>> RangeCursor<D> dropCoveringDeletions(RangeCursor<D> cursor)
+        {
+            D state = cursor.state();
+            if (state == null)
+                return cursor;
+            // If a covering state applies, it must be the left side of the state.
+            D preceeding = state.precedingState(cursor.direction());
+            if (preceeding == null)
+                return cursor;
+            return new ContentMappingCursor.Range<>(s -> dropDeletion(s, preceeding), cursor);
+        }
+
+        private static <D extends RangeState<D>> D dropDeletion(D state, D toDrop)
+        {
+            if (state == toDrop)
+                return null;
+            if (!state.isBoundary())
+                return state;
+            boolean dropLeft = state.precedingState(Direction.FORWARD) == toDrop;
+            boolean dropRight = state.succedingState(Direction.FORWARD) == toDrop;
+            if (!dropLeft && !dropRight)
+                return state;
+            return state.restrict(!dropLeft, !dropRight);
         }
     }
 
@@ -366,7 +393,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
             if (deletionBranch != null)
                 return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
                                                                     c.tailCursor(c.direction()),
-                                                                    deletionBranch);
+                                                                    deletionBranch.tailCursor(c.direction()));
             else
                 return c.tailCursor(c.direction());
         }
@@ -374,7 +401,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
             return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
                                                                 new Empty<T, D>(deletionBranch.direction(),
                                                                                 deletionBranch.byteComparableVersion()),
-                                                                deletionBranch);
+                                                                deletionBranch.tailCursor(c.direction()));
         else
             return null;
     }

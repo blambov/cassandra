@@ -214,27 +214,30 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
     public static abstract class DeletionAware<T, D extends RangeState<D>, V, Q>
     extends TrieTailsIterator<V, Q, DeletionAwareCursor.SwitchableLiveAndDeletionsMergeCursor<T, D, V>>
     {
-        DeletionAware(DeletionAwareCursor<T, D> cursor, BiFunction<T, D, V> merger)
+        final boolean includeCoveringDeletions;
+
+        DeletionAware(DeletionAwareCursor<T, D> cursor, BiFunction<T, D, V> merger, boolean includeCoveringDeletions)
         {
             super(new DeletionAwareCursor.SwitchableLiveAndDeletionsMergeCursor<>(merger, cursor), Predicates.alwaysTrue());
+            this.includeCoveringDeletions = includeCoveringDeletions;
         }
 
         /// Public constructor accepting a DeletionAwareTrie, Direction, and creating a cursor from it
-        public DeletionAware(DeletionAwareTrie<T, D> trie, Direction direction, BiFunction<T, D, V> merger)
+        public DeletionAware(DeletionAwareTrie<T, D> trie, Direction direction, BiFunction<T, D, V> merger, boolean includeCoveringDeletions)
         {
-            this(trie.cursor(direction), merger);
+            this(trie.cursor(direction), merger, includeCoveringDeletions);
         }
 
         /// Public constructor accepting a DeletionAwareTrie and creating a cursor from it
-        public DeletionAware(DeletionAwareTrie<T, D> trie, BiFunction<T, D, V> merger)
+        public DeletionAware(DeletionAwareTrie<T, D> trie, BiFunction<T, D, V> merger, boolean includeCoveringDeletions)
         {
-            this(trie, Direction.FORWARD, merger);
+            this(trie, Direction.FORWARD, merger, includeCoveringDeletions);
         }
 
         @Override
         protected Q getContent(V v)
         {
-            return mapContent(v, cursor.deletionAwareTail(), keyBytes, keyPos);
+            return mapContent(v, cursor.deletionAwareTail(includeCoveringDeletions), keyBytes, keyPos);
         }
 
         public void stopIssuingDeletions(Predicate<Q> shouldSkipPreparedNext)
@@ -295,7 +298,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
     {
         public AsEntriesDeletionAware(DeletionAwareCursor<T, D> cursor, Class<? extends T> clazz)
         {
-            super(cursor, (t, d) -> clazz.isInstance(t) ? t : null);
+            super(cursor, (t, d) -> clazz.isInstance(t) ? t : null, true);
         }
 
         @Override

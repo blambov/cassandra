@@ -448,6 +448,8 @@ Options:
 
 ## Indexer updates
 
+Completely unknown how to implement at this point. Probably change the interfaces to let cells be passed individually.
+
 ## Delete path row update and live path row update
 
 # Done
@@ -516,9 +518,13 @@ Options:
 
 # TODOs
 
-- Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
+- Test `!includeCoveringDeletions`, also add it to tailTrie, and move `dropDeletions` to `RangeState`
 
-- Change TrieTombstone marker to be able to indicate row/complex-column deletion level 
+- Try putting the upserters etc. in the InMemoryTrie itself. Or a mutator class that we make on top of it (which could
+  also hold the ApplyState).
+    - Maybe this leaves room for extending that mutator?
+
+- Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
 
 - Change FlexibleMergeCursor.WithMappedContent to take a direction argument in the resolver (with direction-less version)
 
@@ -540,10 +546,6 @@ Options:
 
 - Implement directly-stored content and adjust cell-level trie to make it fully off-heap.
 
-- Try putting the upserters etc. in the InMemoryTrie itself. Or a mutator class that we make on top of it (which could
-  also hold the ApplyState).
-  - Maybe this leaves room for extending that mutator?
-
 Maybe:
 - `hasPrecedingState`/`hasSucceedingState` flag on range cursors (including sets)
 
@@ -564,6 +566,8 @@ Difficult:
 
 Not:
 - Row data liveness info methods
+- Change TrieTombstone marker to be able to indicate row/complex-column deletion level
+
 
 ## CollectionMergeCursor
 
