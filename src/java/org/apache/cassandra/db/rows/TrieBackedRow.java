@@ -105,7 +105,7 @@ public class TrieBackedRow extends AbstractRow
     boolean minLocalDeletionTimeSet = false;
 
     ///  Data trie contains:
-    ///  - RowData header at the root
+    ///  - LivenessInfo header at the root
     ///  - A Cell for each (simple or complex) cell of the row
     ///    - Cells may be expiring or even expired (not really expected for memtables but possible)
     ///  - Deletion branch with tombstones
@@ -127,49 +127,6 @@ public class TrieBackedRow extends AbstractRow
             }
         }
         return builder.build();
-    }
-
-    public static class RowData extends LivenessInfo
-    {
-        private final int ttl;
-        private final int localExpirationTime;
-
-        // TODO: Anything else for the row header?
-
-        protected RowData(long timestamp, int ttl, int localExpirationTime)
-        {
-            super(timestamp);
-            this.ttl = ttl;
-            this.localExpirationTime = localExpirationTime;
-        }
-
-        public RowData(LivenessInfo primaryKeyLivenessInfo)
-        {
-            this(primaryKeyLivenessInfo.timestamp(), primaryKeyLivenessInfo.ttl(), primaryKeyLivenessInfo.localExpirationTime());
-        }
-
-        // TODO: override all
-
-        public static final RowData NO_LIVENESS = new RowData(LivenessInfo.EMPTY);
-
-        static RowData maybeWrap(LivenessInfo info)
-        {
-            return info instanceof RowData ? (RowData) info : new RowData(info);
-        }
-
-        @Override
-        public RowData withUpdatedTimestamp(long timestamp)
-        {
-            if (isEmpty())
-                return this;
-            else
-                return new RowData(timestamp, NO_TTL, NO_EXPIRATION_TIME);
-        }
-
-        public static RowData merge(RowData a, RowData b)
-        {
-            return b.supersedes(a) ? b : a;
-        }
     }
 
     private static final Map<Columns, Object2IntHashMap<ColumnIdentifier>> columnsMapCache = new HashMap<>();
@@ -214,14 +171,14 @@ public class TrieBackedRow extends AbstractRow
                                            LivenessInfo livenessInfo,
                                            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data) throws TrieSpaceExhaustedException
     {
-        data.putRecursive(ByteComparable.EMPTY, RowData.maybeWrap(livenessInfo), noConflictInData());
+        data.putRecursive(ByteComparable.EMPTY, (livenessInfo), noConflictInData());
 
         return new TrieBackedRow(columns, columnIds, clustering, data);
     }
 
     static final DeletionAwareTrie<Object, TrieTombstoneMarker> EMPTY_ROW = DeletionAwareTrie.singleton(ByteComparable.EMPTY,
                                                                                                         BYTE_COMPARABLE_VERSION,
-                                                                                                        RowData.NO_LIVENESS);
+                                                                                                        LivenessInfo.EMPTY);
     static final Object2IntHashMap<ColumnIdentifier> EMPTY_COLUMN_IDS = makeColumnIdsMap(Columns.NONE);
 
     public static TrieBackedRow emptyRow(Clustering<?> clustering)
@@ -240,7 +197,7 @@ public class TrieBackedRow extends AbstractRow
             if (cell.column.isComplex())
                 trie.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, noConflictInData());
             trie.putRecursive(cellKey, cell, noConflictInData());
-            return createLive(columns, columnIds, clustering, RowData.NO_LIVENESS, trie);
+            return createLive(columns, columnIds, clustering, LivenessInfo.EMPTY, trie);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -354,7 +311,7 @@ public class TrieBackedRow extends AbstractRow
         @Override
         public void content(Object content)
         {
-            if (content instanceof RowData)
+            if (content instanceof LivenessInfo)
                 value = livenessAccumulator.apply((LivenessInfo) content, value);
             else if (content instanceof Cell)
                 value = cellAccumulator.apply((Cell<?>) content, value);
@@ -438,8 +395,8 @@ public class TrieBackedRow extends AbstractRow
 
     public LivenessInfo primaryKeyLivenessInfo()
     {
-        RowData info = (RowData) data.get(ByteComparable.EMPTY);
-        return info != null ? info : RowData.NO_LIVENESS;
+        LivenessInfo info = (LivenessInfo) data.get(ByteComparable.EMPTY);
+        return info != null ? info : LivenessInfo.EMPTY;
     }
 
     public boolean isEmpty()
@@ -649,10 +606,10 @@ public class TrieBackedRow extends AbstractRow
         DeletionTime deletion = marker.deletionTime();
         if (existing == COMPLEX_COLUMN_MARKER)
             return existing;
-        if (existing instanceof RowData)
+        if (existing instanceof LivenessInfo)
         {
-            if (deletion.deletes(((RowData) existing).timestamp()))
-                return RowData.NO_LIVENESS;
+            if (deletion.deletes(((LivenessInfo) existing).timestamp()))
+                return LivenessInfo.EMPTY;
             else
                 return existing;
         }
@@ -816,7 +773,7 @@ public class TrieBackedRow extends AbstractRow
 
     public boolean hasComplex()
     {
-        // First entry in any order is RowData. The second entry is either a complex column marker or a cell.
+        // First entry in any order is LivenessInfo. The second entry is either a complex column marker or a cell.
         // Note: valueIterator ignores deletion branches.
         return Iterators.get(data.valueIterator(Direction.REVERSE), 1, null) == COMPLEX_COLUMN_MARKER;
     }
@@ -911,9 +868,9 @@ public class TrieBackedRow extends AbstractRow
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValues(
             (Object x) ->
             {
-                if (x instanceof RowData)
+                if (x instanceof LivenessInfo)
                 {
-                    return RowData.maybeWrap(livenessInfoFunction.apply((LivenessInfo) x));
+                    return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
                 else if (x instanceof Cell)
                 {
@@ -931,9 +888,9 @@ public class TrieBackedRow extends AbstractRow
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValuesAndDeletions(
             (Object x) ->
             {
-                if (x instanceof RowData)
+                if (x instanceof LivenessInfo)
                 {
-                    return RowData.maybeWrap(livenessInfoFunction.apply((LivenessInfo) x));
+                    return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
                 else if (x instanceof Cell)
                 {
@@ -1028,8 +985,8 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object mergeData(Object existing, Object update, ColumnData.PostReconciliationFunction reconcileF)
     {
-        if (update instanceof RowData)
-            return RowData.merge((RowData) existing, (RowData) update);
+        if (update instanceof LivenessInfo)
+            return LivenessInfo.merge((LivenessInfo) existing, (LivenessInfo) update);
         else if (update instanceof Cell)
         {
             Cell<?> existingCell = (Cell<?>) existing;
@@ -1049,8 +1006,8 @@ public class TrieBackedRow extends AbstractRow
     private static Object deleteData(Object existing, TrieTombstoneMarker marker, ColumnData.PostReconciliationFunction reconcileF)
     {
         DeletionTime deletion = marker.deletionTime();
-        if (existing instanceof RowData)
-            return deletion.deletes((RowData) existing) ? RowData.NO_LIVENESS : existing;
+        if (existing instanceof LivenessInfo)
+            return deletion.deletes((LivenessInfo) existing) ? LivenessInfo.EMPTY : existing;
         else if (existing instanceof Cell)
         {
             Cell<?> existingCell = (Cell<?>) existing;
@@ -1205,7 +1162,7 @@ public class TrieBackedRow extends AbstractRow
 
             try
             {
-                data.putRecursive(ByteComparable.EMPTY, RowData.maybeWrap(info), (x, y) -> y);
+                data.putRecursive(ByteComparable.EMPTY, (info), (x, y) -> y);
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -1248,7 +1205,7 @@ public class TrieBackedRow extends AbstractRow
                 if (cell.column.isComplex())
                     data.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, (x, y) -> y);
                 if (data.get(ByteComparable.EMPTY) == null)
-                    data.putRecursive(ByteComparable.EMPTY, RowData.NO_LIVENESS, (x, y) -> y);
+                    data.putRecursive(ByteComparable.EMPTY, LivenessInfo.EMPTY, (x, y) -> y);
             }
             catch (TrieSpaceExhaustedException e)
             {

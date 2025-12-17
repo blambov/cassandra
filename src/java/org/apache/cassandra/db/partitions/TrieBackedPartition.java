@@ -30,6 +30,7 @@ import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
@@ -179,9 +180,9 @@ public class TrieBackedPartition implements Partition
         {
             // Even though this is a row iterator, it must list deleted rows (but not range deletions).
             super(trie, direction, (live, marker) ->
-                                   live instanceof TrieBackedRow.RowData ? live
-                                                                         : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
-                                                                                                                                      : null);
+                                   live instanceof LivenessInfo ? live
+                                                                : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
+                                                                                                                             : null);
         }
 
         @Override
@@ -412,7 +413,7 @@ public class TrieBackedPartition implements Partition
 
     static Object combineDataAndDeletion(Object data, TrieTombstoneMarker deletion)
     {
-        if (data instanceof TrieBackedRow.RowData)
+        if (data instanceof LivenessInfo)
             return data; // We don't need to return the deletion marker as it will be included in the tail trie.
 
         if (deletion != null)
@@ -426,7 +427,7 @@ public class TrieBackedPartition implements Partition
             //   deletion.
 
             if (deletion.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
-                return TrieBackedRow.RowData.NO_LIVENESS; // Treat this branch as a row.
+                return LivenessInfo.EMPTY; // Treat this branch as a row.
             else
                 return deletion; // Range or partition deletion with empty or no tail.
         }

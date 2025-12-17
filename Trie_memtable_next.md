@@ -512,9 +512,9 @@ Options:
 
 - TrieTombstoneMarker point + boundary combination
 
-# TODOs
+- LivenessInfo for row header
 
-- Row data liveness info methods
+# TODOs
 
 - Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
 
@@ -562,6 +562,8 @@ Difficult:
 - Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
 - Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes.
 
+Not:
+- Row data liveness info methods
 
 ## CollectionMergeCursor
 

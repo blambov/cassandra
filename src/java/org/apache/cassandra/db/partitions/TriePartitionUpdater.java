@@ -41,7 +41,6 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.memory.Cloner;
 
-import static org.apache.cassandra.db.rows.TrieBackedRow.RowData;
 import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
 
 /**
@@ -81,8 +80,8 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             return applyCell((Cell<?>) existing, (Cell<?>) update, keyState);
         else if (update == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return update; // TODO check if something else needs to be done
-        else if (update instanceof RowData)
-            return applyRow((RowData) existing, (RowData) update, keyState);
+        else if (update instanceof LivenessInfo)
+            return applyRow((LivenessInfo) existing, (LivenessInfo) update, keyState);
         else if (update == TrieBackedPartition.PARTITION_MARKER)
             return mergePartitionMarkers((PartitionData) existing);
         else
@@ -169,8 +168,8 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             return applyCellDeletion((Cell<?>) existingContent, updateMarker);
         else if (existingContent == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return existingContent; // TODO: How can we check if there's remaining data and remove this if there is none? Cell counter in marker?
-        else if (existingContent instanceof RowData)
-            return applyRowDeletion((RowData) existingContent, updateMarker, keyState);
+        else if (existingContent instanceof LivenessInfo)
+            return applyRowDeletion((LivenessInfo) existingContent, updateMarker, keyState);
         else if (existingContent instanceof PartitionData)
             return applyPartitionDeletion((PartitionData) existingContent, updateMarker);
         else
@@ -193,7 +192,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         return existing;
     }
 
-    public Object applyRowDeletion(RowData existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         TrieTombstoneMarker rowDeletion = updateMarker.succedingState(Direction.FORWARD);
         if (rowDeletion == null)
@@ -202,7 +201,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         if (rowDeletion.deletionTime().deletes(existing))
         {
             this.heapSize -= existing.unsharedHeapSize();
-            return RowData.NO_LIVENESS; // TODO: How can we remove this if nothing survives? Cell counter in row data and return path processing?
+            return LivenessInfo.EMPTY; // TODO: How can we remove this if nothing survives? Cell counter in row data and return path processing?
             // TODO: and also do currentPartition.markInsertedRows(-1) in that case?
             // TODO: Does strict row liveness apply here? How do we drop tail trie if it does?
         }
@@ -230,10 +229,10 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             return marker.deletionTime().deletes((Cell<?>) content) ? null : content;
         else if (content == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return content;
-        else if (content instanceof RowData)
+        else if (content instanceof LivenessInfo)
         {
             TrieTombstoneMarker rowDeletion = marker.succedingState(Direction.FORWARD);
-            if (rowDeletion == null || !rowDeletion.deletionTime().deletes((RowData) content))
+            if (rowDeletion == null || !rowDeletion.deletionTime().deletes((LivenessInfo) content))
                 return content;
             else
                 return null;
@@ -247,12 +246,12 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     /**
      * Called when a row needs to be copied to the Memtable trie.
      *
-     * @param existing Existing RowData for this clustering, or null if there isn't any.
-     * @param insert RowData to be inserted.
+     * @param existing Existing LivenessInfo for this clustering, or null if there isn't any.
+     * @param insert LivenessInfo to be inserted.
      * @param keyState Used to obtain the path through which this node was reached.
      * @return the insert row, or the merged row, copied using our allocator
      */
-    private RowData applyRow(@Nullable RowData existing, RowData insert, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private LivenessInfo applyRow(@Nullable LivenessInfo existing, LivenessInfo insert, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         if (existing == null)
         {
@@ -267,7 +266,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         }
         else
         {
-            RowData reconciled = RowData.merge(existing, insert);
+            LivenessInfo reconciled = LivenessInfo.merge(existing, insert);
 
             // TODO index update
 //            if (indexer != UpdateTransaction.NO_OP)

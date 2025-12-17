@@ -254,8 +254,8 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                         if (o instanceof Cell<?>)
                             return ((Cell<?>) o).updateAllTimestamp(newTimestamp);
 
-                        if (o instanceof TrieBackedRow.RowData)
-                            return ((TrieBackedRow.RowData) o).withUpdatedTimestamp(newTimestamp);
+                        if (o instanceof LivenessInfo)
+                            return ((LivenessInfo) o).withUpdatedTimestamp(newTimestamp);
 
                         if (o instanceof PartitionMarker)
                             return o;
@@ -582,14 +582,14 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                 assert existing == null || existing == TrieBackedRow.COMPLEX_COLUMN_MARKER;
                 return update;
             }
-            else if (update instanceof TrieBackedRow.RowData)
+            else if (update instanceof LivenessInfo)
             {
-                assert existing == null || existing instanceof TrieBackedRow.RowData;
+                assert existing == null || existing instanceof LivenessInfo;
                 // TODO: update stats
-                TrieBackedRow.RowData rowUpdate = (TrieBackedRow.RowData) update;
-                TrieBackedRow.RowData existingRow = (TrieBackedRow.RowData) existing;
+                LivenessInfo rowUpdate = (LivenessInfo) update;
+                LivenessInfo existingRow = (LivenessInfo) existing;
                 // Note: even though we use LivenessInfo.merge, it returns one of its arguments which is RowData
-                TrieBackedRow.RowData reconciled;
+                LivenessInfo reconciled;
 
                 if (existingRow == null)
                 {
@@ -599,7 +599,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                 }
                 else
                 {
-                    reconciled = TrieBackedRow.RowData.merge(existingRow, rowUpdate);
+                    reconciled = LivenessInfo.merge(existingRow, rowUpdate);
                     dataSize = reconciled.dataSize() - existingRow.dataSize();
                 }
                 return reconciled;
@@ -629,15 +629,15 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             {
                 return o;
             }
-            else if (o instanceof TrieBackedRow.RowData)
+            else if (o instanceof LivenessInfo)
             {
-                TrieBackedRow.RowData info = (TrieBackedRow.RowData) o;
+                LivenessInfo info = (LivenessInfo) o;
                 if (!deletion.deletes(info))
                     return o;
 
                 // TODO: How do we check if a row is completely deleted?
                 dataSize -= info.dataSize();
-                return TrieBackedRow.RowData.NO_LIVENESS;
+                return LivenessInfo.EMPTY;
             }
             else if (o instanceof PartitionMarker)
             {
