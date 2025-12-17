@@ -312,14 +312,13 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
         @Override
         public long skipTo(long encodedSkipPosition)
         {
-            switch (overriding)
+            if (Cursor.isExhausted(encodedSkipPosition) || overriding == Overriding.ROOT_RETURN)
             {
-                case ROOT_RETURN:
-                    overriding = Overriding.EXHAUSTED;
-                    return encodedPosition();
-                default:
-                    return checkOverride(source.skipTo(encodedSkipPosition));
+                overriding = Overriding.EXHAUSTED;
+                return encodedPosition();
             }
+            else
+                return checkOverride(source.skipTo(encodedSkipPosition));
         }
 
         // Sets don't implement advanceMultiple as they are only meant to limit data tries.

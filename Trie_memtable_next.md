@@ -518,6 +518,8 @@ Completely unknown how to implement at this point. Probably change the interface
 
 # TODOs
 
+- Complex columns should not have a marker if they don't have cells.
+
 - Test `!includeCoveringDeletions`, also add it to tailTrie, and move `dropDeletions` to `RangeState`
 
 - Try putting the upserters etc. in the InMemoryTrie itself. Or a mutator class that we make on top of it (which could

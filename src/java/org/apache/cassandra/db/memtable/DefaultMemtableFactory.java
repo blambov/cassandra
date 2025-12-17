@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
+import org.apache.cassandra.db.partitions.TriePartitionUpdateStage3;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.schema.TableMetadataRef;
 
@@ -35,42 +36,42 @@ public class DefaultMemtableFactory implements Memtable.Factory
     @Override
     public Memtable create(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadaRef, Memtable.Owner owner)
     {
-        return TrieMemtable.FACTORY.create(commitLogLowerBound, metadaRef, owner);
+        return TrieMemtableStage3.FACTORY.create(commitLogLowerBound, metadaRef, owner);
     }
 
     @Override
     public boolean writesShouldSkipCommitLog()
     {
-        return TrieMemtable.FACTORY.writesShouldSkipCommitLog();
+        return TrieMemtableStage3.FACTORY.writesShouldSkipCommitLog();
     }
 
     @Override
     public boolean writesAreDurable()
     {
-        return TrieMemtable.FACTORY.writesAreDurable();
+        return TrieMemtableStage3.FACTORY.writesAreDurable();
     }
 
     @Override
     public boolean streamToMemtable()
     {
-        return TrieMemtable.FACTORY.streamToMemtable();
+        return TrieMemtableStage3.FACTORY.streamToMemtable();
     }
 
     @Override
     public boolean streamFromMemtable()
     {
-        return TrieMemtable.FACTORY.streamFromMemtable();
+        return TrieMemtableStage3.FACTORY.streamFromMemtable();
     }
 
     @Override
     public TableMetrics.ReleasableMetric createMemtableMetrics(TableMetadataRef metadataRef)
     {
-        return TrieMemtable.FACTORY.createMemtableMetrics(metadataRef);
+        return TrieMemtableStage3.FACTORY.createMemtableMetrics(metadataRef);
     }
 
     @Override
     public PartitionUpdate.Factory partitionUpdateFactory()
     {
-        return TriePartitionUpdate.FACTORY;
+        return TriePartitionUpdateStage3.FACTORY;
     }
 }

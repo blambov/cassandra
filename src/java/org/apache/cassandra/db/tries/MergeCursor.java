@@ -199,11 +199,20 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             if (atC1 && atC2)
                 return new Range<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
             else if (atC1)
-                return new Range<>(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
+                return makeMerge(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
             else if (atC2)
-                return new Range<>(resolver, c1.precedingStateCursor(direction), c2.tailCursor(direction));
+                return makeMerge(resolver, c1.precedingStateCursor(direction), c2.tailCursor(direction));
             else
                 throw new AssertionError();
+        }
+
+        private static <S extends RangeState<S>> RangeCursor<S> makeMerge(Trie.MergeResolver<S> resolver, RangeCursor<S> c1, RangeCursor<S> c2)
+        {
+            if (c1 == null)
+                return c2;
+            if (c2 == null)
+                return c1;
+            return new Range<>(resolver, c1, c2);
         }
     }
 

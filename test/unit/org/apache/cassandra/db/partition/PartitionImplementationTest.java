@@ -39,6 +39,7 @@ import org.junit.runners.Parameterized;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.partitions.TrieBackedPartitionStage2;
+import org.apache.cassandra.db.partitions.TrieBackedPartitionStage3;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -62,7 +63,8 @@ public class PartitionImplementationTest
     {
         BTREE(ImmutableBTreePartition::create),
         TRIE(TrieBackedPartition::fromIterator),
-        TRIE_STAGE_2(TrieBackedPartitionStage2::fromIterator);
+        TRIE_STAGE_2(TrieBackedPartitionStage2::fromIterator),
+        TRIE_STAGE_3(TrieBackedPartitionStage3::fromIterator);
 
         final Function<UnfilteredRowIterator, Partition> creator;
 
