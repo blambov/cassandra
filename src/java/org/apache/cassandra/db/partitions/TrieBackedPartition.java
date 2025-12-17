@@ -177,30 +177,18 @@ public class TrieBackedPartition implements Partition
     {
         public RowIterator(DeletionAwareTrie<Object, TrieTombstoneMarker> trie, Direction direction)
         {
-            // Even though this is a row iterator, it must list deleted rows.
+            // Even though this is a row iterator, it must list deleted rows (but not range deletions).
             super(trie, direction, (live, marker) ->
                                    live instanceof TrieBackedRow.RowData ? live
-                                                                         : marker.introducesRowDeletion(direction) ? marker
-                                                                                                                   : null);
+                                                                         : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
+                                                                                                                                      : null);
         }
 
         @Override
         protected Row mapContent(Object content, DeletionAwareTrie<Object, TrieTombstoneMarker> tailTrie, byte[] bytes, int byteLength)
         {
-            if (content instanceof TrieBackedRow.RowData)
-                return toRow(tailTrie,
-                             getClustering(bytes, byteLength));
-
-            throw new AssertionError();
-            // TODO: figure out how to produce empty deleted rows for point deletions.
-            // - Do we add a row marker on the deletion branch?
-            // - or a flag/subtype of TrieTombstoneMarker?
-//            TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
-//            if (marker.hasPointData())
-//                return BTreeRow.emptyDeletedRow(getClustering(bytes, byteLength),
-//                                                Row.Deletion.regular(marker.deletionTime()));
-//            else
-//                return null;
+            return toRow(tailTrie,
+                         getClustering(bytes, byteLength));
         }
     }
 
@@ -402,9 +390,7 @@ public class TrieBackedPartition implements Partition
 
     public Row getRow(Clustering<?> clustering, ByteComparable path)
     {
-        var data = trie.tailTrie(path);
-        // TODO: above must include any applicable deletion branch
-        // TODO: handle deletion-only rows
+        DeletionAwareTrie<Object, TrieTombstoneMarker> data = trie.tailTrie(path);
         if (data != null)
             return toRow(data, clustering);
         else
@@ -432,11 +418,17 @@ public class TrieBackedPartition implements Partition
         if (deletion != null)
         {
             // There are several ways we can end up here:
-            // - A range deletion starts or ends.
-            // - A row deletion starts.
-            // - A complex column deletion starts; this one is a problem FIXME
+            // - A range deletion starts or ends. These may have an empty tail or none (they may be issued on the return
+            //   path).
+            // - A row deletion starts. This will include row point data. Since we skip the covered branch, we will also
+            //   skip the return path marker.
+            // - We have a row point marker in the deletion path for a row that has no live data but column or cell
+            //   deletion.
 
-            return deletion;
+            if (deletion.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+                return TrieBackedRow.RowData.NO_LIVENESS; // Treat this branch as a row.
+            else
+                return deletion; // Range or partition deletion with empty or no tail.
         }
 
         return null;
@@ -474,6 +466,21 @@ public class TrieBackedPartition implements Partition
         @Override
         protected Unfiltered mapContent(Object content, DeletionAwareTrie<Object, TrieTombstoneMarker> tailTrie, byte[] bytes, int byteLength)
         {
+            if (content instanceof TrieTombstoneMarker)
+            {
+                // This is a range or partition deletion.
+                if (byteLength > 0)
+                {
+                    return ((TrieTombstoneMarker) content).toRangeTombstoneMarker(
+                        ByteComparable.preencoded(BYTE_COMPARABLE_VERSION, bytes, 0, byteLength),
+                        BYTE_COMPARABLE_VERSION,
+                        metadata.comparator,
+                        partitionLevelDeletion);
+                }
+                else // partition deletion markers do not need to be presented
+                    return null;
+            }
+
             return toRow(tailTrie,
                          getClustering(bytes, byteLength))
                    .filter(selection, metadata());
@@ -530,11 +537,7 @@ public class TrieBackedPartition implements Partition
         @Override
         public boolean stopIssuingTombstones()
         {
-            stopIssuingDeletions(current -> current.isEmpty());
-
-            Unfiltered next = peekNextIfAvailable();
-            if (next != null && next.isRangeTombstoneMarker())
-                consumeNext();
+            stopIssuingDeletions(current -> !current.isRow() || ((Row) current).isEmptyAfterDeletion());
             return true;
         }
     }

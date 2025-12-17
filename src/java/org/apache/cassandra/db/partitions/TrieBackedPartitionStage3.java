@@ -291,7 +291,7 @@ public class TrieBackedPartitionStage3 implements Partition
             }
 
             TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
-            if (marker.hasPointData())
+            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
                 return BTreeRow.emptyDeletedRow(getClustering(bytes, byteLength),
                                                 Row.Deletion.regular(marker.deletionTime()));
             else
@@ -396,7 +396,7 @@ public class TrieBackedPartitionStage3 implements Partition
                                                         RangeTrie.point(key,
                                                                         BYTE_COMPARABLE_VERSION,
                                                                         true,
-                                                                        TrieTombstoneMarker.point(deletionTime))),
+                                                                        TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletionTime))),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
@@ -552,7 +552,7 @@ public class TrieBackedPartitionStage3 implements Partition
         if (data == null || data instanceof PartitionMarker)
             return deletion;
 
-        if (deletion == null || !deletion.hasPointData())
+        if (deletion == null || !deletion.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
             return data;
 
         // This is a row combined with a point deletion.
@@ -619,7 +619,7 @@ public class TrieBackedPartitionStage3 implements Partition
             }
 
             TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
-            if (marker.hasPointData())
+            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
                 return BTreeRow.emptyDeletedRow(getClustering(bytes, byteLength),
                                                 Row.Deletion.regular(marker.deletionTime()));
             else if (byteLength > 0)

@@ -44,7 +44,6 @@ import org.apache.cassandra.utils.memory.Cloner;
  */
 public class TrieBackedComplexColumn extends ComplexColumnData
 {
-    // The cells for 'column' sorted by cell path.
     private final DeletionAwareTrie<Object, TrieTombstoneMarker> data;
 
     TrieBackedComplexColumn(ColumnMetadata column, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
@@ -56,7 +55,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     // Used by CNDB
     public boolean hasCells() {
-        return data.contentOnlyTrie().valueIterator().hasNext();
+        return data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
     }
 
     public int cellsCount()

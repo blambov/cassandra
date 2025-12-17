@@ -197,6 +197,9 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         /// point. Used by [TrieTailsIterator.DeletionAware].
         public DeletionAwareTrie<T, D> deletionAwareTail()
         {
+            if (Cursor.isOnReturnPath(encodedPosition()))
+                return null;
+
             switch (state)
             {
                 case C1_ONLY:

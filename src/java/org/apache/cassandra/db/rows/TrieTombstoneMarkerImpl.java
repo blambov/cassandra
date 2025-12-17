@@ -50,7 +50,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         return new Covering(deletionTime);
     }
 
-    static Point point(DeletionTime deletionTime)
+    static Point point(PointDataType pointDataType, DeletionTime deletionTime)
     {
         return new Point(covering(deletionTime), null);
     }
@@ -60,7 +60,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         return new Covering(deletedAt, localDeletionTime);
     }
 
-    static Point point(long deletedAt, int localDeletionTime)
+    static Point point(PointDataType pointDataType, long deletedAt, int localDeletionTime)
     {
         return new Point(covering(deletedAt, localDeletionTime), null);
     }
@@ -136,7 +136,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
-        public boolean hasPointData()
+        public boolean hasPointData(PointDataType pointDataType)
         {
             return false;
         }
@@ -161,7 +161,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             if (deletion instanceof Covering)
                 return applyDeletion(this, (Covering) deletion);
 
-            assert !deletion.hasPointData() : "Boundary cannot be merged with point deletion";
+            assert !deletion.hasPointData(PointDataType.ROW) : "Boundary cannot be merged with point deletion";
             TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) deletion;
             Covering newLeft = applyDeletion(this, other.leftDeletion());
             Covering newRight = applyDeletion(this, other.rightDeletion());
@@ -257,7 +257,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         }
 
         @Override
-        public boolean hasPointData()
+        public boolean hasPointData(PointDataType pointDataType)
         {
             return false;
         }
@@ -298,7 +298,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             if (existing == null)
                 return this;
 
-            assert !existing.hasPointData() : "Boundary cannot be merged with point deletion";
+            assert !existing.hasPointData(PointDataType.ROW) : "Boundary cannot be merged with point deletion";
             TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) existing;
             Covering otherLeft = other.leftDeletion();
             Covering newLeft = combine(leftDeletion, otherLeft);
@@ -317,7 +317,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             if (deletion == null)
                 return this;
 
-            assert !deletion.hasPointData() : "Boundary cannot be merged with point deletion";
+            assert !deletion.hasPointData(PointDataType.ROW) : "Boundary cannot be merged with point deletion";
             TrieTombstoneMarkerImpl other = (TrieTombstoneMarkerImpl) deletion;
             Covering newLeft = applyDeletion(leftDeletion, other.leftDeletion());
             Covering newRight = applyDeletion(rightDeletion, other.rightDeletion());
@@ -526,7 +526,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
 
 
         @Override
-        public boolean hasPointData()
+        public boolean hasPointData(PointDataType pointDataType)
         {
             return true;
         }

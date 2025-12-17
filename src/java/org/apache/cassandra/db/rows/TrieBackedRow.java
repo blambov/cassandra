@@ -81,7 +81,7 @@ public class TrieBackedRow extends AbstractRow
     private static final long EMPTY_SIZE = ObjectSizes.measure(emptyRow(Clustering.EMPTY));
     private static final int COLUMN_NOT_PRESENT = -1;
 
-    private static final Object COMPLEX_COLUMN_MARKER = new Object()
+    public static final Object COMPLEX_COLUMN_MARKER = new Object()
     {
         @Override
         public String toString()
@@ -150,11 +150,25 @@ public class TrieBackedRow extends AbstractRow
 
         // TODO: override all
 
-        static final RowData NO_LIVENESS = new RowData(LivenessInfo.EMPTY);
+        public static final RowData NO_LIVENESS = new RowData(LivenessInfo.EMPTY);
 
         static RowData maybeWrap(LivenessInfo info)
         {
             return info instanceof RowData ? (RowData) info : new RowData(info);
+        }
+
+        @Override
+        public RowData withUpdatedTimestamp(long timestamp)
+        {
+            if (isEmpty())
+                return this;
+            else
+                return new RowData(timestamp, NO_TTL, NO_EXPIRATION_TIME);
+        }
+
+        public static RowData merge(RowData a, RowData b)
+        {
+            return b.supersedes(a) ? b : a;
         }
     }
 
@@ -180,7 +194,6 @@ public class TrieBackedRow extends AbstractRow
                           Clustering<?> clustering,
                           DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
-        // TODO: No liveness info on deleted-only rows.
         this.columns = columns;
         this.columnIds = columnIds;
         this.clustering = clustering;
@@ -195,7 +208,11 @@ public class TrieBackedRow extends AbstractRow
         return columnIds;
     }
 
-    public static TrieBackedRow create(Columns columns, Object2IntHashMap<ColumnIdentifier> columnIds, Clustering clustering, LivenessInfo livenessInfo, InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data) throws TrieSpaceExhaustedException
+    public static TrieBackedRow createLive(Columns columns,
+                                           Object2IntHashMap<ColumnIdentifier> columnIds,
+                                           Clustering clustering,
+                                           LivenessInfo livenessInfo,
+                                           InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data) throws TrieSpaceExhaustedException
     {
         data.putRecursive(ByteComparable.EMPTY, RowData.maybeWrap(livenessInfo), noConflictInData());
 
@@ -223,7 +240,7 @@ public class TrieBackedRow extends AbstractRow
             if (cell.column.isComplex())
                 trie.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, noConflictInData());
             trie.putRecursive(cellKey, cell, noConflictInData());
-            return create(columns, columnIds, clustering, RowData.NO_LIVENESS, trie);
+            return createLive(columns, columnIds, clustering, RowData.NO_LIVENESS, trie);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -236,17 +253,19 @@ public class TrieBackedRow extends AbstractRow
         try
         {
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
-            trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
-                                                       ByteComparable.EMPTY,
-                                                       BYTE_COMPARABLE_VERSION,
-                                                       TrieTombstoneMarker.covering(deletion)),
+            // We need to put the deletion as well as a deletion-path row marker.
+            RangeTrie<TrieTombstoneMarker> deletionTrie = rowDeletionTrie(deletion);
+
+            trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                        BYTE_COMPARABLE_VERSION,
+                                                        deletionTrie),
                        noConflictInData(),
                        mergeTombstoneRanges(),
                        noIncomingSelfDeletion(),
                        TrieBackedPartition.noExistingSelfDeletion(),
                        true,
                        x -> false);
-            return create(Columns.NONE, EMPTY_COLUMN_IDS, clustering, RowData.NO_LIVENESS, trie);
+            return new TrieBackedRow(Columns.NONE, EMPTY_COLUMN_IDS, clustering, trie);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -254,16 +273,38 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
+    private static RangeTrie<TrieTombstoneMarker> rowDeletionTrie(DeletionTime deletion)
+    {
+        return deletionTrie(ByteComparable.EMPTY, deletion);
+    }
+
+    private static RangeTrie<TrieTombstoneMarker> deletionTrie(ByteComparable prefix, DeletionTime deletion)
+    {
+        return withDeletionRoot(RangeTrie.branch(prefix,
+                                                 BYTE_COMPARABLE_VERSION,
+                                                 TrieTombstoneMarker.covering(deletion)),
+                                deletion);
+    }
+
+    private static RangeTrie<TrieTombstoneMarker> withDeletionRoot(RangeTrie<TrieTombstoneMarker> trie, DeletionTime deletion)
+    {
+        return trie.mergeWith(RangeTrie.point(ByteComparable.EMPTY,
+                                              BYTE_COMPARABLE_VERSION,
+                                              true,
+                                              TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
+                              TrieTombstoneMarker::mergeWith);
+    }
+
     public static TrieBackedRow noCellLiveRow(Clustering<?> clustering, LivenessInfo primaryKeyLivenessInfo)
     {
         assert !primaryKeyLivenessInfo.isEmpty();
         try
         {
-            return create(Columns.NONE,
-                          EMPTY_COLUMN_IDS,
-                          clustering,
-                          primaryKeyLivenessInfo,
-                          InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION));
+            return createLive(Columns.NONE,
+                              EMPTY_COLUMN_IDS,
+                              clustering,
+                              primaryKeyLivenessInfo,
+                              InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION));
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -324,7 +365,7 @@ public class TrieBackedRow extends AbstractRow
         @Override
         public void deletionMarker(TrieTombstoneMarker marker)
         {
-            if (marker.hasPointData())
+            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
                 value = markerAccumulator.apply(marker.deletionTime(), value); // Covering deletion will be seen as a boundary.
             else if (marker.isBoundary())
             {
@@ -397,26 +438,27 @@ public class TrieBackedRow extends AbstractRow
 
     public LivenessInfo primaryKeyLivenessInfo()
     {
-        return (RowData) data.get(ByteComparable.EMPTY);
+        RowData info = (RowData) data.get(ByteComparable.EMPTY);
+        return info != null ? info : RowData.NO_LIVENESS;
     }
 
     public boolean isEmpty()
     {
-        // Empty has no deletion branch and no data beyond the root-level RowData.
+        // Empty has no live or deletion branch.
         // TODO: make a garbage-free method for this
-        return Iterators.get(data.contentOnlyTrie().valueIterator(), 1, null) == null &&
+        return !data.contentOnlyTrie().valueIterator().hasNext() &&
                !data.deletionOnlyTrie().valueIterator().hasNext();
     }
 
     public boolean isEmptyAfterDeletion()
     {
-        // TODO: should we return false for deletion-branch data?
-        return Iterators.get(data.contentOnlyTrie().valueIterator(), 1, null) == null;
+        // TODO: should we return false for deletion-branch column deletions?
+        return !data.contentOnlyTrie().valueIterator().hasNext();
     }
 
     public Deletion deletion()
     {
-        TrieTombstoneMarker marker = data.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY);
+        TrieTombstoneMarker marker = data.applicableDeletion(ByteComparable.EMPTY);
         if (marker == null)
             return Deletion.LIVE;
         return Deletion.regular(marker.deletionTime());
@@ -535,13 +577,26 @@ public class TrieBackedRow extends AbstractRow
         };
     }
 
-    static class ColumnDataIterator extends TrieTailsIterator.DeletionAware<Object, TrieTombstoneMarker, ColumnData>
+    private static Object combineDataAndDeletion(Object content, TrieTombstoneMarker marker)
+    {
+        if (content == COMPLEX_COLUMN_MARKER)
+            return content;
+        if (content instanceof Cell)
+            return content;
+        if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            return null; // do not return row deletions
+        // This must be a complex column deletion marker. Return it, which will also result in skipping the return path
+        // marker.
+        return marker;
+    }
+
+    static class ColumnDataIterator extends TrieTailsIterator.DeletionAware<Object, TrieTombstoneMarker, Object, ColumnData>
     {
         private final Columns columns;
 
         ColumnDataIterator(Columns columns, DeletionAwareTrie<Object, TrieTombstoneMarker> trie, Direction direction)
         {
-            super(trie, direction, x -> !(x instanceof RowData));
+            super(trie, direction, TrieBackedRow::combineDataAndDeletion);
             this.columns = columns;
         }
 
@@ -552,12 +607,13 @@ public class TrieBackedRow extends AbstractRow
                 return (Cell<?>) value;
 
             // Column may have become empty after a deletion. If this is the case, don't return it.
-            if (Iterators.get(tailTrie.filteredValuesIterator(Direction.FORWARD, Cell.class), 0, null) == null)
+            if (!tailTrie.filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
+                !tailTrie.deletionOnlyTrie().valueIterator().hasNext())
                 return null;
 
             long columnIndex = ByteSourceInverse.getVariableLengthInteger(ByteSource.preencoded(bytes, 0, byteLength));
             assert ((int) columnIndex) == columnIndex;
-            // TODO: To include complex column deletion, tail must include deletion branch.
+
             return new TrieBackedComplexColumn(columns.getSimple((int) columnIndex),
                                                tailTrie);
         }
@@ -819,9 +875,7 @@ public class TrieBackedRow extends AbstractRow
         // Applies the deletion to the branch, removing any shadowed data (caller should ensure there isn't any, but
         // we do this properly for safety).
         return new TrieBackedRow(columns, columnIds, clustering,
-                                 data.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
-                                                                         BYTE_COMPARABLE_VERSION,
-                                                                         TrieTombstoneMarker.covering(newDeletion)),
+                                 data.mergeWithDeletion(rowDeletionTrie(newDeletion),
                                                         TrieBackedRow::deleteData,
                                                         TrieTombstoneMarker::mergeWith,
                                                         true));
@@ -1166,7 +1220,7 @@ public class TrieBackedRow extends AbstractRow
 
             try
             {
-                data.delete(RangeTrie.branch(ByteComparable.EMPTY, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletion.time())),
+                data.delete(rowDeletionTrie(deletion.time()),
                             TrieBackedRow::deleteData,
                             TrieBackedPartition.mergeTombstoneRanges(),
                             true,
@@ -1193,6 +1247,8 @@ public class TrieBackedRow extends AbstractRow
                 data.putRecursive(key, cell.withPath(null), (x, y) -> Cells.reconcile((Cell<?>) x, y));
                 if (cell.column.isComplex())
                     data.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, (x, y) -> y);
+                if (data.get(ByteComparable.EMPTY) == null)
+                    data.putRecursive(ByteComparable.EMPTY, RowData.NO_LIVENESS, (x, y) -> y);
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -1205,7 +1261,7 @@ public class TrieBackedRow extends AbstractRow
             ByteComparable key = columnKey(columnIds, column);
             try
             {
-                data.delete(RangeTrie.branch(key, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletion)),
+                data.delete(deletionTrie(key, deletion),
                             TrieBackedRow::deleteData,
                             TrieBackedPartition.mergeTombstoneRanges(),
                             true,

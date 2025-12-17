@@ -477,7 +477,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
                                                             RangeTrie.point(key,
                                                                             BYTE_COMPARABLE_VERSION,
                                                                             true,
-                                                                            TrieTombstoneMarker.point(deletionTime))),
+                                                                            TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletionTime))),
                            noConflictInData(),
                            mergeTombstoneRanges(),
                            noIncomingSelfDeletion(),

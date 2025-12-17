@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.Collection;
-import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -76,21 +75,27 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
     /// deletion. The result may be null, this, or a partial version of this.
     @Nullable TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion);
 
-    boolean hasPointData();
+    enum PointDataType
+    {
+        ROW,
+        COMPLEX_COLUMN
+    }
+
+    boolean hasPointData(PointDataType pointDataType);
 
     static TrieTombstoneMarker covering(DeletionTime deletionTime)
     {
         return TrieTombstoneMarkerImpl.covering(deletionTime);
     }
 
-    static TrieTombstoneMarker point(DeletionTime deletionTime)
+    static TrieTombstoneMarker point(PointDataType pointDataType, DeletionTime deletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(deletionTime);
+        return TrieTombstoneMarkerImpl.point(pointDataType, deletionTime);
     }
 
-    static TrieTombstoneMarker point(long deletedAt, int localDeletionTime)
+    static TrieTombstoneMarker point(PointDataType pointDataType, long deletedAt, int localDeletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(new DeletionTime(deletedAt, localDeletionTime));
+        return TrieTombstoneMarkerImpl.point(pointDataType, deletedAt, localDeletionTime);
     }
 
     TrieTombstoneMarker withUpdatedTimestamp(long l);

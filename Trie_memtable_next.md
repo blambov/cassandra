@@ -427,6 +427,29 @@ the superseding deletion needs to be collected on insertion (merger/upserter can
 Note that this means we need to be able to have boundary + point TrieTombstoneMarker for row deletions.
 
 
+# Memtable updates
+
+## Dead (fully deleted) rows and columns and their markers
+
+Rows have level markers on both the live and deleted side. The deleted side marker should take care of itself (by
+expiration/purging or higher covering deletion) at the same time as the covering content disappears. We don't have the
+same thing for the live side, and we likely can't, because cells may be deleted on a lower lever (e.g. by a column
+delete).
+
+The same problem is the for the complex column markers, which may become orphaned.
+
+This maybe is something we can live with in the memtable.
+
+Options:
+- Let the trie mutator know that certain content needs to be removed if a branch ends up empty after a modification.
+  Easy to do and efficient.
+- Collect cell counts and make the trie stop on the return path.
+- Something else?
+
+## Indexer updates
+
+## Delete path row update and live path row update
+
 # Done
 
 - Include direction bit/byte in the encoding
@@ -485,10 +508,15 @@ Note that this means we need to be able to have boundary + point TrieTombstoneMa
 - Make deletion-aware `tailTrieIterator` include deletion branches.
 - Make deletion-aware `tailTrieIterator` switchably ignore all deletion branches.
 
+- Implement cell-level trie with pojo content.
+
 
 # TODOs
 
-- Implement cell-level trie with pojo content.
+- TrieTombstoneMarker point + boundary combination
+- Row data liveness methods
+
+- Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
 
 - Change TrieTombstone marker to be able to indicate row/complex-column deletion level 
 
@@ -509,6 +537,10 @@ Note that this means we need to be able to have boundary + point TrieTombstoneMa
 - `hasDeletionBranch` flag on deletion-aware
 
 - Implement directly-stored content and adjust cell-level trie to make it fully off-heap.
+
+- Try putting the upserters etc. in the InMemoryTrie itself. Or a mutator class that we make on top of it (which could
+  also hold the ApplyState).
+  - Maybe this leaves room for extending that mutator?
 
 Maybe:
 - `hasPrecedingState`/`hasSucceedingState` flag on range cursors (including sets)
