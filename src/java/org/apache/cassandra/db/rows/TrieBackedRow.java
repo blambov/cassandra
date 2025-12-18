@@ -114,6 +114,7 @@ public class TrieBackedRow extends AbstractRow
     public static TrieBackedRow from(TableMetadata metadata, Row row)
     {
         Builder builder = builder(metadata, row.clustering());
+        builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo());
         builder.addRowDeletion(row.deletion());
         for (ColumnData cd : row)
         {
@@ -410,9 +411,29 @@ public class TrieBackedRow extends AbstractRow
     {
         // Empty has no live or deletion branch but may have an empty row marker.
         // TODO: make a garbage-free method for this
-        return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
-               !data.deletionOnlyTrie().valueIterator().hasNext();
+        return isEmpty(data);
     }
+
+    public static boolean isEmpty(DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        if (data == null)
+            return true;
+
+        // non-empty liveness
+        LivenessInfo info = (LivenessInfo) data.get(ByteComparable.EMPTY);
+        if (info != null && info != LivenessInfo.EMPTY)
+            return false;
+
+        // a cell
+        if (data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext())
+            return false;
+        // a deletion marker
+        if (data.deletionOnlyTrie().valueIterator().hasNext())
+            return false;
+
+        return true;
+    }
+
 
     public boolean isEmptyAfterDeletion()
     {

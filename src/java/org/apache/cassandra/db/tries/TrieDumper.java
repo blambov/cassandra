@@ -132,7 +132,6 @@ abstract class TrieDumper<T> implements Cursor.Walker<T, String>
             b.append("*** Start deletion branch");
             endLineAndSetIndent(currentLength);
             depthAdjustment = currentLength;
-            currentLength = 0;
             return true;
         }
 

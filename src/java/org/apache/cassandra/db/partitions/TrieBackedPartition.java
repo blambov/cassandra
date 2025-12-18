@@ -206,11 +206,7 @@ public class TrieBackedPartition implements Partition
     /// (hence the non-static method).
     Row toRow(DeletionAwareTrie<Object, TrieTombstoneMarker> rowContent, Clustering<?> clustering)
     {
-        if (rowContent != null && (rowContent.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() ||
-                                   rowContent.deletionOnlyTrie().valueIterator().hasNext()))
-            return TrieBackedRow.create(metadata, clustering, rowContent);
-        else
-            return null;
+        return TrieBackedRow.isEmpty(rowContent) ? null : TrieBackedRow.create(metadata, clustering, rowContent);
     }
 
     /// Put the given row in the trie, used by methods to build stand-alone partitions.

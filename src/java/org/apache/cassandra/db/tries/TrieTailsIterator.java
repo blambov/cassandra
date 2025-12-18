@@ -50,7 +50,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
 
     public boolean hasNext()
     {
-        if (!gotNext)
+        while (!gotNext)
         {
             if (started)
             {
