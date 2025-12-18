@@ -559,13 +559,19 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     @Override
     default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix)
     {
+        return tailTrie(prefix, true);
+    }
+
+    // TODO: doc
+    default DeletionAwareTrie<T, D> tailTrie(ByteComparable prefix, boolean includeCoveringDeletions)
+    {
         DeletionAwareCursor<T, D> c = cursor(Direction.FORWARD);
         ByteSource bytes = prefix.asComparableBytes(c.byteComparableVersion());
         while (true)
         {
             RangeCursor<D> deletionBranch = c.deletionBranchCursor(Direction.FORWARD);
             if (deletionBranch != null)
-                return tailTrieSeparately(ByteSource.duplicatable(bytes), c, deletionBranch);
+                return tailTrieSeparately(ByteSource.duplicatable(bytes), c, deletionBranch, includeCoveringDeletions);
 
             int next = bytes.next();
             long position = c.encodedPosition();
@@ -578,11 +584,14 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     }
 
     private static <T, D extends RangeState<D>> DeletionAwareTrie<T, D>
-    tailTrieSeparately(ByteSource.Duplicatable bytes, DeletionAwareCursor<T, D> c, RangeCursor<D> deletionBranch)
+    tailTrieSeparately(ByteSource.Duplicatable bytes, DeletionAwareCursor<T, D> c, RangeCursor<D> deletionBranch, boolean includeCoveringDeletions)
     {
         ByteSource.Duplicatable bytesDeletion = bytes.duplicate();
         if (!deletionBranch.descendAlong(bytesDeletion))
-            deletionBranch = deletionBranch.precedingStateCursor(Direction.FORWARD);
+            deletionBranch = includeCoveringDeletions ? deletionBranch.precedingStateCursor(Direction.FORWARD) : null;
+        else if (!includeCoveringDeletions)
+            deletionBranch = DeletionAwareCursor.dropCoveringDeletions(deletionBranch);
+
         if (!c.descendAlong(bytes))
             c = null;
 

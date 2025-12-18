@@ -47,9 +47,13 @@ import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
  *  The function we provide to the trie utilities to perform any partition and row inserts and updates
  */
 public final class TriePartitionUpdater
-extends BasePartitionUpdater
 implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 {
+    final Cloner cloner;
+    public long dataSize = 0;
+    public long heapSize = 0;
+    public long colUpdateTimeDelta = Long.MAX_VALUE;
+
     private final UpdateTransaction indexer;
     private final TableMetadata metadata;
     private PartitionData currentPartition;
@@ -64,7 +68,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                                 TableMetadata metadata,
                                 TrieMemtable.MemtableShard owner)
     {
-        super(cloner);
+        this.cloner = cloner;
         this.indexer = indexer;
         this.metadata = metadata;
         this.owner = owner;
@@ -235,7 +239,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             if (rowDeletion == null || !rowDeletion.deletionTime().deletes((LivenessInfo) content))
                 return content;
             else
-                return null;
+                return LivenessInfo.EMPTY;
         }
         else if (content instanceof PartitionData)
             return content;
@@ -289,6 +293,8 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     {
         if (existing == null)
         {
+            if (cloner != null)
+                update = cloner.clone(update);
             this.dataSize += update.dataSize();
             this.heapSize += update.unsharedHeapSizeExcludingData();
             return update;
@@ -298,6 +304,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             Cell<?> reconciled = Cells.reconcile(existing, update);
             if (reconciled != existing)
             {
+                long timeDelta = Math.abs(reconciled.timestamp() - existing.timestamp());
+                if (timeDelta < colUpdateTimeDelta)
+                    colUpdateTimeDelta = timeDelta;
+                if (cloner != null)
+                    reconciled = cloner.clone(reconciled);
                 this.dataSize += reconciled.dataSize() - existing.dataSize();
                 this.heapSize += reconciled.unsharedHeapSizeExcludingData() - existing.unsharedHeapSizeExcludingData();
             }

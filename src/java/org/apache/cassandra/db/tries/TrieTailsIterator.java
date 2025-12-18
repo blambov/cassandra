@@ -38,11 +38,13 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
     private final Predicate<T> predicate;
     private V next;
     private boolean gotNext;
+    private boolean started;
 
     TrieTailsIterator(C cursor, Predicate<T> predicate)
     {
         this.cursor = cursor;
         this.predicate = predicate;
+        this.started = false;
         cursor.assertFresh();
     }
 
@@ -50,16 +52,23 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
     {
         if (!gotNext)
         {
-            int depth = Cursor.depth(cursor.encodedPosition());
-            if (depth > 0)
+            if (started)
             {
                 // if we are not just starting, we have returned a branch and must skip over it
                 long pos = cursor.skipTo(Cursor.positionForSkippingBranch(cursor.encodedPosition()));
                 if (Cursor.isExhausted(pos))
                     return done();
-                resetPathLength(Cursor.depth(pos) - 1);
-                addPathByte(Cursor.incomingTransition(pos));
+                int depth = Cursor.depth(pos);
+                if (depth > 0)
+                {
+                    resetPathLength(depth - 1);
+                    addPathByte(Cursor.incomingTransition(pos));
+                }
+                else
+                    resetPathLength(0);
             }
+            else
+                started = true;
 
             boolean gotNextContent = false;
             T nextContent = cursor.content();

@@ -212,6 +212,8 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
             DeletionTime mapped = mapper.apply(this);
             if (mapped == this)
                 return this;
+            if (mapped == null || mapped.isLive())
+                return null;
             return new Covering(mapped);
         }
 
@@ -592,7 +594,12 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         @Override
         public TrieTombstoneMarker restrict(boolean applicableBefore, boolean applicableAfter)
         {
-            throw new AssertionError("Cannot have a row clustering as slice bound.");
+            Covering left = applicableBefore ? leftDeletion : null;
+            Covering right = applicableAfter ? rightDeletion : null;
+            if (left == leftDeletion && right == rightDeletion)
+                return this;
+
+            return new Point(pointDeletion, left, right);
         }
 
         @Override

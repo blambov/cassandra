@@ -49,7 +49,7 @@ class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
     {
         long position = source.encodedPosition();
         if (Cursor.depth(position) == 0)
-            return matchingPositionAtRoot;
+            return matchingPositionAtRoot | (position & Cursor.ON_RETURN_PATH_BIT);
         else
             return toAdjustedDepth(position);
     }

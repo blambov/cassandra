@@ -96,11 +96,11 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         return TrieTombstoneMarker.deletionOfCovering(data.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY));
     }
 
-    static class CellsWithPath extends TrieEntriesIterator<Object, Cell<?>>
+    static class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
     {
         protected CellsWithPath(Trie<Object> trie, Direction direction)
         {
-            super(trie, direction, Predicates.alwaysTrue());
+            super(trie, direction);
         }
 
         @Override

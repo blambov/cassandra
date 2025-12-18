@@ -860,7 +860,8 @@ public abstract class InMemoryReadTrie<T>
         {
             assert (!isNull(node));
             if (isLeaf(node))
-                return descendInto(node, data);
+                return transition <= data ? descendInto(node, data)
+                                          : NOT_FOUND;
 
             switch (offset(node))
             {

@@ -216,31 +216,31 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                     throw new AssertionError();
             }
         }
+    }
 
-        private static <D extends RangeState<D>> RangeCursor<D> dropCoveringDeletions(RangeCursor<D> cursor)
-        {
-            D state = cursor.state();
-            if (state == null)
-                return cursor;
-            // If a covering state applies, it must be the left side of the state.
-            D preceeding = state.precedingState(cursor.direction());
-            if (preceeding == null)
-                return cursor;
-            return new ContentMappingCursor.Range<>(s -> dropDeletion(s, preceeding), cursor);
-        }
+    static <D extends RangeState<D>> RangeCursor<D> dropCoveringDeletions(RangeCursor<D> cursor)
+    {
+        D state = cursor.state();
+        if (state == null)
+            return cursor;
+        // If a covering state applies, it must be the left side of the state.
+        D preceeding = state.precedingState(cursor.direction());
+        if (preceeding == null)
+            return cursor;
+        return new ContentMappingCursor.Range<>(s -> dropDeletion(s, preceeding), cursor);
+    }
 
-        private static <D extends RangeState<D>> D dropDeletion(D state, D toDrop)
-        {
-            if (state == toDrop)
-                return null;
-            if (!state.isBoundary())
-                return state;
-            boolean dropLeft = state.precedingState(Direction.FORWARD) == toDrop;
-            boolean dropRight = state.succedingState(Direction.FORWARD) == toDrop;
-            if (!dropLeft && !dropRight)
-                return state;
-            return state.restrict(!dropLeft, !dropRight);
-        }
+    private static <D extends RangeState<D>> D dropDeletion(D state, D toDrop)
+    {
+        if (state == toDrop)
+            return null;
+        if (!state.isBoundary())
+            return state;
+        boolean dropLeft = state.precedingState(Direction.FORWARD) == toDrop;
+        boolean dropRight = state.succedingState(Direction.FORWARD) == toDrop;
+        if (!dropLeft && !dropRight)
+            return state;
+        return state.restrict(!dropLeft, !dropRight);
     }
 
     /// A variant of [LiveAndDeletionsMergeCursor] that can be asked to stop issuing deletion markers.

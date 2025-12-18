@@ -249,6 +249,16 @@ public interface ByteSource
         return new VariableLengthInteger(value);
     }
 
+    /**
+     * Produce a source for an unsigned integer, stored using variable length encoding.
+     * The representation uses between 1 and 9 bytes, is prefix-free and compares
+     * correctly.
+     */
+    static ByteSource variableLengthUnsignedInteger(long value)
+    {
+        return new VariableLengthUnsignedInteger(value);
+    }
+
     /// Returns the direct concatenation of sources (no separators or terminators are added).
     static ByteSource concat(ByteSource... sources)
     {

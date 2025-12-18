@@ -36,6 +36,7 @@ import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
@@ -205,7 +206,11 @@ public class TrieBackedPartition implements Partition
     /// (hence the non-static method).
     Row toRow(DeletionAwareTrie<Object, TrieTombstoneMarker> rowContent, Clustering<?> clustering)
     {
-        return TrieBackedRow.create(metadata, clustering, rowContent);
+        if (rowContent != null && (rowContent.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() ||
+                                   rowContent.deletionOnlyTrie().valueIterator().hasNext()))
+            return TrieBackedRow.create(metadata, clustering, rowContent);
+        else
+            return null;
     }
 
     /// Put the given row in the trie, used by methods to build stand-alone partitions.
@@ -337,7 +342,7 @@ public class TrieBackedPartition implements Partition
     public Row staticRow()
     {
         // Static rows can only be deleted via the partition deletion. There is no need to check and apply that here.
-        DeletionAwareTrie<Object, TrieTombstoneMarker> staticRow = trie.tailTrie(STATIC_CLUSTERING_PATH);
+        DeletionAwareTrie<Object, TrieTombstoneMarker> staticRow = trie.tailTrie(STATIC_CLUSTERING_PATH, false);
         return staticRow != null ? toRow(staticRow, Clustering.STATIC_CLUSTERING) : Rows.EMPTY_STATIC_ROW;
     }
 
@@ -395,10 +400,7 @@ public class TrieBackedPartition implements Partition
     public Row getRow(Clustering<?> clustering, ByteComparable path)
     {
         DeletionAwareTrie<Object, TrieTombstoneMarker> data = trie.tailTrie(path);
-        if (data != null)
-            return toRow(data, clustering);
-        else
-            return null;
+        return toRow(data, clustering);
     }
 
     public UnfilteredRowIterator unfilteredIterator()
@@ -485,9 +487,8 @@ public class TrieBackedPartition implements Partition
                     return null;
             }
 
-            return toRow(tailTrie,
-                         getClustering(bytes, byteLength))
-                   .filter(selection, metadata());
+            Row row = toRow(tailTrie, getClustering(bytes, byteLength));
+            return row != null ? row.filter(selection, metadata()) : null;
         }
 
         @Override
@@ -608,7 +609,10 @@ public class TrieBackedPartition implements Partition
         @Override
         public Row toRow(DeletionAwareTrie<Object, TrieTombstoneMarker> data, Clustering<?> clustering)
         {
-            return ensureOnHeap.applyToRow(super.toRow(data, clustering));
+            Row row = super.toRow(data, clustering);
+            if (row == null)
+                return null;
+            return ensureOnHeap.applyToRow(row);
         }
     }
 

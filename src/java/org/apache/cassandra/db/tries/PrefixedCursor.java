@@ -29,6 +29,7 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     int nextPrefixByte;
     long currentPosition;
     long depthAdjustment;
+    long positionAtTailStart;
 
     PrefixedCursor(ByteComparable prefix, C tail)
     {
@@ -53,6 +54,11 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     {
         if (Cursor.isExhausted(positionInTail))
             return exhausted();
+        if (Cursor.depth(positionInTail) == 0)
+        {
+            assert Cursor.isOnReturnPath(positionInTail) : "Advance moved to root position";
+            return positionAtTailStart | (positionInTail & Cursor.ON_RETURN_PATH_BIT);
+        }
 
         currentPosition = positionInTail + depthAdjustment;
         return currentPosition;
@@ -123,7 +129,10 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> implements Cursor<T>
     private long setPositionAndCheckPrefixDone(long position)
     {
         if (nextPrefixByte == ByteSource.END_OF_STREAM)
+        {
             depthAdjustment = Cursor.depthCorrectionValue(position);
+            positionAtTailStart = position;
+        }
         currentPosition = position;
         return position;
     }

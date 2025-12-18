@@ -114,6 +114,7 @@ public class TrieBackedRow extends AbstractRow
     public static TrieBackedRow from(TableMetadata metadata, Row row)
     {
         Builder builder = builder(metadata, row.clustering());
+        builder.addRowDeletion(row.deletion());
         for (ColumnData cd : row)
         {
             if (cd.column.isSimple())
@@ -407,16 +408,16 @@ public class TrieBackedRow extends AbstractRow
 
     public boolean isEmpty()
     {
-        // Empty has no live or deletion branch.
+        // Empty has no live or deletion branch but may have an empty row marker.
         // TODO: make a garbage-free method for this
-        return !data.contentOnlyTrie().valueIterator().hasNext() &&
+        return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
                !data.deletionOnlyTrie().valueIterator().hasNext();
     }
 
     public boolean isEmptyAfterDeletion()
     {
         // TODO: should we return false for deletion-branch column deletions?
-        return !data.contentOnlyTrie().valueIterator().hasNext();
+        return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
     }
 
     public Deletion deletion()
@@ -438,7 +439,7 @@ public class TrieBackedRow extends AbstractRow
         int id = columnIds.get(column.name);
         assert id != COLUMN_NOT_PRESENT;
         if (!column.isComplex())
-            return v -> ByteSource.variableLengthInteger(id);
+            return v -> ByteSource.variableLengthUnsignedInteger(id);
         else
             return cellPath(id, column, path);
     }
@@ -448,7 +449,7 @@ public class TrieBackedRow extends AbstractRow
         if (columnId < 0)
             return ByteSource.EMPTY;
         else
-            return ByteSource.variableLengthInteger(columnId);
+            return ByteSource.variableLengthUnsignedInteger(columnId);
     }
 
     static ByteComparable cellPath(int columnId, ColumnMetadata column, CellPath path)
@@ -480,7 +481,7 @@ public class TrieBackedRow extends AbstractRow
     {
         int id = columnIds.getValue(column.name);
         assert id != COLUMN_NOT_PRESENT;
-        return v -> ByteSource.variableLengthInteger(id);
+        return v -> ByteSource.variableLengthUnsignedInteger(id);
     }
 
     static CellPath cellPath(ColumnMetadata column, ByteSource.Peekable src)
@@ -572,11 +573,12 @@ public class TrieBackedRow extends AbstractRow
                 return (Cell<?>) value;
 
             // Column may have become empty after a deletion. If this is the case, don't return it.
-            if (!tailTrie.filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
-                !tailTrie.deletionOnlyTrie().valueIterator().hasNext())
+            if (tailTrie == null ||
+                (!tailTrie.filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
+                 !tailTrie.deletionOnlyTrie().valueIterator().hasNext()))
                 return null;
 
-            long columnIndex = ByteSourceInverse.getVariableLengthInteger(ByteSource.preencoded(bytes, 0, byteLength));
+            long columnIndex = ByteSourceInverse.getVariableLengthUnsignedInteger(ByteSource.preencoded(bytes, 0, byteLength));
             assert ((int) columnIndex) == columnIndex;
 
             return new TrieBackedComplexColumn(columns.getSimple((int) columnIndex),
@@ -638,6 +640,16 @@ public class TrieBackedRow extends AbstractRow
         return ((Cell<?>) existing).withSkippedValue();
     }
 
+    public static Object mergeRowHeader(Object x, Object y)
+    {
+        if (x == y)
+            return x;
+        else if (x instanceof LivenessInfo && y instanceof LivenessInfo)
+            return LivenessInfo.merge((LivenessInfo) x, (LivenessInfo) y);
+        else
+            throw new IllegalArgumentException("Unexpected data clash, " + x + " and " + y);
+    }
+
     public Row filter(ColumnFilter filter, DeletionTime activeDeletion, boolean setActiveDeletionToRow, TableMetadata metadata)
     {
         Map<ByteBuffer, DroppedColumn> droppedColumns = metadata.droppedColumns;
@@ -693,7 +705,7 @@ public class TrieBackedRow extends AbstractRow
                 filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(fetchedButNotQueried)))
                             .mapValues(TrieBackedRow::dropCellValue);
                 filteredData = queriedData.mergeWith(fetchedButNotQueriedData,
-                                                     Trie.throwingResolver(),
+                                                     TrieBackedRow::mergeRowHeader,
                                                      TrieTombstoneMarker::mergeWith,
                                                      noExistingSelfDeletion(),
                                                      true);
@@ -740,7 +752,7 @@ public class TrieBackedRow extends AbstractRow
         for (int i = fetchedIds.nextSetBit(0); i >= 0; i = fetchedIds.nextSetBit(i + 1))
         {
             final int id = i;
-            ByteComparable columnKey = v -> ByteSource.variableLengthInteger(id);
+            ByteComparable columnKey = v -> ByteSource.variableLengthUnsignedInteger(id);
             keys[keyPos++] = columnKey; // add twice for inclusive start and end
             keys[keyPos++] = columnKey;
         }
@@ -1086,7 +1098,7 @@ public class TrieBackedRow extends AbstractRow
                 return c;
 
             ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-            ByteSourceInverse.getVariableLengthInteger(pathBytes); // skip column id
+            ByteSourceInverse.getVariableLengthUnsignedInteger(pathBytes); // skip column id
             return c.withPath(cellPath(c.column, pathBytes));
         }
     }
