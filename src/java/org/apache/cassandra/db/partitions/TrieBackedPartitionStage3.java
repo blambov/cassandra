@@ -697,7 +697,7 @@ public class TrieBackedPartitionStage3 implements Partition
         if (bounds.length == 0)
             return UnfilteredRowIterators.noRowsIterator(metadata, partitionKey, staticRow(), partitionLevelDeletion(), reversed);
 
-        DeletionAwareTrie<Object, TrieTombstoneMarker> slicedTrie = trie.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, bounds));
+        DeletionAwareTrie<Object, TrieTombstoneMarker> slicedTrie = trie.intersect(TrieSet.slices(BYTE_COMPARABLE_VERSION, bounds));
         return new UnfilteredIterator(selection, slicedTrie, reversed);
     }
 

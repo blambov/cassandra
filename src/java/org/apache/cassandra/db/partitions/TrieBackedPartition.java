@@ -183,8 +183,8 @@ public class TrieBackedPartition implements Partition
                   direction,
                   (live, marker) ->
                       live instanceof LivenessInfo ? live
-                                                   : marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
-                                                                                                                : null,
+                                                   : marker != null && marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
+                                                                                                                                  : null,
                   false);
         }
 
@@ -551,7 +551,7 @@ public class TrieBackedPartition implements Partition
         if (bounds.length == 0)
             return UnfilteredRowIterators.noRowsIterator(metadata, partitionKey, staticRow(), partitionLevelDeletion(), reversed);
 
-        DeletionAwareTrie<Object, TrieTombstoneMarker> slicedTrie = trie.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, bounds));
+        DeletionAwareTrie<Object, TrieTombstoneMarker> slicedTrie = trie.intersect(TrieSet.slices(BYTE_COMPARABLE_VERSION, bounds));
         return new UnfilteredIterator(selection, slicedTrie, reversed);
     }
 

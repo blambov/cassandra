@@ -64,7 +64,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
             boolean gotNextContent = false;
             T nextContent = cursor.content();
             if (nextContent != null)
-                gotNext = predicate.test(nextContent);
+                gotNextContent = predicate.test(nextContent);
 
             while (!gotNextContent)
             {

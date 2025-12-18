@@ -542,10 +542,12 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object combineDataAndDeletion(Object content, TrieTombstoneMarker marker)
     {
-        if (content == COMPLEX_COLUMN_MARKER)
-            return content;
         if (content instanceof Cell)
             return content;
+        if (content == COMPLEX_COLUMN_MARKER)
+            return content;
+        if (content instanceof LivenessInfo)
+            return null;
         if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
             return null; // do not return row deletions
         // This must be a complex column deletion marker. Return it, which will also result in skipping the return path

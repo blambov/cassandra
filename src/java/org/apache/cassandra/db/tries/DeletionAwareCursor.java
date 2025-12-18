@@ -390,18 +390,22 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     {
         if (c != null)
         {
+            Direction direction = c.direction();
             if (deletionBranch != null)
                 return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
-                                                                    c.tailCursor(c.direction()),
-                                                                    deletionBranch.tailCursor(c.direction()));
+                                                                    c.tailCursor(direction),
+                                                                    deletionBranch.tailCursor(direction));
             else
-                return c.tailCursor(c.direction());
+                return c.tailCursor(direction);
         }
         else if (deletionBranch != null)
+        {
+            Direction direction = deletionBranch.direction();
             return new PrefixedCursor.DeletionAwareSeparately<>(ByteComparable.EMPTY,
-                                                                new Empty<T, D>(deletionBranch.direction(),
+                                                                new Empty<T, D>(direction,
                                                                                 deletionBranch.byteComparableVersion()),
-                                                                deletionBranch.tailCursor(c.direction()));
+                                                                deletionBranch.tailCursor(direction));
+        }
         else
             return null;
     }

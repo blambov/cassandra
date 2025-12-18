@@ -380,7 +380,7 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         @Override
         public TrieTombstoneMarker restrict(boolean applicableBefore, boolean applicableAfter)
         {
-            if (!applicableAfter && leftDeletion == null || !applicableBefore && rightDeletion == null)
+            if ((!applicableBefore || leftDeletion == null) && (!applicableAfter || rightDeletion == null))
                 return null;
             if (applicableBefore && applicableAfter)
                 return this;

@@ -61,16 +61,18 @@ public class PartitionImplementationTest
 {
     enum Implementation
     {
-        BTREE(ImmutableBTreePartition::create),
-        TRIE(TrieBackedPartition::fromIterator),
-        TRIE_STAGE_2(TrieBackedPartitionStage2::fromIterator),
-        TRIE_STAGE_3(TrieBackedPartitionStage3::fromIterator);
+        BTREE(ImmutableBTreePartition::create, false),
+        TRIE_STAGE_2(TrieBackedPartitionStage2::fromIterator, false),
+        TRIE_STAGE_3(TrieBackedPartitionStage3::fromIterator, true),
+        TRIE(TrieBackedPartition::fromIterator, true);
 
         final Function<UnfilteredRowIterator, Partition> creator;
+        final boolean filterInvalidEndThanStart;
 
-        Implementation(Function<UnfilteredRowIterator, Partition> creator)
+        Implementation(Function<UnfilteredRowIterator, Partition> creator, boolean filterInvalidEndThanStart)
         {
             this.creator = creator;
+            this.filterInvalidEndThanStart = filterInvalidEndThanStart;
         }
     }
 
@@ -480,8 +482,8 @@ public class PartitionImplementationTest
     private static Iterator<Clusterable> maybeFilterInvalidCloseThenOpen(Iterator<Clusterable> result, boolean reversed)
     {
         // Older implementations concatenate the individual slices, which may create an invalid close+open sequence with the same clustering.
-        // Stage 3 tries to fix this problem.
-        if (implementation != Implementation.TRIE || !result.hasNext())
+        // Stage 3 and later fix this problem.
+        if (!implementation.filterInvalidEndThanStart || !result.hasNext())
             return result;
 
         List<Clusterable> list = new ArrayList<>();
