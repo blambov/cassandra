@@ -418,6 +418,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
                                    this::applyTombstone,
                                    this::applyTombstone,
                                    true,
+                                   Predicates.alwaysFalse(),
                                    Predicates.alwaysFalse());
         }
 

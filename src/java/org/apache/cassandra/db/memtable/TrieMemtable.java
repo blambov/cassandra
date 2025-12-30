@@ -27,6 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Predicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,6 +37,7 @@ import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
@@ -48,6 +50,7 @@ import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdater;
 import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
@@ -109,7 +112,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     /// Force copy checker (see [InMemoryTrie#apply]) ensuring all modifications apply atomically and consistently to
     /// the whole partition.
-    public static final Predicate<InMemoryBaseTrie.NodeFeatures<?>> FORCE_COPY_PARTITION_BOUNDARY =
+    public static final Predicate<InMemoryBaseTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION_BOUNDARY =
         features -> TrieBackedPartition.isPartitionBoundary(features.content());
 
     /// Set to true when the memtable requests a switch (e.g. for trie size limit being reached) to ensure only one
@@ -669,7 +672,10 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                                      updater::applyMarker,
                                      updater::applyMarker,
                                      true,
-                                     FORCE_COPY_PARTITION_BOUNDARY)
+                                     FORCE_COPY_PARTITION_BOUNDARY,
+                                     Predicates.alwaysFalse(),
+                                     TrieBackedRow::isDroppableMarker,
+                                     TrieBackedRow::isDroppableMarker)
                             .apply(TriePartitionUpdate.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)

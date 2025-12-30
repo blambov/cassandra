@@ -134,6 +134,18 @@ public class TrieBackedRow extends AbstractRow
 
     private static final Map<Columns, Object2IntHashMap<ColumnIdentifier>> columnsMapCache = new HashMap<>();
 
+    public static boolean isDroppableMarker(Object o)
+    {
+        return o == LivenessInfo.EMPTY || o == COMPLEX_COLUMN_MARKER;
+    }
+
+    public static boolean isDroppableMarker(TrieTombstoneMarker marker)
+    {
+        // We don't need to explicitly drop deletion-side row markers because deletions that cover all deletions in the
+        // branch will also cover the marker and remove it.
+        return false;  // if we ever need it, we need to check that the marker has point data and only that
+    }
+
     public static TrieBackedRow create(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
         return new TrieBackedRow(tableMetadata, clustering, data);
@@ -418,16 +430,12 @@ public class TrieBackedRow extends AbstractRow
         if (data == null)
             return true;
 
-        // non-empty liveness
-        LivenessInfo info = (LivenessInfo) data.get(ByteComparable.EMPTY);
-        if (info != null && info != LivenessInfo.EMPTY)
+        // the liveness marker will be dropped if there are no cells
+        if (data.get(ByteComparable.EMPTY) != null)
             return false;
 
-        // a cell
-        if (data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext())
-            return false;
         // a deletion marker
-        if (data.deletionOnlyTrie().valueIterator().hasNext())
+        if (data.applicableDeletion(ByteComparable.EMPTY) != null)
             return false;
 
         return true;
@@ -436,8 +444,7 @@ public class TrieBackedRow extends AbstractRow
 
     public boolean isEmptyAfterDeletion()
     {
-        // TODO: should we return false for deletion-branch column deletions?
-        return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
+        return data.get(ByteComparable.EMPTY) == null;
     }
 
     public Deletion deletion()
@@ -535,7 +542,7 @@ public class TrieBackedRow extends AbstractRow
     {
         assert c.isComplex();
         DeletionAwareTrie<Object, TrieTombstoneMarker> tail = data.tailTrie(columnKey(columnIds, c));
-        if (tail != null)
+        if (tail != null && tail.get(ByteComparable.EMPTY) != null)
             return new TrieBackedComplexColumn(c, tail);
         else
             return null;
@@ -594,8 +601,7 @@ public class TrieBackedRow extends AbstractRow
 
             // Column may have become empty after a deletion. If this is the case, don't return it.
             if (tailTrie == null ||
-                (!tailTrie.filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext() &&
-                 !tailTrie.deletionOnlyTrie().valueIterator().hasNext()))
+                tailTrie.get(ByteComparable.EMPTY) == null) // only a deletion path exists
                 return null;
 
             long columnIndex = ByteSourceInverse.getVariableLengthUnsignedInteger(ByteSource.preencoded(bytes, 0, byteLength));
@@ -1190,10 +1196,13 @@ public class TrieBackedRow extends AbstractRow
             data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
             mutator = data.mutator(noConflictInData(),
                                    TrieBackedPartition.mergeTombstoneRanges(),
-                                   TrieBackedRow::deleteData,
+                                   (InMemoryBaseTrie.UpsertTransformer<Object, TrieTombstoneMarker>) TrieBackedRow::deleteData,
                                    TrieBackedRow::deleteData,
                                    true,
-                                   Predicates.alwaysFalse());
+                                   Predicates.alwaysFalse(),
+                                   Predicates.alwaysFalse(),
+                                   TrieBackedRow::isDroppableMarker,
+                                   TrieBackedRow::isDroppableMarker);
         }
 
         public void addPrimaryKeyLivenessInfo(LivenessInfo info)

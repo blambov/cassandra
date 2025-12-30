@@ -430,7 +430,6 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             else
                 row = TrieBackedRow.from(metadata, untypedRow);
 
-            // We do not look for atomicity here, so can do the two steps separately.
             Clustering<?> clustering = row.clustering();
             ByteComparable comparableClustering = comparator.asByteComparable(clustering);
 
