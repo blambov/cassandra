@@ -110,14 +110,16 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
     abstract void apply(R trie,
                         T mutation,
                         InMemoryBaseTrie.UpsertTransformer<C, C> mergeResolver,
-                        Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker) throws TrieSpaceExhaustedException;
+                        Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker,
+                        Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyCheckerRanges) throws TrieSpaceExhaustedException;
 
     abstract void delete(R trie,
                          ByteComparable deletionPrefix,
                          TestRangeState partitionMarker,
                          RangeTrie<TestRangeState> deletion,
                          InMemoryBaseTrie.UpsertTransformer<C, TestRangeState> mergeResolver,
-                         Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyChecker) throws TrieSpaceExhaustedException;
+                         Predicate<InMemoryTrie.NodeFeatures<C>> forcedCopyChecker,
+                         Predicate<InMemoryBaseTrie.NodeFeatures<TestRangeState>> forcedCopyCheckerRanges) throws TrieSpaceExhaustedException;
 
     abstract boolean isPartition(C c);
     boolean isPartition(TestRangeState c)
@@ -392,7 +394,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
 
                         apply(trie, mutation,
                               (existing, update) -> existing == null ? update : mergeResolver.resolve(existing, update),
-                              forcedCopyChecker);
+                              forcedCopyChecker, forcedCopyCheckerRanges);
 
                         if (i >= pkeys.length * PER_MUTATION && i - lastUpdate >= PROGRESS_UPDATE)
                         {
@@ -458,7 +460,7 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
                         if (cprefix != null)
                             deletion = deletion.prefixedBy(cprefix);
 
-                        delete(trie, b, partitionMarker, deletion, deleteResolver, forcedCopyCheckerRanges);
+                        delete(trie, b, partitionMarker, deletion, deleteResolver, forcedCopyChecker, forcedCopyCheckerRanges);
                     }
 
                     writeProgress.set(0);

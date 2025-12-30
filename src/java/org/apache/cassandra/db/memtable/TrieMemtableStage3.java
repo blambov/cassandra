@@ -104,7 +104,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
 
     /// Force copy checker (see [InMemoryTrie#apply]) ensuring all modifications apply atomically and consistently to
     /// the whole partition.
-    public static final Predicate<InMemoryBaseTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION_BOUNDARY =
+    public static final Predicate<InMemoryBaseTrie.NodeFeatures<?>> FORCE_COPY_PARTITION_BOUNDARY =
         features -> TrieBackedPartitionStage3.isPartitionBoundary(features.content());
 
     /// Set to true when the memtable requests a switch (e.g. for trie size limit being reached) to ensure only one
@@ -641,13 +641,13 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
                     long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
                     try
                     {
-                        data.apply(TriePartitionUpdateStage3.asMergableTrie(update),
-                                   updater,
-                                   updater::mergeMarkers,
-                                   updater::applyMarker,
-                                   updater::applyMarker,
-                                   true,
-                                   FORCE_COPY_PARTITION_BOUNDARY);
+                        data.mutator(updater,
+                                     updater::mergeMarkers,
+                                     updater::applyMarker,
+                                     updater::applyMarker,
+                                     true,
+                                     FORCE_COPY_PARTITION_BOUNDARY)
+                            .apply(TriePartitionUpdateStage3.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {

@@ -670,9 +670,8 @@ public class TrieMemtableStage2 extends AbstractAllocatorMemtable
                     // Use the fast recursive put if we know the key is small enough to not cause a stack overflow.
                     try
                     {
-                        data.apply(TriePartitionUpdateStage2.asMergableTrie(update),
-                                   updater,
-                                   FORCE_COPY_PARTITION_BOUNDARY);
+                        data.mutator(updater, FORCE_COPY_PARTITION_BOUNDARY)
+                            .apply(TriePartitionUpdateStage2.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {

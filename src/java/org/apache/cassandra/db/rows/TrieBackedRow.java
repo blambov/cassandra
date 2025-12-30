@@ -49,6 +49,7 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
+import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.Trie;
@@ -215,15 +216,13 @@ public class TrieBackedRow extends AbstractRow
             // We need to put the deletion as well as a deletion-path row marker.
             RangeTrie<TrieTombstoneMarker> deletionTrie = rowDeletionTrie(deletion);
 
-            trie.apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
-                                                        BYTE_COMPARABLE_VERSION,
-                                                        deletionTrie),
-                       noConflictInData(),
-                       mergeTombstoneRanges(),
-                       noIncomingSelfDeletion(),
-                       TrieBackedPartition.noExistingSelfDeletion(),
-                       true,
-                       x -> false);
+            trie.mutator(TrieBackedPartition.noConflictInData(),
+                         TrieBackedPartition.mergeTombstoneRanges(),
+                         TrieBackedPartition.noIncomingSelfDeletion(),
+                         TrieBackedPartition.noExistingSelfDeletion(),
+                         true,
+                         Predicates.alwaysFalse())
+                .delete(deletionTrie);
             return new TrieBackedRow(Columns.NONE, EMPTY_COLUMN_IDS, clustering, trie);
         }
         catch (TrieSpaceExhaustedException e)
@@ -949,13 +948,13 @@ public class TrieBackedRow extends AbstractRow
         InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
         try
         {
-            newTrie.apply(data,
-                          ((ex, toClone) -> toClone instanceof Cell ? cloner.clone((Cell<?>) toClone) : toClone),
-                          mergeTombstoneRanges(),
-                          noIncomingSelfDeletion(),
-                          noExistingSelfDeletion(),
-                          true,
-                          Predicates.alwaysFalse());
+            newTrie.mutator(((ex, toClone) -> toClone instanceof Cell ? cloner.clone((Cell<?>) toClone) : toClone),
+                            mergeTombstoneRanges(),
+                            noIncomingSelfDeletion(),
+                            noExistingSelfDeletion(),
+                            true,
+                            Predicates.alwaysFalse())
+            .apply(data);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -1132,6 +1131,7 @@ public class TrieBackedRow extends AbstractRow
         protected Clustering<?> clustering;
         protected Object2IntHashMap<ColumnIdentifier> columnIds;
         private InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data;
+        private InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> mutator;
 
         // For complex column at index i of 'columns', we store at complexDeletions[i] its complex deletion.
 
@@ -1140,7 +1140,7 @@ public class TrieBackedRow extends AbstractRow
             this.regularAndStaticColumns = regularAndStaticColumns;
             regularColumnIds = columnsMapCache.computeIfAbsent(regularAndStaticColumns.regulars, TrieBackedRow::makeColumnIdsMap);
             staticColumnIds = columnsMapCache.computeIfAbsent(regularAndStaticColumns.statics, TrieBackedRow::makeColumnIdsMap);
-            data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            reset();
         }
 
         protected Builder(Builder builder)
@@ -1150,15 +1150,10 @@ public class TrieBackedRow extends AbstractRow
             this.staticColumnIds = builder.staticColumnIds;
             this.clustering = builder.clustering;
             this.columnIds = builder.columnIds;
+            reset();
             try
             {
-                data.apply(builder.data,
-                           noConflictInData(),
-                           mergeTombstoneRanges(),
-                           noIncomingSelfDeletion(),
-                           noExistingSelfDeletion(),
-                           true,
-                           Predicates.alwaysFalse());
+                mutator.apply(builder.data);
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -1193,6 +1188,12 @@ public class TrieBackedRow extends AbstractRow
         {
             this.clustering = null;
             data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            mutator = data.mutator(noConflictInData(),
+                                   TrieBackedPartition.mergeTombstoneRanges(),
+                                   TrieBackedRow::deleteData,
+                                   TrieBackedRow::deleteData,
+                                   true,
+                                   Predicates.alwaysFalse());
         }
 
         public void addPrimaryKeyLivenessInfo(LivenessInfo info)
@@ -1218,11 +1219,7 @@ public class TrieBackedRow extends AbstractRow
 
             try
             {
-                data.delete(rowDeletionTrie(deletion.time()),
-                            TrieBackedRow::deleteData,
-                            TrieBackedPartition.mergeTombstoneRanges(),
-                            true,
-                            Predicates.alwaysFalse());
+                mutator.delete(rowDeletionTrie(deletion.time()));
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -1259,11 +1256,7 @@ public class TrieBackedRow extends AbstractRow
             ByteComparable key = columnKey(columnIds, column);
             try
             {
-                data.delete(deletionTrie(key, deletion),
-                            TrieBackedRow::deleteData,
-                            TrieBackedPartition.mergeTombstoneRanges(),
-                            true,
-                            Predicates.alwaysFalse());
+                mutator.delete(deletionTrie(key, deletion));
             }
             catch (TrieSpaceExhaustedException e)
             {

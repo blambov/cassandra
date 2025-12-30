@@ -1536,28 +1536,40 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         T content();
     }
 
-    static class Mutation<T, U, C extends Cursor<U>, A extends ApplyState<T>> implements NodeFeatures<U>
+    protected static class Mutator<T, U, C extends Cursor<U>, A extends ApplyState<T>> implements NodeFeatures<U>
     {
         final UpsertTransformerWithKeyProducer<T, U> transformer;
         final Predicate<NodeFeatures<U>> needsForcedCopy;
-        final C mutationCursor;
         final A state;
+
+        C mutationCursor;
         int forcedCopyDepth;
 
-        Mutation(UpsertTransformerWithKeyProducer<T, U> transformer,
-                 Predicate<NodeFeatures<U>> needsForcedCopy,
-                 C mutationCursor,
-                 A state)
+        Mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
+                Predicate<NodeFeatures<U>> needsForcedCopy,
+                A state)
         {
-            mutationCursor.assertFresh();
             this.transformer = transformer;
             this.needsForcedCopy = needsForcedCopy;
-            this.mutationCursor = mutationCursor;
             this.state = state;
-            this.forcedCopyDepth = Integer.MAX_VALUE;
         }
 
-        void apply() throws TrieSpaceExhaustedException
+        Mutator<T, U, C, A> start(int root, C mutationCursor, int initialForcedCopyDepth)
+        {
+            mutationCursor.assertFresh();
+
+            this.mutationCursor = mutationCursor;
+            this.forcedCopyDepth = initialForcedCopyDepth;
+            this.state.start(root);
+            return this;
+        }
+
+        Mutator<T, U, C, A> start(C mutationCursor)
+        {
+            return start(state.trie.root, mutationCursor, Integer.MAX_VALUE);
+        }
+
+        Mutator<T, U, C, A> apply() throws TrieSpaceExhaustedException
         {
             int depth = state.currentDepth;
             while (true)
@@ -1565,7 +1577,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
-                applyContent();
+                applyContent(mutationCursor.content());
 
                 long position = mutationCursor.advance();
                 assert !Cursor.isOnReturnPath(position) : "Return path in forward direction can only be used in range tries.";
@@ -1574,11 +1586,11 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
                     break;
                 assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
             }
+            return this;
         }
 
-        void applyContent() throws TrieSpaceExhaustedException
+        void applyContent(U content) throws TrieSpaceExhaustedException
         {
-            U content = mutationCursor.content();
             if (content != null)
             {
                 T existingContent = state.getDescentPathContent();

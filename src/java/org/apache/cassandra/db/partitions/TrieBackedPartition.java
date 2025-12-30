@@ -23,6 +23,7 @@ import java.util.NavigableSet;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
+import com.google.common.base.Predicates;
 import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.db.Clustering;
@@ -51,6 +52,7 @@ import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieSet;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.db.tries.TrieTailsIterator;
@@ -229,13 +231,17 @@ public class TrieBackedPartition implements Partition
 
         DeletionAwareTrie<Object, TrieTombstoneMarker> rowTrie = row.trie();
         // TODO: maybe improve by checking if the root of the rowTrie has a deletion branch.
-        trie.apply(rowTrie.prefixedBySeparately(comparableClustering, true),
-                   noConflictInData(),
-                   mergeTombstoneRanges(),
-                   noIncomingSelfDeletion(),
-                   noExistingSelfDeletion(),
-                   true,
-                   x -> false);
+        makeMutator(trie).apply(rowTrie.prefixedBySeparately(comparableClustering, true));
+    }
+
+    private static InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> makeMutator(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie)
+    {
+        return trie.mutator(noConflictInData(),
+                            mergeTombstoneRanges(),
+                            noIncomingSelfDeletion(),
+                            noExistingSelfDeletion(),
+                            true,
+                            Predicates.alwaysFalse());
     }
 
     protected static void putMarkerInTrie(ClusteringComparator comparator, 
@@ -256,16 +262,9 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletedBranch(ByteComparable.EMPTY,
-                                                       ByteComparable.EMPTY,
-                                                       BYTE_COMPARABLE_VERSION,
-                                                       TrieTombstoneMarker.covering(deletionTime)),
-                       noConflictInData(),
-                       mergeTombstoneRanges(),
-                       noIncomingSelfDeletion(),
-                       noExistingSelfDeletion(),
-                       true,
-                       x -> false);
+            makeMutator(trie).delete(RangeTrie.branch(ByteComparable.EMPTY,
+                                                      BYTE_COMPARABLE_VERSION,
+                                                      TrieTombstoneMarker.covering(deletionTime)));
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -280,17 +279,10 @@ public class TrieBackedPartition implements Partition
     {
         try
         {
-            trie.apply(DeletionAwareTrie.deletedSlice(ByteComparable.EMPTY,
-                                                      start,
-                                                      end,
-                                                      BYTE_COMPARABLE_VERSION,
-                                                      TrieTombstoneMarker.covering(deletionTime)),
-                       noConflictInData(),
-                       mergeTombstoneRanges(),
-                       noIncomingSelfDeletion(),
-                       noExistingSelfDeletion(),
-                       true,
-                       x -> false);
+            makeMutator(trie).delete(RangeTrie.slice(start,
+                                                     end,
+                                                     BYTE_COMPARABLE_VERSION,
+                                                     TrieTombstoneMarker.covering(deletionTime)));
         }
         catch (TrieSpaceExhaustedException e)
         {

@@ -449,24 +449,19 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
     }
 
-    static class Mutation<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutation<S, U, RangeCursor<U>, ApplyState<S>>
+    static class MutatorStatic<S extends RangeState<S>, U extends RangeState<U>> extends InMemoryBaseTrie.Mutator<S, U, RangeCursor<U>, ApplyState<S>>
     {
-        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, ApplyState<S> state)
+        MutatorStatic(ApplyState<S> applyState, UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy)
         {
-            this(transformer, needsForcedCopy, source, state, Integer.MAX_VALUE);
-        }
-
-        Mutation(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, RangeCursor<U> source, ApplyState<S> state, int forcedCopyDepth)
-        {
-            super(transformer, needsForcedCopy, source, state);
-            this.forcedCopyDepth = forcedCopyDepth;
+            super(transformer, needsForcedCopy, applyState);
         }
 
         @Override
-        void apply() throws TrieSpaceExhaustedException
+        MutatorStatic<S, U> apply() throws TrieSpaceExhaustedException
         {
             applyRanges();
             assert state.currentDepth == 0 || state.currentDepth == -1 : "Unexpected change to applyState. Concurrent trie modification?";
+            return this;
         }
 
         @Override
@@ -623,13 +618,6 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             }
         }
 
-        static <S extends RangeState<S>> S rightSideAsCovering(S rangeState)
-        {
-            if (rangeState == null)
-                return null;
-            return rangeState.succedingState(Direction.FORWARD);
-        }
-
         S getExistingCoveringState(boolean onReturnPath)
         {
             S existingCoveringState = state.getNearestContent(onReturnPath);
@@ -638,6 +626,61 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
             return null;
         }
+
+        static <S extends RangeState<S>> S rightSideAsCovering(S rangeState)
+        {
+            if (rangeState == null)
+                return null;
+            return rangeState.succedingState(Direction.FORWARD);
+        }
+    }
+
+    public class Mutator<U extends RangeState<U>> extends MutatorStatic<S, U>
+    {
+        Mutator(UpsertTransformerWithKeyProducer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy)
+        {
+            super(applyState, transformer, needsForcedCopy);
+        }
+
+        /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+        /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+        /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+        /// different than the element type for this memtable trie.
+        public void apply(RangeTrie<U> mutation) throws TrieSpaceExhaustedException
+        {
+            try
+            {
+                start(mutation.cursor(Direction.FORWARD)).apply().complete();
+                completeMutation();
+            }
+            catch (Throwable t)
+            {
+                abortMutation();
+                throw t;
+            }
+        }
+    }
+
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <U extends RangeState<U>> Mutator<U> mutator(final UpsertTransformerWithKeyProducer<S, U> transformer,
+                                                        Predicate<NodeFeatures<U>> needsForcedCopy)
+    {
+        return new Mutator<>(transformer, needsForcedCopy);
+    }
+
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <U extends RangeState<U>> Mutator<U> mutator(final UpsertTransformer<S, U> transformer,
+                                                        Predicate<NodeFeatures<U>> needsForcedCopy)
+    {
+        return new Mutator<>(transformer, needsForcedCopy);
     }
 
 
@@ -653,21 +696,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                                                 final UpsertTransformerWithKeyProducer<S, U> transformer,
                                                 Predicate<NodeFeatures<U>> needsForcedCopy) throws TrieSpaceExhaustedException
     {
-        try
-        {
-            Mutation<S, U> m = new Mutation<>(transformer,
-                                              needsForcedCopy,
-                                              mutation.cursor(Direction.FORWARD),
-                                              applyState.start());
-            m.apply();
-            m.complete();
-            completeMutation();
-        }
-        catch (Throwable t)
-        {
-            abortMutation();
-            throw t;
-        }
+        mutator(transformer, needsForcedCopy).apply(mutation);
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -682,6 +711,6 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                                                 final UpsertTransformer<S, U> transformer,
                                                 Predicate<NodeFeatures<U>> needsForcedCopy) throws TrieSpaceExhaustedException
     {
-        apply(mutation, (UpsertTransformerWithKeyProducer<S, U>) transformer, needsForcedCopy);
+        mutator(transformer, needsForcedCopy).apply(mutation);
     }
 }

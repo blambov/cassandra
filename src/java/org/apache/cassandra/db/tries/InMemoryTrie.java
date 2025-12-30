@@ -127,6 +127,70 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     final private ApplyState<T> applyState = new ApplyState<>(this);
 
+    public class Mutator<U> extends InMemoryBaseTrie.Mutator<T, U, Cursor<U>, ApplyState<T>>
+    {
+        /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+        /// value. Applied even if there's no pre-existing value in the memtable trie.
+        /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+        /// concurrent readers. See NodeFeatures for details.
+        Mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
+                Predicate<NodeFeatures<U>> needsForcedCopy)
+        {
+            super(transformer, needsForcedCopy, applyState);
+        }
+
+        /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
+        /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
+        /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
+        /// different than the element type for this memtable trie.
+        public void apply(Trie<U> mutation)
+        throws TrieSpaceExhaustedException
+        {
+            try
+            {
+                start(mutation.cursor(Direction.FORWARD)).apply().complete();
+                completeMutation();
+            }
+            catch (Throwable t)
+            {
+                abortMutation();
+                throw t;
+            }
+        }
+
+        /// Map-like put method, using the apply machinery above which cannot run into stack overflow. When the correct
+        /// position in the trie has been reached, the value will be resolved with the given function before being placed in
+        /// the trie (even if there's no pre-existing content in this trie).
+        /// @param key the trie path/key for the given value.
+        /// @param value the value being put in the memtable trie. Note that it can be of type different than the element
+        /// type for this memtable trie. It's up to the `transformer` to return the final value that will stay in
+        /// the memtable trie.
+        public void putSingleton(ByteComparable key, U value) throws TrieSpaceExhaustedException
+        {
+            apply(Trie.singleton(key, byteComparableVersion, value));
+        }
+    }
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <U> Mutator<U> mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
+                                  Predicate<NodeFeatures<U>> needsForcedCopy)
+    {
+        return new Mutator<>(transformer, needsForcedCopy);
+    }
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <U> Mutator<U> mutator(UpsertTransformer<T, U> transformer,
+                                  Predicate<NodeFeatures<U>> needsForcedCopy)
+    {
+        return new Mutator<>(transformer, needsForcedCopy);
+    }
+
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
     /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
     /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
@@ -140,21 +204,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                           final Predicate<NodeFeatures<U>> needsForcedCopy)
     throws TrieSpaceExhaustedException
     {
-        try
-        {
-            Mutation<T, U, Cursor<U>, ApplyState<T>> m = new Mutation<>(transformer,
-                                                                        needsForcedCopy,
-                                                                        mutation.cursor(Direction.FORWARD),
-                                                                        applyState.start());
-            m.apply();
-            m.complete();
-            completeMutation();
-        }
-        catch (Throwable t)
-        {
-            abortMutation();
-            throw t;
-        }
+        mutator(transformer, needsForcedCopy).apply(mutation);
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -170,109 +220,39 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                           final Predicate<NodeFeatures<U>> needsForcedCopy)
     throws TrieSpaceExhaustedException
     {
-        apply(mutation, (UpsertTransformerWithKeyProducer<T, U>) transformer, needsForcedCopy);
+        mutator(transformer, needsForcedCopy).apply(mutation);
     }
 
-    /// Map-like put method, using the apply machinery above which cannot run into stack overflow. When the correct
-    /// position in the trie has been reached, the value will be resolved with the given function before being placed in
-    /// the trie (even if there's no pre-existing content in this trie).
-    /// @param key the trie path/key for the given value.
-    /// @param value the value being put in the memtable trie. Note that it can be of type different than the element
-    /// type for this memtable trie. It's up to the `transformer` to return the final value that will stay in
-    /// the memtable trie.
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value (of a potentially different type), returning the final value that will stay in the memtable trie. Applied
-    /// even if there's no pre-existing value in the memtable trie.
-    public <R> void putSingleton(ByteComparable key,
-                                 R value,
-                                 UpsertTransformer<T, ? super R> transformer) throws TrieSpaceExhaustedException
+    public static class RangeMutator<T, S extends RangeState<S>>
+    extends InMemoryBaseTrie.Mutator<T, S, RangeCursor<S>, ApplyState<T>>
     {
-        apply(Trie.singleton(key, byteComparableVersion, value), transformer, Predicates.alwaysFalse());
-    }
+        int initialDepth;
 
-    /// A version of putSingleton which uses recursive put if the last argument is true.
-    public <R> void putSingleton(ByteComparable key,
-                                 R value,
-                                 UpsertTransformer<T, ? super R> transformer,
-                                 boolean useRecursive) throws TrieSpaceExhaustedException
-    {
-        if (useRecursive)
-            putRecursive(key, value, transformer);
-        else
-            putSingleton(key, value, transformer);
-    }
-
-    /// Delete all entries covered under the specified TrieSet
-    public void delete(TrieSet set) throws TrieSpaceExhaustedException
-    {
-        apply(set.cursor(Direction.FORWARD),
-              (UpsertTransformer<T, TrieSetCursor.RangeState>) RangeMutation::deleteEntry,
-              NodeFeatures::isBranching);
-    }
-
-    /// Apply the given range trie to this in-memory trie. Any existing content that falls under the ranges of the given
-    /// trie will be modified by applying the transformer. This is usually used to delete covered content (by returning
-    /// null from the transformer).
-    /// @param rangeTrie the ranges to be applied, given in the form of a range trie.
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie.
-    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
-    /// concurrent readers. See NodeFeatures for details.
-    public <S extends RangeState<S>>
-    void apply(RangeTrie<S> rangeTrie,
-               final UpsertTransformerWithKeyProducer<T, S> transformer,
-               final Predicate<NodeFeatures<S>> needsForcedCopy)
-    throws TrieSpaceExhaustedException
-    {
-        apply(rangeTrie.cursor(Direction.FORWARD), transformer, needsForcedCopy);
-    }
-
-    private <S extends RangeState<S>> void apply(RangeCursor<S> cursor,
-                                                 UpsertTransformerWithKeyProducer<T, S> transformer,
-                                                 Predicate<NodeFeatures<S>> needsForcedCopy) throws TrieSpaceExhaustedException
-    {
-        try
+        RangeMutator(ApplyState<T> state,
+                     UpsertTransformerWithKeyProducer<T, S> transformer,
+                     Predicate<NodeFeatures<S>> needsForcedCopy)
         {
-            RangeMutation<T, S, RangeCursor<S>> m = new RangeMutation<>(transformer,
-                                                                        needsForcedCopy,
-                                                                        cursor,
-                                                                        applyState.start());
-            m.apply();
-            m.complete();
-            completeMutation();
-        }
-        catch (Throwable t)
-        {
-            abortMutation();
-            throw t;
-        }
-    }
-
-    static class RangeMutation<T, S extends RangeState<S>, C extends RangeCursor<S>> extends Mutation<T, S, C, ApplyState<T>>
-    {
-        final int initialDepth;
-
-        RangeMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
-                      Predicate<NodeFeatures<S>> needsForcedCopy,
-                      C mutationCursor,
-                      ApplyState<T> state)
-        {
-            this(transformer, needsForcedCopy, mutationCursor, state, Integer.MAX_VALUE);
+            super(transformer, needsForcedCopy, state);
         }
 
-        RangeMutation(UpsertTransformerWithKeyProducer<T, S> transformer,
-                      Predicate<NodeFeatures<S>> needsForcedCopy,
-                      C mutationCursor,
-                      ApplyState<T> state,
-                      int initialForcedCopyDepth)
+        RangeMutator<T, S> start(int root, RangeCursor<S> mutationCursor, int initialForcedCopyDepth)
         {
-            super(transformer, needsForcedCopy, mutationCursor, state);
-            initialDepth = state.currentDepth;
-            forcedCopyDepth = initialForcedCopyDepth;
+            initialDepth = 0;
+            super.start(root, mutationCursor, initialForcedCopyDepth);
+            return this;
+        }
+
+        RangeMutator<T, S> continueFromCurrentState(RangeCursor<S> mutationCursor, int initialForcedCopyDepth)
+        {
+            mutationCursor.assertFresh();
+            this.mutationCursor = mutationCursor;
+            this.initialDepth = state.currentDepth;
+            this.forcedCopyDepth = initialForcedCopyDepth;
+            return this;
         }
 
         @Override
-        void apply() throws TrieSpaceExhaustedException
+        RangeMutator<T, S> apply() throws TrieSpaceExhaustedException
         {
             int depth = state.currentDepth;
             long position = mutationCursor.encodedPosition();
@@ -296,6 +276,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             }
 
             assert state.currentDepth == initialDepth;
+            return this;
         }
 
         /// Walk all existing content covered under a deletion. Returns true if the caller needs to continue processing
@@ -353,9 +334,107 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             }
         }
 
-        private static <T> T deleteEntry(T entry, TrieSetCursor.RangeState state)
+
+        /// Apply the given range trie to this in-memory trie. Any existing content that falls under the ranges of the given
+        /// trie will be modified by applying the transformer. This is usually used to delete covered content (by returning
+        /// null from the transformer).
+        /// @param rangeTrie the ranges to be applied, given in the form of a range trie.
+        public void apply(RangeTrie<S> rangeTrie) throws TrieSpaceExhaustedException
+        {
+            apply(rangeTrie.cursor(Direction.FORWARD));
+        }
+
+        void apply(RangeCursor<S> cursor) throws TrieSpaceExhaustedException
+        {
+            try
+            {
+                start(cursor).apply().complete();
+                state.trie.completeMutation();
+            }
+            catch (Throwable t)
+            {
+                state.trie.abortMutation();
+                throw t;
+            }
+        }
+    }
+
+    public static class SetMutator<T> extends RangeMutator<T, TrieSetCursor.RangeState>
+    {
+        SetMutator(ApplyState<T> state, Predicate<NodeFeatures<TrieSetCursor.RangeState>> needsForcedCopy)
+        {
+            super(state, SetMutator::deleteEntry, needsForcedCopy);
+        }
+
+        void apply(TrieSet set) throws TrieSpaceExhaustedException
+        {
+            apply(set.cursor(Direction.FORWARD));
+        }
+
+        private static <T> T deleteEntry(T entry, TrieSetCursor.RangeState state, KeyProducer<T> keyProducer)
         {
             return state.applicableBefore ? null : entry;
         }
+
+    }
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <S extends RangeState<S>> RangeMutator<T, S> rangeMutator(UpsertTransformerWithKeyProducer<T, S> transformer,
+                                                                     Predicate<NodeFeatures<S>> needsForcedCopy)
+    {
+        return new RangeMutator<>(applyState, transformer, needsForcedCopy);
+    }
+
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value. Applied even if there's no pre-existing value in the memtable trie.
+    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
+    /// concurrent readers. See NodeFeatures for details.
+    public <S extends RangeState<S>> RangeMutator<T, S> rangeMutator(UpsertTransformer<T, S> transformer,
+                                                                     Predicate<NodeFeatures<S>> needsForcedCopy)
+    {
+        return new RangeMutator<>(applyState, transformer, needsForcedCopy);
+    }
+
+    /// Delete all entries covered under the specified TrieSet
+    public SetMutator<T> deleter()
+    {
+        return new SetMutator<>(applyState, NodeFeatures::isBranching);
+    }
+
+    public void delete(TrieSet set) throws TrieSpaceExhaustedException
+    {
+        deleter().apply(set);
+    }
+
+    /// Map-like put method, using the apply machinery above which cannot run into stack overflow. When the correct
+    /// position in the trie has been reached, the value will be resolved with the given function before being placed in
+    /// the trie (even if there's no pre-existing content in this trie).
+    /// @param key the trie path/key for the given value.
+    /// @param value the value being put in the memtable trie. Note that it can be of type different than the element
+    /// type for this memtable trie. It's up to the `transformer` to return the final value that will stay in
+    /// the memtable trie.
+    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// value (of a potentially different type), returning the final value that will stay in the memtable trie. Applied
+    /// even if there's no pre-existing value in the memtable trie.
+    public <R> void putSingleton(ByteComparable key,
+                                 R value,
+                                 UpsertTransformer<T, ? super R> transformer) throws TrieSpaceExhaustedException
+    {
+        mutator(transformer, Predicates.alwaysFalse()).apply(Trie.singleton(key, byteComparableVersion, value));
+    }
+
+    /// A version of putSingleton which uses recursive put if the last argument is true.
+    public <R> void putSingleton(ByteComparable key,
+                                 R value,
+                                 UpsertTransformer<T, ? super R> transformer,
+                                 boolean useRecursive) throws TrieSpaceExhaustedException
+    {
+        if (useRecursive)
+            putRecursive(key, value, transformer);
+        else
+            putSingleton(key, value, transformer);
     }
 }
