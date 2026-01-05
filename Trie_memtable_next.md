@@ -520,7 +520,11 @@ Completely unknown how to implement at this point. Probably change the interface
 - Synthetic marker identification machinery for InMemoryTrie, i.e. code to drop content if branch becomes empty.
 - Complex columns should not have a marker if they don't have cells.
 
+- `mappingMergeWith` to apply resolvers on null values.
+
 # TODOs
+
+- Add `mappingMergeWith` to rest of trie hierarchy and test all.
 
 - Test `danglingMetadataCleaner`
 
@@ -595,4 +599,61 @@ putMarkerInTrie:
 RowData:
 
         // TODO track minTimestamp to avoid applying deletions that do not do anything
+
+
+
+## Sizes
+
+Skip list
+```
+Memtable in unslabbed_heap_buffers mode: 215000 ops, 10.743MiB serialized bytes, 81.348MiB (4%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 215000 ops, 10.743MiB serialized bytes, 75.169MiB (4%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 215000 ops, 10.743MiB serialized bytes, 78.754MiB (4%) on-heap, 3.586MiB (0%) off-heap
+Memtable in offheap_objects mode: 215000 ops, 10.743MiB serialized bytes, 42.386MiB (2%) on-heap, 9.208MiB (0%) off-heap
+
+```
+
+Stage 1
+```
+Memtable in unslabbed_heap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 73.831MiB (4%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.651MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.928MiB (3%) on-heap, 5.902MiB (0%) off-heap
+Memtable in offheap_objects mode: 215000 ops, 10.247MiB serialized bytes, 35.465MiB (2%) on-heap, 11.276MiB (1%) off-heap
+
+```
+
+Stage 2
+```
+Memtable in unslabbed_heap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 53.854MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 50.802MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 38.691MiB (2%) on-heap, 15.163MiB (1%) off-heap
+Memtable in offheap_objects mode: 215000 ops, 8.488MiB serialized bytes, 23.432MiB (1%) on-heap, 19.169MiB (1%) off-heap
+```
+
+Stage 3
+```
+Memtable in unslabbed_heap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 53.097MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 50.045MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 37.171MiB (2%) on-heap, 15.926MiB (1%) off-heap
+Memtable in offheap_objects mode: 200000 ops, 6.104MiB serialized bytes, 21.912MiB (1%) on-heap, 19.931MiB (1%) off-heap
+```
+
+Stage 4
+```
+Memtable in unslabbed_heap_buffers mode: 215000 ops, 6.142MiB serialized bytes, 51.342MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 215000 ops, 6.142MiB serialized bytes, 48.291MiB (2%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 215000 ops, 6.142MiB serialized bytes, 29.160MiB (1%) on-heap, 22.182MiB (1%) off-heap
+Memtable in offheap_objects mode: 215000 ops, 6.142MiB serialized bytes, 13.901MiB (1%) on-heap, 26.188MiB (1%) off-heap
+```
+
+
+
+
+
+
+
+
+
+
+
 

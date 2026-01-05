@@ -283,6 +283,40 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
                          deletionsAtFixedPoints);
     }
 
+    default <S, E extends RangeState<E>, R, Q extends RangeState<Q>>
+    DeletionAwareTrie<R, Q> mappingMergeWith(DeletionAwareTrie<S, E> other,
+                                            BiFunction<T, S, R> resolver,
+                                            BiFunction<D, E, Q> deletionResolver,
+                                            BiFunction<E, T, T> deleter1,
+                                            BiFunction<D, S, S> deleter2,
+                                            boolean deletionsAtFixedPoints)
+    {
+        return dir -> new MappingMergeCursor.DeletionAware<>(resolver,
+                                                             deletionResolver,
+                                                             deleter1,
+                                                             deleter2,
+                                                             cursor(dir),
+                                                             other.cursor(dir),
+                                                             deletionsAtFixedPoints);
+    }
+
+    default <E extends RangeState<E>, Q extends RangeState<Q>>
+    DeletionAwareTrie<T, Q> mappingMergeWithDeletion(RangeTrie<E> deletionTrie,
+                                                    BiFunction<E, T, T> deleter,
+                                                    BiFunction<D, E, Q> deletionResolver,
+                                                    boolean deletionsAtFixedPoints)
+    {
+        return mappingMergeWith(deletionBranch(ByteComparable.EMPTY,
+                                               deletionTrie.cursor(Direction.FORWARD).byteComparableVersion(),
+                                               deletionTrie),
+                                (x, y) -> x, // y is always null
+                                deletionResolver,
+                                deleter,
+                                (x, y) -> { throw new AssertionError(); },
+                                deletionsAtFixedPoints);
+    }
+
+
     /// See [MergeResolver]
     interface CollectionMergeResolver<T, D extends RangeState<D>>
     extends MergeResolver<T, D>, Trie.CollectionMergeResolver<T>

@@ -263,12 +263,12 @@ public class TrieBackedRow extends AbstractRow
                                               BYTE_COMPARABLE_VERSION,
                                               true,
                                               TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
-                              TrieTombstoneMarker::mergeWith)
+                              TrieTombstoneMarker::mergeUpdate)
                    .mergeWith(RangeTrie.point(ByteComparable.EMPTY,
                                               BYTE_COMPARABLE_VERSION,
                                               false,
                                               TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
-                              TrieTombstoneMarker::mergeWith);
+                              TrieTombstoneMarker::mergeUpdate);
     }
 
     public static TrieBackedRow noCellLiveRow(Clustering<?> clustering, LivenessInfo primaryKeyLivenessInfo)
@@ -430,21 +430,38 @@ public class TrieBackedRow extends AbstractRow
         if (data == null)
             return true;
 
-        // the liveness marker will be dropped if there are no cells
-        if (data.get(ByteComparable.EMPTY) != null)
-            return false;
-
-        // a deletion marker
-        if (data.applicableDeletion(ByteComparable.EMPTY) != null)
-            return false;
-
-        return true;
+        // the row deletion marker will only be present if there is a deletion present
+        return data.applicableDeletion(ByteComparable.EMPTY) == null &&
+               isEmptyAfterDeletion(data);
     }
-
 
     public boolean isEmptyAfterDeletion()
     {
-        return data.get(ByteComparable.EMPTY) == null;
+        return isEmptyAfterDeletion(data);
+    }
+
+    public static boolean isEmptyAfterDeletion(DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        if (data instanceof InMemoryDeletionAwareTrie)
+        {
+            // the liveness marker will be dropped if there are no cells
+            return data.get(ByteComparable.EMPTY) == null;
+        }
+        else
+        {
+            // The liveness marker may remain even if the data is deleted/filtered out.
+            // Check for the existence of:
+            // - non-empty liveness
+            LivenessInfo info = (LivenessInfo) data.get(ByteComparable.EMPTY);
+            if (info != null && info != LivenessInfo.EMPTY)
+                return false;
+
+            // - a cell
+            if (data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext())
+                return false;
+
+            return true;
+        }
     }
 
     public Deletion deletion()
@@ -705,10 +722,10 @@ public class TrieBackedRow extends AbstractRow
                 }
             }
             if (!drops.isEmpty())
-                filteredData = filteredData.mergeWithDeletion(RangeTrie.merge(drops, TrieTombstoneMarker::merge),
-                                                              TrieBackedRow::deleteData,
-                                                              TrieTombstoneMarker::dropShadowed,
-                                                              true);
+                filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.merge(drops, TrieTombstoneMarker::merge),
+                                                                     TrieBackedRow::deleteData,
+                                                                     TrieTombstoneMarker::dropShadowedUpdate,
+                                                                     true);
         }
 
         if (mayFilterColumns)
@@ -732,7 +749,7 @@ public class TrieBackedRow extends AbstractRow
                             .mapValues(TrieBackedRow::dropCellValue);
                 filteredData = queriedData.mergeWith(fetchedButNotQueriedData,
                                                      TrieBackedRow::mergeRowHeader,
-                                                     TrieTombstoneMarker::mergeWith,
+                                                     TrieTombstoneMarker::mergeUpdate,
                                                      noExistingSelfDeletion(),
                                                      true);
             }
@@ -742,13 +759,20 @@ public class TrieBackedRow extends AbstractRow
 
         if (mayHaveDeleted)
         {
-            filteredData = filteredData.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
-                                                                           BYTE_COMPARABLE_VERSION,
-                                                                           TrieTombstoneMarker.covering(activeDeletion)),
-                                                          TrieBackedRow::deleteData,
-                                                          setActiveDeletionToRow ? TrieTombstoneMarker::mergeWith
-                                                                                 : TrieTombstoneMarker::dropShadowed,
-                                                          true);
+            if (setActiveDeletionToRow)
+                filteredData = filteredData.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
+                                                                               BYTE_COMPARABLE_VERSION,
+                                                                               TrieTombstoneMarker.covering(activeDeletion)),
+                                                              TrieBackedRow::deleteData,
+                                                              TrieTombstoneMarker::mergeUpdate,
+                                                              true);
+            else // we need mappingMerge to make sure that the resolver is called for all update markers so that we can drop them
+                filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
+                                                                                      BYTE_COMPARABLE_VERSION,
+                                                                                      TrieTombstoneMarker.covering(activeDeletion)),
+                                                                     TrieBackedRow::deleteData,
+                                                                     TrieTombstoneMarker::dropShadowedUpdate,
+                                                                     true);
         }
 
         // TODO: We can return a view/filter-on-the-fly version, can't we?
@@ -768,6 +792,10 @@ public class TrieBackedRow extends AbstractRow
 //            throw new AssertionError(e);
 //        }
         // TODO: Should we use `fetched` for `columns`? Note the ids cannot change.
+
+        if (isEmpty(filteredData))
+            return null;
+
         return new TrieBackedRow(columns, columnIds, clustering, filteredData);
     }
 
@@ -880,7 +908,7 @@ public class TrieBackedRow extends AbstractRow
         return new TrieBackedRow(columns, columnIds, clustering,
                                  data.mergeWithDeletion(rowDeletionTrie(newDeletion),
                                                         TrieBackedRow::deleteData,
-                                                        TrieTombstoneMarker::mergeWith,
+                                                        TrieTombstoneMarker::mergeUpdate,
                                                         true));
     }
 
@@ -1081,15 +1109,25 @@ public class TrieBackedRow extends AbstractRow
         if (!this.columns.equals(update.columns))
             throw new IllegalArgumentException("Can't handle varying column lists.");
 
-        return new TrieBackedRow(this.columns,
-                                 this.columnIds,
-                                 this.clustering,
-                                 this.data.mergeWith(update.data,
-                                                     (ex, up) -> mergeData(ex, up, reconcileF),
-                                                     TrieTombstoneMarker::mergeWith,
-                                                     (marker, ex) -> deleteData(ex, marker, reconcileF),
-                                                     true
-                                 ));
+        try
+        {
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> mergedData = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            makeMutator(mergedData)
+                .apply(this.data.mergeWith(update.data,
+                                           (ex, up) -> mergeData(ex, up, reconcileF),
+                                           TrieTombstoneMarker::mergeUpdate,
+                                           (marker, ex) -> deleteData(ex, marker, reconcileF),
+                                           true
+                ));
+            return new TrieBackedRow(this.columns,
+                                     this.columnIds,
+                                     this.clustering,
+                                     mergedData);
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
+        }
     }
 
     public int getMinLocalDeletionTime()
@@ -1127,6 +1165,20 @@ public class TrieBackedRow extends AbstractRow
             ByteSourceInverse.getVariableLengthUnsignedInteger(pathBytes); // skip column id
             return c.withPath(cellPath(c.column, pathBytes));
         }
+    }
+
+    static InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker>
+    makeMutator(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        return data.mutator(noConflictInData(),
+                            TrieBackedPartition.mergeTombstoneRanges(),
+                            (InMemoryBaseTrie.UpsertTransformer<Object, TrieTombstoneMarker>) TrieBackedRow::deleteData,
+                            TrieBackedRow::deleteData,
+                            true,
+                            Predicates.alwaysFalse(),
+                            Predicates.alwaysFalse(),
+                            TrieBackedRow::isDroppableMarker,
+                            Predicates.alwaysFalse());
     }
 
     public static class Builder implements Row.Builder
@@ -1194,15 +1246,7 @@ public class TrieBackedRow extends AbstractRow
         {
             this.clustering = null;
             data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
-            mutator = data.mutator(noConflictInData(),
-                                   TrieBackedPartition.mergeTombstoneRanges(),
-                                   (InMemoryBaseTrie.UpsertTransformer<Object, TrieTombstoneMarker>) TrieBackedRow::deleteData,
-                                   TrieBackedRow::deleteData,
-                                   true,
-                                   Predicates.alwaysFalse(),
-                                   Predicates.alwaysFalse(),
-                                   TrieBackedRow::isDroppableMarker,
-                                   TrieBackedRow::isDroppableMarker);
+            mutator = makeMutator(data);
         }
 
         public void addPrimaryKeyLivenessInfo(LivenessInfo info)

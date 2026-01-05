@@ -30,17 +30,17 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// Crucial for the efficiency of this is the fact that when they are advanced like this, we can compare cursors'
 /// positions by their `depth` descending and then `incomingTransition` ascending.
 /// See [Trie.md](./Trie.md) for further details.
-abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
+abstract class MappingMergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> implements Cursor<R>
 {
-    final Trie.MergeResolver<T> resolver;
+    final BiFunction<T, U, R> resolver;
 
     final C c1;
-    final C c2;
+    final D c2;
 
     boolean atC1;
     boolean atC2;
 
-    MergeCursor(Trie.MergeResolver<T> resolver, C c1, C c2)
+    MappingMergeCursor(BiFunction<T, U, R> resolver, C c1, D c2)
     {
         this.resolver = resolver;
         this.c1 = c1;
@@ -110,64 +110,52 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     }
 
     /// Merge implementation for [Trie]
-    static class Plain<T> extends MergeCursor<T, Cursor<T>>
+    static class Plain<T, U, R> extends MappingMergeCursor<T, Cursor<T>, U, Cursor<U>, R>
     {
-        Plain(Trie.MergeResolver<T> resolver, Cursor<T> c1, Cursor<T> c2)
+        Plain(BiFunction<T, U, R> resolver, Cursor<T> c1, Cursor<U> c2)
         {
             super(resolver, c1, c2);
         }
 
         @Override
-        public T content()
+        public R content()
         {
-            T mc = atC2 ? c2.content() : null;
+            U mc = atC2 ? c2.content() : null;
             T nc = atC1 ? c1.content() : null;
-            if (mc == null)
-                return nc;
-            else if (nc == null)
-                return mc;
-            else
-                return resolver.resolve(nc, mc);
+            if (mc == null && nc == null)
+                return null;
+            return resolver.apply(nc, mc);
         }
 
         @Override
-        public Cursor<T> tailCursor(Direction direction)
+        public Cursor<R> tailCursor(Direction direction)
         {
-            if (atC1 && atC2)
-                return new Plain<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
-            else if (atC1)
-                return c1.tailCursor(direction);
-            else if (atC2)
-                return c2.tailCursor(direction);
-            else
-                throw new AssertionError();
+            return new Plain<>(resolver,
+                               atC1 ? c1.tailCursor(direction) : new Cursor.Empty<>(direction, c1.byteComparableVersion()),
+                               atC2 ? c2.tailCursor(direction) : new Cursor.Empty<>(direction, c2.byteComparableVersion()));
         }
     }
 
     /// Merge implementation for [RangeTrie]
-    static class Range<S extends RangeState<S>> extends MergeCursor<S, RangeCursor<S>> implements RangeCursor<S>
+    static class Range<S extends RangeState<S>, T extends RangeState<T>, R extends RangeState<R>>
+    extends MappingMergeCursor<S, RangeCursor<S>, T, RangeCursor<T>, R> implements RangeCursor<R>
     {
-        private S state;
+        private R state;
         boolean stateCollected;
 
-        Range(Trie.MergeResolver<S> resolver, RangeCursor<S> c1, RangeCursor<S> c2)
+        Range(BiFunction<S, T, R> resolver, RangeCursor<S> c1, RangeCursor<T> c2)
         {
             super(resolver, c1, c2);
         }
 
         @Override
-        public S state()
+        public R state()
         {
             if (!stateCollected)
             {
                 S state1 = atC1 ? c1.state() : c1.precedingState();
-                S state2 = atC2 ? c2.state() : c2.precedingState();
-                if (state1 == null)
-                    state = state2;
-                else if (state2 == null)
-                    state = state1;
-                else
-                    state = resolver.resolve(state1, state2);
+                T state2 = atC2 ? c2.state() : c2.precedingState();
+                state = (state1 == null && state2 == null) ? null : resolver.apply(state1, state2);
                 stateCollected = true;
             }
             return state;
@@ -188,31 +176,27 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public long advanceMultiple(Cursor.TransitionsReceiver receiver)
+        public long advanceMultiple(TransitionsReceiver receiver)
         {
             stateCollected = false;
             return super.advanceMultiple(receiver);
         }
 
         @Override
-        public RangeCursor<S> tailCursor(Direction direction)
+        public Range<S, T, R> tailCursor(Direction direction)
         {
-            if (atC1 && atC2)
-                return new Range<>(resolver, c1.tailCursor(direction), c2.tailCursor(direction));
-            else if (atC1)
-                return makeMerge(resolver, c1.tailCursor(direction), c2.precedingStateCursor(direction));
-            else if (atC2)
-                return makeMerge(resolver, c1.precedingStateCursor(direction), c2.tailCursor(direction));
-            else
-                throw new AssertionError();
+            return makeMerge(resolver,
+                             atC1 ? c1.tailCursor(direction) : c1.precedingStateCursor(direction),
+                             atC2 ? c2.tailCursor(direction) : c2.precedingStateCursor(direction));
         }
 
-        private static <S extends RangeState<S>> RangeCursor<S> makeMerge(Trie.MergeResolver<S> resolver, RangeCursor<S> c1, RangeCursor<S> c2)
+        private static <S extends RangeState<S>, T extends RangeState<T>, R extends RangeState<R>>
+        Range<S, T, R> makeMerge(BiFunction<S, T, R> resolver, RangeCursor<S> c1, RangeCursor<T> c2)
         {
             if (c1 == null)
-                return c2;
+                c1 = RangeCursor.empty(c2.direction(), c2.byteComparableVersion());
             if (c2 == null)
-                return c1;
+                c2 = RangeCursor.empty(c1.direction(), c1.byteComparableVersion());
             return new Range<>(resolver, c1, c2);
         }
     }
@@ -221,10 +205,10 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
     /// This cursor handles the complex task of merging both live data and deletion metadata
     /// from two deletion-aware sources. It supports an important optimization via the
     /// `deletionsAtFixedPoints` flag.
-    static class DeletionAware<T, D extends RangeState<D>>
-    extends MergeCursor<T, DeletionAwareMergeSource<T, D, D>> implements DeletionAwareCursor<T, D>
+    static class DeletionAware<T, D extends RangeState<D>, S, E extends RangeState<E>, R, Q extends RangeState<Q>>
+    extends MappingMergeCursor<T, DeletionAwareMergeSource<T, D, E>, S, DeletionAwareMergeSource<S, E, D>, R> implements DeletionAwareCursor<R, Q>
     {
-        final Trie.MergeResolver<D> deletionResolver;
+        final BiFunction<D, E, Q> deletionResolver;
 
         /// Tracks the depth at which deletion branches were introduced to avoid redundant processing.
         /// Set to -1 when no deletion branches are active.
@@ -237,30 +221,32 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         ///
         /// @param mergeResolver resolver for merging live data content
         /// @param deletionResolver resolver for merging deletion metadata
-        /// @param deleter function to apply deletions to live data
+        /// @param deleter1 function to apply deletions to live data in c1
+        /// @param deleter2 function to apply deletions to live data in c2
         /// @param c1 first deletion-aware cursor
         /// @param c2 second deletion-aware cursor
         /// @param deletionsAtFixedPoints See [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints]
-        DeletionAware(Trie.MergeResolver<T> mergeResolver,
-                      Trie.MergeResolver<D> deletionResolver,
-                      BiFunction<D, T, T> deleter,
+        DeletionAware(BiFunction<T, S, R> mergeResolver,
+                      BiFunction<D, E, Q> deletionResolver,
+                      BiFunction<E, T, T> deleter1,
+                      BiFunction<D, S, S> deleter2,
                       DeletionAwareCursor<T, D> c1,
-                      DeletionAwareCursor<T, D> c2,
+                      DeletionAwareCursor<S, E> c2,
                       boolean deletionsAtFixedPoints)
         {
             this(mergeResolver,
                  deletionResolver,
-                 new DeletionAwareMergeSource<>(deleter, c1),
-                 new DeletionAwareMergeSource<>(deleter, c2),
+                 new DeletionAwareMergeSource<>(deleter1, c1),
+                 new DeletionAwareMergeSource<>(deleter2, c2),
                  deletionsAtFixedPoints);
             // We will add deletion sources to the above as we find them.
             maybeAddDeletionsBranch(this.c1.encodedPosition());
         }
 
-        DeletionAware(Trie.MergeResolver<T> mergeResolver,
-                      Trie.MergeResolver<D> deletionResolver,
-                      DeletionAwareMergeSource<T, D, D> c1,
-                      DeletionAwareMergeSource<T, D, D> c2,
+        DeletionAware(BiFunction<T, S, R> mergeResolver,
+                      BiFunction<D, E, Q> deletionResolver,
+                      DeletionAwareMergeSource<T, D, E> c1,
+                      DeletionAwareMergeSource<S, E, D> c2,
                       boolean deletionsAtFixedPoints)
         {
             super(mergeResolver, c1, c2);
@@ -269,16 +255,14 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
 
         @Override
-        public T content()
+        public R content()
         {
-            T mc = atC2 ? c2.content() : null;
+            S mc = atC2 ? c2.content() : null;
             T nc = atC1 ? c1.content() : null;
-            if (mc == null)
-                return nc;
-            else if (nc == null)
-                return mc;
+            if (mc == null && nc == null)
+                return null;
             else
-                return resolver.resolve(nc, mc);
+                return resolver.apply(nc, mc);
         }
 
         @Override
@@ -323,8 +307,9 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
         ///
         /// @param tgt target merge source that may receive deletions
         /// @param src source merge source that may provide deletions
-        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D, D> tgt,
-                                     DeletionAwareMergeSource<T, D, D> src)
+        static <T, D extends RangeState<D>, S, E extends RangeState<E>>
+        void maybeAddDeletionsBranch(DeletionAwareMergeSource<T, D, E> tgt,
+                                     DeletionAwareMergeSource<S, E, D> src)
         {
             // If tgt already has deletions applied, no need to add more (we cannot have a deletion branch covering
             // another deletion branch).
@@ -332,30 +317,24 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 return;
 
             // TODO: Use flag before asking for deletion branch cursor
-            RangeCursor<D> deletionsBranch = src.deletionBranchCursor(src.direction());
+            RangeCursor<E> deletionsBranch = src.deletionBranchCursor(src.direction());
             if (deletionsBranch != null)
                 tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
         }
 
 
         @Override
-        public RangeCursor<D> deletionBranchCursor(Direction direction)
+        public RangeCursor<Q> deletionBranchCursor(Direction direction)
         {
             // TODO: assert flag is set?
             int depth = Cursor.depth(encodedPosition());
             if (deletionBranchDepth != -1 && depth > deletionBranchDepth)
                 return null;    // already covered by a deletion branch, if there is any here it will be reflected in that
 
-            // if one of the two cursors is ahead, it can't affect this deletion branch
-            if (!atC1)
-                return maybeSetDeletionsDepth(c2.deletionBranchCursor(direction), depth);
-            if (!atC2)
-                return maybeSetDeletionsDepth(c1.deletionBranchCursor(direction), depth);
-
             // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
             // deletion-tree branch of the other to make sure that we merge any higher-depth deletion branch with it.
-            RangeCursor<D> b1 = c1.deletionBranchCursor(direction);
-            RangeCursor<D> b2 = c2.deletionBranchCursor(direction);
+            RangeCursor<D> b1 = atC1 ? c1.deletionBranchCursor(direction) : null;
+            RangeCursor<E> b2 = atC2 ? c2.deletionBranchCursor(direction) : null;
             if (b1 == null && b2 == null)
                 return null;
 
@@ -369,17 +348,10 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
             {
                 // With the optimization, we can directly return the existing deletion branch
                 // without needing to create expensive DeletionsTrieCursor instances
-                if (b1 != null && b2 != null)
-                {
-                    // Both have deletion branches - merge them directly
-                    return new Range<>(deletionResolver, b1, b2);
-                }
-                else
-                {
-                    // Only one has a deletion branch - return it directly
-                    // The optimization guarantees the other source has no conflicting deletions
-                    return b1 != null ? b1 : b2;
-                }
+                if (b1 == null)
+                    b1 = RangeCursor.empty(direction, byteComparableVersion());
+                if (b2 == null)
+                    b2 = RangeCursor.empty(direction, byteComparableVersion());
             }
             else
             {
@@ -388,36 +360,21 @@ abstract class MergeCursor<T, C extends Cursor<T>> implements Cursor<T>
                 // in the trie structure, but is expensive for large tries because we have
                 // to list the whole data trie (minus content).
                 if (b1 == null)
-                    b1 = new DeletionAwareCursor.DeletionsTrieCursor(c1.data.tailCursor(direction));
+                    b1 = new DeletionsTrieCursor(c1.data.tailCursor(direction));
                 if (b2 == null)
-                    b2 = new DeletionAwareCursor.DeletionsTrieCursor(c2.data.tailCursor(direction));
-
-                return new Range<>(deletionResolver, b1, b2);
+                    b2 = new DeletionsTrieCursor(c2.data.tailCursor(direction));
             }
-        }
-
-        private RangeCursor<D> maybeSetDeletionsDepth(RangeCursor<D> deletionBranchCursor, int depth)
-        {
-            if (deletionBranchCursor != null)
-                deletionBranchDepth = depth;
-            return deletionBranchCursor;
+            return new Range<>(deletionResolver, b1, b2);
         }
 
         @Override
-        public DeletionAwareCursor<T, D> tailCursor(Direction direction)
+        public DeletionAwareCursor<R, Q> tailCursor(Direction direction)
         {
-            if (atC1 && atC2)
-                return new DeletionAware<>(resolver,
-                                           deletionResolver,
-                                           c1.tailCursor(direction),
-                                           c2.tailCursor(direction),
-                                           deletionsAtFixedPoints);
-            else if (atC1)
-                return c1.tailCursor(direction);
-            else if (atC2)
-                return c2.tailCursor(direction);
-            else
-                throw new AssertionError();
+            return new DeletionAware<>(resolver,
+                                       deletionResolver,
+                                       atC1 ? c1.tailCursor(direction) : DeletionAwareMergeSource.empty(direction, byteComparableVersion()),
+                                       atC2 ? c2.tailCursor(direction) : DeletionAwareMergeSource.empty(direction, byteComparableVersion()),
+                                       deletionsAtFixedPoints);
         }
     }
 }

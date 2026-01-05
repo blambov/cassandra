@@ -20,6 +20,7 @@ package org.apache.cassandra.db.rows;
 
 import java.util.Collection;
 import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.apache.cassandra.cache.IMeasurableMemory;
@@ -58,6 +59,14 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
     /// equal) which is not stored or reported.
     TrieTombstoneMarker mergeWith(TrieTombstoneMarker existing);
 
+    /// Combine two markers and return the applicable combined state, obtained by getting the higher of the deletion
+    /// times on both sides of the marker. For boundaries this may result in a covering state (when both sides become
+    /// equal) which is not stored or reported.
+    static TrieTombstoneMarker mergeUpdate(TrieTombstoneMarker existing, @Nonnull TrieTombstoneMarker update)
+    {
+        return update.mergeWith(existing);
+    }
+
     static TrieTombstoneMarker merge(Collection<TrieTombstoneMarker> markers)
     {
         TrieTombstoneMarker acc = null;
@@ -74,6 +83,14 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
     /// Apply an incoming marker and drop the parts of this marker that do not survive (i.e. supercede) the incoming
     /// deletion. The result may be null, this, or a partial version of this.
     @Nullable TrieTombstoneMarker dropShadowed(TrieTombstoneMarker deletion);
+
+    static @Nullable TrieTombstoneMarker dropShadowedUpdate(TrieTombstoneMarker existing, TrieTombstoneMarker deletion)
+    {
+        if (existing == null)
+            return null;
+        else
+            return existing.dropShadowed(deletion);
+    }
 
     enum PointDataType
     {
