@@ -142,7 +142,7 @@ interface TrieSetCursor extends RangeCursor<TrieSetCursor.RangeState>
 
 
         public <S extends org.apache.cassandra.db.tries.RangeState<S>>
-        S applyToCoveringState(S srcState, Direction direction)
+        S applyToCoveringState(S srcState)
         {
             switch (this)
             {

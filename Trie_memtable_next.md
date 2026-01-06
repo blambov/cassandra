@@ -557,6 +557,8 @@ Maybe:
 
 - `hasChildren` flag
 
+- Reduce size of empty long-lived in-memory tries? (Currently at ~6k because of large reuse blocks)
+
 - (Not necessary) Multiple children flag. Perhaps two variations:
   - `HAS_MULTIPLE_CHILDREN` only true if known, merges use set|source, don't add even if they may result in multiple
     children. 

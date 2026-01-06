@@ -37,7 +37,6 @@ import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
@@ -642,7 +641,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         {
-            TriePartitionUpdater updater = new TriePartitionUpdater(allocator.cloner(opGroup), indexer, update.partitionLevelDeletion(), metadata.get(), this);
+            TriePartitionUpdater updater = new TriePartitionUpdater(allocator.cloner(opGroup), indexer, update, metadata.get(), this);
             boolean locked = writeLock.tryLock();
             if (locked)
             {
@@ -659,33 +658,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             {
                 try
                 {
-                    indexer.start();
-                    // Add the initial trie size on the first operation. This technically isn't correct (other shards
-                    // do take their memory share even if they are empty) but doing it during construction may cause
-                    // the allocator to block while we are trying to flush a memtable and become a deadlock.
-                    long onHeap = data.isEmpty() ? 0 : data.usedSizeOnHeap();
-                    long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
-                    try
-                    {
-                        data.mutator(updater,
-                                     updater::mergeMarkers,
-                                     updater::applyMarker,
-                                     updater::applyMarker,
-                                     true,
-                                     FORCE_COPY_PARTITION_BOUNDARY,
-                                     Predicates.alwaysFalse(),
-                                     TrieBackedRow::isDroppableMarker,
-                                     TrieBackedRow::isDroppableMarker)
-                            .apply(TriePartitionUpdate.asMergableTrie(update));
-                    }
-                    catch (TrieSpaceExhaustedException e)
-                    {
-                        // This should never really happen as a flush would be triggered long before this limit is reached.
-                        throw new AssertionError(e);
-                    }
-                    allocator.offHeap().adjust(data.usedSizeOffHeap() - offHeap, opGroup);
-                    allocator.onHeap().adjust((data.usedSizeOnHeap() - onHeap) + updater.heapSize, opGroup);
-                    partitionCount += updater.partitionsAdded;
+                    int partitionsAdded = mergeUpdate(data, allocator, TriePartitionUpdate.asMergableTrie(update), indexer, opGroup, updater);
+                    partitionCount += partitionsAdded;
                 }
                 finally
                 {
@@ -762,6 +736,44 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             return firstPartitionKey(Direction.REVERSE);
         }
     }
+
+    @VisibleForTesting
+    public static int mergeUpdate(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data,
+                                  MemtableAllocator allocator,
+                                  DeletionAwareTrie<Object, TrieTombstoneMarker> updateTrie,
+                                  UpdateTransaction indexer,
+                                  OpOrder.Group opGroup,
+                                  TriePartitionUpdater updater)
+    {
+        indexer.start();
+        // Add the initial trie size on the first operation. This technically isn't correct (other shards
+        // do take their memory share even if they are empty) but doing it during construction may cause
+        // the allocator to block while we are trying to flush a memtable and become a deadlock.
+        long onHeap = data.isEmpty() ? 0 : data.usedSizeOnHeap();
+        long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
+        try
+        {
+            data.mutator(updater,
+                         updater::mergeMarkers,
+                         updater::applyMarker,
+                         updater::applyMarker,
+                         true,
+                         FORCE_COPY_PARTITION_BOUNDARY,
+                         Predicates.alwaysFalse(),
+                         TrieBackedRow::isDroppableMarker,
+                         Predicates.alwaysFalse())
+                .apply(updateTrie);
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            // This should never really happen as a flush would be triggered long before this limit is reached.
+            throw new AssertionError(e);
+        }
+        allocator.offHeap().adjust(data.usedSizeOffHeap() - offHeap, opGroup);
+        allocator.onHeap().adjust((data.usedSizeOnHeap() - onHeap) + updater.heapSize, opGroup);
+        return updater.partitionsAdded;
+    }
+
 
     static class PartitionIterator extends TrieTailsIterator.DeletionAwareWithoutCoveringDeletions<Object, TrieTombstoneMarker, TrieBackedPartition>
     {

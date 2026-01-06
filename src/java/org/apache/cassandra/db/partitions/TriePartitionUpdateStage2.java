@@ -147,7 +147,7 @@ public class TriePartitionUpdateStage2 extends TrieBackedPartitionStage2 impleme
      */
     public static TriePartitionUpdateStage2 singleRowUpdate(TableMetadata metadata, DecoratedKey key, Row row)
     {
-        EncodingStats stats = EncodingStats.Collector.forRow(row);
+        EncodingStats stats = row.isEmpty() ? EncodingStats.NO_STATS : EncodingStats.Collector.forRow(row);
         InMemoryTrie<Object> trie = newTrie(DeletionInfo.LIVE);
 
         RegularAndStaticColumns columns;

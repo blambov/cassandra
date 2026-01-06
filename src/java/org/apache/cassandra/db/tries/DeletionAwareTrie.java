@@ -517,7 +517,13 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         }
 
         if (rc.descendAlong(bytes))
-            return rc.state();
+        {
+            D state = rc.state();
+            if (state == null)
+                return null;
+            // If this is a boundary, the state that applies to the branch is its right side.
+            return state.succedingState(Direction.FORWARD);
+        }
         else
             return rc.precedingState();
     }

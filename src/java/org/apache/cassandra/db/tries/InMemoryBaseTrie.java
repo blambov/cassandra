@@ -1843,7 +1843,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     }
 
     @VisibleForTesting
-    long usedBufferSpace()
+    public long usedBufferSpace()
     {
         return allocatedPos - cellAllocator.indexCountInPipeline() * CELL_SIZE;
     }

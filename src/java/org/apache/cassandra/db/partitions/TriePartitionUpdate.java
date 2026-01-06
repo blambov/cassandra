@@ -153,7 +153,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
      */
     public static TriePartitionUpdate singleRowUpdate(TableMetadata metadata, DecoratedKey key, Row row)
     {
-        EncodingStats stats = EncodingStats.Collector.forRow(row);
+        EncodingStats stats = row.isEmpty() ? EncodingStats.NO_STATS : EncodingStats.Collector.forRow(row);
         InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = newTrie();
 
         RegularAndStaticColumns columns;

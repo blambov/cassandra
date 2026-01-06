@@ -32,17 +32,20 @@ import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
-
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
-
+import org.apache.cassandra.db.LivenessInfo;
+import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.memtable.AbstractAllocatorMemtable;
-import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.memtable.TrieMemtable;
+import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.TrieBackedComplexColumn;
+import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
@@ -51,15 +54,20 @@ import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.tries.DeletionAwareTrie;
+import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
+import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.btree.BTree;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.Cloner;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
@@ -81,7 +89,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the fresh build.
  */
 @RunWith(Parameterized.class)
-public class AtomicBTreePartitionMemtableAccountingTest
+public class TrieBackedPartitionMemtableAccountingTest
 {
     public static final int INITIAL_TS = 2000;
     public static final int EARLIER_TS = 1000;
@@ -226,14 +234,14 @@ public class AtomicBTreePartitionMemtableAccountingTest
         {
             // Test regular row updates
             Pair<Row, Row> regularRows = makeInitialAndUpdate(r1md, c2md);
-            PartitionUpdate initial = BTreePartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.left);
-            PartitionUpdate update = BTreePartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.right);
+            PartitionUpdate initial = TriePartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.left);
+            PartitionUpdate update = TriePartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.right);
             validateUpdates(metadata, partitionKey, Arrays.asList(initial, update));
 
             // Test static row updates
             Pair<Row, Row> staticRows = makeInitialAndUpdate(s3md, c4md);
-            PartitionUpdate staticInitial = BTreePartitionUpdate.singleRowUpdate(metadata, partitionKey, staticRows.left);
-            PartitionUpdate staticUpdate = BTreePartitionUpdate.singleRowUpdate(metadata, partitionKey, staticRows.right);
+            PartitionUpdate staticInitial = TriePartitionUpdate.singleRowUpdate(metadata, partitionKey, staticRows.left);
+            PartitionUpdate staticUpdate = TriePartitionUpdate.singleRowUpdate(metadata, partitionKey, staticRows.right);
             validateUpdates(metadata, partitionKey, Arrays.asList(staticInitial, staticUpdate));
         }
 
@@ -243,7 +251,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
             final ByteBuffer updateValueBB = ByteBufferUtil.bytes(222);
 
             // Create the initial row to populate the partition with
-            Row.Builder initialRowBuilder = BTreeRow.unsortedBuilder();
+            Row.Builder initialRowBuilder = TrieBackedRow.builder(metadata.regularAndStaticColumns());
             initialRowBuilder.newRow(regular.isStatic() ? Clustering.STATIC_CLUSTERING : Clustering.EMPTY);
 
             initialRowBuilder.addCell(makeCell(regular, initialTS, initialTTL, initialLDT, initialValueBB, null));
@@ -257,7 +265,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
             Row initialRow = initialRowBuilder.build();
 
             // Create the update row to modify the partition with
-            Row.Builder updateRowBuilder = BTreeRow.unsortedBuilder();
+            Row.Builder updateRowBuilder = TrieBackedRow.builder(metadata.regularAndStaticColumns());
             updateRowBuilder.newRow(regular.isStatic() ? Clustering.STATIC_CLUSTERING : Clustering.EMPTY);
 
             updateRowBuilder.addCell(makeCell(regular, updateTS, updateTTL, updateLDT, updateValueBB, null));
@@ -285,6 +293,21 @@ public class AtomicBTreePartitionMemtableAccountingTest
         }
     }
 
+    static BufferType bufferTypeFor(Config.MemtableAllocationType allocationType)
+    {
+        switch (allocationType)
+        {
+            case heap_buffers:
+            case unslabbed_heap_buffers:
+                return BufferType.ON_HEAP;
+            case offheap_buffers:
+            case offheap_objects:
+                return BufferType.OFF_HEAP;
+            default:
+                throw new IllegalArgumentException("Unknown allocation type: " + allocationType);
+        }
+    }
+
     void validateUpdates(TableMetadata metadata, DecoratedKey partitionKey, List<PartitionUpdate> updates)
     {
         TableMetadataRef metadataRef = TableMetadataRef.forOfflineTools(metadata);
@@ -300,30 +323,37 @@ public class AtomicBTreePartitionMemtableAccountingTest
         try
         {
             // Prepare a partition to receive updates
-            AtomicBTreePartition partition = new AtomicBTreePartition(metadataRef, partitionKey, allocator);
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie =
+               InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, bufferTypeFor(allocationType), opOrder);
+            trie.putRecursive(ByteComparable.EMPTY, new TrieMemtable.PartitionData(null), (x, y) -> y);
+            TrieBackedPartition partition = new TrieBackedPartition(partitionKey,
+                                                                    metadata.regularAndStaticColumns(),
+                                                                    new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME, 0),
+                                                                    1, // to avoid isEmpty true
+                                                                    0,
+                                                                    trie,
+                                                                    metadata);
 
             // For each update, apply it and verify the allocator is positive
             long unreleasable = updates.stream().mapToLong(updateUntyped -> {
-                BTreePartitionUpdate update = BTreePartitionUpdate.asBTreeUpdate(updateUntyped);
-                DeletionTime exsDeletion = partition.deletionInfo().getPartitionDeletion();
-                DeletionTime updDeletion = update.deletionInfo().getPartitionDeletion();
+                TriePartitionUpdate update = TriePartitionUpdate.asTrieUpdate(updateUntyped);
+                DeletionTime exsDeletion = partition.partitionLevelDeletion();
+                DeletionTime updDeletion = update.partitionLevelDeletion();
                 long updateUnreleasable = 0;
-                if (!BTree.isEmpty(partition.unsafeGetHolder().tree))
+                if (!partition.isEmpty())
                 {
-                    for (Row updRow : BTree.<Row>iterable(update.holder().tree))
+                    for (Row updRow : update.rows())
                     {
-                        Row exsRow = BTree.find(partition.unsafeGetHolder().tree, partition.metadata().comparator, updRow);
+                        Row exsRow = partition.getRow(updRow.clustering());
                         updateUnreleasable += getUnreleasableSize(updRow, exsRow, exsDeletion, updDeletion);
                     }
                 }
-                if (partition.staticRow() != null)
-                {
-                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.unsafeGetHolder().staticRow, exsDeletion, updDeletion);
-                }
+                updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.staticRow(), exsDeletion, updDeletion);
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 Cloner cloner = allocator.cloner(writeOp);
-                partition.addAll(update, cloner, writeOp, indexer);
+                TriePartitionUpdater updater = new TriePartitionUpdater(cloner, indexer, update, metadata, null);
+                TrieMemtable.mergeUpdate(trie, allocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
                 opOrder.newBarrier().issue();
 
                 assertThat(allocator.onHeap().owns()).isGreaterThanOrEqualTo(0L);
@@ -333,23 +363,36 @@ public class AtomicBTreePartitionMemtableAccountingTest
 
             // Now recreate the partition to see if there's a leak in the accounting
 
-            AtomicBTreePartition recreated = new AtomicBTreePartition(metadataRef, partitionKey, recreatedAllocator);
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> recreatedTrie =
+                InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, bufferTypeFor(allocationType), opOrder);
+            recreatedTrie.putRecursive(ByteComparable.EMPTY, new TrieMemtable.PartitionData(null), (x, y) -> y);
             try (UnfilteredRowIterator iter = partition.unfilteredIterator())
             {
-                BTreePartitionUpdate update = BTreePartitionUpdate.fromIterator(iter, ColumnFilter.NONE);
+                TriePartitionUpdate update = TriePartitionUpdate.fromIterator(iter);
                 opOrder.newBarrier().issue();
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 Cloner cloner = recreatedAllocator.cloner(writeOp);
-                recreated.addAll(update, cloner, writeOp, indexer);
+                TriePartitionUpdater updater = new TriePartitionUpdater(cloner, indexer, update, metadata, null);
+                TrieMemtable.mergeUpdate(recreatedTrie, recreatedAllocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
             }
+
+            // It is possible that the two tries have different structure (e.g. non-embedded prefixes, split nodes
+            // instead of sparse etc.). Allow this, but make sure the difference is small.
+            long trieDiff = trie.usedBufferSpace() - recreatedTrie.usedBufferSpace();
+            assertThat(trieDiff).isLessThan(updates.size() * 50);
+            unreleasable += trieDiff;
 
             // offheap allocators don't release on heap memory, so expect the same
             long unreleasableOnHeap = 0, unreleasableOffHeap = 0;
             if (allocator.offHeap().owns() > 0) unreleasableOffHeap = unreleasable;
             else unreleasableOnHeap = unreleasable;
-            
+
             assertThat(recreatedAllocator.offHeap().owns()).isEqualTo(allocator.offHeap().owns() - unreleasableOffHeap);
             assertThat(recreatedAllocator.onHeap().owns()).isEqualTo(allocator.onHeap().owns() - unreleasableOnHeap);
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new RuntimeException(e);
         }
         finally
         {
@@ -371,6 +414,9 @@ public class AtomicBTreePartitionMemtableAccountingTest
 
     private long getUnreleasableSize(Row updRow, Row exsRow, DeletionTime exsDeletion, DeletionTime updDeletion)
     {
+        if (exsRow == null)
+            return 0;
+
         if (exsRow.deletion().supersedes(exsDeletion))
             exsDeletion = exsRow.deletion().time();
         if (updRow.deletion().supersedes(updDeletion))
@@ -390,7 +436,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
             }
             else
             {
-                ComplexColumnData exsCcd = (ComplexColumnData) exsCd;
+                TrieBackedComplexColumn exsCcd = (TrieBackedComplexColumn) exsCd;
                 ComplexColumnData updCcd = (ComplexColumnData) updCd;
 
                 DeletionTime activeExsDeletion = exsDeletion;
@@ -405,9 +451,9 @@ public class AtomicBTreePartitionMemtableAccountingTest
                     Cell updCell = updCcd == null ? null : updCcd.getCell(exsCell.path());
 
                     if (activeUpdDeletion.deletes(exsCell))
-                        size += sizeOf(exsCell);
+                        size += sizeOf(exsCcd.getCellWithoutPath(exsCell.path()));
                     else if (updCell != null && (Cells.reconcile(exsCell, updCell) != exsCell && !activeExsDeletion.deletes(updCell)))
-                        size += sizeOf(exsCell);
+                        size += sizeOf(exsCcd.getCellWithoutPath(exsCell.path()));
                 }
             }
         }
@@ -418,6 +464,6 @@ public class AtomicBTreePartitionMemtableAccountingTest
     {
         if (cell instanceof NativeCell)
             return ((NativeCell) cell).offHeapSize();
-        return cell.valueSize() + (cell.path() == null ? 0 : cell.path().dataSize());
+        return cell.valueSize(); // path is in trie
     }
 }

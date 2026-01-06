@@ -216,7 +216,7 @@ interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
         @Override
         public S state()
         {
-            return source.state().applyToCoveringState(marker, direction());
+            return source.state().applyToCoveringState(marker);
         }
 
         @Override

@@ -59,12 +59,12 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     private PartitionData currentPartition;
     private final TrieMemtable.MemtableShard owner;
     private ClusteringBound<byte[]> rangeTombstoneOpenPosition = null;
-    private final DeletionTime partitionLevelDeletion;
+    private final DeletionTime partitionLevelDeletion; // needed for indexer
     public int partitionsAdded = 0;
 
     public TriePartitionUpdater(Cloner cloner,
                                 UpdateTransaction indexer,
-                                DeletionTime partitionLevelDeletion,
+                                PartitionUpdate update,
                                 TableMetadata metadata,
                                 TrieMemtable.MemtableShard owner)
     {
@@ -72,9 +72,14 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         this.indexer = indexer;
         this.metadata = metadata;
         this.owner = owner;
-        this.partitionLevelDeletion = partitionLevelDeletion;
-        if (!partitionLevelDeletion.isLive())
-            indexer.onPartitionDeletion(partitionLevelDeletion);
+        if (indexer != UpdateTransaction.NO_OP)
+        {
+            this.partitionLevelDeletion = update.partitionLevelDeletion();
+            if (!partitionLevelDeletion.isLive())
+                indexer.onPartitionDeletion(partitionLevelDeletion);
+        }
+        else
+            this.partitionLevelDeletion = null;
     }
 
     @Override

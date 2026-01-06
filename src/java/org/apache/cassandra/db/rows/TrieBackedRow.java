@@ -559,7 +559,7 @@ public class TrieBackedRow extends AbstractRow
     {
         assert c.isComplex();
         DeletionAwareTrie<Object, TrieTombstoneMarker> tail = data.tailTrie(columnKey(columnIds, c));
-        if (tail != null && tail.get(ByteComparable.EMPTY) != null)
+        if (tail != null && (tail.get(ByteComparable.EMPTY) != null || tail.applicableDeletion(ByteComparable.EMPTY) != null))
             return new TrieBackedComplexColumn(c, tail);
         else
             return null;
@@ -1306,6 +1306,9 @@ public class TrieBackedRow extends AbstractRow
 
         public void addComplexDeletion(ColumnMetadata column, DeletionTime deletion)
         {
+            if (deletion.isLive())
+                return;
+
             ByteComparable key = columnKey(columnIds, column);
             try
             {

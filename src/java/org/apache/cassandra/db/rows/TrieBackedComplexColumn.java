@@ -20,6 +20,7 @@ package org.apache.cassandra.db.rows;
 import java.util.Iterator;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
@@ -80,6 +81,12 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         return cell.withPath(TrieBackedRow.cellPath(cell.column, entry.getKey().getPreencodedBytes()));
     }
 
+    @VisibleForTesting
+    public Cell<?> getCellWithoutPath(CellPath path)
+    {
+        return (Cell<?>) data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
+    }
+
     /**
      * The complex deletion time of the complex column.
      * <p>
@@ -93,7 +100,8 @@ public class TrieBackedComplexColumn extends ComplexColumnData
      */
     public DeletionTime complexDeletion()
     {
-        return TrieTombstoneMarker.deletionOfCovering(data.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY));
+        DeletionTime del = TrieTombstoneMarker.deletionOfCovering(data.applicableDeletion(ByteComparable.EMPTY));
+        return del != null ? del : DeletionTime.LIVE;
     }
 
     static class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
@@ -204,13 +212,16 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     public int dataSize()
     {
-        throw new AssertionError("Should be collected by TrieBackedRow");
+        int size = complexDeletion().dataSize();
+        for (Cell<?> cell : this)
+            size += cell.dataSize();
+        return size;
     }
 
     @Override
     public int liveDataSize(int nowInSec)
     {
-        throw new AssertionError("Should be collected by TrieBackedRow");
+        return complexDeletion().isLive() ? dataSize() : 0;
     }
 
     public long unsharedHeapSizeExcludingData()

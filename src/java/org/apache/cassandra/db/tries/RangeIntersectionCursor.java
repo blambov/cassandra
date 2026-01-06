@@ -245,7 +245,7 @@ class RangeIntersectionCursor<S extends RangeState<S>> implements RangeCursor<S>
         if (srcState.isBoundary())
             return srcState.restrict(setState.applicableBefore, setState.applicableAfter);
 
-        return setState.applyToCoveringState(srcState, direction());
+        return setState.applyToCoveringState(srcState);
     }
 
     private long setState(State state, long position, S cursorState)
