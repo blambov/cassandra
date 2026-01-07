@@ -927,6 +927,7 @@ public abstract class CQLTester
     public String createTable(String query)
     {
         return createTable(KEYSPACE, query);
+//        return createTable(KEYSPACE, query.replaceAll(";$", "") + (!query.contains("WITH") ? " WITH " : " AND ") + "memtable = {'class': 'TrieMemtable'}");
     }
 
     protected String createViewName()

@@ -39,11 +39,9 @@ import org.apache.cassandra.utils.memory.Cloner;
  *   2) expiring cells: on top of regular cells, those have a ttl and a local deletion time (when they are expired).
  *   3) tombstone cells: those won't have value, but they have a local deletion time (when the tombstone was created).
  */
-public abstract class Cell<V> extends ColumnData
+public abstract class Cell<V> extends ColumnData implements CellData<V>
 {
-    public static final int NO_TTL = 0;
-    public static final int NO_DELETION_TIME = Integer.MAX_VALUE;
-    public static final int MAX_DELETION_TIME = Integer.MAX_VALUE - 1;
+    public static final int MAX_DELETION_TIME = NO_DELETION_TIME - 1;
 
     public final static Comparator<Cell<?>> comparator = (c1, c2) ->
     {
@@ -66,76 +64,6 @@ public abstract class Cell<V> extends ColumnData
     {
         super(column);
     }
-
-    /**
-     * Whether the cell is a counter cell or not.
-     *
-     * @return whether the cell is a counter cell or not.
-     */
-    public abstract boolean isCounterCell();
-
-    public abstract V value();
-
-    public abstract ValueAccessor<V> accessor();
-
-    public int valueSize()
-    {
-        return accessor().size(value());
-    }
-
-    public ByteBuffer buffer()
-    {
-        return accessor().toBuffer(value());
-    }
-
-    /**
-     * The cell timestamp.
-     * <p>
-     * @return the cell timestamp.
-     */
-    public abstract long timestamp();
-
-    /**
-     * The cell ttl.
-     *
-     * @return the cell ttl, or {@code NO_TTL} if the cell isn't an expiring one.
-     */
-    public abstract int ttl();
-
-    /**
-     * The cell local deletion time.
-     *
-     * @return the cell local deletion time, or {@code NO_DELETION_TIME} if the cell is neither
-     * a tombstone nor an expiring one.
-     */
-    public abstract int localDeletionTime();
-
-    /**
-     * Whether the cell is a tombstone or not.
-     *
-     * @return whether the cell is a tombstone or not.
-     */
-    public abstract boolean isTombstone();
-
-    /**
-     * Whether the cell is an expiring one or not.
-     * <p>
-     * Note that this only correspond to whether the cell liveness info
-     * have a TTL or not, but doesn't tells whether the cell is already expired
-     * or not. You should use {@link #isLive} for that latter information.
-     *
-     * @return whether the cell is an expiring one or not.
-     */
-    public abstract boolean isExpiring();
-
-    /**
-     * Whether the cell is live or not given the current time.
-     *
-     * @param nowInSec the current time in seconds. This is used to
-     * decide if an expiring cell is expired or live.
-     * @return whether the cell is live or not at {@code nowInSec}.
-     */
-    public abstract boolean isLive(int nowInSec);
 
     /**
      * For cells belonging to complex types (non-frozen collection and UDT), the
@@ -178,6 +106,19 @@ public abstract class Cell<V> extends ColumnData
     @Override
     // Overrides super type to provide a more precise return type.
     public abstract Cell<?> purge(DeletionPurger purger, int nowInSec);
+
+    @Override
+    public Cell withNewValue(long timestamp, ByteBuffer value)
+    {
+        return new BufferCell(column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, value, path());
+    }
+
+    @Override
+    public Cell<?> toCell(ColumnMetadata column, CellPath cellPath)
+    {
+        assert false : "toCell should not be called when CellData is already a cell.";
+        return this;
+    }
 
     /**
      * The serialization format for cell is:

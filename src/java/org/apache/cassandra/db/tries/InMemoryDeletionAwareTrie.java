@@ -22,8 +22,6 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import com.google.common.base.Predicates;
-
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -65,10 +63,23 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         super(byteComparableVersion, true, bufferType, lifetime, opOrder);
     }
 
+    InMemoryDeletionAwareTrie(ByteComparable.Version version, BufferManager bufferManager, ContentManager<T> contentManager)
+    {
+        super(version, true, bufferManager, contentManager);
+    }
+
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+    }
+
+    public static <T, D extends RangeState<D>>
+    InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion, Predicate<T> shouldPreserveContentWithoutChildren)
+    {
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion,
+                                               new BufferManagerMultibuf(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null),
+                                               new ContentManagerPojo<>(ExpectedLifetime.SHORT, shouldPreserveContentWithoutChildren, null));
     }
 
     public static <T, D extends RangeState<D>>
@@ -87,6 +98,14 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
+    }
+
+    public static <T, D extends RangeState<D>>
+    InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder, ContentSerializer<T> contentSerializer)
+    {
+        BufferManagerMultibuf bufferManager = new BufferManagerMultibuf(bufferType, ExpectedLifetime.LONG, opOrder);
+        ContentManager<T> contentManager = new ContentManagerBytes<>(contentSerializer, bufferManager);
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferManager, contentManager);
     }
 
     static class DeletionAwareInMemoryCursor<T, D extends RangeState<D>>
@@ -135,7 +154,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
     protected long emptySizeOnHeap()
     {
-        return bufferType == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
+        return bufferManager.bufferType() == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
     }
 
     static class ApplyState<T, D extends RangeState<D>> extends InMemoryBaseTrie.ApplyState<T>
@@ -163,27 +182,27 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         }
 
         @Override
-        protected int applyContent(boolean forcedCopy, Predicate<? super T> danglingMetadataCleaner) throws TrieSpaceExhaustedException
+        protected int applyContent(boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             if (alternateBranchToAttach != NONE)
             {
                 int alternateBranch = alternateBranchToAttach;
                 alternateBranchToAttach = NONE;
-                return applyContentWithAlternateBranch(alternateBranch, forcedCopy, danglingMetadataCleaner);
+                return applyContentWithAlternateBranch(alternateBranch, forcedCopy);
             }
             else
-                return super.applyContent(forcedCopy, danglingMetadataCleaner);
+                return super.applyContent(forcedCopy);
         }
 
         /// Apply the collected content and alternate branch to a node, when it is known that the node contains an
         /// alternate branch. This will create or update a prefix node to reflect the new alternate branch pointer.
-        int applyContentWithAlternateBranch(int alternateBranch, boolean forcedCopy, Predicate<? super T> danglingMetadataCleaner) throws TrieSpaceExhaustedException
+        int applyContentWithAlternateBranch(int alternateBranch, boolean forcedCopy) throws TrieSpaceExhaustedException
         {
             int contentId = descentPathContentId();
             final int updatedPostContentNode = updatedPostContentNode();
             final int existingPreContentNode = existingFullNode();
             final int existingPostContentNode = existingPostContentNode();
-            if (isNull(updatedPostContentNode) && !isNull(contentId) && danglingMetadataCleaner.test(trie.getContent(contentId)))
+            if (isNull(updatedPostContentNode) && !isNull(contentId) && !trie.shouldPreserveWithoutChildren(contentId))
             {
                 trie.releaseContent(contentId);
                 contentId = NONE;
@@ -241,16 +260,13 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 BiFunction<D, V, V> insertedDeleter,
                 Predicate<NodeFeatures<V>> needsForcedCopyInData,
                 Predicate<NodeFeatures<E>> needsForcedCopyInDeletionBranch,
-                Predicate<? super T> danglingMetadataCleaner,
-                Predicate<? super D> danglingDeletionMetadataCleaner,
                 boolean deletionsAtFixedPoints)
         {
-            super(dataTransformer, needsForcedCopyInData, danglingMetadataCleaner, applyState);
+            super(dataTransformer, needsForcedCopyInData, applyState);
             this.deletionMutator = new InMemoryRangeTrie.MutatorStatic<>(deletionState,
                                                                          deletionTransformer,
-                                                                         needsForcedCopyInDeletionBranch,
-                                                                         danglingDeletionMetadataCleaner);
-            this.deleter = new InMemoryTrie.RangeMutator<>(applyState, existingDeleter, needsForcedCopyInDeletionBranch, danglingMetadataCleaner);
+                                                                         needsForcedCopyInDeletionBranch);
+            this.deleter = new InMemoryTrie.RangeMutator<>(applyState, existingDeleter, needsForcedCopyInDeletionBranch);
             this.insertedDeleter = insertedDeleter;
             this.deletionsAtFixedPoints = deletionsAtFixedPoints;
         }
@@ -318,7 +334,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     state.alternateBranchToAttach = updatedAlternateBranch;
                     if (state.currentDepth == 0)
                         break; // to be attached to root by complete()
-                    state.attachAndMoveToParentState(forcedCopyDepth, danglingMetadataCleaner);
+                    state.attachAndMoveToParentState(forcedCopyDepth);
                     position = mutationCursor.encodedPosition();
                 }
                 else
@@ -326,7 +342,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
                 assert !Cursor.isOnReturnPath(position) : "Return path in forward direction can only be used in range tries.";
                 depth = Cursor.depth(position);
-                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, danglingMetadataCleaner))
+                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
                     break;
                 assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
             }
@@ -346,7 +362,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             assert !Cursor.isOnReturnPath(position) : "Return path in forward direction can only be used in range tries.";
 
             // Below is the same as the main loop in `apply`, slightly rearranged and ignoring deletion branches.
-            while (state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth, danglingMetadataCleaner))
+            while (state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
             {
                 assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
 
@@ -388,7 +404,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             InMemoryRangeTrie.ApplyState<D> deletionState = deletionMutator.state;
             deletionState.start(NONE);
             int initialDepth = state.currentDepth;
-            Predicate<Object> dontClean = Predicates.alwaysFalse();
 
             int depth = state.currentDepth;
             while (true)
@@ -402,20 +417,20 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                     deletionState.attachBranchAndMoveToParentState(existingAlternateBranch, forcedCopyDepth);
                     // Drop the existing alternate branch from the main state and ascend.
                     // The normal applyContent() method uses alternate branch value of NONE.
-                    state.attachAndMoveToParentState(forcedCopyDepth, dontClean);
+                    state.attachAndMoveToParentState(forcedCopyDepth);
                 }
 
-                if (!state.advanceToNextExisting(forcedCopyDepth, initialDepth, dontClean))
+                if (!state.advanceToNextExisting(forcedCopyDepth, initialDepth))
                     break;
                 depth = state.currentDepth;
-                deletionState.advanceTo(depth - initialDepth, state.incomingTransition(), forcedCopyDepth - initialDepth, dontClean);
+                deletionState.advanceTo(depth - initialDepth, state.incomingTransition(), forcedCopyDepth - initialDepth);
             }
             if (deletionState.currentDepth > 0)
-                deletionState.advanceTo(-1, -1, forcedCopyDepth - initialDepth, dontClean);
+                deletionState.advanceTo(-1, -1, forcedCopyDepth - initialDepth);
 
             // Make sure the walks over the data branch that follow use the updated branch.
             state.prepareToWalkBranchAgain();
-            return deletionState.applyContent(forcedCopyDepth >= initialDepth, dontClean);
+            return deletionState.applyContent(forcedCopyDepth >= initialDepth);
         }
 
         /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -564,9 +579,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                           final BiFunction<D, V, V> insertedDeleter,
                           boolean deletionsAtFixedPoints,
                           Predicate<NodeFeatures<V>> needsForcedCopyInData,
-                          Predicate<NodeFeatures<E>> needsForcedCopyInDeletions,
-                          Predicate<? super T> danglingMetadataCleaner,
-                          Predicate<? super D> danglingDeletionMetadataCleaner)
+                          Predicate<NodeFeatures<E>> needsForcedCopyInDeletions)
     {
         return new Mutator<>(dataTransformer,
                              deletionTransformer,
@@ -574,55 +587,9 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                              insertedDeleter,
                              needsForcedCopyInData,
                              needsForcedCopyInDeletions,
-                             danglingMetadataCleaner,
-                             danglingDeletionMetadataCleaner,
                              deletionsAtFixedPoints);
     }
 
-    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-    /// All of the deletions in the given mutation trie will be applied, removing any content and trie paths that become
-    /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
-    /// of the trie will be combined with the incoming deletions.
-    ///
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
-    /// if the entry should not be added or preserved.
-    /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
-    /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
-    /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
-    /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
-    /// only called if there is both content and deletion at a given covered point. It should return null if the entry
-    /// is to be deleted.
-    /// @param insertedDeleter a function used to filter incoming entries that are covered by existing deletions
-    /// in this trie, called only if both an entry and a deletion apply to a given point. This function is not provided
-    /// with a path to the modified data.
-    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See
-    /// [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints].
-    /// @param needsForcedCopyInData a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in data branches. See [NodeFeatures] for details.
-    /// @param needsForcedCopyInDeletions a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in deletion branches. See [NodeFeatures] for details.
-    public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
-                          final UpsertTransformer<D, E> deletionTransformer,
-                          final UpsertTransformer<T, E> existingDeleter,
-                          final BiFunction<D, V, V> insertedDeleter,
-                          boolean deletionsAtFixedPoints,
-                          Predicate<NodeFeatures<V>> needsForcedCopyInData,
-                          Predicate<NodeFeatures<E>> needsForcedCopyInDeletions)
-    {
-        return mutator(dataTransformer,
-                       deletionTransformer,
-                       existingDeleter,
-                       insertedDeleter,
-                       deletionsAtFixedPoints,
-                       needsForcedCopyInData,
-                       needsForcedCopyInDeletions,
-                       Predicates.alwaysFalse(),
-                       Predicates.alwaysFalse());
-    }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
     /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).

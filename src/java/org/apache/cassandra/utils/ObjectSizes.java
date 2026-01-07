@@ -21,6 +21,7 @@ package org.apache.cassandra.utils;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.io.compress.BufferType;
 import org.github.jamm.MemoryLayoutSpecification;
 import org.github.jamm.MemoryMeter;
 
@@ -164,6 +165,19 @@ public class ObjectSizes
             return EMPTY_HEAP_BUFFER_SIZE + bufLen;
 
         return EMPTY_HEAP_BUFFER_SIZE + (arrayLen == 0 ? EMPTY_BYTE_ARRAY_SIZE : sizeOfArray(arrayLen, 1));
+    }
+
+    public static long sizeOfByteBufferWithoutData(BufferType bufferType)
+    {
+        switch (bufferType)
+        {
+            case ON_HEAP:
+                return EMPTY_HEAP_BUFFER_SIZE;
+            case OFF_HEAP:
+                return DIRECT_BUFFER_HEAP_SIZE;
+            default:
+                throw new AssertionError();
+        }
     }
 
     /**

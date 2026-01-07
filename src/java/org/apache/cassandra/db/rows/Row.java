@@ -210,7 +210,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IDataSize
      *   2) doesn't include any {@code null} results of {@code cellFunction}
      *   3) has its {@code LivenessInfo} mapped through the given {@code infoFunction}
      */
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<Cell<?>, Cell<?>> cellFunction);
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> cellFunction);
 
     public Row clone(Cloner cloner);
 
@@ -310,7 +310,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IDataSize
      * @param onReconcile Function to apply on the result of individual cell merges.
      * @return The merged row.
      */
-    public Row mergeWith(Row update, ColumnData.PostReconciliationFunction onReconcile);
+    public Row mergeWith(Row update);
 
     /**
      * A row deletion/tombstone.

@@ -244,8 +244,7 @@ public class BTreeComplexColumn extends ComplexColumnData
         return new BTreeComplexColumn(column, newCells, newDeletion);
     }
 
-    @Override
-    public BTreeComplexColumn transformAndFilter(Function<? super Cell<?>, ? extends Cell<?>> function)
+    public BTreeComplexColumn transformAndFilter(Function<? super CellData<?>, ? extends CellData<?>> function)
     {
         return update(complexDeletion, BTree.transformAndFilter(cells, function));
     }
@@ -255,7 +254,6 @@ public class BTreeComplexColumn extends ComplexColumnData
         return update(newDeletion, BTree.transformAndFilter(cells, function));
     }
 
-    @Override
     public <V> BTreeComplexColumn transform(Function<? super Cell<?>, ? extends Cell<?>> function)
     {
         return update(complexDeletion, BTree.transform(cells, function));

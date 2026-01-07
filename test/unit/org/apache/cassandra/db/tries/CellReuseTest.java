@@ -45,6 +45,7 @@ import static org.apache.cassandra.db.tries.TrieUtil.generateKeys;
 
 public class CellReuseTest
 {
+    private static final boolean VERBOSE = false;
     static Predicate<InMemoryTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION = features -> {
         var c = features.content();
         if (c != null && c instanceof Boolean)
@@ -76,11 +77,15 @@ public class CellReuseTest
         InMemoryTrie<Object> trieLong = makeInMemoryTrie(src, opOrder -> InMemoryTrie.longLived(VERSION, BufferType.ON_HEAP, opOrder),
                                                              forceCopyPredicate);
 
+        verifyFreeCellsMatchUnreachable(trieLong);
+    }
+
+    public static void verifyFreeCellsMatchUnreachable(InMemoryBaseTrie<?> trieLong)
+    {
         // dump some information first
-        System.out.println(String.format(" LongLived ON_HEAP sizes %10s %10s count %d",
+        System.out.println(String.format(" LongLived ON_HEAP sizes %10s %10s",
                                          FBUtilities.prettyPrintMemory(trieLong.usedSizeOnHeap()),
-                                         FBUtilities.prettyPrintMemory(trieLong.usedSizeOffHeap()),
-                                         Streams.stream(trieLong.values()).count()));
+                                         FBUtilities.prettyPrintMemory(trieLong.usedSizeOffHeap())));
 
         Pair<BitSet, BitSet> longReachable = reachableCells(trieLong);
         BitSet reachable = longReachable.left;
@@ -93,7 +98,8 @@ public class CellReuseTest
                                          lrobjs * 4
         ));
 
-        IntArrayList availableList = ((MemoryAllocationStrategy.OpOrderReuseStrategy) trieLong.cellAllocator).indexesInPipeline();
+        BufferManagerMultibuf mgr = ((BufferManagerMultibuf) trieLong.bufferManager);
+        IntArrayList availableList = (mgr.cellAllocator).indexesInPipeline();
         BitSet available = new BitSet(reachable.size());
         for (int v : availableList)
             available.set(v >> 5);
@@ -107,7 +113,7 @@ public class CellReuseTest
         // Check all unreachable cells are marked for reuse
         BitSet unreachable = new BitSet(reachable.size());
         unreachable.or(reachable);
-        unreachable.flip(0, trieLong.getAllocatedPos() >> 5);
+        unreachable.flip(0, mgr.getAllocatedPos() >> 5);
         unreachable.andNot(available);
         assertCellSetEmpty(unreachable, trieLong, " unreachable cells not marked as available");
     }
@@ -155,14 +161,14 @@ public class CellReuseTest
                         check.filteredEntrySet(ByteBuffer.class).iterator());
     }
 
-    private void assertCellSetEmpty(BitSet set, InMemoryTrie<?> trie, String message)
+    public static void assertCellSetEmpty(BitSet set, InMemoryBaseTrie<?> trie, String message)
     {
         if (set.isEmpty())
             return;
 
         for (int i = set.nextSetBit(0); i >= 0; i = set.nextSetBit(i + 1))
         {
-            System.out.println(String.format("Cell at %d: %08x %08x %08x %08x %08x %08x %08x %08x",
+            System.out.println(String.format("Cell at %08x: %08x %08x %08x %08x %08x %08x %08x %08x",
                                              (i << 5),
                                              trie.getIntVolatile((i << 5) + 0),
                                              trie.getIntVolatile((i << 5) + 4),
@@ -178,19 +184,21 @@ public class CellReuseTest
         Assert.fail(set.cardinality() + message);
     }
 
-    private Pair<BitSet, BitSet> reachableCells(InMemoryTrie<?> trie)
+    public static Pair<BitSet, BitSet> reachableCells(InMemoryBaseTrie<?> trie)
     {
-//        System.out.println(trie.dump());
+        if (VERBOSE)
+            System.out.println(trie.dump(Object::toString));
         BitSet set = new BitSet();
         BitSet objs = new BitSet();
         mark(trie, trie.root, set, objs);
         return Pair.create(set, objs);
     }
 
-    private void mark(InMemoryTrie<?> trie, int node, BitSet set, BitSet objs)
+    private static void mark(InMemoryBaseTrie<?> trie, int node, BitSet set, BitSet objs)
     {
         set.set(node >> 5);
-//        System.out.println(trie.dumpNode(node));
+        if (VERBOSE)
+            System.out.println(trie.dumpNode(node));
         switch (trie.offset(node))
         {
             case InMemoryTrie.SPLIT_OFFSET:
@@ -199,14 +207,16 @@ public class CellReuseTest
                     int mid = trie.getSplitCellPointer(node, i, InMemoryTrie.SPLIT_START_LEVEL_LIMIT);
                     if (mid != InMemoryTrie.NONE)
                     {
-//                        System.out.println(trie.dumpNode(mid));
+                        if (VERBOSE)
+                            System.out.println(trie.dumpNode(mid));
                         set.set(mid >> 5);
                         for (int j = 0; j < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++j)
                         {
                             int tail = trie.getSplitCellPointer(mid, j, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT);
                             if (tail != InMemoryTrie.NONE)
                             {
-//                                System.out.println(trie.dumpNode(tail));
+                                if (VERBOSE)
+                                    System.out.println(trie.dumpNode(tail));
                                 set.set(tail >> 5);
                                 for (int k = 0; k < InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT; ++k)
                                     markChild(trie, trie.getSplitCellPointer(tail, k, InMemoryTrie.SPLIT_OTHER_LEVEL_LIMIT), set, objs);
@@ -220,13 +230,12 @@ public class CellReuseTest
                     markChild(trie, trie.getIntVolatile(node + InMemoryTrie.SPARSE_CHILDREN_OFFSET + i * 4), set, objs);
                 break;
             case InMemoryTrie.PREFIX_OFFSET:
-                int content = trie.getIntVolatile(node + InMemoryTrie.PREFIX_CONTENT_OFFSET);
-                if (content < 0)
-                    objs.set(~content);
-                else
-                    markChild(trie, content, set, objs);
-
+                markPrefixContent(trie, node + InMemoryTrie.PREFIX_CONTENT_OFFSET, set, objs);
+                markPrefixContent(trie, node + InMemoryTrie.PREFIX_ALTERNATE_OFFSET, set, objs);
                 markChild(trie, trie.followPrefixTransition(node), set, objs);
+                break;
+            case InMemoryReadTrie.PAYLOAD_OFFSET:
+                // payload node has no children
                 break;
             default:
                 assert trie.offset(node) <= InMemoryTrie.CHAIN_MAX_OFFSET && trie.offset(node) >= InMemoryTrie.CHAIN_MIN_OFFSET;
@@ -235,7 +244,16 @@ public class CellReuseTest
         }
     }
 
-    private void markChild(InMemoryTrie<?> trie, int child, BitSet set, BitSet objs)
+    private static void markPrefixContent(InMemoryBaseTrie<?> trie, int pointerAddress, BitSet set, BitSet objs)
+    {
+        int content = trie.getIntVolatile(pointerAddress);
+        if (content < 0)
+            objs.set(~content);
+        else
+            markChild(trie, content, set, objs);
+    }
+
+    private static void markChild(InMemoryBaseTrie<?> trie, int child, BitSet set, BitSet objs)
     {
         if (child == InMemoryTrie.NONE)
             return;

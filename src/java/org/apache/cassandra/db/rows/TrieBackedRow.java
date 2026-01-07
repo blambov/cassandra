@@ -74,7 +74,8 @@ import static org.apache.cassandra.db.partitions.TrieBackedPartition.noConflictI
 import static org.apache.cassandra.db.partitions.TrieBackedPartition.noExistingSelfDeletion;
 import static org.apache.cassandra.db.partitions.TrieBackedPartition.noIncomingSelfDeletion;
 
-/// Immutable implementation of a Row object, where the data structure is represented by a trie.
+/// Immutable implementation of a [Row] object, where the data structure is represented by a trie.
+/// Stores either [Cell], or [TrieCellData] (if the row comes from a memtable trie).
 ///
 /// Trie-backed rows using a mapping of column ids to numbers that is to be obtained from the table metadata. Currently,
 /// we don't support mixing different column sets in trie rows, thus all rows in use in one object (partition, memtable)
@@ -155,16 +156,9 @@ public class TrieBackedRow extends AbstractRow
 
     /// Returns true if the given object is a level marker with no meaning of its own. Used to drop unproductive markers
     /// that can remain after deletions.
-    public static boolean isDroppableMarker(Object o)
+    public static boolean shouldPreserveContentWithoutChildren(Object o)
     {
-        return o == LivenessInfo.EMPTY || o == COMPLEX_COLUMN_MARKER;
-    }
-
-    /// Returns true if the given object is a level marker with no meaning of its own. Used to drop unproductive markers
-    /// that can remain after deletions.
-    public static boolean isDroppableMarker(TrieTombstoneMarker marker)
-    {
-        return marker == TrieTombstoneMarker.LevelMarker.ROW;
+        return o != LivenessInfo.EMPTY && o != COMPLEX_COLUMN_MARKER && o != TrieTombstoneMarker.LevelMarker.ROW;
     }
 
     public static TrieBackedRow create(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
@@ -260,13 +254,13 @@ public class TrieBackedRow extends AbstractRow
 
     private static class Accumulator implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
     {
-        final LongAccumulator<Cell<?>> cellAccumulator;
+        final LongAccumulator<CellData> cellAccumulator;
         final LongAccumulator<LivenessInfo> livenessAccumulator;
         final LongAccumulator<DeletionTime> markerAccumulator;
         long value;
 
         Accumulator(long initialValue,
-                    LongAccumulator<Cell<?>> cellAccumulator,
+                    LongAccumulator<CellData> cellAccumulator,
                     LongAccumulator<LivenessInfo> livenessAccumulator,
                     LongAccumulator<DeletionTime> markerAccumulator)
         {
@@ -281,8 +275,8 @@ public class TrieBackedRow extends AbstractRow
         {
             if (content instanceof LivenessInfo)
                 value = livenessAccumulator.apply((LivenessInfo) content, value);
-            else if (content instanceof Cell)
-                value = cellAccumulator.apply((Cell<?>) content, value);
+            else if (content instanceof CellData)
+                value = cellAccumulator.apply((CellData) content, value);
             else if (content != COMPLEX_COLUMN_MARKER)
                 throw new AssertionError("Unexpected content type: " + content);
         }
@@ -307,7 +301,7 @@ public class TrieBackedRow extends AbstractRow
     /// `accumulate` method.
     long accumulate(long initialValue,
                     LongAccumulator<LivenessInfo> livenessAccumulator,
-                    LongAccumulator<Cell<?>> cellAccumulator,
+                    LongAccumulator<CellData> cellAccumulator,
                     LongAccumulator<DeletionTime> markerAccumulator)
     {
         Accumulator accumulator = new Accumulator(initialValue, cellAccumulator, livenessAccumulator, markerAccumulator);
@@ -397,7 +391,7 @@ public class TrieBackedRow extends AbstractRow
                 return false;
 
             // - a cell
-            return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
+            return !data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, CellData.class).hasNext();
         }
     }
 
@@ -496,14 +490,22 @@ public class TrieBackedRow extends AbstractRow
     public Cell<?> getCell(ColumnMetadata c)
     {
         assert !c.isComplex();
-        return (Cell<?>) data.get(cellKey(columnIds, c, null));
+        Object o = data.get(cellKey(columnIds, c, null));
+        if (o == null || o instanceof Cell)
+            return (Cell) o;
+        CellData cellData = (CellData) o;
+        return cellData.toCell(c, null);
     }
 
     @Override
     public Cell<?> getCell(ColumnMetadata c, CellPath path)
     {
         assert c.isComplex();
-        return (Cell<?>) data.get(cellKey(columnIds, c, path));
+        Object o = data.get(cellKey(columnIds, c, path));
+        if (o == null || o instanceof Cell)
+            return (Cell) o;
+        CellData cellData = (CellData) o;
+        return cellData.toCell(c, path);
     }
 
     @Override
@@ -527,7 +529,7 @@ public class TrieBackedRow extends AbstractRow
         if (TrieTombstoneMarker.applicableDeletion(tail, ByteComparable.EMPTY) != null)
             return false;
         // otherwise it's empty if it has no cells
-        return !tail.filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
+        return !tail.filteredValuesIterator(Direction.FORWARD, CellData.class).hasNext();
     }
 
     @Override
@@ -555,7 +557,7 @@ public class TrieBackedRow extends AbstractRow
     /// Combine data in the live and deletion branches to identify column roots.
     private static Object combineDataAndDeletionForColumnIterator(Object content, TrieTombstoneMarker marker)
     {
-        if (content instanceof Cell)
+        if (content instanceof CellData)
             return content;
         if (content == COMPLEX_COLUMN_MARKER)
             return content;
@@ -582,8 +584,8 @@ public class TrieBackedRow extends AbstractRow
         protected ColumnData mapContent(Object value, DeletionAwareTrie<Object, TrieTombstoneMarker> tailTrie, byte[] bytes, int byteLength)
         {
             // value is given by combineDataAndDeletionForColumnIterator above
-            if (value instanceof Cell)
-                return (Cell<?>) value;
+            if (value instanceof CellData)
+                return cellFromCellData((CellData) value, bytes, byteLength, columns);
 
             long columnIndex = ByteSourceInverse.getVariableLengthUnsignedInteger(ByteSource.preencoded(bytes, 0, byteLength));
             assert ((int) columnIndex) == columnIndex;
@@ -591,6 +593,17 @@ public class TrieBackedRow extends AbstractRow
             return new TrieBackedComplexColumn(columns.getSimple((int) columnIndex),
                                                tailTrie);
         }
+
+    }
+
+    private static Cell<?> cellFromCellData(CellData value, byte[] bytes, int byteLength, Columns columns)
+    {
+        if (value instanceof Cell)
+            return (Cell<?>) value;
+        ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
+        long columnIdx = ByteSourceInverse.getVariableLengthUnsignedInteger(pathBytes);
+        ColumnMetadata column = columns.getSimple((int) columnIdx);
+        return value.toCell(column, column.isComplex() ? cellPath(column, pathBytes) : null);
     }
 
     @Override
@@ -742,11 +755,13 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object deleteData(TrieTombstoneMarker marker, Object existing)
     {
+        if (existing == COMPLEX_COLUMN_MARKER)
+            return existing;
+
         DeletionTime deletion = marker.applicableToPointForward();
         if (deletion == null)
             return existing;
-        if (existing == COMPLEX_COLUMN_MARKER)
-            return existing;
+
         if (existing instanceof LivenessInfo)
         {
             if (deletion.deletes(((LivenessInfo) existing).timestamp()))
@@ -754,9 +769,9 @@ public class TrieBackedRow extends AbstractRow
             else
                 return existing;
         }
-        if (existing instanceof Cell)
+        if (existing instanceof CellData)
         {
-            if (deletion.deletes((Cell<?>) existing))
+            if (deletion.deletes((CellData) existing))
                 return null;
             else
                 return existing;
@@ -766,11 +781,10 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object dropCellValue(Object existing)
     {
-        if (!(existing instanceof Cell))
+        if (!(existing instanceof CellData))
             return existing;
-        return ((Cell<?>) existing).withSkippedValue();
+        return ((CellData) existing).withSkippedValue();
     }
-
     private static ByteComparable[] mapIdsToColumnKeys(BitSet fetchedIds)
     {
         ByteComparable[] keys = new ByteComparable[fetchedIds.cardinality() * 2];
@@ -902,7 +916,7 @@ public class TrieBackedRow extends AbstractRow
 
     @Override
     public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                                  Function<Cell<?>, Cell<?>> cellFunction)
+                                  Function<CellData<?>, CellData<?>> cellFunction)
     {
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValues(
             (Object x) ->
@@ -911,9 +925,9 @@ public class TrieBackedRow extends AbstractRow
                 {
                     return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
-                else if (x instanceof Cell)
+                else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((Cell<?>) x);
+                    return cellFunction.apply((CellData<?>) x);
                 }
                 else
                     return x;   // complex column marker
@@ -921,7 +935,7 @@ public class TrieBackedRow extends AbstractRow
     }
 
     Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                           Function<Cell<?>, Cell<?>> cellFunction,
+                           Function<CellData, CellData> cellFunction,
                            Function<DeletionTime, DeletionTime> markerFunction)
     {
         DeletionAwareTrie<Object, TrieTombstoneMarker> mappedData = data.mapValuesAndDeletions(
@@ -931,9 +945,9 @@ public class TrieBackedRow extends AbstractRow
                 {
                     return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
-                else if (x instanceof Cell)
+                else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((Cell<?>) x);
+                    return cellFunction.apply((CellData) x);
                 }
                 else
                     return x;   // complex column marker
@@ -951,7 +965,7 @@ public class TrieBackedRow extends AbstractRow
         InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = newTrie();
         try
         {
-            newTrie.mutator(((ex, toClone) -> toClone instanceof Cell ? cloner.clone((Cell<?>) toClone) : toClone),
+            newTrie.mutator(((ex, toClone) -> toClone instanceof CellData ? ((CellData) toClone).clone(cloner) : toClone),
                             mergeTombstoneRanges(),
                             noIncomingSelfDeletion(),
                             noExistingSelfDeletion(),
@@ -1027,42 +1041,15 @@ public class TrieBackedRow extends AbstractRow
         return new Builder(regularAndStaticColumns);
     }
 
-    private static Object mergeData(Object existing, Object update, ColumnData.PostReconciliationFunction reconcileF)
+    private static Object mergeData(Object existing, Object update)
     {
         if (update instanceof LivenessInfo)
             return LivenessInfo.merge((LivenessInfo) existing, (LivenessInfo) update);
-        else if (update instanceof Cell)
+        else if (update instanceof CellData)
         {
-            Cell<?> existingCell = (Cell<?>) existing;
-            Cell<?> updateCell = (Cell<?>) update;
-            if (existingCell == null)
-                return reconcileF.insert(updateCell);
-            else
-                return reconcileF.merge(existingCell, Cells.reconcile(existingCell, updateCell));
-        }
-        else
-        {
-            assert existing == COMPLEX_COLUMN_MARKER;
-            return existing;
-        }
-    }
-
-    private static Object deleteData(Object existing, TrieTombstoneMarker marker, ColumnData.PostReconciliationFunction reconcileF)
-    {
-        DeletionTime deletion = marker.applicableToPointForward();
-        if (deletion == null)
-            return existing;
-        if (existing instanceof LivenessInfo)
-            return deletion.deletes((LivenessInfo) existing) ? LivenessInfo.EMPTY : existing;
-        else if (existing instanceof Cell)
-        {
-            Cell<?> existingCell = (Cell<?>) existing;
-            assert existingCell != null;
-            if (!deletion.deletes(existingCell))
-                return existingCell;
-
-            reconcileF.delete(existingCell);
-            return null;
+            CellData existingCell = (CellData) existing;
+            CellData updateCell = (CellData) update;
+            return Cells.reconcile(existingCell, updateCell);
         }
         else
         {
@@ -1073,16 +1060,15 @@ public class TrieBackedRow extends AbstractRow
 
     public static InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie()
     {
-        return InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+        return InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION, TrieBackedRow::shouldPreserveContentWithoutChildren);
     }
 
-    public Row mergeWith(Row updateAsRow,
-                         ColumnData.PostReconciliationFunction reconcileF)
+    public Row mergeWith(Row updateAsRow)
     {
         if (!(updateAsRow instanceof TrieBackedRow))
             throw new IllegalArgumentException("Merging different row types.");
         TrieBackedRow update = (TrieBackedRow) updateAsRow;
-        if (!this.columns.equals(update.columns))
+        if (!this.columns.containsAll(update.columns))
             throw new IllegalArgumentException("Can't handle varying column lists.");
 
         try
@@ -1090,9 +1076,9 @@ public class TrieBackedRow extends AbstractRow
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> mergedData = newTrie();
             makeMutator(mergedData)
                 .apply(this.data.mergeWith(update.data,
-                                           (ex, up) -> mergeData(ex, up, reconcileF),
+                                           TrieBackedRow::mergeData,
                                            TrieTombstoneMarker::mergeUpdate,
-                                           (marker, ex) -> deleteData(ex, marker, reconcileF),
+                                           TrieBackedRow::deleteData,
                                            true
                 ));
             return new TrieBackedRow(this.columns,
@@ -1106,7 +1092,7 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
-    private static int minDeletionTime(Cell<?> cell)
+    private static int minDeletionTime(CellData<?> cell)
     {
         return cell.isTombstone() ? Integer.MIN_VALUE : cell.localDeletionTime();
     }
@@ -1135,7 +1121,7 @@ public class TrieBackedRow extends AbstractRow
         return minLocalDeletionTime;
     }
 
-    static class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
+    class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
     {
         protected CellsWithPath(Trie<Object> trie, Direction direction)
         {
@@ -1145,16 +1131,9 @@ public class TrieBackedRow extends AbstractRow
         @Override
         protected Cell<?> mapContent(Object content, byte[] bytes, int byteLength)
         {
-            if (!(content instanceof Cell))
+            if (!(content instanceof CellData))
                 return null;
-
-            Cell<?> c = (Cell<?>) content;
-            if (c.column.isSimple() || c.path() != null)
-                return c;
-
-            ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-            ByteSourceInverse.getVariableLengthUnsignedInteger(pathBytes); // skip column id
-            return c.withPath(cellPath(c.column, pathBytes));
+            return cellFromCellData((CellData) content, bytes, byteLength, columns);
         }
     }
 
@@ -1167,9 +1146,7 @@ public class TrieBackedRow extends AbstractRow
                             TrieBackedRow::deleteData,
                             true,
                             Predicates.alwaysFalse(),
-                            Predicates.alwaysFalse(),
-                            TrieBackedRow::isDroppableMarker,
-                            TrieBackedRow::isDroppableMarker);
+                            Predicates.alwaysFalse());
     }
 
     public static class Builder implements Row.Builder
@@ -1289,7 +1266,7 @@ public class TrieBackedRow extends AbstractRow
 
             try
             {
-                data.putRecursive(key, cell.withPath(null), (x, y) -> Cells.reconcile((Cell<?>) x, y));
+                data.putRecursive(key, cell, (x, y) -> Cells.reconcile((Cell<?>) x, y));
                 if (cell.column.isComplex())
                     data.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, (x, y) -> y);
                 if (data.get(ByteComparable.EMPTY) == null)
