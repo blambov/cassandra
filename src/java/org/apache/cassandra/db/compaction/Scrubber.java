@@ -46,6 +46,7 @@ import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.rows.AbstractCell;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
@@ -791,6 +792,20 @@ public class Scrubber implements Closeable
             this.negativeLocalExpirationTimeMetrics = negativeLocalDeletionInfoMetrics;
         }
 
+        private static <C extends CellData<?, C>> C fixCellExpirationTime(C cell)
+        {
+            return cell.isExpiring() && cell.localDeletionTime() < 0
+                   ? cell.withUpdatedTimestampAndLocalDeletionTime(cell.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
+                   : cell;
+        }
+
+        private static LivenessInfo fixLivenessInfoExpirationTime(LivenessInfo livenessInfo)
+        {
+            return (livenessInfo.isExpiring() && livenessInfo.localExpirationTime() < 0)
+                   ? livenessInfo.withUpdatedTimestampAndLocalDeletionTime(livenessInfo.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
+                   : livenessInfo;
+        }
+
         public TableMetadata metadata()
         {
             return iterator.metadata();
@@ -888,12 +903,8 @@ public class Scrubber implements Closeable
 
         private Unfiltered fixNegativeLocalExpirationTime(Row row)
         {
-            return row.transformAndFilter(livenessInfo -> (livenessInfo.isExpiring() && livenessInfo.localExpirationTime() < 0)
-                                                          ? livenessInfo.withUpdatedTimestampAndLocalDeletionTime(livenessInfo.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
-                                                          : livenessInfo,
-                                          cell -> cell.isExpiring() && cell.localDeletionTime() < 0
-                                                  ? cell.withUpdatedTimestampAndLocalDeletionTime(cell.timestamp() + 1, AbstractCell.MAX_DELETION_TIME)
-                                                  : cell)
+            return row.transformAndFilter(FixNegativeLocalDeletionTimeIterator::fixLivenessInfoExpirationTime,
+                                          FixNegativeLocalDeletionTimeIterator::fixCellExpirationTime)
                       .clone(HeapCloner.instance);
         }
     }

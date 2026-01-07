@@ -32,7 +32,7 @@ import org.apache.cassandra.utils.LongAccumulator;
  */
 public abstract class ComplexColumnData extends ColumnData implements Iterable<Cell<?>>
 {
-    ComplexColumnData(ColumnMetadata column)
+    public ComplexColumnData(ColumnMetadata column)
     {
         super(column);
         assert column.isComplex();
@@ -61,11 +61,6 @@ public abstract class ComplexColumnData extends ColumnData implements Iterable<C
     public abstract DeletionTime complexDeletion();
 
     public abstract Iterator<Cell<?>> reverseIterator();
-
-    public abstract ComplexColumnData transformAndFilter(Function<? super Cell<?>, ? extends Cell<?>> function);
-
-    public abstract <V> ComplexColumnData transform(Function<? super Cell<?>, ? extends Cell<?>> function);
-
 
     public abstract long accumulate(LongAccumulator<Cell<?>> accumulator, long initialValue);
 

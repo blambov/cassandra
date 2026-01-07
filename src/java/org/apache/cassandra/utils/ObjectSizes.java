@@ -33,11 +33,11 @@ public class ObjectSizes
                                                               .withGuessing(MemoryMeter.Guess.FALLBACK_UNSAFE)
                                                               .ignoreKnownSingletons();
 
-    private static final long EMPTY_HEAP_BUFFER_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    public static final long EMPTY_HEAP_BUFFER_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    public static final long DIRECT_BUFFER_HEAP_SIZE = measure(ByteBuffer.allocateDirect(0));
+
     private static final long EMPTY_BYTE_ARRAY_SIZE = measure(new byte[0]);
     private static final long EMPTY_STRING_SIZE = measure("");
-
-    private static final long DIRECT_BUFFER_HEAP_SIZE = measure(ByteBuffer.allocateDirect(0));
 
     /**
      * Memory a byte array consumes

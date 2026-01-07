@@ -506,7 +506,7 @@ public class BTreeRow extends AbstractRow
     }
 
     @Override
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<Cell<?>, Cell<?>> cellFunction)
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, CellTransformer cellFunction)
     {
         return update(infoFunction.apply(primaryKeyLivenessInfo), deletion, BTree.<ColumnData, ColumnData>transformAndFilter(
             btree,
@@ -593,13 +593,15 @@ public class BTreeRow extends AbstractRow
     }
 
     @Override
-    public Row mergeWith(Row updateAsRow,
-                         ColumnData.PostReconciliationFunction reconcileF)
+    public Row mergeWith(Row updateAsRow)
     {
         if (!(updateAsRow instanceof BTreeRow))
             throw new IllegalArgumentException("Merging different row types.");
-        BTreeRow update = (BTreeRow) updateAsRow;
+        return mergeWith((BTreeRow) updateAsRow, ColumnData.noOp);
+    }
 
+    public Row mergeWith(BTreeRow update, ColumnData.PostReconciliationFunction reconcileF)
+    {
         Object[] existingBtree = this.btree;
         Object[] updateBtree = update.btree;
 

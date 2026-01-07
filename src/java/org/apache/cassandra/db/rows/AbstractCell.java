@@ -51,21 +51,6 @@ public abstract class AbstractCell<V> extends Cell<V>
         return !isTombstone() && column.isCounterColumn();
     }
 
-    public boolean isLive(int nowInSec)
-    {
-        return localDeletionTime() == NO_DELETION_TIME || (ttl() != NO_TTL && nowInSec < localDeletionTime());
-    }
-
-    public boolean isTombstone()
-    {
-        return localDeletionTime() != NO_DELETION_TIME && ttl() == NO_TTL;
-    }
-
-    public boolean isExpiring()
-    {
-        return ttl() != NO_TTL;
-    }
-
     public Cell<?> markCounterLocalToBeCleared()
     {
         if (!isCounterCell())

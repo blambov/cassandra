@@ -75,6 +75,21 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         super(byteComparableVersion, presentContentOnDescentPath, bufferType, lifetime, opOrder);
     }
 
+    InMemoryTrie(ByteComparable.Version byteComparableVersion,
+                 BufferType bufferType,
+                 ExpectedLifetime lifetime,
+                 OpOrder opOrder,
+                 boolean presentContentOnDescentPath,
+                 Predicate<T> shouldPreserveWithoutChildren)
+    {
+        super(byteComparableVersion, presentContentOnDescentPath, shouldPreserveWithoutChildren, bufferType, lifetime, opOrder);
+    }
+
+    InMemoryTrie(ByteComparable.Version byteComparableVersion, boolean presentContentOnDescentPath, BufferManager bufferManager, ContentManager<T> contentManager)
+    {
+        super(byteComparableVersion, presentContentOnDescentPath, bufferManager, contentManager);
+    }
+
     /// Short-lived tries do not try to recycle and reuse cells and content slots of the trie that are no longer in use
     /// and are expected to be recycled as a whole after the user is done with them.
     public static <T> InMemoryTrie<T> shortLived(ByteComparable.Version byteComparableVersion)
@@ -154,7 +169,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     protected long emptySizeOnHeap()
     {
-        return bufferType == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
+        return bufferManager.bufferType() == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
     }
 
     /// Reused storage for the state of application of mutations. This stores the backtracking path, including changes
@@ -170,13 +185,11 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     /// predicates) and can be used repeatedly to apply modifications to the trie using [#apply(Trie)].
     public class Mutator<U> extends InMemoryBaseTrie.Mutator<T, U, Cursor<U>, ApplyState<T>>
     {
-        /// See [InMemoryTrie#mutator(UpsertTransformerWithKeyProducer, Predicate, Predicate)] for the meaning of the
+        /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of the
         /// parameters.
-        Mutator(UpsertTransformer<T, U> transformer,
-                Predicate<NodeFeatures<U>> needsForcedCopy,
-                Predicate<? super T> danglingMetadataCleaner)
+        Mutator(UpsertTransformer<T, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy)
         {
-            super(transformer, needsForcedCopy, danglingMetadataCleaner, applyState);
+            super(transformer, needsForcedCopy, applyState);
         }
 
         /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -217,26 +230,10 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     /// value. Applied even if there's no pre-existing value in the memtable trie.
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
     /// concurrent readers. See NodeFeatures for details.
-    /// @param danglingMetadataCleaner a predicate used to drop dangling metadata entries, i.e. values that have
-    /// meaning only if the branch under them is not empty. Called when a value with an empty branch is found; if the
-    /// predicate returns true, the value is dropped, which has the effect of removing the path to it as well.
-    public <U> Mutator<U> mutator(UpsertTransformer<T, U> transformer,
-                                  Predicate<NodeFeatures<U>> needsForcedCopy,
-                                  Predicate<? super T> danglingMetadataCleaner)
-    {
-        return new Mutator<>(transformer, needsForcedCopy, danglingMetadataCleaner);
-    }
-
-    /// Creates a trie mutator that can be used to apply multiple modifications to the trie.
-    ///
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie.
-    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
-    /// concurrent readers. See NodeFeatures for details.
     public <U> Mutator<U> mutator(UpsertTransformer<T, U> transformer,
                                   Predicate<NodeFeatures<U>> needsForcedCopy)
     {
-        return new Mutator<>(transformer, needsForcedCopy, Predicates.alwaysFalse());
+        return new Mutator<>(transformer, needsForcedCopy);
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -261,14 +258,13 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     {
         int initialDepth;
 
-        /// See [InMemoryTrie#mutator(UpsertTransformerWithKeyProducer, Predicate, Predicate)] for the meaning of
+        /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of
         /// the parameters.
         RangeMutator(ApplyState<T> state,
                      UpsertTransformer<T, S> transformer,
-                     Predicate<NodeFeatures<S>> needsForcedCopy,
-                     Predicate<? super T> danglingMetadataCleaner)
+                     Predicate<NodeFeatures<S>> needsForcedCopy)
         {
-            super(transformer, needsForcedCopy, danglingMetadataCleaner, state);
+            super(transformer, needsForcedCopy, state);
         }
 
         RangeMutator<T, S> start(int root, RangeCursor<S> mutationCursor, int initialForcedCopyDepth)
@@ -308,7 +304,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 depth = Cursor.depth(position) + initialDepth;
                 // Descend but do not modify anything yet. If the position is on the return path, we can still follow
                 // it, `applyDeletionRange` will take care to not apply it to content or descendants.
-                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth, danglingMetadataCleaner))
+                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
                     break;
                 assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
             }
@@ -357,7 +353,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
                 else
                     applyContent(mutationCoveringState);
 
-                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, initialDepth, danglingMetadataCleaner);
+                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, initialDepth);
             }
         }
 
@@ -401,9 +397,9 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     /// A variation of range mutator to apply sets as deletions of data in the trie.
     public static class SetMutator<T> extends RangeMutator<T, TrieSetCursor.RangeState>
     {
-        SetMutator(ApplyState<T> state, Predicate<NodeFeatures<TrieSetCursor.RangeState>> needsForcedCopy, Predicate<? super T> danglingMetadataCleaner)
+        SetMutator(ApplyState<T> state, Predicate<NodeFeatures<TrieSetCursor.RangeState>> needsForcedCopy)
         {
-            super(state, SetMutator::deleteEntry, needsForcedCopy, danglingMetadataCleaner);
+            super(state, SetMutator::deleteEntry, needsForcedCopy);
         }
 
         void apply(TrieSet set) throws TrieSpaceExhaustedException
@@ -427,13 +423,13 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     public <S extends RangeState<S>> RangeMutator<T, S> rangeMutator(UpsertTransformer<T, S> transformer,
                                                                      Predicate<NodeFeatures<S>> needsForcedCopy)
     {
-        return new RangeMutator<>(applyState, transformer, needsForcedCopy, Predicates.alwaysFalse());
+        return new RangeMutator<>(applyState, transformer, needsForcedCopy);
     }
 
     /// Creates a set mutator that can be used to apply multiple deletions to the trie.
     public SetMutator<T> deleter()
     {
-        return new SetMutator<>(applyState, NodeFeatures::isBranching, Predicates.alwaysFalse());
+        return new SetMutator<>(applyState, NodeFeatures::isBranching);
     }
 
     /// Delete all entries covered under the specified TrieSet
