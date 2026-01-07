@@ -18,12 +18,11 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Function;
 
 import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 /// In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
 ///
@@ -144,6 +143,8 @@ public abstract class InMemoryReadTrie<T>
     // Prefix node, an intermediate node augmenting its child node with content.
     static final int PREFIX_OFFSET = CELL_SIZE - 1;
 
+    // TODO: introduce payload cells (32 bytes as needed by user)
+
     /*
      Offsets and values for navigating in a cell for particular node type. Those offsets are 'from the node pointer'
      (not the cell start) and can be thus negative since node pointers points towards the end of cells.
@@ -172,12 +173,6 @@ public abstract class InMemoryReadTrie<T>
     static final int PREFIX_ALTERNATE_OFFSET = 4 - PREFIX_OFFSET;
     // Offset of the next pointer in a non-shared prefix node
     static final int PREFIX_POINTER_OFFSET = LAST_POINTER_OFFSET - PREFIX_OFFSET;
-
-    static final int CONTENT_FLAGS_SHIFT = 29;
-    static final int CONTENT_INDEX_MASK = (1 << CONTENT_FLAGS_SHIFT) - 1;
-
-    static final int CONTENT_AFTER_BRANCH = 1 << 30;
-
 
     /// Value used as null for node pointers.
     /// No node can use this address (we enforce this by not allowing chain nodes to grow to position 0).
@@ -209,35 +204,32 @@ public abstract class InMemoryReadTrie<T>
     static final int BUF_START_SHIFT = 8;
     static final int BUF_START_SIZE = 1 << BUF_START_SHIFT;
 
-    static final int CONTENTS_START_SHIFT = 4;
-    static final int CONTENTS_START_SIZE = 1 << CONTENTS_START_SHIFT;
-
     static
     {
         assert BUF_START_SIZE % CELL_SIZE == 0 : "Initial buffer size must fit a full cell.";
     }
 
     final UnsafeBuffer[] buffers;
-    final AtomicReferenceArray<T>[] contentArrays;
     final ByteComparable.Version byteComparableVersion;
+    final ContentManager<T> contentManager;
 
-    InMemoryReadTrie(ByteComparable.Version byteComparableVersion, UnsafeBuffer[] buffers, AtomicReferenceArray<T>[] contentArrays, int root)
+    InMemoryReadTrie(ByteComparable.Version byteComparableVersion, UnsafeBuffer[] buffers, ContentManager<T> contentManager, int root)
     {
         this.byteComparableVersion = byteComparableVersion;
+        this.contentManager = contentManager;
         this.buffers = buffers;
-        this.contentArrays = contentArrays;
         this.root = root;
     }
 
     /*
      Buffer, content list and cell management
      */
-    int getBufferIdx(int pos, int minBufferShift, int minBufferSize)
+    static int getBufferIdx(int pos, int minBufferShift, int minBufferSize)
     {
         return 31 - minBufferShift - Integer.numberOfLeadingZeros(pos + minBufferSize);
     }
 
-    int inBufferOffset(int pos, int bufferIndex, int minBufferSize)
+    static int inBufferOffset(int pos, int bufferIndex, int minBufferSize)
     {
         return pos + minBufferSize - (minBufferSize << bufferIndex);
     }
@@ -254,6 +246,15 @@ public abstract class InMemoryReadTrie<T>
         return inBufferOffset(pos, leadBit, BUF_START_SIZE);
     }
 
+    T getContent(int id)
+    {
+        return contentManager.getContent(id);
+    }
+
+    boolean shouldPresentAfterBranch(int contentId)
+    {
+        return contentManager.shouldPresentAfterBranch(contentId);
+    }
 
     /// Pointer offset for a node pointer.
     static int offset(int pos)
@@ -277,18 +278,6 @@ public abstract class InMemoryReadTrie<T>
     final int getIntVolatile(int pos)
     {
         return getBuffer(pos).getIntVolatile(inBufferOffset(pos));
-    }
-
-    /// Get the content for the given content pointer.
-    ///
-    /// @param id content pointer, encoded as ~index where index is the position in the content array.
-    /// @return the current content value.
-    T getContent(int id)
-    {
-        int leadBit = getBufferIdx(id & CONTENT_INDEX_MASK, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(id & CONTENT_INDEX_MASK, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        return array.get(ofs);
     }
 
     /*
@@ -1239,9 +1228,9 @@ public abstract class InMemoryReadTrie<T>
         protected boolean shouldPresentOnTheReturnPath(int node)
         {
             if (direction.isForward())
-                return (node & CONTENT_AFTER_BRANCH) != 0;
+                return trie.shouldPresentAfterBranch(node);
             else if (presentForwardPathContentBeforeBranch)
-                return (node & CONTENT_AFTER_BRANCH) == 0;
+                return !trie.shouldPresentAfterBranch(node);
             else
                 return false;
         }
@@ -1436,8 +1425,7 @@ public abstract class InMemoryReadTrie<T>
         if (isNull(node))
             return "NONE";
         else if (isLeaf(node))
-            return "~" + (node & CONTENT_INDEX_MASK) +
-                   ((node & CONTENT_AFTER_BRANCH) != 0 ? "↑" : "");
+            return contentManager.dumpContentId(node);
         else
         {
             StringBuilder builder = new StringBuilder();

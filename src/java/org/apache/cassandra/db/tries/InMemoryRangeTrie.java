@@ -353,7 +353,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             if (isNull(fullNode))
                 return NONE;
             if (isLeaf(fullNode))
-                return (fullNode & CONTENT_AFTER_BRANCH) != 0 ? fullNode : NONE;
+                return trie.shouldPresentAfterBranch(fullNode) ? fullNode : NONE;
             if (offset(fullNode) == PREFIX_OFFSET)
                 return trie().getIntVolatile(fullNode + PREFIX_ALTERNATE_OFFSET);
 
@@ -365,7 +365,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             if (isNull(fullNode))
                 return NONE;
             if (isLeaf(fullNode))
-                return (fullNode & CONTENT_AFTER_BRANCH) == 0 ? fullNode : NONE;
+                return !trie.shouldPresentAfterBranch(fullNode) ? fullNode : NONE;
             if (offset(fullNode) == PREFIX_OFFSET)
                 return trie().getIntVolatile(fullNode + PREFIX_CONTENT_OFFSET);
 

@@ -59,16 +59,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     }
 
     private int allocatedPos = 0;
-    private int contentCount = 0;
 
     final BufferType bufferType;    // on or off heap
     final MemoryAllocationStrategy cellAllocator;
-    final MemoryAllocationStrategy objectAllocator;
 
     final boolean presentForwardPathContentBeforeBranch;
 
     // constants for space calculations
-    private static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
+    static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
 
     enum ExpectedLifetime
     {
@@ -79,7 +77,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     {
         super(byteComparableVersion,
               new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
-              new AtomicReferenceArray[29 - CONTENTS_START_SHIFT],  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+              new ContentManagerPojo<>(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
         this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
@@ -88,11 +86,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         {
             case SHORT:
                 cellAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewCell);
-                objectAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewObject);
                 break;
             case LONG:
                 cellAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewCell, opOrder);
-                objectAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewObject, opOrder);
                 break;
             default:
                 throw new AssertionError();
@@ -175,22 +171,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         return copy | (cell & (CELL_SIZE - 1));
     }
 
-    /// Allocate a new position in the object array. Used by the memory allocation strategy to allocate a content spot
-    /// when it runs out of recycled positions.
-    private int allocateNewObject()
-    {
-        int index = contentCount++;
-        int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        if (array == null)
-        {
-            assert inBufferOffset(index, leadBit, CONTENTS_START_SIZE) == 0 : "Error in content arrays configuration.";
-            contentArrays[leadBit] = new AtomicReferenceArray<>(CONTENTS_START_SIZE << leadBit);
-        }
-        return index;
-    }
-
-
     /// Add a new content value.
     ///
     /// @return A content id that can be used to reference the content, a negative number where
@@ -199,37 +179,25 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     {
         if (value == null)
             return NONE;
-
-        int index = objectAllocator.allocate();
-        int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        // no need for a volatile set here; at this point the item is not referenced
-        // by any node in the trie, and a volatile set will be made to reference it.
-        array.setPlain(ofs, value);
-        return formContentId(index, contentAfterBranch);
-    }
-
-    private int formContentId(int index, boolean contentAfterBranch)
-    {
-        return index | (1 << 31) | (contentAfterBranch ? CONTENT_AFTER_BRANCH : 0);
+        int id = contentManager.addContent(value, contentAfterBranch);
+        assert isLeaf(id);
+        return id;
     }
 
     /// Change the content associated with a given content id.
     ///
     /// @param id encoded content id, where `id & CONTENT_INDEX_MASK` is the position in the content array
     /// @param value new content value to store
-    protected void setContent(int id, T value)
+    /// @return the id to use for the modified content; an attempt will be made to make this the same as id, but not
+    ///         all content managers will be able to freely modify the data for a given id.
+    protected int setContent(int id, T value)
     {
-        int leadBit = getBufferIdx(id & CONTENT_INDEX_MASK, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(id & CONTENT_INDEX_MASK, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> array = contentArrays[leadBit];
-        array.set(ofs, value);
+        return contentManager.setContent(id, value);
     }
 
     protected void releaseContent(int id)
     {
-        objectAllocator.recycle(id & CONTENT_INDEX_MASK);
+        contentManager.releaseContent(id);
     }
 
     /// Called to clean up all buffers when the trie is known to no longer be needed.
@@ -1178,7 +1146,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             int existingPostContentNode;
             if (isLeaf(existingFullNode))
             {
-                existingContentId = (existingFullNode & CONTENT_AFTER_BRANCH) == 0 ? existingFullNode : NONE;
+                existingContentId = trie.shouldPresentAfterBranch(existingFullNode) ? NONE : existingFullNode;
                 existingPostContentNode = NONE;
             }
             else if (offset(existingFullNode) == PREFIX_OFFSET)
@@ -1234,8 +1202,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
             else
             {
-                trie.setContent(existingContentId, newContent);
-                return existingContentId;
+                return trie.setContent(existingContentId, newContent);
             }
         }
 
@@ -1703,7 +1670,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
             T newContent = transformer.apply(getContent(contentId), value);
 
-            if (contentAfterBranch != ((node & CONTENT_AFTER_BRANCH) != 0))
+            if (contentAfterBranch != shouldPresentAfterBranch(node))
             {
                 // We already have content, but we also need to add content on the other side of the branch.
                 if (newContent == null)
@@ -1715,8 +1682,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
             if (newContent != null)
             {
-                setContent(contentId, newContent);
-                return node;
+                return setContent(contentId, newContent);
             }
             else
             {
@@ -1735,7 +1701,11 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             if (newContent != null)
             {
                 if (!isNull(contentId))
-                    setContent(contentId, newContent);
+                {
+                    int newId = setContent(contentId, newContent);
+                    if (newId != contentId)
+                        putIntVolatile(node + contentOffset, newId);
+                }
                 else
                     putIntVolatile(node + contentOffset, addContent(newContent, contentAfterBranch));
                 return node;
@@ -1778,13 +1748,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     void completeMutation()
     {
         cellAllocator.completeMutation();
-        objectAllocator.completeMutation();
+        contentManager.completeMutation();
     }
 
     void abortMutation()
     {
         cellAllocator.abortMutation();
-        objectAllocator.abortMutation();
+        contentManager.abortMutation();
     }
 
     /// Returns true if the allocation threshold has been reached. To be called by the the writing thread (ideally, just
@@ -1822,7 +1792,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// possible to flush out before making these large allocations.
     public long usedSizeOffHeap()
     {
-        return bufferType == BufferType.ON_HEAP ? 0 : usedBufferSpace();
+        return contentManager.usedSizeOffHeap() + (bufferType == BufferType.ON_HEAP ? 0 : usedBufferSpace());
     }
 
     protected abstract long emptySizeOnHeap();
@@ -1836,8 +1806,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     public long usedSizeOnHeap()
     {
         return emptySizeOnHeap() +
-               usedObjectSpace() +
-               REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(contentCount, CONTENTS_START_SHIFT, CONTENTS_START_SIZE) +
+               contentManager.usedSizeOnHeap() +
                (bufferType == BufferType.ON_HEAP ? usedBufferSpace() : 0) +
                REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(allocatedPos, BUF_START_SHIFT, BUF_START_SIZE);
     }
@@ -1846,12 +1815,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     public long usedBufferSpace()
     {
         return allocatedPos - cellAllocator.indexCountInPipeline() * CELL_SIZE;
-    }
-
-    @VisibleForTesting
-    long usedObjectSpace()
-    {
-        return (contentCount - objectAllocator.indexCountInPipeline()) * MemoryLayoutSpecification.SPEC.getReferenceSize();
     }
 
     /// Returns the amount of memory that has been allocated for various buffers but isn't currently in use.
@@ -1869,14 +1832,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             bufferOverhead += cellAllocator.indexCountInPipeline() * CELL_SIZE;
         }
 
-        int index = contentCount;
-        int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
-        int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
-        AtomicReferenceArray<T> contentArray = contentArrays[leadBit];
-        long contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
-        contentOverhead += objectAllocator.indexCountInPipeline();
-        contentOverhead *= MemoryLayoutSpecification.SPEC.getReferenceSize();
-
+        long contentOverhead = contentManager.unusedReservedOnHeapMemory();
         return bufferOverhead + contentOverhead;
     }
 
@@ -1888,13 +1844,12 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     @VisibleForTesting
     public void releaseReferencesUnsafe()
     {
-        for (int idx : objectAllocator.indexesInPipeline())
-            setContent(formContentId(idx, false), null);
+        contentManager.releaseReferencesUnsafe();
     }
 
     /// Returns the number of values in the trie
     public int valuesCount()
     {
-        return contentCount;
+        return contentManager.valuesCount();
     }
 }

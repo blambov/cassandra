@@ -450,7 +450,67 @@ Options:
 
 Completely unknown how to implement at this point. Probably change the interfaces to let cells be passed individually.
 
-## Delete path row update and live path row update
+
+# Non-pojo content
+
+To be able to make the trie fully off-heap, we need to be able to store bytes directly in the trie. At the same time we
+need adaptors to make the trie return pojos when needed (for stage 1-3 and SAI for now).
+
+To make the latter efficient, we have to support storing ~30-bit ints directly as we currently do. On the other hand,
+we need to be able to store payloads of at least 24 (`2 * sizeof(DeletionTime)`) bytes.
+
+Perhaps the initial implementation could be:
+- Keep the current leaf encoding when the given data is up to 30 bits (sign + return path bits reserved),
+- Otherwise use new `payload` cell type to use full 32-byte cell.
+
+Upserter will always be given and must return a pointer. If its data fits in the 30 bits, a leaf-encoded one. If not, it
+should ask to be allocated space and be given a buffer to fill.
+
+## Bytes in prefix nodes, option 1
+
+It makes sense to try to use the free space in a prefix cell too. For example, the flag byte could encode:
+- 5 bits: embedded prefix offset, 0 if prefix is not embedded
+- 1 bit: main content is a pointer/leaf-encoded vs suppled as bytes
+- 1 bit: extra content is a pointer/leaf-encoded vs suppled as bytes
+- 1 bit unused for now
+
+This needs a length calculator supplied by the user, so that we can find the start of the second buffer if it is in
+the same cell.
+
+If any of these is a pointer, it immediately follows the encoding byte (i.e. flags + content1 + content2, 
+flags + content2 + bytes1 etc.). If content is not present, we encode it as a NONE pointer as before.
+
+This is complex, so we shouldn't start with it.
+
+## Bytes in prefix nodes, option 2
+
+What if we instead store 2 bits for:
+- 00 both are pointers
+- 01 main content is a pointer, extra content is bytes
+- 10 main content is bytes, extra content is a pointer
+
+and don't permit second byte array in the cell, requiring it to be a payload pointer?
+Or even fix that the only content that can be bytes is the main?
+
+This may be good enough and simplifies things a lot.
+
+Especially as the main use for this should be attaching metadata (aggregate min/max timestamp/localdeltime).
+
+## Option 3: Let user combine descent and ascent content in range tries
+
+This avoids storing the same deletion multiple times and could be:
+- before/after for range tombstones
+- covering, point, branch for row tombstones
+- branch only for partition and complex column tombstones
+
+Combine with option 2 (main can be bytes, extra is pointer) for deletion-aware trie.
+
+## When we need to store more than 32 bytes for memtables
+
+This may be fully external to the trie code and should use and reference the allocator. Maybe use a bit to also allow
+an allocator address to be given in leaf encoding.
+
+We could just as well start with this...
 
 # Done
 
@@ -522,7 +582,17 @@ Completely unknown how to implement at this point. Probably change the interface
 
 - `mappingMergeWith` to apply resolvers on null values.
 
+- Extract the object management code from InMemoryTrie to make it pluggable.
+
 # TODOs
+
+- Implement object management replacement that distributes memory from the allocator.
+
+- Make mappings for the things we store to byte sequences in allocator memory.
+
+- Fully off heap POC should be working at this point.
+
+- Figure out index handling.
 
 - Add `mappingMergeWith` to rest of trie hierarchy and test all.
 
@@ -550,9 +620,14 @@ Completely unknown how to implement at this point. Probably change the interface
 - `hasContent` flag
 - `hasDeletionBranch` flag on deletion-aware
 
-- Implement directly-stored content and adjust cell-level trie to make it fully off-heap.
-
 Maybe:
+- Implement new trie cell type for directly stored payloads of up to 32 bytes and use whenever data would fit. This
+  makes POC V2 with better reuse.
+
+- Implement user-defined handling of combining ascent and descent path content.
+
+- Implement storing data directly in prefixes, option 2.
+
 - `hasPrecedingState`/`hasSucceedingState` flag on range cursors (including sets)
 
 - `hasChildren` flag
@@ -567,6 +642,8 @@ Maybe:
     Cleared by merge.
 
   Merges clear the flag.
+
+- TrieTombstoneMarker hashsets to reuse the same addresses in allocator memory for matching markers?
 
 Difficult:
 - Change InMemoryRangeTrie cursor's skip not lose nearest content when skip acts as advance.
