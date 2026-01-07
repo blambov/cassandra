@@ -275,9 +275,7 @@ public abstract class InMemoryTrieTestBase
                             .mapToInt(src1 -> ByteComparable.length(src1, VERSION))
                             .sum();
         long ts = ObjectSizes.measureDeep(content);
-        long onh = trie.contentManager instanceof ContentManagerPojo
-            ? ObjectSizes.measureDeep(((ContentManagerPojo<?>) trie.contentManager).contentArrays)
-            : ObjectSizes.measureDeep(((ContentManagerShortLivedPojo<?>) trie.contentManager).contentArray);
+        long onh = ObjectSizes.measureDeep(((ContentManagerPojo<?>) trie.contentManager).contentArrays);
         System.out.format("Trie size on heap %,d off heap %,d measured %,d keys %,d treemap %,d\n",
                           trie.usedSizeOnHeap(), trie.usedSizeOffHeap(), onh, keysize, ts);
         System.out.format("per entry on heap %.2f off heap %.2f measured %.2f keys %.2f treemap %.2f\n",

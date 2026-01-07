@@ -64,12 +64,12 @@ public interface MemoryAllocationStrategy
 
     interface Allocator
     {
-        int makeNewSlot() throws TrieSpaceExhaustedException;
+        int allocate() throws TrieSpaceExhaustedException;
 
-        default void makeSlots(int[] indexList) throws TrieSpaceExhaustedException
+        default void allocate(int[] indexList) throws TrieSpaceExhaustedException
         {
             for (int i = indexList.length - 1; i >= 0; --i)
-                indexList[i] = makeNewSlot();
+                indexList[i] = allocate();
         }
     }
 
@@ -85,7 +85,7 @@ public interface MemoryAllocationStrategy
 
         public int allocate() throws TrieSpaceExhaustedException
         {
-            return allocator.makeNewSlot();
+            return allocator.allocate();
         }
 
         public void recycle(int index)
@@ -175,7 +175,7 @@ public interface MemoryAllocationStrategy
 
         public OpOrderReuseStrategy(Allocator allocator, OpOrder opOrder)
         {
-            this.allocator = allocator != null ? allocator : (Allocator) this;
+            this.allocator = allocator;
             this.opOrder = opOrder;
             justReleased = new IndexBlockList(null);
             awaitingBarrierTail = free = new IndexBlockList(null);
@@ -203,7 +203,7 @@ public interface MemoryAllocationStrategy
                 else
                 {
                     // Nothing available for reuse. Grab more memory.
-                    allocator.makeSlots(free.indexes);
+                    allocator.allocate(free.indexes);
                     free.count = free.indexes.length;
                 }
             }

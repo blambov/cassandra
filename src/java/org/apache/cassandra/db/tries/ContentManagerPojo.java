@@ -29,8 +29,7 @@ import static org.apache.cassandra.db.tries.InMemoryBaseTrie.REFERENCE_ARRAY_ON_
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.getBufferIdx;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.inBufferOffset;
 
-public class ContentManagerPojo<T> extends MemoryAllocationStrategy.OpOrderReuseStrategy
-implements ContentManager<T>, MemoryAllocationStrategy.Allocator
+public class ContentManagerPojo<T> implements ContentManager<T>
 {
     static final int CONTENT_FLAGS_SHIFT = 29;
     static final int CONTENT_INDEX_MASK = (1 << CONTENT_FLAGS_SHIFT) - 1;
@@ -42,24 +41,22 @@ implements ContentManager<T>, MemoryAllocationStrategy.Allocator
 
     private int contentCount = 0;
     final AtomicReferenceArray<T>[] contentArrays;
+    final MemoryAllocationStrategy objectAllocator;
 
-    public static <T> ContentManager<T> create(InMemoryBaseTrie.ExpectedLifetime lifetime, OpOrder opOrder)
+    public ContentManagerPojo(InMemoryBaseTrie.ExpectedLifetime lifetime, OpOrder opOrder)
     {
+        this.contentArrays = new AtomicReferenceArray[29 - CONTENTS_START_SHIFT];
         switch (lifetime)
         {
             case SHORT:
-                return new ContentManagerShortLivedPojo<>();
+                objectAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewObject);
+                break;
             case LONG:
-                return new ContentManagerPojo<>(opOrder);
+                objectAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewObject, opOrder);
+                break;
             default:
                 throw new AssertionError();
         }
-    }
-
-    public ContentManagerPojo(OpOrder opOrder)
-    {
-        super(null, opOrder);
-        this.contentArrays = new AtomicReferenceArray[29 - CONTENTS_START_SHIFT];
     }
 
     @Override
@@ -86,8 +83,7 @@ implements ContentManager<T>, MemoryAllocationStrategy.Allocator
 
     /// Allocate a new position in the object array. Used by the memory allocation strategy to allocate a content spot
     /// when it runs out of recycled positions.
-    @Override
-    public int makeNewSlot()
+    private int allocateNewObject()
     {
         int index = contentCount++;
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
@@ -104,7 +100,7 @@ implements ContentManager<T>, MemoryAllocationStrategy.Allocator
     @Override
     public int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException
     {
-        int index = allocate();
+        int index = objectAllocator.allocate();
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
@@ -132,7 +128,19 @@ implements ContentManager<T>, MemoryAllocationStrategy.Allocator
     @Override
     public void releaseContent(int id)
     {
-        recycle(id & CONTENT_INDEX_MASK);
+        objectAllocator.recycle(id & CONTENT_INDEX_MASK);
+    }
+
+    @Override
+    public void completeMutation()
+    {
+        objectAllocator.completeMutation();
+    }
+
+    @Override
+    public void abortMutation()
+    {
+        objectAllocator.abortMutation();
     }
 
     @Override
@@ -151,29 +159,31 @@ implements ContentManager<T>, MemoryAllocationStrategy.Allocator
     @VisibleForTesting
     long usedObjectSpace()
     {
-        return (contentCount - indexCountInPipeline()) * MemoryLayoutSpecification.SPEC.getReferenceSize();
+        return (contentCount - objectAllocator.indexCountInPipeline()) * MemoryLayoutSpecification.SPEC.getReferenceSize();
     }
 
     @Override
     @VisibleForTesting
     public long unusedReservedOnHeapMemory()
     {
+        long bufferOverhead = 0;
+
         int index = contentCount;
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> contentArray = contentArrays[leadBit];
         long contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
-        contentOverhead += indexCountInPipeline();
+        contentOverhead += objectAllocator.indexCountInPipeline();
         contentOverhead *= MemoryLayoutSpecification.SPEC.getReferenceSize();
 
-        return contentOverhead;
+        return bufferOverhead + contentOverhead;
     }
 
     @Override
     @VisibleForTesting
     public void releaseReferencesUnsafe()
     {
-        for (int idx : indexesInPipeline())
+        for (int idx : objectAllocator.indexesInPipeline())
             setContent(formContentId(idx, false), null);
     }
 

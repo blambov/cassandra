@@ -77,7 +77,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     {
         super(byteComparableVersion,
               new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
-              ContentManagerPojo.create(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+              new ContentManagerPojo<>(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
         this.bufferType = bufferType;
         this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
