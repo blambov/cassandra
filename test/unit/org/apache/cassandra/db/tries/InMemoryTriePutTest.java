@@ -25,6 +25,7 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
@@ -67,6 +68,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     @Test
     public void testOver1GSize() throws TrieSpaceExhaustedException
     {
+        CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.setInt(1024);
         InMemoryTrie<String> trie = strategy.create();
         BufferManagerMultibuf mgr = ((BufferManagerMultibuf) trie.bufferManager);
         mgr.advanceAllocatedPos(0x20000000);
@@ -85,7 +87,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         Assert.assertNull(trie.get(TrieUtil.comparable(t3)));
         Assert.assertTrue(trie.reachedAllocatedSizeThreshold());
 
-        mgr.advanceAllocatedPos(0x7FFFFEE0);  // close to 2G
+        mgr.advanceAllocatedPos(-1);  // as close to the limit as possible, next allocation should trigger an exception
         Assert.assertEquals(t1, trie.get(TrieUtil.comparable(t1)));
         Assert.assertEquals(t2, trie.get(TrieUtil.comparable(t2)));
         Assert.assertNull(trie.get(TrieUtil.comparable(t3)));

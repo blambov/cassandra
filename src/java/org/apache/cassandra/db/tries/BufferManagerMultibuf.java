@@ -168,13 +168,29 @@ public class BufferManagerMultibuf implements BufferManager
         return allocatedPos >= ALLOCATED_SIZE_THRESHOLD;
     }
 
-    /// For tests only! Advance the allocation pointer (and allocate space) by this much to test behaviour close to
-    /// full.
+    /// For tests only! Advance the allocation pointer (and allocate space) to the given position to test behaviour
+    /// close to full. If the parameter is -1, consume all the space until the next request would throw an exception.
     @VisibleForTesting
     int advanceAllocatedPos(int wantedPos) throws TrieSpaceExhaustedException
     {
+        if (wantedPos == -1)
+        {
+            if (cellAllocator instanceof MemoryAllocationStrategy.OpOrderReuseStrategy)
+                wantedPos = (int) (0x80000000L - BUF_START_SIZE - MemoryAllocationStrategy.REUSE_BLOCK_SIZE * 32);
+            else
+                wantedPos = (int) (0x80000000L - BUF_START_SIZE - 32);
+        }
+
         while (allocatedPos < wantedPos)
             allocateCell();
+
+        if (cellAllocator instanceof MemoryAllocationStrategy.OpOrderReuseStrategy)
+        {
+            // grab all the cells that were just prepared
+            for (int i = 1; i < MemoryAllocationStrategy.REUSE_BLOCK_SIZE; ++i)
+                allocateCell();
+        }
+
         return allocatedPos;
     }
 
