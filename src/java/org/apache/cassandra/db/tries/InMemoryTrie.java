@@ -122,7 +122,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
 
     protected long emptySizeOnHeap()
     {
-        return bufferType == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
+        return bufferManager.bufferType() == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
     }
 
     final private ApplyState<T> applyState = new ApplyState<>(this);

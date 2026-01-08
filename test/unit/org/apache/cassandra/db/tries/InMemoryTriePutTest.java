@@ -68,7 +68,8 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     public void testOver1GSize() throws TrieSpaceExhaustedException
     {
         InMemoryTrie<String> trie = strategy.create();
-        trie.advanceAllocatedPos(0x20000000);
+        BufferManagerMultibuf mgr = ((BufferManagerMultibuf) trie.bufferManager);
+        mgr.advanceAllocatedPos(0x20000000);
         String t1 = "test1";
         String t2 = "testing2";
         String t3 = "onemoretest3";
@@ -77,14 +78,14 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
         Assert.assertNull(trie.get(TrieUtil.comparable(t2)));
         Assert.assertFalse(trie.reachedAllocatedSizeThreshold());
 
-        trie.advanceAllocatedPos(0x40001000);  // over 1G
+        mgr.advanceAllocatedPos(0x40001000);  // over 1G
         trie.putRecursive(TrieUtil.comparable(t2), t2, (x, y) -> y);
         Assert.assertEquals(t1, trie.get(TrieUtil.comparable(t1)));
         Assert.assertEquals(t2, trie.get(TrieUtil.comparable(t2)));
         Assert.assertNull(trie.get(TrieUtil.comparable(t3)));
         Assert.assertTrue(trie.reachedAllocatedSizeThreshold());
 
-        trie.advanceAllocatedPos(0x7FFFFEE0);  // close to 2G
+        mgr.advanceAllocatedPos(0x7FFFFEE0);  // close to 2G
         Assert.assertEquals(t1, trie.get(TrieUtil.comparable(t1)));
         Assert.assertEquals(t2, trie.get(TrieUtil.comparable(t2)));
         Assert.assertNull(trie.get(TrieUtil.comparable(t3)));
@@ -107,7 +108,7 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
 
         try
         {
-            trie.advanceAllocatedPos(Integer.MAX_VALUE);
+            mgr.advanceAllocatedPos(Integer.MAX_VALUE);
             fail("InMemoryTrie.SpaceExhaustedError was expected");
         }
         catch (TrieSpaceExhaustedException e)

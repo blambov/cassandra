@@ -134,7 +134,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
     protected long emptySizeOnHeap()
     {
-        return bufferType == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
+        return bufferManager.bufferType() == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;
     }
 
     static class ApplyState<T, D extends RangeState<D>> extends InMemoryBaseTrie.ApplyState<T>

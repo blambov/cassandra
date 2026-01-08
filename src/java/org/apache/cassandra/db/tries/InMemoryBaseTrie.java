@@ -26,43 +26,18 @@ import javax.annotation.Nonnull;
 import com.google.common.annotations.VisibleForTesting;
 
 import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.github.jamm.MemoryLayoutSpecification;
 
 /// Base class for mutable in-memory tries, providing the common infrastructure for plain, range and deletion-aware
 /// in-memory tries.
 public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
-
-    /// Trie size limit. This is not enforced, but users must check from time to time that it is not exceeded (using
-    /// [#reachedAllocatedSizeThreshold()]) and start switching to a new trie if it is.
-    /// This must be done to avoid tries growing beyond their hard 2GB size limit (due to the 32-bit pointers).
-    @VisibleForTesting
-    static final int ALLOCATED_SIZE_THRESHOLD;
-
-    static
-    {
-        // Default threshold + 10% == 2 GB. This should give the owner enough time to react to the
-        // {@link #reachedAllocatedSizeThreshold()} signal and switch this trie out before it fills up.
-        int limitInMB = CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.getInt(2048 * 10 / 11);
-        if (limitInMB < 1 || limitInMB > 2047)
-            throw new AssertionError(CassandraRelevantProperties.MEMTABLE_TRIE_SIZE_LIMIT.getKey() +
-                                     " must be within 1 and 2047");
-        ALLOCATED_SIZE_THRESHOLD = 1024 * 1024 * limitInMB;
-    }
-
-    private int allocatedPos = 0;
-
-    final BufferType bufferType;    // on or off heap
-    final MemoryAllocationStrategy cellAllocator;
-
     final boolean presentForwardPathContentBeforeBranch;
 
     // constants for space calculations
@@ -76,23 +51,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean presentForwardPathContentBeforeBranch)
     {
         super(byteComparableVersion,
-              new UnsafeBuffer[31 - BUF_START_SHIFT],  // last one is 1G for a total of ~2G bytes
+              new BufferManagerMultibuf(bufferType, lifetime, opOrder),  // last one is 1G for a total of ~2G bytes
               new ContentManagerPojo<>(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
               NONE);
-        this.bufferType = bufferType;
         this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
-
-        switch (lifetime)
-        {
-            case SHORT:
-                cellAllocator = new MemoryAllocationStrategy.NoReuseStrategy(this::allocateNewCell);
-                break;
-            case LONG:
-                cellAllocator = new MemoryAllocationStrategy.OpOrderReuseStrategy(this::allocateNewCell, opOrder);
-                break;
-            default:
-                throw new AssertionError();
-        }
     }
 
     // Buffer, content list and cell management
@@ -122,53 +84,21 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         getBuffer(pos).putByte(inBufferOffset(pos), value);
     }
 
-    /// Allocate a new cell in the data buffers. This is called by the memory allocation strategy when it runs out of
-    /// free cells to reuse.
-    private int allocateNewCell() throws TrieSpaceExhaustedException
-    {
-        // Note: If this method is modified, please run InMemoryTrieTest.testOver1GSize to verify it acts correctly
-        // close to the 2G limit.
-        int v = allocatedPos;
-        if (inBufferOffset(v) == 0)
-        {
-            int leadBit = getBufferIdx(v, BUF_START_SHIFT, BUF_START_SIZE);
-            if (leadBit + BUF_START_SHIFT == 31)
-                throw new TrieSpaceExhaustedException();
-
-            ByteBuffer newBuffer = bufferType.allocate(BUF_START_SIZE << leadBit);
-            buffers[leadBit] = new UnsafeBuffer(newBuffer);
-            // Note: Since we are not moving existing data to a new buffer, we are okay with no happens-before enforcing
-            // writes. Any reader that sees a pointer in the new buffer may only do so after reading the volatile write
-            // that attached the new path.
-        }
-
-        allocatedPos += CELL_SIZE;
-        return v;
-    }
-
-    /// Allocate a cell to use for storing data. This uses the memory allocation strategy to reuse cells if any are
-    /// available, or to allocate new cells using [#allocateNewCell]. Because some node types rely on cells being
-    /// filled with 0 as initial state, any cell we get through the allocator must also be cleaned.
     private int allocateCell() throws TrieSpaceExhaustedException
     {
-        int cell = cellAllocator.allocate();
-        getBuffer(cell).setMemory(inBufferOffset(cell), CELL_SIZE, (byte) 0);
-        return cell;
+        return bufferManager.allocateCell();
     }
 
     protected void recycleCell(int cell)
     {
-        cellAllocator.recycle(cell & -CELL_SIZE);
+        bufferManager.recycleCell(cell);
     }
 
     /// Creates a copy of a given cell and marks the original for recycling. Used when a mutation needs to force-copy
     /// paths to ensure earlier states are still available for concurrent readers.
     protected int copyCell(int cell) throws TrieSpaceExhaustedException
     {
-        int copy = cellAllocator.allocate();
-        getBuffer(copy).putBytes(inBufferOffset(copy), getBuffer(cell), inBufferOffset(cell & -CELL_SIZE), CELL_SIZE);
-        recycleCell(cell);
-        return copy | (cell & (CELL_SIZE - 1));
+        return bufferManager.copyCell(cell);
     }
 
     /// Add a new content value.
@@ -190,7 +120,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// @param value new content value to store
     /// @return the id to use for the modified content; an attempt will be made to make this the same as id, but not
     ///         all content managers will be able to freely modify the data for a given id.
-    protected int setContent(int id, T value)
+    protected int setContent(int id, T value) throws TrieSpaceExhaustedException
     {
         return contentManager.setContent(id, value);
     }
@@ -203,14 +133,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// Called to clean up all buffers when the trie is known to no longer be needed.
     public void discardBuffers()
     {
-        if (bufferType == BufferType.ON_HEAP)
-            return; // no cleaning needed
-
-        for (UnsafeBuffer b : buffers)
-        {
-            if (b != null)
-                FileUtils.clean(b.byteBuffer());
-        }
+        bufferManager.discardBuffers();
     }
 
     private int copyIfOriginal(int node, int originalNode) throws TrieSpaceExhaustedException
@@ -1747,13 +1670,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     void completeMutation()
     {
-        cellAllocator.completeMutation();
+        bufferManager.completeMutation();
         contentManager.completeMutation();
     }
 
     void abortMutation()
     {
-        cellAllocator.abortMutation();
+        bufferManager.abortMutation();
         contentManager.abortMutation();
     }
 
@@ -1764,25 +1687,10 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// the trie will fail altogether when the size grows beyond 2G - 256 bytes.
     public boolean reachedAllocatedSizeThreshold()
     {
-        return allocatedPos >= ALLOCATED_SIZE_THRESHOLD;
+        return bufferManager.reachedAllocatedSizeThreshold();
     }
 
-    /// For tests only! Advance the allocation pointer (and allocate space) by this much to test behaviour close to
-    /// full.
-    @VisibleForTesting
-    int advanceAllocatedPos(int wantedPos) throws TrieSpaceExhaustedException
-    {
-        while (allocatedPos < wantedPos)
-            allocateCell();
-        return allocatedPos;
-    }
-
-    /// For tests only! Returns the current allocation position.
-    @VisibleForTesting
-    int getAllocatedPos()
-    {
-        return allocatedPos;
-    }
+    protected abstract long emptySizeOnHeap();
 
     /// Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content, or
     /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
@@ -1792,10 +1700,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// possible to flush out before making these large allocations.
     public long usedSizeOffHeap()
     {
-        return contentManager.usedSizeOffHeap() + (bufferType == BufferType.ON_HEAP ? 0 : usedBufferSpace());
+        return contentManager.usedSizeOffHeap() + bufferManager.usedSizeOffHeap();
     }
-
-    protected abstract long emptySizeOnHeap();
 
     /// Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content, or
     /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
@@ -1807,14 +1713,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     {
         return emptySizeOnHeap() +
                contentManager.usedSizeOnHeap() +
-               (bufferType == BufferType.ON_HEAP ? usedBufferSpace() : 0) +
-               REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(allocatedPos, BUF_START_SHIFT, BUF_START_SIZE);
+               bufferManager.usedSizeOnHeap();
     }
 
     @VisibleForTesting
     public long usedBufferSpace()
     {
-        return allocatedPos - cellAllocator.indexCountInPipeline() * CELL_SIZE;
+        return bufferManager.usedBufferSpace();
     }
 
     /// Returns the amount of memory that has been allocated for various buffers but isn't currently in use.
@@ -1822,18 +1727,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     @VisibleForTesting
     public long unusedReservedOnHeapMemory()
     {
-        long bufferOverhead = 0;
-        if (bufferType == BufferType.ON_HEAP)
-        {
-            int pos = this.allocatedPos;
-            UnsafeBuffer buffer = getBuffer(pos);
-            if (buffer != null)
-                bufferOverhead = buffer.capacity() - inBufferOffset(pos);
-            bufferOverhead += cellAllocator.indexCountInPipeline() * CELL_SIZE;
-        }
-
-        long contentOverhead = contentManager.unusedReservedOnHeapMemory();
-        return bufferOverhead + contentOverhead;
+        return bufferManager.unusedReservedOnHeapMemory() + contentManager.unusedReservedOnHeapMemory();
     }
 
     /// Release all recycled content references, including the ones waiting in still incomplete recycling lists.

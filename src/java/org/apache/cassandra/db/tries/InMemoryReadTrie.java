@@ -135,15 +135,15 @@ public abstract class InMemoryReadTrie<T>
     // bytes. The last two bytes contain an ordering of the transitions (in base-6) which is used for iteration. On
     // update the pointer is set last, i.e. during reads the node may show that a transition exists and list a character
     // for it, but pointer may still be null.
-    static final int SPARSE_OFFSET = CELL_SIZE - 2;
+    static final int SPARSE_OFFSET = CELL_SIZE - 3;
     // min and max offset for a chain node. A cell of chain node is laid out as a pointer at LAST_POINTER_OFFSET,
     // preceded by characters that lead to it. Thus a full chain cell contains CELL_SIZE-4 transitions/chain nodes.
     static final int CHAIN_MIN_OFFSET = 0;
     static final int CHAIN_MAX_OFFSET = CELL_SIZE - 5;
     // Prefix node, an intermediate node augmenting its child node with content.
-    static final int PREFIX_OFFSET = CELL_SIZE - 1;
-
-    // TODO: introduce payload cells (32 bytes as needed by user)
+    static final int PREFIX_OFFSET = CELL_SIZE - 2;
+    // Content node, 32 bytes to be filled by content manager
+    static final int PAYLOAD_OFFSET = CELL_SIZE - 1;
 
     /*
      Offsets and values for navigating in a cell for particular node type. Those offsets are 'from the node pointer'
@@ -201,23 +201,15 @@ public abstract class InMemoryReadTrie<T>
      inside the cell).
      */
 
-    static final int BUF_START_SHIFT = 8;
-    static final int BUF_START_SIZE = 1 << BUF_START_SHIFT;
-
-    static
-    {
-        assert BUF_START_SIZE % CELL_SIZE == 0 : "Initial buffer size must fit a full cell.";
-    }
-
-    final UnsafeBuffer[] buffers;
+    final BufferManager bufferManager;
     final ByteComparable.Version byteComparableVersion;
     final ContentManager<T> contentManager;
 
-    InMemoryReadTrie(ByteComparable.Version byteComparableVersion, UnsafeBuffer[] buffers, ContentManager<T> contentManager, int root)
+    InMemoryReadTrie(ByteComparable.Version byteComparableVersion, BufferManager bufferManager, ContentManager<T> contentManager, int root)
     {
         this.byteComparableVersion = byteComparableVersion;
         this.contentManager = contentManager;
-        this.buffers = buffers;
+        this.bufferManager = bufferManager;
         this.root = root;
     }
 
@@ -236,14 +228,12 @@ public abstract class InMemoryReadTrie<T>
 
     UnsafeBuffer getBuffer(int pos)
     {
-        int leadBit = getBufferIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return buffers[leadBit];
+        return bufferManager.getBuffer(pos);
     }
 
     int inBufferOffset(int pos)
     {
-        int leadBit = getBufferIdx(pos, BUF_START_SHIFT, BUF_START_SIZE);
-        return inBufferOffset(pos, leadBit, BUF_START_SIZE);
+        return bufferManager.inBufferOffset(pos);
     }
 
     T getContent(int id)
@@ -291,12 +281,12 @@ public abstract class InMemoryReadTrie<T>
 
     static boolean isLeaf(int node)
     {
-        return node < NONE;
+        return node < NONE || offset(node) == PAYLOAD_OFFSET;
     }
 
     static boolean isNullOrLeaf(int node)
     {
-        return node <= NONE;
+        return node <= NONE || offset(node) == PAYLOAD_OFFSET;
     }
 
     /// Returns the number of transitions in a chain cell entered with the given pointer.

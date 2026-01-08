@@ -18,8 +18,18 @@
 
 package org.apache.cassandra.db.tries;
 
+import org.agrona.concurrent.UnsafeBuffer;
+
 public interface ContentManager<T>
 {
+    interface CellAccess
+    {
+        int allocateContentCell();
+        void releaseCell(int cell);
+        UnsafeBuffer getBuffer(int cell);
+        int inBufferOffset(int cell);
+    }
+
     /// Get the content for the given content pointer.
     ///
     /// @param id content pointer, encoded as ~index where index is the position in the content array.
@@ -30,6 +40,9 @@ public interface ContentManager<T>
 
     /// Add a new content value.
     ///
+    /// @param value The value to add.
+    /// @param contentAfterBranch Whether the content should be understood to reside after the branch, i.e. it is to be
+    ///                           returned on the ascent path of the cursor walk.
     /// @return A content id that can be used to reference the content, a negative number where
     ///         `id & CONTENT_INDEX_MASK` encodes the position of the value in the content array.
     int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException;
@@ -41,7 +54,7 @@ public interface ContentManager<T>
     /// @return The id to use for the modified content; an attempt will be made to make this the same as id, but not
     ///         all content managers will be able to freely modify the data for a given id.
     ///         Implementations must ensure that if the id changes, the previous id is released.
-    int setContent(int id, T value);
+    int setContent(int id, T value) throws TrieSpaceExhaustedException;
 
     void releaseContent(int id);
 

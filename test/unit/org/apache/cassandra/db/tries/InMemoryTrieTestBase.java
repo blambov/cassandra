@@ -399,9 +399,9 @@ public abstract class InMemoryTrieTestBase
                 assertEquals(test, trie.get(mapping.apply(test)));
         }
         assertTrue(trie.isEmpty());
-        if (trie.cellAllocator instanceof MemoryAllocationStrategy.OpOrderReuseStrategy)
+        if (((BufferManagerMultibuf) trie.bufferManager).cellAllocator instanceof MemoryAllocationStrategy.OpOrderReuseStrategy)
         {
-            assertEquals(0L, trie.usedBufferSpace());
+            assertEquals(0L, trie.bufferManager.usedBufferSpace());
             assertEquals(0L, ((ContentManagerPojo<?>) trie.contentManager).usedObjectSpace());
         }
     }
