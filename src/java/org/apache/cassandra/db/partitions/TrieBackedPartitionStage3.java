@@ -292,7 +292,7 @@ public class TrieBackedPartitionStage3 implements Partition
             }
 
             TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
-            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            if (marker.hasPointData())
                 return BTreeRow.emptyDeletedRow(getClustering(bytes, byteLength),
                                                 Row.Deletion.regular(marker.deletionTime()));
             else
@@ -337,7 +337,7 @@ public class TrieBackedPartitionStage3 implements Partition
             m.delete(RangeTrie.point(comparableClustering,
                                      BYTE_COMPARABLE_VERSION,
                                      true,
-                                     TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletionTime)));
+                                     TrieTombstoneMarker.point(deletionTime)));
         }
         if (!row.isEmptyAfterDeletion())
             m.apply(DeletionAwareTrie.singleton(comparableClustering, BYTE_COMPARABLE_VERSION, rowToData(row)));
@@ -516,7 +516,7 @@ public class TrieBackedPartitionStage3 implements Partition
         if (data == null || data instanceof PartitionMarker)
             return deletion;
 
-        if (deletion == null || !deletion.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+        if (deletion == null || !deletion.hasPointData())
             return data;
 
         // This is a row combined with a point deletion.
@@ -583,7 +583,7 @@ public class TrieBackedPartitionStage3 implements Partition
             }
 
             TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
-            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            if (marker.hasPointData())
                 return BTreeRow.emptyDeletedRow(getClustering(bytes, byteLength),
                                                 Row.Deletion.regular(marker.deletionTime()));
             else if (byteLength > 0)

@@ -141,9 +141,7 @@ public class TrieBackedRow extends AbstractRow
 
     public static boolean isDroppableMarker(TrieTombstoneMarker marker)
     {
-        // We don't need to explicitly drop deletion-side row markers because deletions that cover all deletions in the
-        // branch will also cover the marker and remove it.
-        return false;  // if we ever need it, we need to check that the marker has point data and only that
+        return marker == TrieTombstoneMarker.ROW_MARKER;
     }
 
     public static TrieBackedRow create(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
@@ -262,12 +260,12 @@ public class TrieBackedRow extends AbstractRow
         return trie.mergeWith(RangeTrie.point(ByteComparable.EMPTY,
                                               BYTE_COMPARABLE_VERSION,
                                               true,
-                                              TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
+                                              TrieTombstoneMarker.ROW_MARKER),
                               TrieTombstoneMarker::mergeUpdate)
                    .mergeWith(RangeTrie.point(ByteComparable.EMPTY,
                                               BYTE_COMPARABLE_VERSION,
                                               false,
-                                              TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletion)),
+                                              TrieTombstoneMarker.ROW_MARKER),
                               TrieTombstoneMarker::mergeUpdate);
     }
 
@@ -341,9 +339,7 @@ public class TrieBackedRow extends AbstractRow
         @Override
         public void deletionMarker(TrieTombstoneMarker marker)
         {
-            if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
-                value = markerAccumulator.apply(marker.deletionTime(), value); // Covering deletion will be seen as a boundary.
-            else if (marker.isBoundary())
+            if (marker.isBoundary())
             {
                 // We only apply the function to one side of the marker; the other has to be already be seen as a
                 // succeeding side of a different marker.
@@ -593,7 +589,7 @@ public class TrieBackedRow extends AbstractRow
             return content;
         if (content instanceof LivenessInfo)
             return null;
-        if (marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+        if (marker.isRowMarker())
             return null; // do not return row deletions
         // This must be a complex column deletion marker. Return it, which will also result in skipping the return path
         // marker.
@@ -656,6 +652,8 @@ public class TrieBackedRow extends AbstractRow
 
     public static Object deleteData(TrieTombstoneMarker marker, Object existing)
     {
+        if (marker == TrieTombstoneMarker.ROW_MARKER)
+            return existing;
         DeletionTime deletion = marker.deletionTime();
         if (existing == COMPLEX_COLUMN_MARKER)
             return existing;
@@ -1079,6 +1077,9 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object deleteData(Object existing, TrieTombstoneMarker marker, ColumnData.PostReconciliationFunction reconcileF)
     {
+        if (marker == TrieTombstoneMarker.ROW_MARKER)
+            return existing;
+
         DeletionTime deletion = marker.deletionTime();
         if (existing instanceof LivenessInfo)
             return deletion.deletes((LivenessInfo) existing) ? LivenessInfo.EMPTY : existing;
@@ -1178,7 +1179,7 @@ public class TrieBackedRow extends AbstractRow
                             Predicates.alwaysFalse(),
                             Predicates.alwaysFalse(),
                             TrieBackedRow::isDroppableMarker,
-                            Predicates.alwaysFalse());
+                            TrieBackedRow::isDroppableMarker);
     }
 
     public static class Builder implements Row.Builder

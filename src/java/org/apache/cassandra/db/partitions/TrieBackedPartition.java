@@ -37,7 +37,6 @@ import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
@@ -186,8 +185,8 @@ public class TrieBackedPartition implements Partition
                   direction,
                   (live, marker) ->
                       live instanceof LivenessInfo ? live
-                                                   : marker != null && marker.hasPointData(TrieTombstoneMarker.PointDataType.ROW) ? marker
-                                                                                                                                  : null,
+                                                   : marker != null && marker.isRowMarker() ? marker
+                                                                                            : null,
                   false);
         }
 
@@ -419,7 +418,7 @@ public class TrieBackedPartition implements Partition
             // - We have a row point marker in the deletion path for a row that has no live data but column or cell
             //   deletion.
 
-            if (deletion.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            if (deletion.isRowMarker())
                 return LivenessInfo.EMPTY; // Treat this branch as a row.
             else
                 return deletion; // Range or partition deletion with empty or no tail.

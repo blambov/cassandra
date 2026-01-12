@@ -85,7 +85,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     {
         if (indexer != UpdateTransaction.NO_OP)
         {
-            if (update.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            if (update.hasPointData())
             {
                 Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
                     ByteArrayAccessor.instance,

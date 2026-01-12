@@ -101,7 +101,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     {
         if (indexer != UpdateTransaction.NO_OP)
         {
-            if (update.hasPointData(TrieTombstoneMarker.PointDataType.ROW))
+            if (update.hasPointData())
             {
                 // This row has deletions. The highest deletion time of any deletion is placed at the point data, and
                 // the row deletion is given by the boundary's succeeding side.

@@ -92,27 +92,26 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
             return existing.dropShadowed(deletion);
     }
 
-    enum PointDataType
+    default boolean isRowMarker()
     {
-        ROW,
-        COMPLEX_COLUMN
+        return false;
     }
 
-    boolean hasPointData(PointDataType pointDataType);
+    boolean hasPointData();
 
     static TrieTombstoneMarker covering(DeletionTime deletionTime)
     {
         return TrieTombstoneMarkerImpl.covering(deletionTime);
     }
 
-    static TrieTombstoneMarker point(PointDataType pointDataType, DeletionTime deletionTime)
+    static TrieTombstoneMarker point(DeletionTime deletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(pointDataType, deletionTime);
+        return TrieTombstoneMarkerImpl.point(deletionTime);
     }
 
-    static TrieTombstoneMarker point(PointDataType pointDataType, long deletedAt, int localDeletionTime)
+    static TrieTombstoneMarker point(long deletedAt, int localDeletionTime)
     {
-        return TrieTombstoneMarkerImpl.point(pointDataType, deletedAt, localDeletionTime);
+        return TrieTombstoneMarkerImpl.point(deletedAt, localDeletionTime);
     }
 
     TrieTombstoneMarker withUpdatedTimestamp(long l);
@@ -124,4 +123,6 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
     }
 
     @Nullable TrieTombstoneMarker map(Function<DeletionTime, DeletionTime> mapper);
+
+    static final TrieTombstoneMarker ROW_MARKER = new TrieTombstoneMarkerImpl.RowMarker();
 }

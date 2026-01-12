@@ -761,7 +761,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                          FORCE_COPY_PARTITION_BOUNDARY,
                          Predicates.alwaysFalse(),
                          TrieBackedRow::isDroppableMarker,
-                         Predicates.alwaysFalse())
+                         TrieBackedRow::isDroppableMarker)
                 .apply(updateTrie);
         }
         catch (TrieSpaceExhaustedException e)

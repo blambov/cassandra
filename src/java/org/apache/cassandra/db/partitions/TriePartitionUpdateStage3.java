@@ -476,7 +476,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
                 mutator.delete(RangeTrie.point(key,
                                                BYTE_COMPARABLE_VERSION,
                                                true,
-                                               TrieTombstoneMarker.point(TrieTombstoneMarker.PointDataType.ROW, deletionTime)));
+                                               TrieTombstoneMarker.point(deletionTime)));
             }
             catch (TrieSpaceExhaustedException e)
             {
