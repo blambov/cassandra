@@ -116,7 +116,7 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     }
 
     @Override
-    public int setContent(int id, T value)
+    public int setContent(int id, T value) throws TrieSpaceExhaustedException // descendants may throw
     {
         int leadBit = getBufferIdx(id & CONTENT_INDEX_MASK, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(id & CONTENT_INDEX_MASK, leadBit, CONTENTS_START_SIZE);
@@ -183,8 +183,15 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     @VisibleForTesting
     public void releaseReferencesUnsafe()
     {
-        for (int idx : objectAllocator.indexesInPipeline())
-            setContent(formContentId(idx, false), null);
+        try
+        {
+            for (int idx : objectAllocator.indexesInPipeline())
+                setContent(formContentId(idx, false), null);
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override

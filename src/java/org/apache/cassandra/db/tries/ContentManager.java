@@ -22,14 +22,6 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 public interface ContentManager<T>
 {
-    interface CellAccess
-    {
-        int allocateContentCell();
-        void releaseCell(int cell);
-        UnsafeBuffer getBuffer(int cell);
-        int inBufferOffset(int cell);
-    }
-
     /// Get the content for the given content pointer.
     ///
     /// @param id content pointer, encoded as ~index where index is the position in the content array.
@@ -59,7 +51,6 @@ public interface ContentManager<T>
     void releaseContent(int id);
 
     void completeMutation();
-
     void abortMutation();
 
 
