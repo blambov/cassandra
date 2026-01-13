@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 ///
 /// To save some object creation, the `Covering` subtype extends `DeletionTime`, and the `Boundary` subtypes stores the
 /// sides as instances of `Covering`.
-interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
+public interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
 {
     Covering leftDeletion();
     Covering rightDeletion();
@@ -741,6 +741,12 @@ interface TrieTombstoneMarkerImpl extends TrieTombstoneMarker
         public TrieTombstoneMarker asBoundary(Direction direction)
         {
             return null;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "RowMarker";
         }
     }
 }

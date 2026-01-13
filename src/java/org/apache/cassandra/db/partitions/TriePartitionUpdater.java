@@ -30,16 +30,17 @@ import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.TrieBackedRow;
+import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.memory.Cloner;
 
 import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
 
@@ -49,9 +50,7 @@ import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
 public final class TriePartitionUpdater
 implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 {
-    final Cloner cloner;
     public long dataSize = 0;
-    public long heapSize = 0;
     public long colUpdateTimeDelta = Long.MAX_VALUE;
 
     private final UpdateTransaction indexer;
@@ -62,13 +61,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     private final DeletionTime partitionLevelDeletion; // needed for indexer
     public int partitionsAdded = 0;
 
-    public TriePartitionUpdater(Cloner cloner,
-                                UpdateTransaction indexer,
+    public TriePartitionUpdater(UpdateTransaction indexer,
                                 PartitionUpdate update,
                                 TableMetadata metadata,
                                 TrieMemtable.MemtableShard owner)
     {
-        this.cloner = cloner;
         this.indexer = indexer;
         this.metadata = metadata;
         this.owner = owner;
@@ -86,7 +83,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     public Object apply(@Nullable Object existing, Object update, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         if (update instanceof Cell)
-            return applyCell((Cell<?>) existing, (Cell<?>) update, keyState);
+            return applyCell((TrieCellData) existing, (Cell<?>) update, keyState);
         else if (update == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return update; // TODO check if something else needs to be done
         else if (update instanceof LivenessInfo)
@@ -159,13 +156,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         if (existing == null)
         {
             currentPartition.markAddedTombstones(1);
-            this.heapSize += update.unsharedHeapSize();
             return update;
         }
         else
         {
             TrieTombstoneMarker merged = update.mergeWith(existing);
-            this.heapSize += (merged != null ? merged.unsharedHeapSize() : 0) - existing.unsharedHeapSize();
             return merged;
         }
     }
@@ -173,8 +168,8 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         // Most common case first
-        if (existingContent instanceof Cell)
-            return applyCellDeletion((Cell<?>) existingContent, updateMarker);
+        if (existingContent instanceof CellData)
+            return applyCellDeletion((CellData) existingContent, updateMarker);
         else if (existingContent == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return existingContent; // TODO: How can we check if there's remaining data and remove this if there is none? Cell counter in marker?
         else if (existingContent instanceof LivenessInfo)
@@ -185,12 +180,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             throw new AssertionError("Unexpected content in trie " + existingContent + " for deletion " + updateMarker);
     }
 
-    private Cell<?> applyCellDeletion(Cell<?> existingContent, TrieTombstoneMarker updateMarker)
+    private CellData applyCellDeletion(CellData existingContent, TrieTombstoneMarker updateMarker)
     {
         if (!updateMarker.deletionTime().deletes(existingContent))
             return existingContent;
-        heapSize -= existingContent.unsharedHeapSizeExcludingData();
-        dataSize -= existingContent.dataSize();
+        dataSize -= existingContent.valueSize();
         return null;
     }
 
@@ -209,7 +203,6 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
         if (rowDeletion.deletionTime().deletes(existing))
         {
-            this.heapSize -= existing.unsharedHeapSize();
             return LivenessInfo.EMPTY; // TODO: How can we remove this if nothing survives? Cell counter in row data and return path processing?
             // TODO: and also do currentPartition.markInsertedRows(-1) in that case?
             // TODO: Does strict row liveness apply here? How do we drop tail trie if it does?
@@ -269,7 +262,6 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 //                indexer.onInserted(insert.toRow(clusteringFor(keyState), DeletionTime.LIVE));
 
             this.dataSize += insert.dataSize();
-            this.heapSize += insert.unsharedHeapSize();
             currentPartition.markInsertedRows(1);  // null pointer here means a problem in applyDeletion
             return insert;
         }
@@ -288,34 +280,27 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             if (reconciled != existing)
             {
                 this.dataSize += reconciled.dataSize() - existing.dataSize();
-                this.heapSize += reconciled.unsharedHeapSize() - existing.unsharedHeapSize();
             }
             return reconciled;
         }
     }
 
-    private Cell<?> applyCell(@Nullable Cell<?> existing, Cell<?> update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private CellData applyCell(@Nullable TrieCellData existing, Cell<?> update, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         if (existing == null)
         {
-            if (cloner != null)
-                update = cloner.clone(update);
             this.dataSize += update.dataSize();
-            this.heapSize += update.unsharedHeapSizeExcludingData();
             return update;
         }
         else
         {
-            Cell<?> reconciled = Cells.reconcile(existing, update);
+            CellData reconciled = Cells.reconcile(existing, update);
             if (reconciled != existing)
             {
                 long timeDelta = Math.abs(reconciled.timestamp() - existing.timestamp());
                 if (timeDelta < colUpdateTimeDelta)
                     colUpdateTimeDelta = timeDelta;
-                if (cloner != null)
-                    reconciled = cloner.clone(reconciled);
-                this.dataSize += reconciled.dataSize() - existing.dataSize();
-                this.heapSize += reconciled.unsharedHeapSizeExcludingData() - existing.unsharedHeapSizeExcludingData();
+                this.dataSize += reconciled.valueSize() - existing.valueSize();
             }
             return reconciled;
         }
@@ -344,9 +329,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
         if (existing == null)
         {
-            // Note: Always on-heap, regardless of cloner
             PartitionData newRef = new PartitionData(owner);
-            this.heapSize += newRef.unsharedHeapSize();
             ++this.partitionsAdded;
             return currentPartition = newRef;
         }

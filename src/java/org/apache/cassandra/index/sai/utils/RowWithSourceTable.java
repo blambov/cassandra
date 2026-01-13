@@ -331,7 +331,7 @@ public class RowWithSourceTable implements Row
         if (c instanceof Cell<?>)
             return new CellWithSourceTable<>((Cell<?>) c, source);
         if (c instanceof ComplexColumnData)
-            return ((ComplexColumnData) c).transform(c1 -> new CellWithSourceTable<>(c1, source));
+            return new ComplexColumnWithSourceTable((ComplexColumnData) c, source);
         throw new IllegalStateException("Unexpected ColumnData type: " + c.getClass().getName());
     }
 

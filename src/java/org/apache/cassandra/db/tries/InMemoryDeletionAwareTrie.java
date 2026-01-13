@@ -62,7 +62,12 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
     InMemoryDeletionAwareTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
-        super(byteComparableVersion, bufferType, lifetime, opOrder, false); // TODO
+        super(byteComparableVersion, bufferType, lifetime, opOrder, false);
+    }
+
+    InMemoryDeletionAwareTrie(ByteComparable.Version version, BufferManager bufferManager, ContentManager<T> contentManager)
+    {
+        super(version, bufferManager, contentManager, false);
     }
 
     public static <T, D extends RangeState<D>>
@@ -87,6 +92,14 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
         return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
+    }
+
+    public static <T, D extends RangeState<D>>
+    InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder, ContentSerializer<T> contentSerializer)
+    {
+        BufferManagerMultibuf bufferManager = new BufferManagerMultibuf(bufferType, ExpectedLifetime.LONG, opOrder);
+        ContentManager<T> contentManager = new ContentManagerBytes<>(contentSerializer, bufferManager);
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferManager, contentManager);
     }
 
     static class DeletionAwareInMemoryCursor<T, D extends RangeState<D>>

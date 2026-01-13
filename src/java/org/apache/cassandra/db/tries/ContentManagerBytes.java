@@ -19,38 +19,13 @@
 package org.apache.cassandra.db.tries;
 
 import org.agrona.concurrent.UnsafeBuffer;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.PAYLOAD_OFFSET;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.offset;
 
-public class ContentManagerBytes<T> implements ContentManager<T>
+class ContentManagerBytes<T> implements ContentManager<T>
 {
-    interface ContentSerializer<T>
-    {
-        // size cannot be more than 32 bytes
-        int serializedSizeOrSpecial(T content, boolean shouldPresentAfterBranch);
-        T special(int id);
-        // Has serialized size bytes to work with
-        void serialize(T content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset);
-        // Must know/store the length of the payload
-        T deserialize(UnsafeBuffer buffer, int offset);
-
-        // uses same shouldPresentAfterBranch value
-        boolean setInPlace(UnsafeBuffer buffer, int offset, T newContent);
-
-        boolean releaseNeeded(int id);
-        void releaseContent(UnsafeBuffer buffer, int offset);
-
-        boolean shouldPresentSpecialAfterBranch(int id);
-        boolean shouldPresentAfterBranch(UnsafeBuffer buffer, int offset);
-
-        void completeMutation();
-        void abortMutation();
-
-        long usedSizeOnHeap();
-        long usedSizeOffHeap();
-    }
-
     private final ContentSerializer<T> serializer;
     private final BufferManager bufferManager;
 
@@ -137,7 +112,12 @@ public class ContentManagerBytes<T> implements ContentManager<T>
     @Override
     public String dumpContentId(int id)
     {
-        return String.format("%08x", id);
+        if (id < 0)
+            return Integer.toString(id);
+        assert offset(id) == PAYLOAD_OFFSET;
+        int cell = id - PAYLOAD_OFFSET;
+        int offset = bufferManager.inBufferOffset(cell);
+        return ByteBufferUtil.bytesToHex(bufferManager.getBuffer(cell).byteBuffer().duplicate().position(offset).limit(offset+32));
     }
 
     @Override

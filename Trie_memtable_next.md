@@ -588,6 +588,10 @@ We could just as well start with this...
 
 - Implement object management replacement that distributes memory from the allocator.
 
+- Reuse TriePartitionUpdater now that it doesn't use cloner
+
+- Improve danglingMetadataCleaner to not materialize objects
+
 - Make mappings for the things we store to byte sequences in allocator memory.
 
 - Fully off heap POC should be working at this point.
@@ -690,6 +694,7 @@ Memtable in heap_buffers mode: 215000 ops, 10.743MiB serialized bytes, 75.169MiB
 Memtable in offheap_buffers mode: 215000 ops, 10.743MiB serialized bytes, 78.754MiB (4%) on-heap, 3.586MiB (0%) off-heap
 Memtable in offheap_objects mode: 215000 ops, 10.743MiB serialized bytes, 42.386MiB (2%) on-heap, 9.208MiB (0%) off-heap
 
+Memtable in offheap_objects mode: 4150000 ops, 208.521MiB serialized bytes, 675.011MiB (34%) on-heap, 176.001MiB (9%) off-heap
 ```
 
 Stage 1
@@ -699,6 +704,7 @@ Memtable in heap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.651MiB
 Memtable in offheap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.928MiB (3%) on-heap, 5.902MiB (0%) off-heap
 Memtable in offheap_objects mode: 215000 ops, 10.247MiB serialized bytes, 35.465MiB (2%) on-heap, 11.276MiB (1%) off-heap
 
+Memtable in offheap_objects mode: 4150000 ops, 203.562MiB serialized bytes, 605.671MiB (31%) on-heap, 214.907MiB (11%) off-heap
 ```
 
 Stage 2
@@ -707,6 +713,8 @@ Memtable in unslabbed_heap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 
 Memtable in heap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 50.802MiB (3%) on-heap, 0B (0%) off-heap
 Memtable in offheap_buffers mode: 215000 ops, 8.488MiB serialized bytes, 38.691MiB (2%) on-heap, 15.163MiB (1%) off-heap
 Memtable in offheap_objects mode: 215000 ops, 8.488MiB serialized bytes, 23.432MiB (1%) on-heap, 19.169MiB (1%) off-heap
+
+Memtable in offheap_objects mode: 4150000 ops, 168.800MiB serialized bytes, 439.544MiB (22%) on-heap, 355.132MiB (18%) off-heap
 ```
 
 Stage 3
@@ -715,6 +723,8 @@ Memtable in unslabbed_heap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 
 Memtable in heap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 50.045MiB (3%) on-heap, 0B (0%) off-heap
 Memtable in offheap_buffers mode: 200000 ops, 6.104MiB serialized bytes, 37.171MiB (2%) on-heap, 15.926MiB (1%) off-heap
 Memtable in offheap_objects mode: 200000 ops, 6.104MiB serialized bytes, 21.912MiB (1%) on-heap, 19.931MiB (1%) off-heap
+
+Memtable in offheap_objects mode: 4250000 ops, 122.070MiB serialized bytes, 409.032MiB (21%) on-heap, 362.761MiB (18%) off-heap
 ```
 
 Stage 4
@@ -726,8 +736,33 @@ Memtable in offheap_objects mode: 215000 ops, 6.142MiB serialized bytes, 13.901M
 ```
 
 
+Fully off-heap
+```
+Memtable in unslabbed_heap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 36.156MiB (2%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 36.156MiB (2%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 90.750KiB (0%) on-heap, 36.068MiB (2%) off-heap
+Memtable in offheap_objects mode: 230000 ops, 6.104MiB serialized bytes, 90.500KiB (0%) on-heap, 36.068MiB (2%) off-heap
+
+Memtable in offheap_objects mode: 4300000 ops, 122.070MiB serialized bytes, 92.500KiB (0%) on-heap, 651.915MiB (33%) off-heap
+```
 
 
+
+```
+Skip list: Memtable in offheap_objects mode: 675.011MiB (34%) on-heap, 176.001MiB (9%) off-heap
+Stage 1:   Memtable in offheap_objects mode: 605.671MiB (31%) on-heap, 214.907MiB (11%) off-heap
+Stage 2:   Memtable in offheap_objects mode: 439.544MiB (22%) on-heap, 355.132MiB (18%) off-heap
+Stage 3:   Memtable in offheap_objects mode: 409.032MiB (21%) on-heap, 362.761MiB (18%) off-heap
+Stage 5:   Memtable in offheap_objects mode: 92.500KiB (0%) on-heap, 651.915MiB (33%) off-heap
+
+
+Skip list: Memtable in offheap_objects mode: 42.386MiB (2%) on-heap, 9.208MiB (0%) off-heap
+Stage 1:   Memtable in offheap_objects mode: 35.465MiB (2%) on-heap, 11.276MiB (1%) off-heap
+Stage 2:   Memtable in offheap_objects mode: 23.432MiB (1%) on-heap, 19.169MiB (1%) off-heap
+Stage 3:   Memtable in offheap_objects mode: 21.912MiB (1%) on-heap, 19.931MiB (1%) off-heap
+Stage 4:   Memtable in offheap_objects mode: 13.901MiB (1%) on-heap, 26.188MiB (1%) off-heap
+Stage 5:   Memtable in offheap_objects mode: 90.500KiB (0%) on-heap, 36.068MiB (2%) off-heap
+```
 
 
 

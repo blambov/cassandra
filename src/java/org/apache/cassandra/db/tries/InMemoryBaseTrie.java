@@ -50,10 +50,15 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder, boolean presentForwardPathContentBeforeBranch)
     {
-        super(byteComparableVersion,
-              new BufferManagerMultibuf(bufferType, lifetime, opOrder),  // last one is 1G for a total of ~2G bytes
-              new ContentManagerPojo<>(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
-              NONE);
+        this(byteComparableVersion,
+             new BufferManagerMultibuf(bufferType, lifetime, opOrder),  // last one is 1G for a total of ~2G bytes
+             new ContentManagerPojo<>(lifetime, opOrder),  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+             presentForwardPathContentBeforeBranch);
+    }
+
+    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, BufferManager bufferManager, ContentManager<T> contentManager, boolean presentForwardPathContentBeforeBranch)
+    {
+        super(byteComparableVersion, bufferManager, contentManager, NONE);
         this.presentForwardPathContentBeforeBranch = presentForwardPathContentBeforeBranch;
     }
 
@@ -1497,9 +1502,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             {
                 T existingContent = state.getDescentPathContent();
                 T combinedContent = transformer.apply(existingContent, content, state);
-
-                state.setDescentPathContent(combinedContent, // can be null
-                                            state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
+                if (combinedContent != existingContent)
+                    state.setDescentPathContent(combinedContent, // can be null
+                                                state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
             }
         }
 

@@ -65,7 +65,7 @@ public abstract class Cells
      * For non-counter cells, this will always be either {@code c1} or {@code c2}, but for
      * counter cells this can be a newly allocated cell.
      */
-    public static Cell<?> reconcile(Cell<?> c1, Cell<?> c2)
+    public static <C extends CellData> C reconcile(C c1, C c2)
     {
         if (c1 == null || c2 == null)
             return c2 == null ? c1 : c2;
@@ -76,7 +76,7 @@ public abstract class Cells
         return resolveRegular(c1, c2);
     }
 
-    private static Cell<?> resolveRegular(Cell<?> left, Cell<?> right)
+    private static <C extends CellData> C resolveRegular(C left, C right)
     {
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
@@ -118,7 +118,7 @@ public abstract class Cells
         return compareValues(left, right) >= 0 ? left : right;
     }
 
-    private static Cell<?> resolveCounter(Cell<?> left, Cell<?> right)
+    private static <C extends CellData> C resolveCounter(C left, C right)
     {
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
@@ -158,7 +158,7 @@ public abstract class Cells
         else if (merged == rightValue && timestamp == rightTimestamp)
             return right;
         else // merge clocks and timestamps.
-            return new BufferCell(left.column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged, left.path());
+            return (C) left.withNewValue(timestamp, merged); // Cell.withNewValue returns Cell
     }
 
     /**
@@ -238,7 +238,7 @@ public abstract class Cells
         return iterator == null || !iterator.hasNext() ? null : iterator.next();
     }
 
-    private static <L, R> int compareValues(Cell<L> left, Cell<R> right)
+    private static <L, R> int compareValues(CellData<L> left, CellData<R> right)
     {
         return ValueAccessor.compare(left.value(), left.accessor(), right.value(), right.accessor());
     }

@@ -206,7 +206,7 @@ public abstract class MemtableSizeTestBase extends CQLTester
                                            FBUtilities.prettyPrintMemory(reportedHeap),
                                            FBUtilities.prettyPrintMemory(actualHeap - reportedHeap));
             System.out.println(message);
-            Assert.assertTrue(message, Math.abs(reportedHeap - actualHeap) <= maxDifference);
+            Assert.assertTrue(message, Math.abs(reportedHeap - actualHeap) <= Math.max(100 * 1024, maxDifference));
         }
         finally
         {

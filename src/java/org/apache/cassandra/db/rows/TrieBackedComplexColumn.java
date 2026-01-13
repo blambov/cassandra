@@ -56,35 +56,46 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     // Used by CNDB
     public boolean hasCells() {
-        return data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class).hasNext();
+        return data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, CellData.class).hasNext();
     }
 
     public int cellsCount()
     {
-        return Iterators.size(data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, Cell.class));
+        return Iterators.size(data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, CellData.class));
     }
 
     public Cell<?> getCell(CellPath path)
     {
-        Cell<?> cell = (Cell<?>) data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
-        if (cell == null)
-            return null;
-        return cell.withPath(path);
+        Object cell = data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
+        if (cell == null || cell instanceof Cell)
+            return (Cell<?>) cell;
+        return ((TrieCellData) cell).toCell(column, path);
     }
 
     public Cell<?> getCellByIndex(int idx)
     {
-        var entry = Iterators.get(data.contentOnlyTrie().filteredEntryIterator(Direction.FORWARD, Cell.class), idx, null);
-        if (entry == null)
-            return null;
-        Cell<?> cell = entry.getValue();
-        return cell.withPath(TrieBackedRow.cellPath(cell.column, entry.getKey().getPreencodedBytes()));
+        var entry = Iterators.get(data.contentOnlyTrie().filteredEntryIterator(Direction.FORWARD, CellData.class), idx, null);
+        return cellDataToCell(entry.getValue(), entry.getKey());
+    }
+
+    private Cell<?> cellDataToCell(CellData value, byte[] keyBytes, int keyLength)
+    {
+        if (value instanceof Cell)
+            return (Cell<?>) value;
+        return ((TrieCellData) value).toCell(column, TrieBackedRow.cellPath(column, ByteSource.preencoded(keyBytes, 0, keyLength)));
+    }
+
+    private Cell<?> cellDataToCell(CellData value, ByteComparable.Preencoded key)
+    {
+        if (value instanceof Cell)
+            return (Cell<?>) value;
+        return ((TrieCellData) value).toCell(column, TrieBackedRow.cellPath(column, key.getPreencodedBytes()));
     }
 
     @VisibleForTesting
-    public Cell<?> getCellWithoutPath(CellPath path)
+    public CellData<?> getCellWithoutPath(CellPath path)
     {
-        return (Cell<?>) data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
+        return (CellData<?>) data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
     }
 
     /**
@@ -104,7 +115,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         return del != null ? del : DeletionTime.LIVE;
     }
 
-    static class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
+    class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>
     {
         protected CellsWithPath(Trie<Object> trie, Direction direction)
         {
@@ -114,14 +125,10 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         @Override
         protected Cell<?> mapContent(Object content, byte[] bytes, int byteLength)
         {
-            if (!(content instanceof Cell))
+            if (!(content instanceof CellData))
                 return null;
 
-            Cell<?> c = (Cell<?>) content;
-            if (c.path() != null)
-                return c;
-            ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-            return c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
+            return cellDataToCell((CellData) content, bytes, byteLength);
         }
     }
 
@@ -136,19 +143,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @Override
-    public ComplexColumnData transformAndFilter(Function<? super Cell<?>, ? extends Cell<?>> function)
-    {
-        return new TrieBackedComplexColumn(column, data.mapValues(x -> x instanceof Cell ? function.apply((Cell<?>) x)
-                                                                                         : x));
-    }
-
-    @Override
-    public <V> ComplexColumnData transform(Function<? super Cell<?>, ? extends Cell<?>> function)
-    {
-        return transformAndFilter(function);
-    }
-
-    @Override
     public long accumulate(LongAccumulator<Cell<?>> accumulator, long initialValue)
     {
         class Accumulator extends TrieEntriesWalker<Object, Accumulator>
@@ -158,14 +152,17 @@ public class TrieBackedComplexColumn extends ComplexColumnData
             @Override
             protected void content(Object content, byte[] bytes, int byteLength)
             {
-                if (!(content instanceof Cell))
+                if (!(content instanceof CellData))
                     return;
 
-                Cell<?> c = (Cell<?>) content;
-                if (c.path() == null)
+                Cell<?> c;
+                if (content instanceof Cell)
+                    c = (Cell<?>) content;
+                else
                 {
+                    TrieCellData tcd = (TrieCellData) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
+                    c = tcd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
                 longValue = accumulator.apply(c, longValue);
             }
@@ -189,14 +186,17 @@ public class TrieBackedComplexColumn extends ComplexColumnData
             @Override
             protected void content(Object content, byte[] bytes, int byteLength)
             {
-                if (!(content instanceof Cell))
+                if (!(content instanceof CellData))
                     return;
 
-                Cell<?> c = (Cell<?>) content;
-                if (c.path() == null)
+                Cell<?> c;
+                if (content instanceof Cell)
+                    c = (Cell<?>) content;
+                else
                 {
+                    TrieCellData tcd = (TrieCellData) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = c.withPath(TrieBackedRow.cellPath(c.column, pathBytes));
+                    c = tcd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
                 longValue = accumulator.apply(arg, c, longValue);
             }

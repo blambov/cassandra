@@ -43,6 +43,7 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.memtable.AbstractAllocatorMemtable;
 import org.apache.cassandra.db.memtable.TrieMemtable;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedComplexColumn;
 import org.apache.cassandra.db.rows.TrieBackedRow;
@@ -54,6 +55,7 @@ import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
@@ -352,7 +354,7 @@ public class TrieBackedPartitionMemtableAccountingTest
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 Cloner cloner = allocator.cloner(writeOp);
-                TriePartitionUpdater updater = new TriePartitionUpdater(cloner, indexer, update, metadata, null);
+                TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata, null);
                 TrieMemtable.mergeUpdate(trie, allocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
                 opOrder.newBarrier().issue();
 
@@ -372,7 +374,7 @@ public class TrieBackedPartitionMemtableAccountingTest
                 opOrder.newBarrier().issue();
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 Cloner cloner = recreatedAllocator.cloner(writeOp);
-                TriePartitionUpdater updater = new TriePartitionUpdater(cloner, indexer, update, metadata, null);
+                TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata, null);
                 TrieMemtable.mergeUpdate(recreatedTrie, recreatedAllocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
             }
 
@@ -460,10 +462,12 @@ public class TrieBackedPartitionMemtableAccountingTest
         return size;
     }
 
-    private static long sizeOf(Cell cell)
+    private static long sizeOf(CellData cell)
     {
         if (cell instanceof NativeCell)
             return ((NativeCell) cell).offHeapSize();
+        if (cell instanceof TrieCellData)
+            return ((TrieCellData) cell).offTrieSize();
         return cell.valueSize(); // path is in trie
     }
 }

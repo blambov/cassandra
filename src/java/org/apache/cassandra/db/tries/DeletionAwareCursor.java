@@ -236,8 +236,8 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
             return null;
         if (!state.isBoundary())
             return state;
-        boolean dropLeft = state.precedingState(Direction.FORWARD) == toDrop;
-        boolean dropRight = state.succedingState(Direction.FORWARD) == toDrop;
+        boolean dropLeft = toDrop.equals(state.precedingState(Direction.FORWARD));
+        boolean dropRight = toDrop.equals(state.succedingState(Direction.FORWARD));
         if (!dropLeft && !dropRight)
             return state;
         return state.restrict(!dropLeft, !dropRight);
