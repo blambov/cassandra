@@ -84,13 +84,17 @@ class ContentManagerBytes<T> implements ContentManager<T>
         // Otherwise we need to move the content.
         if (serializer.releaseNeeded(id))
             serializer.releaseContent(buffer, offset);
+        bufferManager.recycleCell(id);
         return addContent(value, serializer.shouldPresentAfterBranch(buffer, offset));
     }
 
     @Override
     public void releaseContent(int id)
     {
-        if (id < 0 || !serializer.releaseNeeded(id))
+        if (id < 0)
+            return;
+        bufferManager.recycleCell(id);
+        if (!serializer.releaseNeeded(id))
             return;
         assert offset(id) == PAYLOAD_OFFSET;
         int cell = id - PAYLOAD_OFFSET;
@@ -113,11 +117,11 @@ class ContentManagerBytes<T> implements ContentManager<T>
     public String dumpContentId(int id)
     {
         if (id < 0)
-            return Integer.toString(id);
+            return serializer.dumpSpecial(id);
+
         assert offset(id) == PAYLOAD_OFFSET;
         int cell = id - PAYLOAD_OFFSET;
-        int offset = bufferManager.inBufferOffset(cell);
-        return ByteBufferUtil.bytesToHex(bufferManager.getBuffer(cell).byteBuffer().duplicate().position(offset).limit(offset+32));
+        return serializer.dumpContent(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
     }
 
     @Override

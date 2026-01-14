@@ -52,14 +52,13 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdater;
-import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.TrieTombstoneMarkerImpl;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.db.tries.ContentManagerPojo;
 import org.apache.cassandra.db.tries.ContentSerializer;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
@@ -79,6 +78,7 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TrieMemtableMetricsView;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.MBeanWrapper;
@@ -91,7 +91,6 @@ import org.apache.cassandra.utils.memory.MemoryUtil;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
 import org.apache.cassandra.utils.memory.MemtableBufferAllocator;
 import org.apache.cassandra.utils.memory.NativeAllocator;
-import org.apache.cassandra.utils.memory.SlabAllocator;
 import org.github.jamm.Unmetered;
 
 public class TrieMemtable extends AbstractAllocatorMemtable
@@ -969,7 +968,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
     }
 
-    static class TrieSerializer implements ContentSerializer<Object>
+    @VisibleForTesting
+    public static class TrieSerializer implements ContentSerializer<Object>
     {
         final CellDataBufferManager manager;
         final MemtableShard owner;
@@ -992,7 +992,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         static final byte TYPE_TOMBSTONE_MARKER = 0x20;
         static final byte TYPE_PARTITION_DATA = 0x30;
 
-        TrieSerializer(CellDataBufferManager manager,
+        @VisibleForTesting
+        public TrieSerializer(CellDataBufferManager manager,
                        MemtableShard owner)
         {
             this.manager = manager;
@@ -1007,7 +1008,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 assert !shouldPresentAfterBranch;
                 return COMPLEX_COLUMN_ID;
             }
-            if (content == LivenessInfo.EMPTY)
+            if (content == LivenessInfo.EMPTY || content instanceof LivenessInfo && LivenessInfo.EMPTY.equals(content))
             {
                 assert !shouldPresentAfterBranch;
                 return EMPTY_LIVENESS_ID;
@@ -1047,9 +1048,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             assert !shouldPresentAfterBranch || content instanceof TrieTombstoneMarker;
             // most common first
-            if (content instanceof Cell<?>)
+            if (content instanceof CellData<?>)
             {
-                TrieCellData.serialize((Cell<?>) content, buffer, offset, manager);
+                TrieCellData.serialize((CellData<?>) content, buffer, offset, manager);
             }
             else if (content instanceof LivenessInfo)
             {
@@ -1190,9 +1191,28 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             // managed separately in allocator
             return 0;
         }
+
+        @Override
+        public String dumpSpecial(int id)
+        {
+            return "Payload: " + special(id).toString();
+        }
+
+        @Override
+        public String dumpContent(UnsafeBuffer buffer, int offset)
+        {
+            int flags = buffer.getByte(offset + 0x1F);
+            return String.format("Payload: flags %02x data %016x %08x %08x %s",
+                                 flags,
+                                 buffer.getLong(offset + 0),
+                                 buffer.getInt(offset + 8),
+                                 buffer.getInt(offset + 12),
+                                 ByteBufferUtil.bytesToHex(buffer.byteBuffer().duplicate().position(offset + 16).limit(offset + 31)));
+        }
     }
 
-    static abstract class CellDataBufferManager implements TrieCellData.ExternalBufferSaver, TrieCellData.ExternalBufferLoader
+    @VisibleForTesting
+    public static abstract class CellDataBufferManager implements TrieCellData.ExternalBufferSaver, TrieCellData.ExternalBufferLoader
     {
         OpOrder.Group opOrderGroup;
 
@@ -1202,14 +1222,16 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
     }
 
-    static class SlabBufferManager extends CellDataBufferManager
+    @VisibleForTesting
+    public static class SlabBufferManager extends CellDataBufferManager
     {
         final MemtableBufferAllocator allocator;
         final long bufferSizeOnHeap;
         // maybe use ContentManagerPojo for this
         final ArrayList<ByteBuffer> buffers; // no need for this to be volatile, modifications will be made visible by separate volatile set
 
-        SlabBufferManager(MemtableBufferAllocator allocator, long bufferSizeOnHeap)
+        @VisibleForTesting
+        public SlabBufferManager(MemtableBufferAllocator allocator, long bufferSizeOnHeap)
         {
             this.allocator = allocator;
             this.bufferSizeOnHeap = bufferSizeOnHeap;
@@ -1239,11 +1261,13 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
     }
 
-    static class NativeBufferManager extends CellDataBufferManager
+    @VisibleForTesting
+    public static class NativeBufferManager extends CellDataBufferManager
     {
         final NativeAllocator allocator;
 
-        NativeBufferManager(NativeAllocator allocator)
+        @VisibleForTesting
+        public NativeBufferManager(NativeAllocator allocator)
         {
             this.allocator = allocator;
         }

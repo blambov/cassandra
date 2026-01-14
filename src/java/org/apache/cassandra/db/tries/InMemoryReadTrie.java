@@ -1348,18 +1348,19 @@ public abstract class InMemoryReadTrie<T>
                 switch (offset(node))
                 {
                     case SPARSE_OFFSET:
-                        type = "[SPARSE]";
+                        type = String.format("[SPARSE@%x]", node);
                         break;
                     case SPLIT_OFFSET:
-                        type = "[SPLIT]";
+                        type = String.format("[SPLIT@%x]", node);
                         break;
                     case PREFIX_OFFSET:
                         throw new AssertionError("Unexpected prefix as cursor currentNode.");
                     default:
-                        type = "[CHAIN]";
+                        type = String.format("[CHAIN@%x]", node);
                         break;
                 }
             }
+
             T content = source.content();
             if (content != null)
             {
@@ -1453,7 +1454,7 @@ public abstract class InMemoryReadTrie<T>
                         builder.append(" alt: " + dumpChild(alternate));
                     int child = followPrefixTransition(node);
                     builder.append(" -> ")
-                           .append(dumpNode(child));
+                           .append(dumpChild(child));
                     break;
                 }
                 default:

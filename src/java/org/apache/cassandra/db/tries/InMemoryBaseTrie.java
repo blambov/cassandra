@@ -1120,8 +1120,9 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
             else if (newContent == trie.getContent(existingContentId))
             {
+                throw new AssertionError();// this should be handled above this point to avoid getContent call
                 // no changes, nothing to do
-                return existingContentId;
+//                return existingContentId;
             }
             else if (forcedCopy)
             {

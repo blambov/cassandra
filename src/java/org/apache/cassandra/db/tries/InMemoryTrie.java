@@ -331,8 +331,9 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             if (existingContent != null)
             {
                 T combinedContent = transformer.apply(existingContent, content, state);
-                state.setDescentPathContent(combinedContent, // can be null
-                                            state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
+                if (combinedContent != existingContent)
+                    state.setDescentPathContent(combinedContent, // can be null
+                                                state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
             }
         }
 

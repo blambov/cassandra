@@ -506,8 +506,9 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             S combined = transformer.apply(existingState, mutationState, state);
             if (combined != null)
                 combined = combined.isBoundary() ? combined : null;
-            state.setDescentPathContent(combined, // can be null
-                                        state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
+            if (combined != existingState)
+                state.setDescentPathContent(combined, // can be null
+                                            state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
         }
 
 

@@ -584,9 +584,10 @@ We could just as well start with this...
 
 - Extract the object management code from InMemoryTrie to make it pluggable.
 
-# TODOs
-
 - Implement object management replacement that distributes memory from the allocator.
+- Implement new trie cell type for directly stored payloads of up to 32 bytes and use whenever data would fit.
+
+# TODOs
 
 - Reuse TriePartitionUpdater now that it doesn't use cloner
 
@@ -625,9 +626,6 @@ We could just as well start with this...
 - `hasDeletionBranch` flag on deletion-aware
 
 Maybe:
-- Implement new trie cell type for directly stored payloads of up to 32 bytes and use whenever data would fit. This
-  makes POC V2 with better reuse.
-
 - Implement user-defined handling of combining ascent and descent path content.
 
 - Implement storing data directly in prefixes, option 2.
@@ -743,7 +741,7 @@ Memtable in heap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 36.156MiB 
 Memtable in offheap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 90.750KiB (0%) on-heap, 36.068MiB (2%) off-heap
 Memtable in offheap_objects mode: 230000 ops, 6.104MiB serialized bytes, 90.500KiB (0%) on-heap, 36.068MiB (2%) off-heap
 
-Memtable in offheap_objects mode: 4300000 ops, 122.070MiB serialized bytes, 92.500KiB (0%) on-heap, 651.915MiB (33%) off-heap
+Memtable in offheap_objects mode: 4300000 ops, 61.035MiB serialized bytes, 92.500KiB (0%) on-heap, 648.863MiB (33%) off-heap
 ```
 
 
@@ -753,8 +751,7 @@ Skip list: Memtable in offheap_objects mode: 675.011MiB (34%) on-heap, 176.001Mi
 Stage 1:   Memtable in offheap_objects mode: 605.671MiB (31%) on-heap, 214.907MiB (11%) off-heap
 Stage 2:   Memtable in offheap_objects mode: 439.544MiB (22%) on-heap, 355.132MiB (18%) off-heap
 Stage 3:   Memtable in offheap_objects mode: 409.032MiB (21%) on-heap, 362.761MiB (18%) off-heap
-Stage 5:   Memtable in offheap_objects mode: 92.500KiB (0%) on-heap, 651.915MiB (33%) off-heap
-
+Stage 4:   Memtable in offheap_objects mode:  92.500KiB (0%) on-heap, 648.863MiB (33%) off-heap
 
 Skip list: Memtable in offheap_objects mode: 42.386MiB (2%) on-heap, 9.208MiB (0%) off-heap
 Stage 1:   Memtable in offheap_objects mode: 35.465MiB (2%) on-heap, 11.276MiB (1%) off-heap

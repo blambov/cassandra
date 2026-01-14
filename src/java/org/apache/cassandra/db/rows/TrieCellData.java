@@ -67,7 +67,7 @@ public class TrieCellData implements CellData<ByteBuffer>
         return 32;
     }
 
-    public static void serialize(Cell<?> cell, UnsafeBuffer buffer, int offset,
+    public static void serialize(CellData<?> cell, UnsafeBuffer buffer, int offset,
                                  ExternalBufferSaver externalBufferSaver)
     {
         ByteBuffer value = cell.buffer();

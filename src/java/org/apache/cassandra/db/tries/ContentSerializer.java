@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import org.agrona.concurrent.UnsafeBuffer;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
 public interface ContentSerializer<T>
 {
@@ -51,4 +52,11 @@ public interface ContentSerializer<T>
     long usedSizeOnHeap();
 
     long usedSizeOffHeap();
+
+    String dumpSpecial(int id);
+
+    default String dumpContent(UnsafeBuffer buffer, int offset)
+    {
+        return ByteBufferUtil.bytesToHex(buffer.byteBuffer().duplicate().position(offset).limit(offset + 32));
+    }
 }

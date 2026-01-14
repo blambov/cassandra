@@ -82,8 +82,8 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     @Override
     public Object apply(@Nullable Object existing, Object update, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
-        if (update instanceof Cell)
-            return applyCell((TrieCellData) existing, (Cell<?>) update, keyState);
+        if (update instanceof CellData)
+            return applyCell((TrieCellData) existing, (CellData<?>) update, keyState);
         else if (update == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return update; // TODO check if something else needs to be done
         else if (update instanceof LivenessInfo)
@@ -171,7 +171,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         if (existingContent instanceof CellData)
             return applyCellDeletion((CellData) existingContent, updateMarker);
         else if (existingContent == TrieBackedRow.COMPLEX_COLUMN_MARKER)
-            return existingContent; // TODO: How can we check if there's remaining data and remove this if there is none? Cell counter in marker?
+            return existingContent;
         else if (existingContent instanceof LivenessInfo)
             return applyRowDeletion((LivenessInfo) existingContent, updateMarker, keyState);
         else if (existingContent instanceof PartitionData)
@@ -285,11 +285,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         }
     }
 
-    private CellData applyCell(@Nullable TrieCellData existing, Cell<?> update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private CellData applyCell(@Nullable TrieCellData existing, CellData<?> update, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
         if (existing == null)
         {
-            this.dataSize += update.dataSize();
+            this.dataSize += update.valueSize();
             return update;
         }
         else
