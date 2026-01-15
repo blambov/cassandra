@@ -86,7 +86,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
 
     private static InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie()
     {
-        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = TrieBackedRow.newTrie();
         try
         {
             trie.putRecursive(ByteComparable.EMPTY, PARTITION_MARKER, noConflictInData());
@@ -245,7 +245,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     public TriePartitionUpdate withUpdatedTimestamps(long newTimestamp)
     {
 
-        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> t = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> t = TrieBackedRow.newTrie();
         try
         {
             t.apply(trie,
@@ -395,7 +395,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         private final ColumnFilter cf;
         private final DecoratedKey key;
         private final RegularAndStaticColumns columns;
-        private final InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+        private final InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = TrieBackedRow.newTrie();
         private final InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> mutator;
         private final EncodingStats.Collector statsCollector = new EncodingStats.Collector();
         private int rowCountIncludingStatic;

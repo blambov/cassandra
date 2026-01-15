@@ -75,9 +75,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                                     this::applyMarker,
                                     true,
                                     TrieMemtable.FORCE_COPY_PARTITION_BOUNDARY,
-                                    Predicates.alwaysFalse(),
-                                    TrieBackedRow::isDroppableMarker,
-                                    TrieBackedRow::isDroppableMarker);
+                                    Predicates.alwaysFalse());
     }
 
     public void startUpdate(UpdateTransaction indexer,

@@ -589,9 +589,9 @@ We could just as well start with this...
 
 - Reuse TriePartitionUpdater now that it doesn't use cloner
 
-# TODOs
+- Move `danglingMetadataCleaner` to content manager to avoid materializing objects
 
-- Improve danglingMetadataCleaner to not materialize objects
+# TODOs
 
 - Figure out index handling.
 

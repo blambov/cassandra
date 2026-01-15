@@ -57,6 +57,12 @@ class ContentManagerBytes<T> implements ContentManager<T>
     }
 
     @Override
+    public boolean shouldPreserveWithoutChildren(int contentId)
+    {
+        return serializer.shouldPreserveWithoutChildren(contentId);
+    }
+
+    @Override
     public int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException
     {
         int sizeOrSpecial = serializer.serializedSizeOrSpecial(value, contentAfterBranch);

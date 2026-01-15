@@ -966,7 +966,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     {
         final CellDataBufferManager manager;
         final MemtableShard owner;
-        OpOrder.Group opOrderGroup;
 
         static final int COMPLEX_COLUMN_ID = -1;
         static final int EMPTY_LIVENESS_ID = -2;
@@ -1034,6 +1033,13 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         public boolean shouldPresentSpecialAfterBranch(int id)
         {
             return id == TOMBSTONE_ROW_MARKER_AFTER_BRANCH;
+        }
+
+        @Override
+        public boolean shouldPreserveWithoutChildren(int id)
+        {
+            // All our specials are level markers that should not survive if the branch becomes empty.
+            return id >= 0;
         }
 
         @Override

@@ -18,8 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.agrona.concurrent.UnsafeBuffer;
-
 public interface ContentManager<T>
 {
     /// Get the content for the given content pointer.
@@ -29,6 +27,10 @@ public interface ContentManager<T>
     T getContent(int id);
 
     boolean shouldPresentAfterBranch(int contentId);
+
+    /// This is called when content is left without children and is used to remove dangling metadata
+    /// or markers for branches (e.g. rows) that have become empty.
+    boolean shouldPreserveWithoutChildren(int contentId);
 
     /// Add a new content value.
     ///

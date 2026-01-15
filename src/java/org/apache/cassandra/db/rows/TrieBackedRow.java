@@ -136,14 +136,9 @@ public class TrieBackedRow extends AbstractRow
 
     private static final Map<Columns, Object2IntHashMap<ColumnIdentifier>> columnsMapCache = new HashMap<>();
 
-    public static boolean isDroppableMarker(Object o)
+    public static boolean shouldPreserveContentWithoutChildren(Object o)
     {
-        return o == LivenessInfo.EMPTY || o == COMPLEX_COLUMN_MARKER;
-    }
-
-    public static boolean isDroppableMarker(TrieTombstoneMarker marker)
-    {
-        return marker == TrieTombstoneMarker.ROW_MARKER;
+        return o != LivenessInfo.EMPTY && o != COMPLEX_COLUMN_MARKER && o != TrieTombstoneMarker.ROW_MARKER;
     }
 
     public static TrieBackedRow create(TableMetadata tableMetadata, Clustering<?> clustering, DeletionAwareTrie<Object, TrieTombstoneMarker> data)
@@ -207,7 +202,7 @@ public class TrieBackedRow extends AbstractRow
         {
             Columns columns = Columns.of(cell.column);
             Object2IntHashMap<ColumnIdentifier> columnIds = makeColumnIdsMap(columns);
-            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = newTrie();
             ByteComparable cellKey = cellKey(columnIds, cell);
             if (cell.column.isComplex())
                 trie.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, noConflictInData());
@@ -224,7 +219,7 @@ public class TrieBackedRow extends AbstractRow
     {
         try
         {
-            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = newTrie();
             // We need to put the deletion as well as a deletion-path row marker.
             RangeTrie<TrieTombstoneMarker> deletionTrie = rowDeletionTrie(deletion);
 
@@ -280,7 +275,7 @@ public class TrieBackedRow extends AbstractRow
                               EMPTY_COLUMN_IDS,
                               clustering,
                               primaryKeyLivenessInfo,
-                              InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION));
+                              newTrie());
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -1013,7 +1008,7 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public Row clone(Cloner cloner)
     {
-        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = newTrie();
         try
         {
             newTrie.mutator(((ex, toClone) -> toClone instanceof Cell ? cloner.clone((Cell<?>) toClone) : toClone),
@@ -1135,19 +1130,23 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
+    public static InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie()
+    {
+        return InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION, TrieBackedRow::shouldPreserveContentWithoutChildren);
+    }
+
     public Row mergeWith(Row updateAsRow,
                          ColumnData.PostReconciliationFunction reconcileF)
     {
         if (!(updateAsRow instanceof TrieBackedRow))
             throw new IllegalArgumentException("Merging different row types.");
         TrieBackedRow update = (TrieBackedRow) updateAsRow;
-        // TODO: This should be merging into in-memory trie
         if (!this.columns.equals(update.columns))
             throw new IllegalArgumentException("Can't handle varying column lists.");
 
         try
         {
-            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> mergedData = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> mergedData = newTrie();
             makeMutator(mergedData)
                 .apply(this.data.mergeWith(update.data,
                                            (ex, up) -> mergeData(ex, up, reconcileF),
@@ -1205,9 +1204,7 @@ public class TrieBackedRow extends AbstractRow
                             TrieBackedRow::deleteData,
                             true,
                             Predicates.alwaysFalse(),
-                            Predicates.alwaysFalse(),
-                            TrieBackedRow::isDroppableMarker,
-                            TrieBackedRow::isDroppableMarker);
+                            Predicates.alwaysFalse());
     }
 
     public static class Builder implements Row.Builder
@@ -1274,7 +1271,7 @@ public class TrieBackedRow extends AbstractRow
         protected void reset()
         {
             this.clustering = null;
-            data = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
+            data = newTrie();
             mutator = makeMutator(data);
         }
 

@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.tries;
 
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -41,11 +42,13 @@ public class ContentManagerPojo<T> implements ContentManager<T>
 
     private int contentCount = 0;
     final AtomicReferenceArray<T>[] contentArrays;
+    final Predicate<T> shouldPreserveWithoutChildren;
     final MemoryAllocationStrategy objectAllocator;
 
-    public ContentManagerPojo(InMemoryBaseTrie.ExpectedLifetime lifetime, OpOrder opOrder)
+    public ContentManagerPojo(InMemoryBaseTrie.ExpectedLifetime lifetime, Predicate<T> shouldPreserveWithoutChildren, OpOrder opOrder)
     {
         this.contentArrays = new AtomicReferenceArray[29 - CONTENTS_START_SHIFT];
+        this.shouldPreserveWithoutChildren = shouldPreserveWithoutChildren;
         switch (lifetime)
         {
             case SHORT:
@@ -72,6 +75,15 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     public boolean shouldPresentAfterBranch(int contentId)
     {
         return (contentId & CONTENT_AFTER_BRANCH) != 0;
+    }
+
+    @Override
+    public boolean shouldPreserveWithoutChildren(int contentId)
+    {
+        if (shouldPreserveWithoutChildren == null)
+            return true;
+
+        return shouldPreserveWithoutChildren.test(getContent(contentId));
     }
 
     @Override

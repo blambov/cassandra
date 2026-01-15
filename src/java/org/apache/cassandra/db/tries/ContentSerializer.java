@@ -28,6 +28,8 @@ public interface ContentSerializer<T>
 
     T special(int id);
 
+    boolean shouldPreserveWithoutChildren(int id);
+
     // Has serialized size bytes to work with
     void serialize(T content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset);
 
