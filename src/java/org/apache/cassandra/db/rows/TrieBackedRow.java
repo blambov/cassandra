@@ -559,7 +559,7 @@ public class TrieBackedRow extends AbstractRow
     {
         assert !c.isComplex();
         Object o = data.get(cellKey(columnIds, c, null));
-        if (o instanceof Cell)
+        if (o == null || o instanceof Cell)
             return (Cell) o;
         TrieCellData trieCellData = (TrieCellData) o;
         return trieCellData.toCell(c, null);
@@ -569,7 +569,7 @@ public class TrieBackedRow extends AbstractRow
     {
         assert c.isComplex();
         Object o = data.get(cellKey(columnIds, c, path));
-        if (o instanceof Cell)
+        if (o == null || o instanceof Cell)
             return (Cell) o;
         TrieCellData trieCellData = (TrieCellData) o;
         return trieCellData.toCell(c, path);

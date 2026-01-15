@@ -83,7 +83,8 @@ public class TrieCellData implements CellData<ByteBuffer>
 
         if (length <= MAX_LENGTH)
         {
-            buffer.putBytes(offset + DATA_OFFSET, value, length);
+            // using the offset, length version to make sure the source buffer's position is not touched
+            buffer.putBytes(offset + DATA_OFFSET, value, 0, length);
         }
         else
         {
@@ -146,7 +147,7 @@ public class TrieCellData implements CellData<ByteBuffer>
             buf = buffer.byteBuffer().duplicate();
             buf.position(offset + DATA_OFFSET);
             buf.limit(offset + DATA_OFFSET + length);
-            return buf.slice();
+            return buf;//.slice(); we don't need to slice
         }
         else
         {
