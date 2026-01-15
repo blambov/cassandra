@@ -453,6 +453,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                                                      metadata.partitioner);
     }
 
+    static final int OFFSET_PD_ROW_COUNT = 0;
+    static final int OFFSET_PD_TOMBSTONE_COUNT = 4;
+
     /// Metadata object signifying the root node of a partition. Holds row and tombstone counts as well as a link
     /// to the owning subrange, which is used for compiling encoding statistics and column sets.
     ///
@@ -489,22 +492,22 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         public int rowCountIncludingStatic()
         {
-            return buffer.getInt(offset);
+            return buffer.getInt(offset + OFFSET_PD_ROW_COUNT);
         }
 
         public int tombstoneCount()
         {
-            return buffer.getInt(offset + 4);
+            return buffer.getInt(offset + OFFSET_PD_TOMBSTONE_COUNT);
         }
 
         public void markInsertedRows(int howMany)
         {
-            buffer.addIntOrdered(offset, howMany);
+            buffer.addIntOrdered(offset + OFFSET_PD_ROW_COUNT, howMany);
         }
 
         public void markAddedTombstones(int howMany)
         {
-            buffer.addIntOrdered(offset + 4, howMany);
+            buffer.addIntOrdered(offset + OFFSET_PD_TOMBSTONE_COUNT, howMany);
         }
 
         @Override
@@ -520,8 +523,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         public void clearStats()
         {
-            buffer.putIntOrdered(offset, 0);
-            buffer.putIntOrdered(offset + 4, 0);
+            buffer.putIntOrdered(offset + OFFSET_PD_ROW_COUNT, 0);
+            buffer.putIntOrdered(offset + OFFSET_PD_TOMBSTONE_COUNT, 0);
         }
     }
 
@@ -984,6 +987,15 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         static final byte TYPE_TOMBSTONE_MARKER = 0x20;
         static final byte TYPE_PARTITION_DATA = 0x30;
 
+        static final int OFFSET_FLAGS = 0x1F;
+
+        static final int OFFSET_TIMESTAMP = 0x00;
+        static final int OFFSET_LOCAL_DELETION_TIME = 0x08;
+        static final int OFFSET_TTL = 0x0c;
+
+        static final int OFFSET_TIMESTAMP_R = 0x10;
+        static final int OFFSET_LOCAL_DELETION_TIME_R = 0x18;
+
         @VisibleForTesting
         public TrieSerializer(CellDataBufferManager manager,
                        MemtableShard owner)
@@ -1051,57 +1063,60 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             {
                 TrieCellData.serialize((CellData<?>) content, buffer, offset, manager);
             }
-            else if (content instanceof LivenessInfo)
+            else
             {
-                LivenessInfo livenessInfo = (LivenessInfo) content;
-                buffer.putLongOrdered(offset, livenessInfo.timestamp());
-                buffer.putIntOrdered(offset + 8, livenessInfo.localExpirationTime());
-                buffer.putIntOrdered(offset + 12, livenessInfo.ttl());
-                buffer.putByte(offset + 0x1F, TYPE_LIVENESS_INFO);
-            }
-            else if (content instanceof TrieTombstoneMarker)
-            {
-                TrieTombstoneMarkerImpl marker = (TrieTombstoneMarkerImpl) content;
-                assert marker.isBoundary();
-                DeletionTime left = marker.leftDeletion();
-                DeletionTime right = marker.rightDeletion();
-                if (left != null)
+                if (content instanceof LivenessInfo)
                 {
-                    buffer.putLongOrdered(offset, left.markedForDeleteAt());
-                    buffer.putIntOrdered(offset + 8, left.localDeletionTime());
+                    LivenessInfo livenessInfo = (LivenessInfo) content;
+                    buffer.putLongOrdered(offset + OFFSET_TIMESTAMP, livenessInfo.timestamp());
+                    buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME, livenessInfo.localExpirationTime());
+                    buffer.putIntOrdered(offset + OFFSET_TTL, livenessInfo.ttl());
+                    buffer.putByte(offset + OFFSET_FLAGS, TYPE_LIVENESS_INFO);
                 }
-                if (right != null)
+                else if (content instanceof TrieTombstoneMarker)
                 {
-                    buffer.putLongOrdered(offset + 16, right.markedForDeleteAt());
-                    buffer.putIntOrdered(offset + 24, right.localDeletionTime());
+                    TrieTombstoneMarkerImpl marker = (TrieTombstoneMarkerImpl) content;
+                    assert marker.isBoundary();
+                    DeletionTime left = marker.leftDeletion();
+                    DeletionTime right = marker.rightDeletion();
+                    if (left != null)
+                    {
+                        buffer.putLongOrdered(offset + OFFSET_TIMESTAMP, left.markedForDeleteAt());
+                        buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME, left.localDeletionTime());
+                    }
+                    if (right != null)
+                    {
+                        buffer.putLongOrdered(offset + OFFSET_TIMESTAMP_R, right.markedForDeleteAt());
+                        buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME_R, right.localDeletionTime());
+                    }
+                    buffer.putByte(offset + OFFSET_FLAGS, (byte) (TYPE_TOMBSTONE_MARKER |
+                                                                  (shouldPresentAfterBranch ? FLAG_AFTER_BRANCH : 0) |
+                                                                  (marker.isRowMarker() ? FLAG_IS_ROW_MARKER : 0) |
+                                                                  (left != null ? FLAG_HAS_LEFT_DELETION : 0) |
+                                                                  (right != null ? FLAG_HAS_RIGHT_DELETION : 0)));
                 }
-                buffer.putByte(offset + 0x1F, (byte) (TYPE_TOMBSTONE_MARKER |
-                                                      (shouldPresentAfterBranch ? FLAG_AFTER_BRANCH : 0) |
-                                                      (marker.isRowMarker() ? FLAG_IS_ROW_MARKER : 0) |
-                                                      (left != null ? FLAG_HAS_LEFT_DELETION : 0) |
-                                                      (right != null ? FLAG_HAS_RIGHT_DELETION : 0)));
-            }
-            else if (content instanceof PartitionData)
-            {
-                PartitionData partitionData = (PartitionData) content;
-                if (partitionData.buffer == null)
+                else if (content instanceof PartitionData)
                 {
-                    // We are creating a new partition. Link this buffer/offset with the argument, so that we can add
-                    // statistics as we descend into the partition.
-                    partitionData.buffer = buffer;
-                    partitionData.offset = offset;
-                    // we don't need to set anything as the buffer is filled with 0s when allocated
+                    PartitionData partitionData = (PartitionData) content;
+                    if (partitionData.buffer == null)
+                    {
+                        // We are creating a new partition. Link this buffer/offset with the argument, so that we can add
+                        // statistics as we descend into the partition.
+                        partitionData.buffer = buffer;
+                        partitionData.offset = offset;
+                        // we don't need to set anything as the buffer is filled with 0s when allocated
+                    }
+                    else
+                    {
+                        // We are making a copy of another PartitionData object.
+                        buffer.putLongOrdered(offset + OFFSET_PD_ROW_COUNT, partitionData.rowCountIncludingStatic());
+                        buffer.putIntOrdered(offset + OFFSET_PD_TOMBSTONE_COUNT, partitionData.tombstoneCount());
+                    }
+                    buffer.putByte(offset + OFFSET_FLAGS, TYPE_PARTITION_DATA);
                 }
                 else
-                {
-                    // We are making a copy of another PartitionData object.
-                    buffer.putLongOrdered(offset, partitionData.rowCountIncludingStatic());
-                    buffer.putIntOrdered(offset + 4, partitionData.tombstoneCount());
-                }
-                buffer.putByte(offset + 0x1F, TYPE_PARTITION_DATA);
+                    throw new AssertionError("Unknown trie content type: " + content);
             }
-            else
-                throw new AssertionError("Unknown trie content type: " + content);
         }
 
         @Override
@@ -1115,27 +1130,27 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         @Override
         public Object deserialize(UnsafeBuffer buffer, int offset)
         {
-            int flags = buffer.getByte(offset + 0x1F);
+            int flags = buffer.getByte(offset + OFFSET_FLAGS);
             switch (flags & TYPE_MASK)
             {
                 case TYPE_CELL:
                     return new TrieCellData(buffer, offset, manager);
                 case TYPE_LIVENESS_INFO:
                 {
-                    long timestamp = buffer.getLong(offset + 0);
-                    int localExpirationTime = buffer.getInt(offset + 8);
-                    int ttl = buffer.getInt(offset + 12);
+                    long timestamp = buffer.getLong(offset + OFFSET_TIMESTAMP);
+                    int localExpirationTime = buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME);
+                    int ttl = buffer.getInt(offset + OFFSET_TTL);
                     return LivenessInfo.withExpirationTime(timestamp, ttl, localExpirationTime);
                 }
                 case TYPE_TOMBSTONE_MARKER:
                 {
                     TrieTombstoneMarkerImpl.Covering left = (flags & FLAG_HAS_LEFT_DELETION) != 0
-                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + 0),
-                                                                                               buffer.getInt(offset + 4))
+                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + OFFSET_TIMESTAMP),
+                                                                                               buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME))
                                                             : null;
                     TrieTombstoneMarkerImpl.Covering right = (flags & FLAG_HAS_RIGHT_DELETION) != 0
-                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + 16),
-                                                                                               buffer.getInt(offset + 20))
+                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + OFFSET_TIMESTAMP_R),
+                                                                                               buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME_R))
                                                             : null;
                     return TrieTombstoneMarkerImpl.make(left, right, (flags & FLAG_IS_ROW_MARKER) != 0);
                 }
@@ -1149,7 +1164,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         @Override
         public boolean shouldPresentAfterBranch(UnsafeBuffer buffer, int offset)
         {
-            return (buffer.getByte(offset + 0x1F) & (TYPE_MASK | FLAG_AFTER_BRANCH)) ==
+            return (buffer.getByte(offset + OFFSET_FLAGS) & (TYPE_MASK | FLAG_AFTER_BRANCH)) ==
                    (TYPE_TOMBSTONE_MARKER | FLAG_AFTER_BRANCH);
         }
 
@@ -1200,12 +1215,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         @Override
         public String dumpContent(UnsafeBuffer buffer, int offset)
         {
-            int flags = buffer.getByte(offset + 0x1F);
+            int flags = buffer.getByte(offset + OFFSET_FLAGS);
             return String.format("Payload: flags %02x data %016x %08x %08x %s",
                                  flags,
-                                 buffer.getLong(offset + 0),
-                                 buffer.getInt(offset + 8),
-                                 buffer.getInt(offset + 12),
+                                 buffer.getLong(offset + OFFSET_TIMESTAMP),
+                                 buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME),
+                                 buffer.getInt(offset + OFFSET_TTL),
                                  ByteBufferUtil.bytesToHex(buffer.byteBuffer().duplicate().position(offset + 16).limit(offset + 31)));
         }
     }
