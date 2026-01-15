@@ -358,7 +358,6 @@ public class TrieBackedPartitionMemtableAccountingTest
                 updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.staticRow(), exsDeletion, updDeletion);
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
-                Cloner cloner = allocator.cloner(writeOp);
                 TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata, null);
                 TrieMemtable.mergeUpdate(trie, allocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
                 opOrder.newBarrier().issue();
@@ -476,10 +475,6 @@ public class TrieBackedPartitionMemtableAccountingTest
 
     private static long sizeOf(CellData cell)
     {
-        if (cell instanceof NativeCell)
-            return ((NativeCell) cell).offHeapSize();
-        if (cell instanceof TrieCellData)
-            return ((TrieCellData) cell).offTrieSize();
-        return cell.valueSize(); // path is in trie
+        return TrieCellData.offTrieSize(cell);
     }
 }

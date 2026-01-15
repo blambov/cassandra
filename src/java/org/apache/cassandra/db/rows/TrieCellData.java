@@ -62,7 +62,7 @@ public class TrieCellData implements CellData<ByteBuffer>
     final int offset;
     final ExternalBufferLoader loader;
 
-    public static int size(Cell<?> unused)
+    public static int size(CellData<?> unused)
     {
         return 32;
     }
@@ -106,7 +106,7 @@ public class TrieCellData implements CellData<ByteBuffer>
         return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
     }
 
-    public static CellData reconcile(TrieCellData existing, Cell<?> update)
+    public static CellData reconcile(TrieCellData existing, CellData<?> update)
     {
         if (existing == null)
             return update;
@@ -192,9 +192,9 @@ public class TrieCellData implements CellData<ByteBuffer>
         return null;
     }
 
-    public long offTrieSize()
+    public static long offTrieSize(CellData<?> cell)
     {
-        int sz = valueSize();
+        int sz = cell.valueSize();
         return sz <= MAX_LENGTH ? 0 : sz;
     }
 

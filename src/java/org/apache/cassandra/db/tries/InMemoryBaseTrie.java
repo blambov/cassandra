@@ -1120,6 +1120,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             }
             else if (newContent == trie.getContent(existingContentId))
             {
+                // TODO FIXME: The check above and this path need to be removed
                 throw new AssertionError();// this should be handled above this point to avoid getContent call
                 // no changes, nothing to do
 //                return existingContentId;
