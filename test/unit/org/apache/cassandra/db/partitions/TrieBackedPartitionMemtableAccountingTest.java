@@ -358,7 +358,8 @@ public class TrieBackedPartitionMemtableAccountingTest
                 updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.staticRow(), exsDeletion, updDeletion);
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
-                TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata, null);
+                TriePartitionUpdater updater = new TriePartitionUpdater(null, trie);
+                updater.startUpdate(indexer, update, metadata);
                 TrieMemtable.mergeUpdate(trie, allocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
                 opOrder.newBarrier().issue();
 
@@ -384,7 +385,8 @@ public class TrieBackedPartitionMemtableAccountingTest
                 TriePartitionUpdate update = TriePartitionUpdate.fromIterator(iter);
                 opOrder.newBarrier().issue();
                 OpOrder.Group writeOp = opOrder.getCurrent();
-                TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata, null);
+                TriePartitionUpdater updater = new TriePartitionUpdater(null, recreatedTrie);
+                updater.startUpdate(indexer, update, metadata);
                 TrieMemtable.mergeUpdate(recreatedTrie, recreatedAllocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
             }
             CellReuseTest.verifyFreeCellsMatchUnreachable(recreatedTrie);

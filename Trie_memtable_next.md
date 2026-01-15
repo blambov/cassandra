@@ -587,9 +587,9 @@ We could just as well start with this...
 - Implement object management replacement that distributes memory from the allocator.
 - Implement new trie cell type for directly stored payloads of up to 32 bytes and use whenever data would fit.
 
-# TODOs
-
 - Reuse TriePartitionUpdater now that it doesn't use cloner
+
+# TODOs
 
 - Improve danglingMetadataCleaner to not materialize objects
 

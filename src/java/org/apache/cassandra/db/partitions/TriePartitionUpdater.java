@@ -20,6 +20,8 @@ package org.apache.cassandra.db.partitions;
 
 import javax.annotation.Nullable;
 
+import com.google.common.base.Predicates;
+
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.DeletionTime;
@@ -38,6 +40,7 @@ import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
+import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -50,25 +53,45 @@ import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
 public final class TriePartitionUpdater
 implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 {
-    public long dataSize = 0;
-    public long colUpdateTimeDelta = Long.MAX_VALUE;
+    public long dataSize;
+    public long colUpdateTimeDelta;
 
-    private final UpdateTransaction indexer;
-    private final TableMetadata metadata;
-    private PartitionData currentPartition;
     private final TrieMemtable.MemtableShard owner;
-    private ClusteringBound<byte[]> rangeTombstoneOpenPosition = null;
-    private final DeletionTime partitionLevelDeletion; // needed for indexer
-    public int partitionsAdded = 0;
+    public final InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> mutator;
+    private UpdateTransaction indexer;
+    private TableMetadata metadata;
+    private PartitionData currentPartition;
+    private ClusteringBound<byte[]> rangeTombstoneOpenPosition;
+    private DeletionTime partitionLevelDeletion; // needed for indexer
+    public int partitionsAdded;
 
-    public TriePartitionUpdater(UpdateTransaction indexer,
-                                PartitionUpdate update,
-                                TableMetadata metadata,
-                                TrieMemtable.MemtableShard owner)
+    public TriePartitionUpdater(TrieMemtable.MemtableShard owner,
+                                InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
+        this.owner = owner;
+        this.mutator = data.mutator(this,
+                                    this::mergeMarkers,
+                                    this::applyMarker,
+                                    this::applyMarker,
+                                    true,
+                                    TrieMemtable.FORCE_COPY_PARTITION_BOUNDARY,
+                                    Predicates.alwaysFalse(),
+                                    TrieBackedRow::isDroppableMarker,
+                                    TrieBackedRow::isDroppableMarker);
+    }
+
+    public void startUpdate(UpdateTransaction indexer,
+                            PartitionUpdate update,
+                            TableMetadata metadata)
     {
         this.indexer = indexer;
         this.metadata = metadata;
-        this.owner = owner;
+        this.rangeTombstoneOpenPosition = null;
+        this.currentPartition = null;
+        this.partitionsAdded = 0;
+        this.dataSize = 0;
+        this.colUpdateTimeDelta = Long.MAX_VALUE;
+
         if (indexer != UpdateTransaction.NO_OP)
         {
             this.partitionLevelDeletion = update.partitionLevelDeletion();

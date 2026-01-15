@@ -640,6 +640,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         private final TableMetadataRef metadata;
 
+        private final TriePartitionUpdater updater;
+
         MemtableShard(TableMetadataRef metadata, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
             this(metadata, AbstractAllocatorMemtable.MEMORY_POOL.newAllocator(), metrics, opOrder);
@@ -659,11 +661,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.metrics = metrics;
+            this.updater = new TriePartitionUpdater(this, data);
         }
 
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         {
-            TriePartitionUpdater updater = new TriePartitionUpdater(indexer, update, metadata.get(), this);
+            updater.startUpdate(indexer, update, metadata.get());
             boolean locked = writeLock.tryLock();
             if (locked)
             {
@@ -776,16 +779,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
         try
         {
-            data.mutator(updater,
-                         updater::mergeMarkers,
-                         updater::applyMarker,
-                         updater::applyMarker,
-                         true,
-                         FORCE_COPY_PARTITION_BOUNDARY,
-                         Predicates.alwaysFalse(),
-                         TrieBackedRow::isDroppableMarker,
-                         TrieBackedRow::isDroppableMarker)
-                .apply(updateTrie);
+            updater.mutator.apply(updateTrie);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -796,7 +790,6 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         allocator.onHeap().adjust((data.usedSizeOnHeap() - onHeap), opGroup);
         return updater.partitionsAdded;
     }
-
 
     static class PartitionIterator extends TrieTailsIterator.DeletionAwareWithoutCoveringDeletions<Object, TrieTombstoneMarker, TrieBackedPartition>
     {
