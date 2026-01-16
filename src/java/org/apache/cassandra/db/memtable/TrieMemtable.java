@@ -28,7 +28,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Predicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,6 +51,7 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdater;
+import org.apache.cassandra.db.partitions.TriePartitionUpdaterLegacyIndex;
 import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedRow;
@@ -643,7 +643,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         private final TableMetadataRef metadata;
 
-        private final TriePartitionUpdater updater;
+        private TriePartitionUpdater noIndexUpdater;
+        private TriePartitionUpdaterLegacyIndex legacyIndexUpdater;
 
         MemtableShard(TableMetadataRef metadata, TrieMemtableMetricsView metrics, OpOrder opOrder)
         {
@@ -664,12 +665,28 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             this.columns = RegularAndStaticColumns.NONE;
             this.stats = EncodingStats.NO_STATS;
             this.metrics = metrics;
-            this.updater = new TriePartitionUpdater(this, data);
+        }
+
+        public TriePartitionUpdater getAndStartUpdater(PartitionUpdate update, UpdateTransaction indexer)
+        {
+            if (indexer == UpdateTransaction.NO_OP)
+            {
+                if (noIndexUpdater == null)
+                    noIndexUpdater = new TriePartitionUpdater(this, data);
+                noIndexUpdater.startUpdate();
+                return noIndexUpdater;
+            }
+            else
+            {
+                if (legacyIndexUpdater == null)
+                    legacyIndexUpdater = new TriePartitionUpdaterLegacyIndex(this, data);
+                legacyIndexUpdater.startUpdate(indexer, update, metadata.get());
+                return legacyIndexUpdater;
+            }
         }
 
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         {
-            updater.startUpdate(indexer, update, metadata.get());
             boolean locked = writeLock.tryLock();
             if (locked)
             {
@@ -682,6 +699,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 writeLock.lock();
                 metrics.contentionTime.addNano(System.nanoTime() - lockStartTime);
             }
+
+            TriePartitionUpdater updater = getAndStartUpdater(update, indexer);
             try
             {
                 try

@@ -49,7 +49,6 @@ import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
-import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.TrieBackedComplexColumn;
 import org.apache.cassandra.db.rows.TrieBackedRow;
@@ -69,7 +68,6 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.Cloner;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
 import org.apache.cassandra.utils.memory.MemtableBufferAllocator;
 import org.apache.cassandra.utils.memory.MemtableCleaner;
@@ -359,7 +357,7 @@ public class TrieBackedPartitionMemtableAccountingTest
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 TriePartitionUpdater updater = new TriePartitionUpdater(null, trie);
-                updater.startUpdate(indexer, update, metadata);
+                updater.startUpdate();
                 TrieMemtable.mergeUpdate(trie, allocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
                 opOrder.newBarrier().issue();
 
@@ -386,7 +384,7 @@ public class TrieBackedPartitionMemtableAccountingTest
                 opOrder.newBarrier().issue();
                 OpOrder.Group writeOp = opOrder.getCurrent();
                 TriePartitionUpdater updater = new TriePartitionUpdater(null, recreatedTrie);
-                updater.startUpdate(indexer, update, metadata);
+                updater.startUpdate();
                 TrieMemtable.mergeUpdate(recreatedTrie, recreatedAllocator, TriePartitionUpdate.asTrieUpdate(update).trie, indexer, writeOp, updater);
             }
             CellReuseTest.verifyFreeCellsMatchUnreachable(recreatedTrie);

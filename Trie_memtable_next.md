@@ -451,6 +451,39 @@ Options:
 Completely unknown how to implement at this point. Probably change the interfaces to let cells be passed individually.
 
 
+The biggest problem is that currently we present rows to the indexer. This doesn't appear to be what indexers (at least
+SAI) actually need, but this is the interface we currently have.
+
+Some considerations:
+- Merge of data happens separately from deletion and merge of deletion. There are three points where we can see row
+  markers:
+  - Deletion of current data
+  - Merge of deletions
+  - Data with data merge
+- We can get all three in a single update.
+- We probably only care about the two "on data" modifications, and we can send them separately with deletion first.
+- Note that the update trie has existing deletions applied when we get it.
+
+One option is to provide access to tail tries via some variation of the KeyProducer interface (possibly in the Mutator?)
+but this cannot have access to the deletion/other branch. I.e. we will see each of the three types of updates of the
+previous paragraph separately. This may not be what the indexer expects, but it should still work fine.
+
+In theory, we can just as well send all individual cell updates wrapped in separate rows.
+
+Neither of these is a good long-term solution as it creates complex intermediate objects we don't want to have.
+
+A better option is to make a wrapper over the current indexer that takes:
+- same partition-level calls as before
+- startRow(liveness), deletedRow(deltime)
+- startComplexColumn(), deletedComplexColumn(deltime)
+- upsertCell(existing,new) where existing can be empty, deleteCell(existing,deltime)
+with trie keys (i.e. keyproducer)
+
+and collect updates in in-memory trie-backed rows to pass on to indexer. Make that a subtype of current indexer so e.g.
+SAI can implement it. Possibly POC an implementation for SAI folks to build on.
+
+The final alternative is to disable this memtable implementation when indexer is in use.
+
 # Non-pojo content
 
 To be able to make the trie fully off-heap, we need to be able to store bytes directly in the trie. At the same time we
@@ -768,6 +801,65 @@ Stage 5:   Memtable in offheap_objects mode: 90.500KiB (0%) on-heap, 36.068MiB (
 
 
 
+```
+Benchmark                                (BATCH)  (count)  (deletionPattern)  (deletionSpec)  (deletionsRatio)  (flush)     (memtableClass)  (partitions)  (threadCount)  (useNet)  Mode  Cnt   Score   Error  Units
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM        TrieMemtable          1000              1     false  avgt   10   9.752 ± 0.150  ms/op
+... done in 10.485 s.
+TrieMemtable in offheap_objects mode: 1000000 ops, 15.259MiB serialized bytes, 485.375KiB (0%) on-heap, 139.615MiB (7%) off-heap
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM        TrieMemtable             4              1     false  avgt   10  11.020 ± 1.305  ms/op
+... done in 10.733 s.
+TrieMemtable in offheap_objects mode: 1000000 ops, 15.259MiB serialized bytes, 22.688KiB (0%) on-heap, 139.784MiB (7%) off-heap
 
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage2          1000              1     false  avgt   10   9.226 ± 0.856  ms/op
+... done in 8.810 s.
+TrieMemtableStage2 in offheap_objects mode: 1000000 ops, 41.962MiB serialized bytes, 88.229MiB (4%) on-heap, 75.688MiB (4%) off-heap
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage2             4              1     false  avgt   10   8.984 ± 0.931  ms/op
+... done in 8.755 s.
+TrieMemtableStage2 in offheap_objects mode: 1000000 ops, 41.962MiB serialized bytes, 87.760MiB (4%) on-heap, 75.887MiB (4%) off-heap
+
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage1          1000              1     false  avgt   10   9.331 ± 0.790  ms/op
+... done in 9.859 s.
+TrieMemtableStage1 in offheap_objects mode: 1000000 ops, 50.545MiB serialized bytes, 116.019MiB (6%) on-heap, 42.013MiB (2%) off-heap
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage1             4              1     false  avgt   10   9.494 ± 0.528  ms/op
+... done in 9.542 s.
+TrieMemtableStage1 in offheap_objects mode: 1000000 ops, 50.545MiB serialized bytes, 115.888MiB (6%) on-heap, 41.962MiB (2%) off-heap
+
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM    SkipListMemtable          1000              1     false  avgt   10   9.222 ± 0.238  ms/op
+... done in 6.290 s.
+SkipListMemtable in offheap_objects mode: 1000000 ops, 50.552MiB serialized bytes, 115.704MiB (6%) on-heap, 41.973MiB (2%) off-heap
+ReadTestWidePartitions.readGreaterMatch     1000  1000000             RANDOM           EQUAL                 0    INMEM    SkipListMemtable             4              1     false  avgt   10  10.191 ± 0.831  ms/op
+... done in 8.772 s.
+SkipListMemtable in offheap_objects mode: 1000000 ops, 50.545MiB serialized bytes, 115.870MiB (6%) on-heap, 41.962MiB (2%) off-heap
+
+
+
+
+Benchmark                                (BATCH)  (count)  (deletionPattern)  (deletionSpec)  (deletionsRatio)  (flush)  (memtableClass)  (partitions)  (threadCount)  (useNet)  Mode  Cnt   Score   Error  Units
+ReadTestWidePartitions.readGreaterMatch     1000  1000000         FROM_START           EQUAL             0.997    INMEM     TrieMemtable             3              1     false  avgt   10  17.937 ± 0.047  ms/op
+... done in 20.109 s.
+TrieMemtable in offheap_objects mode: 2994000 ops, 7.652MiB serialized bytes, 17.016KiB (0%) on-heap, 135.356MiB (7%) off-heap
+
+
+... done in 14.132 s.
+TrieMemtableStage2 in offheap_objects mode: 1997000 ops, 19.142MiB serialized bytes, 64.935MiB (3%) on-heap, 71.459MiB (4%) off-heap
+... done in 15.255 s.
+TrieMemtableStage1 in offheap_objects mode: 1997000 ops, 27.725MiB serialized bytes, 93.064MiB (5%) on-heap, 41.962MiB (2%) off-heap
+
+
+Benchmark                                 (BATCH)  (count)  (deletionPattern)  (deletionSpec)  (deletionsRatio)  (flush)     (memtableClass)  (threadCount)  (useNet)  Mode  Cnt  Score   Error  Units
+ReadTestSmallPartitions.readRandomInside     1000  1000000             RANDOM           EQUAL                 0    INMEM        TrieMemtable              1     false  avgt   10  9.313 ± 1.177  ms/op
+... done in 9.915 s.
+TrieMemtable in offheap_objects mode: 1000000 ops, 15.259MiB serialized bytes, 488.125KiB (0%) on-heap, 218.252MiB (11%) off-heap
+ReadTestSmallPartitions.readRandomInside     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage2              1     false  avgt   10  7.634 ± 0.706  ms/op
+... done in 8.409 s.
+TrieMemtableStage2 in offheap_objects mode: 1000000 ops, 41.962MiB serialized bytes, 114.912MiB (6%) on-heap, 123.838MiB (6%) off-heap
+ReadTestSmallPartitions.readRandomInside     1000  1000000             RANDOM           EQUAL                 0    INMEM  TrieMemtableStage1              1     false  avgt   10  6.915 ± 0.485  ms/op
+... done in 6.637 s.
+TrieMemtableStage1 in offheap_objects mode: 1000000 ops, 50.545MiB serialized bytes, 240.791MiB (12%) on-heap, 109.629MiB (6%) off-heap
+ReadTestSmallPartitions.readRandomInside     1000  1000000             RANDOM           EQUAL                 0    INMEM    SkipListMemtable              1     false  avgt   10  8.946 ± 0.245  ms/op
+... done in 6.252 s.
+SkipListMemtable in offheap_objects mode: 1000000 ops, 58.174MiB serialized bytes, 339.508MiB (17%) on-heap, 53.406MiB (3%) off-heap
+
+```
 
 
