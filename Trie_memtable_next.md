@@ -630,6 +630,9 @@ We could just as well start with this...
 
 - Figure out what to do about PartitionUpdate and Memtable data size not including keys.
 
+- What if the columns set changes and moves column indexes? Reject updates that don't fit our initial metadata?
+  (This only applies to the race between changing schema and flush completes.)
+
 - Add `mappingMergeWith` to rest of trie hierarchy and test all.
 
 - Test `danglingMetadataCleaner`

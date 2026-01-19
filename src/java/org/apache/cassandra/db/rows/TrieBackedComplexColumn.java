@@ -111,8 +111,8 @@ public class TrieBackedComplexColumn extends ComplexColumnData
      */
     public DeletionTime complexDeletion()
     {
-        DeletionTime del = TrieTombstoneMarker.deletionOfCovering(data.applicableDeletion(ByteComparable.EMPTY));
-        return del != null ? del : DeletionTime.LIVE;
+        TrieTombstoneMarker del = data.applicableDeletion(ByteComparable.EMPTY);
+        return del != null ? del.applicableToPointForward() : DeletionTime.LIVE;
     }
 
     class CellsWithPath extends TrieEntriesIterator.WithNullFiltering<Object, Cell<?>>

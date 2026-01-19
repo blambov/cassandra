@@ -57,7 +57,6 @@ import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
-import org.apache.cassandra.db.rows.TrieTombstoneMarkerImpl;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.tries.ContentSerializer;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
@@ -679,8 +678,8 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             else
             {
                 if (legacyIndexUpdater == null)
-                    legacyIndexUpdater = new TriePartitionUpdaterLegacyIndex(this, data);
-                legacyIndexUpdater.startUpdate(indexer, update, metadata.get());
+                    legacyIndexUpdater = new TriePartitionUpdaterLegacyIndex(this, data, metadata.get());
+                legacyIndexUpdater.startUpdate(indexer, update);
                 return legacyIndexUpdater;
             }
         }
@@ -1011,9 +1010,11 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         static final int OFFSET_TIMESTAMP = 0x00;
         static final int OFFSET_LOCAL_DELETION_TIME = 0x08;
         static final int OFFSET_TTL = 0x0c;
+        static final int OFFSET_TOMBSTONE_KIND = 0x0c;
 
         static final int OFFSET_TIMESTAMP_R = 0x10;
         static final int OFFSET_LOCAL_DELETION_TIME_R = 0x18;
+        static final int OFFSET_TOMBSTONE_KIND_R = 0x1c;
 
         @VisibleForTesting
         public TrieSerializer(CellDataBufferManager manager,
@@ -1036,7 +1037,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 assert !shouldPresentAfterBranch;
                 return EMPTY_LIVENESS_ID;
             }
-            if (content == TrieTombstoneMarker.ROW_MARKER)
+            if (content == TrieTombstoneMarker.LevelMarker.ROW)
                 return shouldPresentAfterBranch ? TOMBSTONE_ROW_MARKER_AFTER_BRANCH : TOMBSTONE_ROW_MARKER_BEFORE_BRANCH;
 
             // Everything else takes a trie cell.
@@ -1054,7 +1055,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                     return LivenessInfo.EMPTY;
                 case TOMBSTONE_ROW_MARKER_BEFORE_BRANCH:
                 case TOMBSTONE_ROW_MARKER_AFTER_BRANCH:
-                    return TrieTombstoneMarker.ROW_MARKER;
+                    return TrieTombstoneMarker.LevelMarker.ROW;
                 default:
                     throw new AssertionError();
             }
@@ -1094,23 +1095,25 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 }
                 else if (content instanceof TrieTombstoneMarker)
                 {
-                    TrieTombstoneMarkerImpl marker = (TrieTombstoneMarkerImpl) content;
+                    TrieTombstoneMarker marker = (TrieTombstoneMarker) content;
                     assert marker.isBoundary();
-                    DeletionTime left = marker.leftDeletion();
-                    DeletionTime right = marker.rightDeletion();
+                    TrieTombstoneMarker.Covering left = marker.leftDeletion();
+                    TrieTombstoneMarker.Covering right = marker.rightDeletion();
                     if (left != null)
                     {
                         buffer.putLongOrdered(offset + OFFSET_TIMESTAMP, left.markedForDeleteAt());
                         buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME, left.localDeletionTime());
+                        buffer.putByte(offset + OFFSET_TOMBSTONE_KIND, (byte) left.deletionKind().ordinal());
                     }
                     if (right != null)
                     {
                         buffer.putLongOrdered(offset + OFFSET_TIMESTAMP_R, right.markedForDeleteAt());
                         buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME_R, right.localDeletionTime());
+                        buffer.putByte(offset + OFFSET_TOMBSTONE_KIND_R, (byte) right.deletionKind().ordinal());
                     }
                     buffer.putByte(offset + OFFSET_FLAGS, (byte) (TYPE_TOMBSTONE_MARKER |
                                                                   (shouldPresentAfterBranch ? FLAG_AFTER_BRANCH : 0) |
-                                                                  (marker.isRowMarker() ? FLAG_IS_ROW_MARKER : 0) |
+                                                                  (marker.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW) ? FLAG_IS_ROW_MARKER : 0) |
                                                                   (left != null ? FLAG_HAS_LEFT_DELETION : 0) |
                                                                   (right != null ? FLAG_HAS_RIGHT_DELETION : 0)));
                 }
@@ -1163,15 +1166,17 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 }
                 case TYPE_TOMBSTONE_MARKER:
                 {
-                    TrieTombstoneMarkerImpl.Covering left = (flags & FLAG_HAS_LEFT_DELETION) != 0
-                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + OFFSET_TIMESTAMP),
-                                                                                               buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME))
+                    TrieTombstoneMarker.Covering left = (flags & FLAG_HAS_LEFT_DELETION) != 0
+                                                            ? TrieTombstoneMarker.covering(buffer.getLong(offset + OFFSET_TIMESTAMP),
+                                                                                           buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME),
+                                                                                           TrieTombstoneMarker.Kind.values()[buffer.getByte(offset + OFFSET_TOMBSTONE_KIND)])
                                                             : null;
-                    TrieTombstoneMarkerImpl.Covering right = (flags & FLAG_HAS_RIGHT_DELETION) != 0
-                                                            ? TrieTombstoneMarkerImpl.covering(buffer.getLong(offset + OFFSET_TIMESTAMP_R),
-                                                                                               buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME_R))
-                                                            : null;
-                    return TrieTombstoneMarkerImpl.make(left, right, (flags & FLAG_IS_ROW_MARKER) != 0);
+                    TrieTombstoneMarker.Covering right = (flags & FLAG_HAS_RIGHT_DELETION) != 0
+                                                         ? TrieTombstoneMarker.covering(buffer.getLong(offset + OFFSET_TIMESTAMP_R),
+                                                                                        buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME_R),
+                                                                                        TrieTombstoneMarker.Kind.values()[buffer.getByte(offset + OFFSET_TOMBSTONE_KIND_R)])
+                                                         : null;
+                    return TrieTombstoneMarker.make(left, right, (flags & FLAG_IS_ROW_MARKER) != 0 ? TrieTombstoneMarker.LevelMarker.ROW : null);
                 }
                 case TYPE_PARTITION_DATA:
                     return new PartitionData(owner, buffer, offset);

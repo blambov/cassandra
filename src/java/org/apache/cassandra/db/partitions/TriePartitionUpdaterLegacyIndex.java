@@ -56,20 +56,22 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
     private TableMetadata metadata;
     private ClusteringBound<byte[]> rangeTombstoneOpenPosition;
     private DeletionTime partitionLevelDeletion;
+    private final Row.Builder rowBuilder;
 
     public TriePartitionUpdaterLegacyIndex(TrieMemtable.MemtableShard owner,
-                                           InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data)
+                                           InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data,
+                                           TableMetadata metadata)
     {
         super(owner, data);
+        this.metadata = metadata;
+        this.rowBuilder = TrieBackedRow.builder(metadata.regularAndStaticColumns());
     }
 
     public void startUpdate(UpdateTransaction indexer,
-                            PartitionUpdate update,
-                            TableMetadata metadata)
+                            PartitionUpdate update)
     {
         super.startUpdate();
         this.indexer = indexer;
-        this.metadata = metadata;
         this.rangeTombstoneOpenPosition = null;
         assert indexer != UpdateTransaction.NO_OP;
 
@@ -81,83 +83,70 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
     @Override
     public TrieTombstoneMarker mergeMarkers(@Nullable TrieTombstoneMarker existing, TrieTombstoneMarker update, InMemoryBaseTrie.KeyProducer<TrieTombstoneMarker> keyState)
     {
-        if (indexer != UpdateTransaction.NO_OP)
+        // We need to differentiate between the tombstone levels:
+        // - partition deletion we can recognize as matching the partition marker.
+        // - rows deletion only appears with the row marker.
+        // - complex column deletion vs range deletion? Should we have a type marker in Covering?
+        // - we also need to ignore return-path row/complex-column/partition markers
+        if (update.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW))
         {
-            if (update.hasPointData())
+            // This row has deletions. Any row deletion will be given by the boundary's succeeding side.
+            TrieTombstoneMarker.Covering rowDeletion = update.succedingState(Direction.FORWARD);
+            if (rowDeletion != null)
             {
-                // This row has deletions. The highest deletion time of any deletion is placed at the point data, and
-                // the row deletion is given by the boundary's succeeding side.
-                // TODO: Figure out how to pass the row to the indexer.
-                TrieTombstoneMarker rowDeletion = update.succedingState(Direction.FORWARD);
-                DeletionTime deletionTime = rowDeletion != null ? rowDeletion.deletionTime() : null;
-                if (deletionTime != null)
-                {
-                    Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
-                        ByteArrayAccessor.instance,
-                        ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
-                                                  keyState.getBytes()));
-                    if (existing != null && existing.succedingState(Direction.FORWARD) != null)
-                        indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existing.succedingState(Direction.FORWARD).deletionTime())),
-                                          BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(update.deletionTime())));
-                    else
-                        indexer.onInserted(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(update.deletionTime())));
-                }
-            }
-            else if (update.isBoundary())
-            {
-                // TODO: We need to differentiate between partition, range and column deletions
-                if (rangeTombstoneOpenPosition != null)
-                {
-                    TrieTombstoneMarker preceding = update.precedingState(Direction.FORWARD);
-                    assert preceding != null; // open markers are always closed
-                    DeletionTime deletionTime = preceding.deletionTime();
-                    ClusteringBound<?> bound = metadata.comparator.boundFromByteComparable(
-                        ByteArrayAccessor.instance,
-                        ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
-                                                  keyState.getBytes()),
-                        true);
-                    indexer.onRangeTombstone(new RangeTombstone(Slice.make(rangeTombstoneOpenPosition,
-                                                                           bound),
-                                                                deletionTime));
-                }
-
-                TrieTombstoneMarker succeeding = update.succedingState(Direction.FORWARD);
-                // Ignore the partition deletion.
-                if (succeeding != null && !succeeding.deletionTime().equals(partitionLevelDeletion))
-                {
-                    rangeTombstoneOpenPosition = metadata.comparator.boundFromByteComparable(
-                        ByteArrayAccessor.instance,
-                        ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
-                                                  keyState.getBytes()),
-                        false);
-                }
+                Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
+                    ByteArrayAccessor.instance,
+                    ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                              keyState.getBytes()));
+                if (existing != null && existing.succedingState(Direction.FORWARD) != null)
+                    indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existing.succedingState(Direction.FORWARD))),
+                                      BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(rowDeletion)));
                 else
-                {
-                    rangeTombstoneOpenPosition = null;
-                }
+                    indexer.onInserted(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(rowDeletion)));
             }
         }
+        else if (update.isBoundary())
+        {
+            if (rangeTombstoneOpenPosition != null)
+            {
+                TrieTombstoneMarker.Covering preceding = update.precedingState(Direction.FORWARD);
+                assert preceding != null; // open markers are always closed
+                ClusteringBound<?> bound = metadata.comparator.boundFromByteComparable(
+                    ByteArrayAccessor.instance,
+                    ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                              keyState.getBytes()),
+                    true);
+                indexer.onRangeTombstone(new RangeTombstone(Slice.make(rangeTombstoneOpenPosition,
+                                                                       bound),
+                                                            preceding));
+            }
 
-        if (existing == null)
-        {
-            currentPartition.markAddedTombstones(1);
-            return update;
+            TrieTombstoneMarker.Covering succeeding = update.succedingState(Direction.FORWARD);
+            // Ignore the partition deletion.
+            if (succeeding != null && succeeding.deletionKind() == TrieTombstoneMarker.Kind.RANGE)
+            {
+                rangeTombstoneOpenPosition = metadata.comparator.boundFromByteComparable(
+                    ByteArrayAccessor.instance,
+                    ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                              keyState.getBytes()),
+                    false);
+            }
+            else
+            {
+                rangeTombstoneOpenPosition = null;
+            }
         }
-        else
-        {
-            TrieTombstoneMarker merged = update.mergeWith(existing);
-            return merged;
-        }
+        return super.mergeMarkers(existing, update, keyState);
     }
 
     @Override
     public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
-        TrieTombstoneMarker rowDeletion = updateMarker.succedingState(Direction.FORWARD);
+        TrieTombstoneMarker.Covering rowDeletion = updateMarker.succedingState(Direction.FORWARD);
         if (rowDeletion == null)
             return existing; // there is no row deletion here
 
-        if (rowDeletion.deletionTime().deletes(existing))
+        if (rowDeletion.deletes(existing))
         {
             return LivenessInfo.EMPTY;
             // TODO: and also do currentPartition.markInsertedRows(-1) in that case?

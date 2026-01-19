@@ -48,6 +48,7 @@ import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
+import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
@@ -288,7 +289,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         MutableDeletionInfo.Builder builder = MutableDeletionInfo.builder(partitionLevelDeletion, metadata.comparator, false);
         for (Map.Entry<ByteComparable.Preencoded, TrieTombstoneMarker> entry : trie.deletionOnlyTrie().entrySet())
         {
-            RangeTombstoneMarker marker = entry.getValue().toRangeTombstoneMarker(entry.getKey(), BYTE_COMPARABLE_VERSION, metadata.comparator, partitionLevelDeletion);
+            RangeTombstoneMarker marker = entry.getValue().toRangeTombstoneMarker(entry.getKey(), BYTE_COMPARABLE_VERSION, metadata.comparator);
             if (marker != null)
                 builder.add(marker);
         }
@@ -347,7 +348,15 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
     {
         long maxTimestamp = Long.MIN_VALUE;
         for (Iterator<TrieTombstoneMarker> it = trie.deletionOnlyTrie().valueIterator(); it.hasNext();)
-            maxTimestamp = Math.max(maxTimestamp, it.next().deletionTime().markedForDeleteAt());
+        {
+            TrieTombstoneMarker next = it.next();
+            DeletionTime pointDeletion = next.pointDeletion();
+            if (pointDeletion != null)
+                maxTimestamp = Math.max(maxTimestamp, pointDeletion.markedForDeleteAt());
+            DeletionTime rightDeletion = next.rightDeletion(); // we can ignore left side as it has appeared on the right first
+            if (rightDeletion != null)
+                maxTimestamp = Math.max(maxTimestamp, rightDeletion.markedForDeleteAt());
+        }
         for (Iterator<Row> it = rowsIncludingStatic(); it.hasNext();)
             maxTimestamp = Math.max(maxTimestamp, Rows.collectMaxTimestamp(it.next()));
 
@@ -476,7 +485,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
                 mutator.delete(RangeTrie.point(key,
                                                BYTE_COMPARABLE_VERSION,
                                                true,
-                                               TrieTombstoneMarker.point(deletionTime)));
+                                               TrieTombstoneMarker.point(deletionTime, TrieTombstoneMarker.Kind.ROW)));
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -490,7 +499,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
             {
                 mutator.delete(RangeTrie.branch(ByteComparable.EMPTY,
                                                 BYTE_COMPARABLE_VERSION,
-                                                TrieTombstoneMarker.covering(deletionTime)));
+                                                TrieTombstoneMarker.covering(deletionTime, TrieTombstoneMarker.Kind.PARTITION)));
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -505,7 +514,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
                 mutator.delete(RangeTrie.slice(start,
                                                end,
                                                BYTE_COMPARABLE_VERSION,
-                                               TrieTombstoneMarker.covering(deletionTime)));
+                                               TrieTombstoneMarker.covering(deletionTime, TrieTombstoneMarker.Kind.RANGE)));
                 statsCollector.update(deletionTime);
             }
             catch (TrieSpaceExhaustedException e)
@@ -579,13 +588,13 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
 
         private Row applyTombstone(TrieTombstoneMarker trieTombstoneMarker, Row o)
         {
-            return o.filter(cf, trieTombstoneMarker.deletionTime(), false, metadata);
+            return o.filter(cf, trieTombstoneMarker.applicableToPointForward(), false, metadata);
         }
 
         private Object applyTombstone(Object o, TrieTombstoneMarker trieTombstoneMarker)
         {
             RowData row = (RowData) o;
-            return row.delete(trieTombstoneMarker.deletionTime());
+            return row.delete(trieTombstoneMarker.applicableToPointForward());
         }
 
         private TrieTombstoneMarker mergeTombstones(TrieTombstoneMarker existing, TrieTombstoneMarker update)
@@ -608,7 +617,7 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         public DeletionTime partitionLevelDeletion()
         {
             TrieTombstoneMarker applicableRange = trie.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY);
-            return applicableRange != null ? applicableRange.deletionTime() : DeletionTime.LIVE;
+            return applicableRange != null ? applicableRange.applicableToPointForward() : DeletionTime.LIVE;
         }
 
         @Override

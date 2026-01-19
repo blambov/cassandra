@@ -85,25 +85,26 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     {
         if (indexer != UpdateTransaction.NO_OP)
         {
-            if (update.hasPointData())
+            DeletionTime updatePointDeletion = update.pointDeletion();
+            if (updatePointDeletion != null)
             {
                 Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
                     ByteArrayAccessor.instance,
                     ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
                                               keyState.getBytes()));
-                if (existing != null)
-                    indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existing.deletionTime())),
-                                      BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(update.deletionTime())));
+                DeletionTime existingPointDeletion = existing != null ? existing.pointDeletion() : null;
+                if (existingPointDeletion != null)
+                    indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existingPointDeletion)),
+                                      BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(updatePointDeletion)));
                 else
-                    indexer.onInserted(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(update.deletionTime())));
+                    indexer.onInserted(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(updatePointDeletion)));
             }
             else if (update.isBoundary())
             {
                 if (rangeTombstoneOpenPosition != null)
                 {
-                    TrieTombstoneMarker preceding = update.precedingState(Direction.FORWARD);
-                    assert preceding != null; // open markers are always closed
-                    DeletionTime deletionTime = preceding.deletionTime();
+                    DeletionTime deletionTime = update.precedingState(Direction.FORWARD);
+                    assert deletionTime != null; // open markers are always closed
                     ClusteringBound<?> bound = metadata.comparator.boundFromByteComparable(
                         ByteArrayAccessor.instance,
                         ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
@@ -114,9 +115,9 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                                                                 deletionTime));
                 }
 
-                TrieTombstoneMarker succeeding = update.succedingState(Direction.FORWARD);
+                TrieTombstoneMarker.Covering succeeding = update.succedingState(Direction.FORWARD);
                 // Ignore the partition deletion.
-                if (succeeding != null && !succeeding.deletionTime().equals(partitionLevelDeletion))
+                if (succeeding != null && succeeding.deletionKind() == TrieTombstoneMarker.Kind.RANGE)
                 {
                     rangeTombstoneOpenPosition = metadata.comparator.boundFromByteComparable(
                         ByteArrayAccessor.instance,
@@ -157,14 +158,15 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
     public Object applyPartitionDeletion(TrieMemtableStage3.PartitionData existing, TrieTombstoneMarker updateMarker)
     {
-        indexer.onPartitionDeletion(updateMarker.deletionTime()); // static clustering is deleted only on partition deletion
+        indexer.onPartitionDeletion(updateMarker.rightDeletion());
         existing.clearStats();
         return existing;
     }
 
     public Object applyRowDeletion(RowData existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
-        RowData updated = existing.delete(updateMarker.deletionTime());
+        TrieTombstoneMarker.Covering deletion = updateMarker.applicableToPointForward();
+        RowData updated = existing.delete(deletion);
         if (updated != existing)
             this.heapSize += (updated != null ? updated.unsharedHeapSizeExcludingData() : 0) - existing.unsharedHeapSizeExcludingData();
         if (updated == null)
@@ -178,7 +180,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                                   updated.toRow(clustering, DeletionTime.LIVE));
             else
                 indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
-                                  BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(updateMarker.deletionTime())));
+                                  BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(deletion)));
         }
         return updated;
     }
@@ -188,7 +190,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         // This is called to apply an existing tombstone to incoming data, before applyRow is called on the result.
         // No size tracking is needed, because the result of this then gets applied to the trie with applyRow.
         assert content instanceof RowData; // must be non-null, and can't be partition root
-        return ((RowData) content).delete(marker.deletionTime());
+        return ((RowData) content).delete(marker.applicableToPointForward());
     }
 
     /**

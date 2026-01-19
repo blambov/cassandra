@@ -116,13 +116,13 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
     private CellData applyCellDeletion(CellData existingContent, TrieTombstoneMarker updateMarker)
     {
-        if (!updateMarker.deletionTime().deletes(existingContent))
+        if (!updateMarker.applicableToPointForward().deletes(existingContent))
             return existingContent;
         dataSize -= existingContent.valueSize();
         return null;
     }
 
-    public Object applyPartitionDeletion(PartitionData existing, TrieTombstoneMarker updateMarker)
+    public Object applyPartitionDeletion(PartitionData existing, TrieTombstoneMarker unused)
     {
         existing.clearStats();
         return existing;
@@ -130,11 +130,11 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
     public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
     {
-        TrieTombstoneMarker rowDeletion = updateMarker.succedingState(Direction.FORWARD);
+        TrieTombstoneMarker.Covering rowDeletion = updateMarker.succedingState(Direction.FORWARD);
         if (rowDeletion == null)
             return existing; // there is no row deletion here
 
-        if (rowDeletion.deletionTime().deletes(existing))
+        if (rowDeletion.deletes(existing))
         {
             return LivenessInfo.EMPTY;
             // TODO: and also do currentPartition.markInsertedRows(-1) in that case?
@@ -148,13 +148,13 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         // This is called to apply an existing tombstone to incoming data, before applyRow is called on the result.
         // No size tracking is needed, because the result of this then gets applied to the trie with applyRow.
         if (content instanceof Cell)
-            return marker.deletionTime().deletes((Cell<?>) content) ? null : content;
+            return marker.applicableToPointForward().deletes((Cell<?>) content) ? null : content;
         else if (content == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return content;
         else if (content instanceof LivenessInfo)
         {
-            TrieTombstoneMarker rowDeletion = marker.succedingState(Direction.FORWARD);
-            if (rowDeletion == null || !rowDeletion.deletionTime().deletes((LivenessInfo) content))
+            TrieTombstoneMarker.Covering rowDeletion = marker.succedingState(Direction.FORWARD);
+            if (rowDeletion == null || !rowDeletion.deletes((LivenessInfo) content))
                 return content;
             else
                 return LivenessInfo.EMPTY;

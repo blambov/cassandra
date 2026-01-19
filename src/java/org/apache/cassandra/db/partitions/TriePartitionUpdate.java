@@ -50,6 +50,7 @@ import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
+import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
@@ -288,7 +289,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         MutableDeletionInfo.Builder builder = MutableDeletionInfo.builder(partitionLevelDeletion, metadata.comparator, false);
         for (Map.Entry<ByteComparable.Preencoded, TrieTombstoneMarker> entry : trie.deletionOnlyTrie().entrySet())
         {
-            RangeTombstoneMarker marker = entry.getValue().toRangeTombstoneMarker(entry.getKey(), BYTE_COMPARABLE_VERSION, metadata.comparator, partitionLevelDeletion);
+            RangeTombstoneMarker marker = entry.getValue().toRangeTombstoneMarker(entry.getKey(), BYTE_COMPARABLE_VERSION, metadata.comparator);
             if (marker != null)
                 builder.add(marker);
         }
@@ -347,7 +348,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     {
         long maxTimestamp = Long.MIN_VALUE;
         for (Iterator<TrieTombstoneMarker> it = trie.deletionOnlyTrie().valueIterator(); it.hasNext();)
-            maxTimestamp = Math.max(maxTimestamp, it.next().deletionTime().markedForDeleteAt());
+            maxTimestamp = Math.max(maxTimestamp, it.next().rightDeletion().markedForDeleteAt());   // the left deletion is a repeat of some right one; we can just as well skip it
         for (Iterator<Row> it = rowsIncludingStatic(); it.hasNext();)
             maxTimestamp = Math.max(maxTimestamp, Rows.collectMaxTimestamp(it.next()));
 
@@ -469,7 +470,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         {
             try
             {
-                mutator.delete(RangeTrie.branch(ByteComparable.EMPTY, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletionTime)));
+                mutator.delete(RangeTrie.branch(ByteComparable.EMPTY, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletionTime, TrieTombstoneMarker.Kind.PARTITION)));
             }
             catch (TrieSpaceExhaustedException e)
             {
@@ -481,7 +482,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         {
             try
             {
-                mutator.delete(RangeTrie.slice(start, end, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletionTime)));
+                mutator.delete(RangeTrie.slice(start, end, BYTE_COMPARABLE_VERSION, TrieTombstoneMarker.covering(deletionTime, TrieTombstoneMarker.Kind.RANGE)));
                 statsCollector.update(deletionTime);
             }
             catch (TrieSpaceExhaustedException e)
@@ -596,7 +597,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
 
         private Object applyTombstone(TrieTombstoneMarker marker, Object o)
         {
-            DeletionTime deletion = marker.deletionTime();
+            DeletionTime deletion = marker.applicableToPointForward();
             if (o instanceof Cell)
             {
                 Cell<?> cell = (Cell<?>) o;
@@ -651,7 +652,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         public DeletionTime partitionLevelDeletion()
         {
             TrieTombstoneMarker applicableRange = trie.deletionOnlyTrie().applicableRange(ByteComparable.EMPTY);
-            return applicableRange != null ? applicableRange.deletionTime() : DeletionTime.LIVE;
+            return applicableRange != null ? applicableRange.applicableToPointForward() : DeletionTime.LIVE;
         }
 
         @Override
