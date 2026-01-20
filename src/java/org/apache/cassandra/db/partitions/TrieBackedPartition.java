@@ -267,6 +267,8 @@ public class TrieBackedPartition implements Partition
     protected static void putPartitionDeletionInTrie(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie,
                                                      DeletionTime deletionTime)
     {
+        if (deletionTime.isLive())
+            return;
         try
         {
             makeMutator(trie).delete(RangeTrie.branch(ByteComparable.EMPTY,
@@ -284,6 +286,7 @@ public class TrieBackedPartition implements Partition
                                   ByteComparable end,
                                   DeletionTime deletionTime)
     {
+        assert !deletionTime.isLive();
         try
         {
             makeMutator(trie).delete(RangeTrie.slice(start,

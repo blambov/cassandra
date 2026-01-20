@@ -428,10 +428,7 @@ public class TrieBackedRow extends AbstractRow
         {
             // The row deletion marker may remain even if the data is deleted/filtered out.
             // Check for the existence of a deletion marker
-            if (data.deletionOnlyTrie().filteredValuesIterator(Direction.FORWARD, TrieTombstoneMarker.Boundary.class).hasNext())
-                return false;
-
-            return true;
+            return !data.deletionOnlyTrie().filteredValuesIterator(Direction.FORWARD, TrieTombstoneMarker.Boundary.class).hasNext();
         }
     }
 
@@ -736,89 +733,81 @@ public class TrieBackedRow extends AbstractRow
 //        if (!columns.equals(isStatic() ? metadata.staticColumns() : metadata.regularColumns()))
 //            throw new IllegalArgumentException("Metadata columns do not match");
 
-        if (!droppedColumns.isEmpty())
+        if (filter.queriedColumns().isEmpty())
         {
-            List<RangeTrie<TrieTombstoneMarker>> drops = new ArrayList<>();
-            for (ColumnMetadata c : columns)
+            // Drop all content except the row-level liveness and deletion.
+            filteredData = filteredData.intersect(TrieSet.slice(BYTE_COMPARABLE_VERSION, ByteComparable.EMPTY, v -> ByteSource.oneByte(0)));
+        }
+        else
+        {
+            if (!droppedColumns.isEmpty())
             {
-                DroppedColumn dropped = droppedColumns.get(c.name.bytes);
-                if (dropped != null)
+                List<RangeTrie<TrieTombstoneMarker>> drops = new ArrayList<>();
+                for (ColumnMetadata c : columns)
                 {
-                    drops.add(RangeTrie.branch(columnKey(columnIds, c),
-                                               BYTE_COMPARABLE_VERSION,
-                                               TrieTombstoneMarker.covering(dropped.droppedTime, Integer.MIN_VALUE, TrieTombstoneMarker.Kind.COLUMN)));
+                    DroppedColumn dropped = droppedColumns.get(c.name.bytes);
+                    if (dropped != null)
+                    {
+                        drops.add(RangeTrie.branch(columnKey(columnIds, c),
+                                                   BYTE_COMPARABLE_VERSION,
+                                                   TrieTombstoneMarker.covering(dropped.droppedTime, Integer.MIN_VALUE, TrieTombstoneMarker.Kind.COLUMN)));
+                    }
                 }
+                if (!drops.isEmpty())
+                    filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.merge(drops, TrieTombstoneMarker::merge),
+                                                                         TrieBackedRow::deleteData,
+                                                                         TrieTombstoneMarker::dropShadowedUpdate,
+                                                                         true);
             }
-            if (!drops.isEmpty())
-                filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.merge(drops, TrieTombstoneMarker::merge),
-                                                                     TrieBackedRow::deleteData,
-                                                                     TrieTombstoneMarker::dropShadowedUpdate,
-                                                                     true);
-        }
 
-        if (mayFilterColumns)
-        {
-            // TODO: Column filter may include cell-level filters for complex columns, in both fetched and queried
-            Columns queried = filter.queriedColumns().columns(isStatic());
-            BitSet queriedIds = getColumnIds(queried);
-            DeletionAwareTrie<Object, TrieTombstoneMarker> queriedData;
-            if (queriedIds.cardinality() != columns.size())
-                queriedData = filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(queriedIds)));
-            else
-                queriedData = filteredData;
-
-            Columns fetched = filter.fetchedColumns().columns(isStatic());
-            BitSet fetchedButNotQueried = getColumnIds(fetched);
-            fetchedButNotQueried.andNot(queriedIds);
-            if (!fetchedButNotQueried.isEmpty())
+            if (mayFilterColumns)
             {
-                DeletionAwareTrie<Object, TrieTombstoneMarker> fetchedButNotQueriedData =
-                filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(fetchedButNotQueried)))
-                            .mapValues(TrieBackedRow::dropCellValue);
-                filteredData = queriedData.mergeWith(fetchedButNotQueriedData,
-                                                     TrieBackedRow::mergeRowHeader,
-                                                     TrieTombstoneMarker::mergeUpdate,
-                                                     noExistingSelfDeletion(),
-                                                     true);
+                // TODO: Column filter may include cell-level filters for complex columns, in both fetched and queried
+                Columns queried = filter.queriedColumns().columns(isStatic());
+                BitSet queriedIds = getColumnIds(queried);
+                DeletionAwareTrie<Object, TrieTombstoneMarker> queriedData;
+                if (queriedIds.cardinality() != columns.size())
+                    queriedData = filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(queriedIds)));
+                else
+                    queriedData = filteredData;
+
+                Columns fetched = filter.fetchedColumns().columns(isStatic());
+                BitSet fetchedButNotQueried = getColumnIds(fetched);
+                fetchedButNotQueried.andNot(queriedIds);
+                if (!fetchedButNotQueried.isEmpty())
+                {
+                    DeletionAwareTrie<Object, TrieTombstoneMarker> fetchedButNotQueriedData =
+                    filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(fetchedButNotQueried)))
+                                .mapValues(TrieBackedRow::dropCellValue);
+                    filteredData = queriedData.mergeWith(fetchedButNotQueriedData,
+                                                         TrieBackedRow::mergeRowHeader,
+                                                         TrieTombstoneMarker::mergeUpdate,
+                                                         noExistingSelfDeletion(),
+                                                         true);
+                }
+                else
+                    filteredData = queriedData;
             }
-            else
-                filteredData = queriedData;
+
+            if (mayHaveDeleted)
+            {
+                if (setActiveDeletionToRow)
+                    filteredData = filteredData.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
+                                                                                   BYTE_COMPARABLE_VERSION,
+                                                                                   TrieTombstoneMarker.covering(activeDeletion, TrieTombstoneMarker.Kind.COLUMN)),
+                                                                  TrieBackedRow::deleteData,
+                                                                  TrieTombstoneMarker::mergeUpdate,
+                                                                  true);
+                else // we need mappingMerge to make sure that the resolver is called for all update markers so that we can drop them
+                    filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
+                                                                                          BYTE_COMPARABLE_VERSION,
+                                                                                          TrieTombstoneMarker.covering(activeDeletion, TrieTombstoneMarker.Kind.COLUMN)),
+                                                                         TrieBackedRow::deleteData,
+                                                                         TrieTombstoneMarker::dropShadowedUpdate,
+                                                                         true);
+            }
         }
 
-        if (mayHaveDeleted)
-        {
-            if (setActiveDeletionToRow)
-                filteredData = filteredData.mergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
-                                                                               BYTE_COMPARABLE_VERSION,
-                                                                               TrieTombstoneMarker.covering(activeDeletion, TrieTombstoneMarker.Kind.COLUMN)),
-                                                              TrieBackedRow::deleteData,
-                                                              TrieTombstoneMarker::mergeUpdate,
-                                                              true);
-            else // we need mappingMerge to make sure that the resolver is called for all update markers so that we can drop them
-                filteredData = filteredData.mappingMergeWithDeletion(RangeTrie.branch(ByteComparable.EMPTY,
-                                                                                      BYTE_COMPARABLE_VERSION,
-                                                                                      TrieTombstoneMarker.covering(activeDeletion, TrieTombstoneMarker.Kind.COLUMN)),
-                                                                     TrieBackedRow::deleteData,
-                                                                     TrieTombstoneMarker::dropShadowedUpdate,
-                                                                     true);
-        }
-
-        // TODO: We can return a view/filter-on-the-fly version, can't we?
-//        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION);
-//        try
-//        {
-//            newTrie.apply(filteredData,
-//                          noConflictInData(),
-//                          mergeTombstoneRanges(),
-//                          noIncomingSelfDeletion(),
-//                          noExistingSelfDeletion(),
-//                          true,
-//                          Predicates.alwaysFalse());
-//        }
-//        catch (TrieSpaceExhaustedException e)
-//        {
-//            throw new AssertionError(e);
-//        }
         // TODO: Should we use `fetched` for `columns`? Note the ids cannot change.
 
         if (isEmpty(filteredData))

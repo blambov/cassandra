@@ -20,8 +20,6 @@ package org.apache.cassandra.db.partitions;
 
 import javax.annotation.Nullable;
 
-import com.google.common.base.Predicates;
-
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.DeletionTime;
@@ -30,16 +28,9 @@ import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.memtable.TrieMemtable;
-import org.apache.cassandra.db.rows.BTreeRow;
-import org.apache.cassandra.db.rows.Cell;
-import org.apache.cassandra.db.rows.CellData;
-import org.apache.cassandra.db.rows.Cells;
-import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.TrieBackedRow;
-import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
-import org.apache.cassandra.db.tries.Direction;
-import org.apache.cassandra.db.tries.InMemoryBaseTrie;
+import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
@@ -85,19 +76,42 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
         // Identifying row tombstones is easy, look for the level marker.
         if (update.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW))
         {
-            // This row has deletions. Any row deletion will be given by the boundary's succeeding side.
-            TrieTombstoneMarker.Covering rowDeletion = update.succedingState(Direction.FORWARD);
-            // We need to check the kind of deletion to ignore range or partition deletions.
-            if (rowDeletion != null && rowDeletion.deletionKind() == TrieTombstoneMarker.Kind.ROW)
+            Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
+                ByteArrayAccessor.instance,
+                byteComparableForCurrentDeletionBranchKey());
+
+            TrieBackedRow updateRow = TrieBackedRow.create(metadata,
+                                                           clustering,
+                                                           DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                                                            TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                                                            mutator.getMutationDeletionTailTrie()));
+            if (existing != null && existing.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW))
+            {
+                indexer.onUpdated(TrieBackedRow.create(metadata,
+                                                       clustering,
+                                                       DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                                                        TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                                                        mutator.getExistingDeletionTailTrie())),
+                                  updateRow);
+            }
+            else
+                indexer.onInserted(updateRow);
+        }
+        else if (existing != null && existing.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW))
+        {
+            TrieTombstoneMarker.Covering rowDeletion = update.applicableToPointForward();
+            if (rowDeletion != null)    // TODO: skip partition deletions?
             {
                 Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
                     ByteArrayAccessor.instance,
                     byteComparableForCurrentDeletionBranchKey());
-                if (existing != null && existing.succedingState(Direction.FORWARD) != null)
-                    indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existing.succedingState(Direction.FORWARD))),
-                                      BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(rowDeletion)));
-                else
-                    indexer.onInserted(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(rowDeletion)));
+                TrieBackedRow updateRow = TrieBackedRow.emptyDeletedRow(clustering, update.applicableToPointForward());
+                indexer.onUpdated(TrieBackedRow.create(metadata,
+                                                       clustering,
+                                                       DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                                                        TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                                                        mutator.getExistingDeletionTailTrie())),
+                                  updateRow);
             }
         }
         else if (update.isBoundary())
@@ -108,29 +122,31 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
             TrieTombstoneMarker.Covering rightSide = update.rightDeletion();
             boolean skip = false;
 
-            switch (leftSide.deletionKind())
-            {
-                case ROW:
-                    throw new AssertionError("Row deletion without row level marker");
-                case COLUMN:
-                    skip = true;
-                    break;
-                case PARTITION:
-                    leftSide = null; // ignore this side
-                    break;
-            }
+            if (leftSide != null)
+                switch (leftSide.deletionKind())
+                {
+                    case ROW:
+                        throw new AssertionError("Row deletion without row level marker");
+                    case COLUMN:
+                        skip = true;
+                        break;
+                    case PARTITION:
+                        leftSide = null; // ignore this side
+                        break;
+                }
 
-            switch (rightSide.deletionKind())
-            {
-                case ROW:
-                    throw new AssertionError("Row deletion without row level marker");
-                case COLUMN:
-                    skip = true;
-                    break;
-                case PARTITION:
-                    rightSide = null; // ignore this side
-                    break;
-            }
+            if (rightSide != null)
+                switch (rightSide.deletionKind())
+                {
+                    case ROW:
+                        throw new AssertionError("Row deletion without row level marker");
+                    case COLUMN:
+                        skip = true;
+                        break;
+                    case PARTITION:
+                        rightSide = null; // ignore this side
+                        break;
+                }
 
             if (!skip && (leftSide != null || rightSide != null))
             {
@@ -165,19 +181,24 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
     @Override
     public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker)
     {
+        TrieTombstoneMarker.Covering rowDeletion = updateMarker.applicableToPointForward();
+        if (rowDeletion == null)
+            return existing; // there is no row deletion here
 
-        // TODO: indexer update needs tail trie. Refactor to use Mutator instead of KeyProducer and add tail trie methods.
-//        if (indexer != UpdateTransaction.NO_OP && updated != existing)
-//        {
-//            Clustering<?> clustering = clusteringFor(keyState);
-//            if (updated != null)
-//                indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
-//                                  updated.toRow(clustering, DeletionTime.LIVE));
-//            else
-//                indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
-//                                  BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(updateMarker.deletionTime())));
-//        }
-//        return updated;
+        Clustering<?> clustering = clusteringForCurrentKey();
+        if (updateMarker.hasLevelMarker(TrieTombstoneMarker.LevelMarker.ROW))
+        {
+            indexer.onUpdated(TrieBackedRow.create(metadata, clustering, mutator.getExistingTailTrie()),
+                              TrieBackedRow.create(metadata, clustering, DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY,
+                                                                                                          TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                                                                          mutator.getMutationDeletionTailTrie())));
+        }
+        else
+        {
+            indexer.onUpdated(TrieBackedRow.create(metadata, clustering, mutator.getExistingTailTrie()),
+                              TrieBackedRow.emptyDeletedRow(clustering, rowDeletion));
+        }
+
         return super.applyRowDeletion(existing, updateMarker);
     }
 
@@ -200,32 +221,15 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
     {
         if (existing == null)
         {
-            // TODO: index update with the tail trie?
-//            if (indexer != UpdateTransaction.NO_OP)
-//                indexer.onInserted(insert.toRow(clusteringFor(keyState), DeletionTime.LIVE));
-
-            this.dataSize += insert.dataSize();
-            currentPartition.markInsertedRows(1);  // null pointer here means a problem in applyDeletion
-            return insert;
+            indexer.onInserted(TrieBackedRow.create(metadata, clusteringForCurrentKey(), mutator.getMutationTailTrie()));
         }
         else
         {
-            LivenessInfo reconciled = LivenessInfo.merge(existing, insert);
-
-            // TODO index update
-//            if (indexer != UpdateTransaction.NO_OP)
-//            {
-//                Clustering<?> clustering = clusteringFor(keyState);
-//                indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
-//                                  reconciled.toRow(clustering, DeletionTime.LIVE));
-//            }
-
-            if (reconciled != existing)
-            {
-                this.dataSize += reconciled.dataSize() - existing.dataSize();
-            }
-            return reconciled;
+            Clustering<?> clustering = clusteringForCurrentKey();
+            indexer.onUpdated(TrieBackedRow.create(metadata, clustering, mutator.getExistingTailTrie()),
+                              TrieBackedRow.create(metadata, clustering, mutator.getMutationTailTrie()));
         }
+        return super.applyRow(existing, insert);
     }
 
     private ByteComparable byteComparableForCurrentDeletionBranchKey()

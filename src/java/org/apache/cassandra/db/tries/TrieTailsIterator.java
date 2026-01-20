@@ -210,7 +210,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
         {
             // Fix the location of the tail trie source.
             DeletionAwareCursor<T, D> tailCursor = cursor.tailCursor(cursor.direction());
-            return mapContent(v, dir -> tailCursor.tailCursor(dir), keyBytes, keyPos);
+            return mapContent(v, tailCursor::tailCursor, keyBytes, keyPos);
         }
 
         protected abstract V mapContent(T value, DeletionAwareTrie<T, D> tailTrie, byte[] bytes, int byteLength);

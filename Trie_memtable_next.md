@@ -624,9 +624,9 @@ We could just as well start with this...
 
 - Move `danglingMetadataCleaner` to content manager to avoid materializing objects
 
-# TODOs
-
 - Figure out index handling.
+
+# TODOs
 
 - Figure out what to do about PartitionUpdate and Memtable data size not including keys.
 
@@ -635,7 +635,9 @@ We could just as well start with this...
 
 - Add `mappingMergeWith` to rest of trie hierarchy and test all.
 
-- Test `danglingMetadataCleaner`
+- Test `Mutator.getXXXTailTrie`
+
+- Test dangling metadata cleaning
 
 - Test `!includeCoveringDeletions`, also add it to tailTrie, and move `dropDeletions` to `RangeState`
 

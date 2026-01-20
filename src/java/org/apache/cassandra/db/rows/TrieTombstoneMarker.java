@@ -352,6 +352,12 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
             return HEAP_SIZE;
         }
 
+        @Override
+        public String toString()
+        {
+            return super.toString() + '[' + deletionKind + ']';
+        }
+
         // inherits equals and hashcode
     }
 
@@ -378,18 +384,6 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
             this.rightDeletion = right;
             this.levelMarkerIfPresent = levelMarkerIfPresent;
         }
-
-//        @Override
-//        public DeletionTime deletionTime(Direction direction)
-//        {
-//            // Report the higher deletion, to avoid dropping the other side of boundaries that switch to any omitted
-//            // deletion time.
-//            if (leftDeletion == null)
-//                return rightDeletion;
-//            if (rightDeletion == null)
-//                return leftDeletion;
-//            return rightDeletion.supersedes(leftDeletion) ? rightDeletion : leftDeletion;
-//        }
 
         @Override
         public boolean hasLevelMarker(LevelMarker level)
@@ -512,7 +506,10 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
         @Override
         public String toString()
         {
-            return (leftDeletion != null ? leftDeletion : "LIVE") + " -> " + (rightDeletion != null ? rightDeletion : "LIVE");
+            return (levelMarkerIfPresent != null ? levelMarkerIfPresent + " + " : "") +
+                   (leftDeletion != null ? leftDeletion : "LIVE") +
+                   " -> " +
+                   (rightDeletion != null ? rightDeletion : "LIVE");
         }
 
         @Override

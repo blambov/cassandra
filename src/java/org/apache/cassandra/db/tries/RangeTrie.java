@@ -107,13 +107,7 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
         RangeCursor<S> cursor = cursor(Direction.FORWARD);
         final ByteSource bytes = key.asComparableBytes(cursor.byteComparableVersion());
         if (cursor.descendAlong(bytes))
-        {
-            S state = cursor.state();
-            if (state == null)
-                return null;
-            // If this is a boundary, the state that applies to the branch is its right side.
-            return state.succedingState(Direction.FORWARD);
-        }
+            return cursor.state();
         else
             return cursor.precedingState();
     }

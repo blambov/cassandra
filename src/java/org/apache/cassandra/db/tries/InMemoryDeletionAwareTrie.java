@@ -22,8 +22,6 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import com.google.common.base.Predicates;
-
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -113,7 +111,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     static class DeletionAwareInMemoryCursor<T, D extends RangeState<D>>
     extends InMemoryCursor<T> implements DeletionAwareCursor<T, D>
     {
-        DeletionAwareInMemoryCursor(InMemoryDeletionAwareTrie<T, D> trie, Direction direction, int root)
+        DeletionAwareInMemoryCursor(InMemoryBaseTrie<T> trie, Direction direction, int root)
         {
             super(trie, direction, root, trie.presentForwardPathContentBeforeBranch);
         }
@@ -472,6 +470,30 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         public byte[] getDeletionBranchKeyBytes()
         {
             return deletionMutator.getCurrentKeyBytes();
+        }
+
+        /// Only valid until the return from the current apply() call.
+        public DeletionAwareTrie<T, D> getExistingTailTrie()
+        {
+            return dir -> new DeletionAwareInMemoryCursor<>(state.trie, dir, state.existingFullNode());
+        }
+
+        /// Only valid until the return from the current apply() call.
+        public DeletionAwareTrie<V, E> getMutationTailTrie()
+        {
+            return mutationCursor::tailCursor;
+        }
+
+        /// Only valid until the return from the current apply() call.
+        public RangeTrie<D> getExistingDeletionTailTrie()
+        {
+            return dir -> new InMemoryRangeTrie.InMemoryRangeCursor<>(deletionState.trie, dir, deletionState.existingFullNode());
+        }
+
+        /// Only valid until the return from the current apply() call.
+        public RangeTrie<E> getMutationDeletionTailTrie()
+        {
+            return deleter.mutationCursor::tailCursor;
         }
     }
 
