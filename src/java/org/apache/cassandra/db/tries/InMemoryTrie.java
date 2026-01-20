@@ -133,7 +133,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         /// value. Applied even if there's no pre-existing value in the memtable trie.
         /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
         /// concurrent readers. See NodeFeatures for details.
-        Mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
+        Mutator(UpsertTransformer<T, U> transformer,
                 Predicate<NodeFeatures<U>> needsForcedCopy)
         {
             super(transformer, needsForcedCopy, applyState);
@@ -175,36 +175,10 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     /// value. Applied even if there's no pre-existing value in the memtable trie.
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
     /// concurrent readers. See NodeFeatures for details.
-    public <U> Mutator<U> mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
-                                  Predicate<NodeFeatures<U>> needsForcedCopy)
-    {
-        return new Mutator<>(transformer, needsForcedCopy);
-    }
-
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie.
-    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
-    /// concurrent readers. See NodeFeatures for details.
     public <U> Mutator<U> mutator(UpsertTransformer<T, U> transformer,
                                   Predicate<NodeFeatures<U>> needsForcedCopy)
     {
         return new Mutator<>(transformer, needsForcedCopy);
-    }
-
-    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-    /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
-    /// different than the element type for this memtable trie.
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie.
-    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
-    /// concurrent readers. See NodeFeatures for details.
-    public <U> void apply(Trie<U> mutation,
-                          final UpsertTransformerWithKeyProducer<T, U> transformer,
-                          final Predicate<NodeFeatures<U>> needsForcedCopy)
-    throws TrieSpaceExhaustedException
-    {
-        mutator(transformer, needsForcedCopy).apply(mutation);
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -229,7 +203,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         int initialDepth;
 
         RangeMutator(ApplyState<T> state,
-                     UpsertTransformerWithKeyProducer<T, S> transformer,
+                     UpsertTransformer<T, S> transformer,
                      Predicate<NodeFeatures<S>> needsForcedCopy)
         {
             super(transformer, needsForcedCopy, state);
@@ -328,7 +302,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             T existingContent = state.getDescentPathContent();
             if (existingContent != null)
             {
-                T combinedContent = transformer.apply(existingContent, content, state);
+                T combinedContent = transformer.apply(existingContent, content);
                 if (combinedContent != existingContent)
                     state.setDescentPathContent(combinedContent, // can be null
                                                 state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
@@ -372,21 +346,11 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             apply(set.cursor(Direction.FORWARD));
         }
 
-        private static <T> T deleteEntry(T entry, TrieSetCursor.RangeState state, KeyProducer<T> keyProducer)
+        private static <T> T deleteEntry(T entry, TrieSetCursor.RangeState state)
         {
             return state.applicableBefore ? null : entry;
         }
 
-    }
-
-    /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie.
-    /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
-    /// concurrent readers. See NodeFeatures for details.
-    public <S extends RangeState<S>> RangeMutator<T, S> rangeMutator(UpsertTransformerWithKeyProducer<T, S> transformer,
-                                                                     Predicate<NodeFeatures<S>> needsForcedCopy)
-    {
-        return new RangeMutator<>(applyState, transformer, needsForcedCopy);
     }
 
     /// @param transformer a function applied to the potentially pre-existing value for the given key, and the new

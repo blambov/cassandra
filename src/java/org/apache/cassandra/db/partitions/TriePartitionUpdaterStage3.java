@@ -31,8 +31,11 @@ import org.apache.cassandra.db.memtable.TrieMemtableStage3;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
+import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
+import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -45,14 +48,15 @@ import static org.apache.cassandra.db.partitions.TrieBackedPartitionStage3.RowDa
  */
 public final class TriePartitionUpdaterStage3
 extends BasePartitionUpdater
-implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
+implements InMemoryBaseTrie.UpsertTransformer<Object, Object>
 {
     private final UpdateTransaction indexer;
     private final TableMetadata metadata;
     private TrieMemtableStage3.PartitionData currentPartition;
+    private int currentPartitionDepth;
     private final TrieMemtableStage3.MemtableShard owner;
     private ClusteringBound<byte[]> rangeTombstoneOpenPosition = null;
-    private final DeletionTime partitionLevelDeletion;
+    private InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> mutator;
     public int partitionsAdded = 0;
 
     public TriePartitionUpdaterStage3(Cloner cloner,
@@ -65,23 +69,35 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         this.indexer = indexer;
         this.metadata = metadata;
         this.owner = owner;
-        this.partitionLevelDeletion = partitionLevelDeletion;
         if (!partitionLevelDeletion.isLive())
             indexer.onPartitionDeletion(partitionLevelDeletion);
     }
 
+    public void apply(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data,
+                      DeletionAwareTrie<Object, TrieTombstoneMarker> update)
+    throws TrieSpaceExhaustedException
+    {
+        mutator = data.mutator(this,
+                               this::mergeMarkers,
+                               this::applyMarker,
+                               this::applyMarker,
+                               true,
+                               TrieMemtableStage3.FORCE_COPY_PARTITION_BOUNDARY);
+        mutator.apply(update);
+    }
+
     @Override
-    public Object apply(@Nullable Object existing, Object update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object apply(@Nullable Object existing, Object update)
     {
         if (update == TrieBackedPartitionStage3.PARTITION_MARKER)
             return mergePartitionMarkers((TrieMemtableStage3.PartitionData) existing);
         else if (update instanceof RowData)
-            return applyRow((RowData) existing, (RowData) update, keyState);
+            return applyRow((RowData) existing, (RowData) update);
         else
             throw new AssertionError("Unexpected update type: " + update.getClass());
     }
 
-    public TrieTombstoneMarker mergeMarkers(@Nullable TrieTombstoneMarker existing, TrieTombstoneMarker update, InMemoryBaseTrie.KeyProducer<TrieTombstoneMarker> keyState)
+    public TrieTombstoneMarker mergeMarkers(@Nullable TrieTombstoneMarker existing, TrieTombstoneMarker update)
     {
         if (indexer != UpdateTransaction.NO_OP)
         {
@@ -90,8 +106,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             {
                 Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
                     ByteArrayAccessor.instance,
-                    ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
-                                              keyState.getBytes()));
+                    byteComparableForCurrentDeletionBranchKey());
                 DeletionTime existingPointDeletion = existing != null ? existing.pointDeletion() : null;
                 if (existingPointDeletion != null)
                     indexer.onUpdated(BTreeRow.emptyDeletedRow(clustering, Row.Deletion.regular(existingPointDeletion)),
@@ -107,8 +122,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                     assert deletionTime != null; // open markers are always closed
                     ClusteringBound<?> bound = metadata.comparator.boundFromByteComparable(
                         ByteArrayAccessor.instance,
-                        ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
-                                                  keyState.getBytes()),
+                        byteComparableForCurrentDeletionBranchKey(),
                         true);
                     indexer.onRangeTombstone(new RangeTombstone(Slice.make(rangeTombstoneOpenPosition,
                                                                            bound),
@@ -121,8 +135,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                 {
                     rangeTombstoneOpenPosition = metadata.comparator.boundFromByteComparable(
                         ByteArrayAccessor.instance,
-                        ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
-                                                  keyState.getBytes()),
+                        byteComparableForCurrentDeletionBranchKey(),
                         false);
                 }
                 else
@@ -146,12 +159,12 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         }
     }
 
-    public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker)
     {
         if (existingContent instanceof TrieMemtableStage3.PartitionData)
             return applyPartitionDeletion((TrieMemtableStage3.PartitionData) existingContent, updateMarker);
         else if (existingContent instanceof RowData)
-            return applyRowDeletion((RowData) existingContent, updateMarker, keyState);
+            return applyRowDeletion((RowData) existingContent, updateMarker);
         else
             throw new AssertionError("Unexpected content in trie: " + existingContent);
     }
@@ -163,7 +176,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         return existing;
     }
 
-    public Object applyRowDeletion(RowData existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object applyRowDeletion(RowData existing, TrieTombstoneMarker updateMarker)
     {
         TrieTombstoneMarker.Covering deletion = updateMarker.applicableToPointForward();
         RowData updated = existing.delete(deletion);
@@ -174,7 +187,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
         if (indexer != UpdateTransaction.NO_OP && updated != existing)
         {
-            Clustering<?> clustering = clusteringFor(keyState);
+            Clustering<?> clustering = clusteringForCurrentKey();
             if (updated != null)
                 indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
                                   updated.toRow(clustering, DeletionTime.LIVE));
@@ -198,17 +211,16 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
      *
      * @param existing Existing RowData for this clustering, or null if there isn't any.
      * @param insert RowData to be inserted.
-     * @param keyState Used to obtain the path through which this node was reached.
      * @return the insert row, or the merged row, copied using our allocator
      */
-    private RowData applyRow(@Nullable RowData existing, RowData insert, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private RowData applyRow(@Nullable RowData existing, RowData insert)
     {
         if (existing == null)
         {
             RowData data = insert.clone(cloner);
 
             if (indexer != UpdateTransaction.NO_OP)
-                indexer.onInserted(data.toRow(clusteringFor(keyState), DeletionTime.LIVE));
+                indexer.onInserted(data.toRow(clusteringForCurrentKey(), DeletionTime.LIVE));
 
             this.dataSize += data.dataSize();
             this.heapSize += data.unsharedHeapSizeExcludingData();
@@ -222,7 +234,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
             if (indexer != UpdateTransaction.NO_OP)
             {
-                Clustering<?> clustering = clusteringFor(keyState);
+                Clustering<?> clustering = clusteringForCurrentKey();
                 indexer.onUpdated(existing.toRow(clustering, DeletionTime.LIVE),
                                   reconciled.toRow(clustering, DeletionTime.LIVE));
             }
@@ -244,14 +256,6 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         return new RowData(tree, livenessInfo);
     }
 
-    private Clustering<?> clusteringFor(InMemoryBaseTrie.KeyProducer<Object> keyState)
-    {
-        return metadata.comparator.clusteringFromByteComparable(
-            ByteArrayAccessor.instance,
-            ByteComparable.preencoded(TrieBackedPartitionStage3.BYTE_COMPARABLE_VERSION,
-                                      keyState.getBytes(TrieBackedPartitionStage3.IS_PARTITION_BOUNDARY)));
-    }
-
     /**
      * Called at the partition boundary to merge the existing and new metadata associated with the partition. This needs
      * to make sure that the statistics we track for the partition (dataSize) are updated for the changes caused by
@@ -262,7 +266,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
      */
     private TrieMemtableStage3.PartitionData mergePartitionMarkers(@Nullable TrieMemtableStage3.PartitionData existing)
     {
-        // TODO: Check if we need to call onPartitionDeletion
+        currentPartitionDepth = mutator.currentDepth();
 
         if (existing == null)
         {
@@ -275,5 +279,19 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
         assert owner == existing.owner;
         return currentPartition = existing;
+    }
+
+    private ByteComparable byteComparableForCurrentDeletionBranchKey()
+    {
+        return ByteComparable.preencoded(mutator.byteComparableVersion(),
+                                         mutator.getDeletionBranchKeyBytes());
+    }
+
+    private Clustering<?> clusteringForCurrentKey()
+    {
+        return metadata.comparator.clusteringFromByteComparable(
+            ByteArrayAccessor.instance,
+            ByteComparable.preencoded(mutator.byteComparableVersion(),
+                                      mutator.getCurrentKeyBytes(currentPartitionDepth)));
     }
 }

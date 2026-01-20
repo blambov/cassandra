@@ -17,17 +17,15 @@
  */
 package org.apache.cassandra.db.tries;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Predicate;
 import javax.annotation.Nonnull;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 
-import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -871,7 +869,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     /// To make this as efficient and GC-friendly as possible, we use an integer array (instead of is an object stack)
     /// and we reuse the same object. The latter is safe because memtable tries cannot be mutated in parallel by multiple
     /// writers.
-    static class ApplyState<T> implements KeyProducer<T>
+    static class ApplyState<T>
     {
         static final int STATE_SIZE = 5;
 
@@ -1299,12 +1297,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             setTransition(-1);
         }
 
-        public byte[] getBytes()
+        public byte[] getBytes(int startDepth)
         {
-            int arrSize = currentDepth;
+            Preconditions.checkArgument(startDepth >= 0 && startDepth <= currentDepth);
+            int arrSize = currentDepth - startDepth;
             byte[] data = new byte[arrSize];
             int pos = 0;
-            for (int i = 0; i < currentDepth; ++i)
+            for (int i = startDepth; i < currentDepth; ++i)
             {
                 int trans = transitionAtDepth(i);
                 data[pos++] = (byte) trans;
@@ -1312,31 +1311,21 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             return data;
         }
 
-        @Override
-        public byte[] getBytes(Predicate<T> shouldStop)
+        public int getNearestAncestorDepthSatisfying(Predicate<T> shouldStop)
         {
-            if (currentDepth == 0)
-                return new byte[0];
+            return getNearestAncestorDepthSatisfying(shouldStop, currentDepth - 1);
+        }
 
-            int arrSize = 1;
+        public int getNearestAncestorDepthSatisfying(Predicate<T> shouldStop, int startDepth)
+        {
             int i;
-            for (i = currentDepth - 1; i > 0; --i)
+            for (i = startDepth; i >= 0; --i)
             {
                 int content = descentPathContentIdAtDepth(i);
                 if (!isNull(content) && shouldStop.test(trie.getContent(content)))
-                    break;
-                ++arrSize;
+                    return i;
             }
-            assert i > 0 || arrSize == currentDepth; // if the loop covers the whole stack, the array must cover the full depth
-
-            byte[] data = new byte[arrSize];
-            int pos = 0;
-            for (; i < currentDepth; ++i)
-            {
-                int trans = transitionAtDepth(i);
-                data[pos++] = (byte) trans;
-            }
-            return data;
+            return -1;
         }
 
         public ByteComparable.Version byteComparableVersion()
@@ -1366,46 +1355,13 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     }
 
 
-    public interface KeyProducer<T>
-    {
-        /// Get the bytes of the path leading to this node.
-        byte[] getBytes();
-
-        /// Get the bytes of the path leading to this node from the closest ancestor whose content, after any new inserts
-        /// have been applied, satisfies the given predicate.
-        /// Note that the predicate is not called for the current position, because its content is not yet prepared when
-        /// the method is being called.
-        byte[] getBytes(Predicate<T> shouldStop);
-
-        ByteComparable.Version byteComparableVersion();
-    }
-
     /// Somewhat similar to [Trie.MergeResolver], this encapsulates logic to be applied whenever new content is
     /// being upserted into a [InMemoryBaseTrie]. Unlike [Trie.MergeResolver], [UpsertTransformer] will be
     /// applied no matter if there's pre-existing content for that trie key/path or not.
     ///
     /// @param <T> The content type for this [InMemoryBaseTrie].
     /// @param <U> The type of the new content being applied to this [InMemoryBaseTrie].
-    public interface UpsertTransformerWithKeyProducer<T, U>
-    {
-        /// Called when there's content in the updating trie.
-        ///
-        /// @param existing Existing content for this key, or null if there isn't any.
-        /// @param update   The update, always non-null.
-        /// @param keyState An interface that can be used to retrieve the path of the value being updated.
-        /// @return The combined value to use. A value of null will delete the existing entry.
-        T apply(T existing, @Nonnull U update, KeyProducer<T> keyState);
-    }
-
-    /// Somewhat similar to [Trie.MergeResolver], this encapsulates logic to be applied whenever new content is
-    /// being upserted into a [InMemoryBaseTrie]. Unlike [Trie.MergeResolver], [UpsertTransformer] will be
-    /// applied no matter if there's pre-existing content for that trie key/path or not.
-    ///
-    /// A version of the above that does not use a [KeyProducer].
-    ///
-    /// @param <T> The content type for this [InMemoryBaseTrie].
-    /// @param <U> The type of the new content being applied to this [InMemoryBaseTrie].
-    public interface UpsertTransformer<T, U> extends UpsertTransformerWithKeyProducer<T, U>
+    public interface UpsertTransformer<T, U>
     {
         /// Called when there's content in the updating trie.
         ///
@@ -1413,17 +1369,6 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         /// @param update   The update, always non-null.
         /// @return The combined value to use. A value of null will delete the existing entry.
         T apply(T existing, @Nonnull U update);
-
-        /// Version of the above that also provides the path of a value being updated.
-        ///
-        /// @param existing Existing content for this key, or null if there isn't any.
-        /// @param update   The update, always non-null.
-        /// @param keyState An interface that can be used to retrieve the path of the value being updated.
-        /// @return The combined value to use. A value of null will delete the existing entry.
-        default T apply(T existing, @Nonnull U update, @Nonnull KeyProducer<T> keyState)
-        {
-            return apply(existing, update);
-        }
     }
 
     /// Interface providing features of the mutating node during mutation done using [#apply].
@@ -1449,14 +1394,14 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     protected static class Mutator<T, U, C extends Cursor<U>, A extends ApplyState<T>> implements NodeFeatures<U>
     {
-        final UpsertTransformerWithKeyProducer<T, U> transformer;
+        final UpsertTransformer<T, U> transformer;
         final Predicate<NodeFeatures<U>> needsForcedCopy;
         final A state;
 
         C mutationCursor;
         int forcedCopyDepth;
 
-        Mutator(UpsertTransformerWithKeyProducer<T, U> transformer,
+        Mutator(UpsertTransformer<T, U> transformer,
                 Predicate<NodeFeatures<U>> needsForcedCopy,
                 A state)
         {
@@ -1505,7 +1450,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
             if (content != null)
             {
                 T existingContent = state.getDescentPathContent();
-                T combinedContent = transformer.apply(existingContent, content, state);
+                T combinedContent = transformer.apply(existingContent, content);
                 if (combinedContent != existingContent)
                     state.setDescentPathContent(combinedContent, // can be null
                                                 state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
@@ -1537,6 +1482,38 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
         public U content()
         {
             return mutationCursor.content();
+        }
+
+        public int currentDepth()
+        {
+            return state.currentDepth;
+        }
+
+        /// Get the bytes of the path leading to this node.
+        public byte[] getCurrentKeyBytes()
+        {
+            return getCurrentKeyBytes(0);
+        }
+
+        /// Get the bytes of the path leading to this node from the given depth.
+        public byte[] getCurrentKeyBytes(int startDepth)
+        {
+            return state.getBytes(startDepth);
+        }
+
+        public int getNearestAncestorDepthSatisfying(Predicate<T> shouldStop)
+        {
+            return state.getNearestAncestorDepthSatisfying(shouldStop);
+        }
+
+        public byte[] getCurrentKeyBytesToNearestAncestorSatisfying(Predicate<T> shouldStop)
+        {
+            return state.getBytes(Math.max(0, state.getNearestAncestorDepthSatisfying(shouldStop)));
+        }
+
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return state.byteComparableVersion();
         }
     }
 

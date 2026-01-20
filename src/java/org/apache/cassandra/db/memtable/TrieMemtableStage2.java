@@ -667,11 +667,10 @@ public class TrieMemtableStage2 extends AbstractAllocatorMemtable
                     // the allocator to block while we are trying to flush a memtable and become a deadlock.
                     long onHeap = data.isEmpty() ? 0 : data.usedSizeOnHeap();
                     long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
-                    // Use the fast recursive put if we know the key is small enough to not cause a stack overflow.
+
                     try
                     {
-                        data.mutator(updater, FORCE_COPY_PARTITION_BOUNDARY)
-                            .apply(TriePartitionUpdateStage2.asMergableTrie(update));
+                        updater.apply(data, TriePartitionUpdateStage2.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {

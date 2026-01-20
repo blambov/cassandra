@@ -26,6 +26,9 @@ import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.memtable.TrieMemtableStage2;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
+import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.Trie;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -38,13 +41,15 @@ import static org.apache.cassandra.db.partitions.TrieBackedPartitionStage2.RowDa
  */
 public final class TriePartitionUpdaterStage2
 extends BasePartitionUpdater
-implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
+implements InMemoryBaseTrie.UpsertTransformer<Object, Object>
 {
     private final UpdateTransaction indexer;
     private final TableMetadata metadata;
     private TrieMemtableStage2.PartitionData currentPartition;
+    private int currentPartitionDepth;
     private final TrieMemtableStage2.MemtableShard owner;
     public int partitionsAdded = 0;
+    private InMemoryTrie<Object>.Mutator<Object> mutator;
 
     public TriePartitionUpdaterStage2(Cloner cloner,
                                       UpdateTransaction indexer,
@@ -57,11 +62,17 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         this.owner = owner;
     }
 
+    public void apply(InMemoryTrie<Object> data, Trie<Object> update) throws TrieSpaceExhaustedException
+    {
+        mutator = data.mutator(this, TrieMemtableStage2.FORCE_COPY_PARTITION_BOUNDARY);
+        mutator.apply(update);
+    }
+
     @Override
-    public Object apply(Object existing, Object update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object apply(Object existing, Object update)
     {
         if (update instanceof RowData)
-            return applyRow((RowData) existing, (RowData) update, keyState);
+            return applyRow((RowData) existing, (RowData) update);
         else if (update instanceof DeletionInfo)
             return applyDeletion((TrieMemtableStage2.PartitionData) existing, (DeletionInfo) update);
         else
@@ -73,17 +84,16 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
      *
      * @param existing Existing RowData for this clustering, or null if there isn't any.
      * @param insert RowData to be inserted.
-     * @param keyState Used to obtain the path through which this node was reached.
      * @return the insert row, or the merged row, copied using our allocator
      */
-    private RowData applyRow(RowData existing, RowData insert, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private RowData applyRow(RowData existing, RowData insert)
     {
         if (existing == null)
         {
             RowData data = insert.clone(cloner);
 
             if (indexer != UpdateTransaction.NO_OP)
-                indexer.onInserted(data.toRow(clusteringFor(keyState)));
+                indexer.onInserted(data.toRow(clusteringForCurrentKey()));
 
             this.dataSize += data.dataSize();
             this.heapSize += data.unsharedHeapSizeExcludingData();
@@ -97,7 +107,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
 
             if (indexer != UpdateTransaction.NO_OP)
             {
-                Clustering<?> clustering = clusteringFor(keyState);
+                Clustering<?> clustering = clusteringForCurrentKey();
                 indexer.onUpdated(existing.toRow(clustering), reconciled.toRow(clustering));
             }
 
@@ -119,12 +129,12 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         return new RowData(tree, livenessInfo, deletion);
     }
 
-    private Clustering<?> clusteringFor(InMemoryBaseTrie.KeyProducer<Object> keyState)
+    private Clustering<?> clusteringForCurrentKey()
     {
         return metadata.comparator.clusteringFromByteComparable(
-            ByteArrayAccessor.instance,
-            ByteComparable.preencoded(TrieBackedPartitionStage2.BYTE_COMPARABLE_VERSION,
-                                      keyState.getBytes(TrieMemtableStage2.IS_PARTITION_BOUNDARY)));
+        ByteArrayAccessor.instance,
+        ByteComparable.preencoded(mutator.byteComparableVersion(),
+                                  mutator.getCurrentKeyBytes(currentPartitionDepth)));
     }
 
     /**
@@ -148,6 +158,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
                 update.rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
         }
 
+        currentPartitionDepth = mutator.currentDepth();
         if (existing == null)
         {
             // Note: Always on-heap, regardless of cloner

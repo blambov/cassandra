@@ -235,9 +235,9 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         final InMemoryRangeTrie.MutatorStatic<D, E> deletionMutator;
         final InMemoryTrie.RangeMutator<T, E> deleter;
 
-        Mutator(UpsertTransformerWithKeyProducer<T, V> dataTransformer,
-                UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
-                UpsertTransformerWithKeyProducer<T, E> existingDeleter,
+        Mutator(UpsertTransformer<T, V> dataTransformer,
+                UpsertTransformer<D, E> deletionTransformer,
+                UpsertTransformer<T, E> existingDeleter,
                 BiFunction<D, V, V> insertedDeleter,
                 Predicate<NodeFeatures<V>> needsForcedCopyInData,
                 Predicate<NodeFeatures<E>> needsForcedCopyInDeletionBranch,
@@ -469,45 +469,10 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             }
         }
 
-    }
-
-    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-    /// All of the deletions in the given mutation trie will be applied, removing any content and trie paths that become
-    /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
-    /// of the trie will be combined with the incoming deletions.
-    ///
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
-    /// if the entry should not be added or preserved.
-    /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
-    /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
-    /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
-    /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
-    /// only called if there is both content and deletion at a given covered point. It should return null if the entry
-    /// is to be deleted.
-    /// @param insertedDeleter a function used to filter incoming entries that are covered by existing deletions
-    /// in this trie, called only if both an entry and a deletion apply to a given point. This function is not provided
-    /// with a path to the modified data.
-    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions.
-    /// @see DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints
-    public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformerWithKeyProducer<T, V> dataTransformer,
-                          final UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
-                          final UpsertTransformerWithKeyProducer<T, E> existingDeleter,
-                          final BiFunction<D, V, V> insertedDeleter,
-                          boolean deletionsAtFixedPoints,
-                          Predicate<NodeFeatures<V>> needsForcedCopyInData,
-                          Predicate<NodeFeatures<E>> needsForcedCopyInDeletions)
-    {
-        return new Mutator<>(dataTransformer,
-                             deletionTransformer,
-                             existingDeleter,
-                             insertedDeleter,
-                             needsForcedCopyInData,
-                             needsForcedCopyInDeletions,
-                             deletionsAtFixedPoints);
+        public byte[] getDeletionBranchKeyBytes()
+        {
+            return deletionMutator.getCurrentKeyBytes();
+        }
     }
 
     /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
@@ -551,24 +516,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformerWithKeyProducer<T, V> dataTransformer,
-                          final UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
-                          final UpsertTransformerWithKeyProducer<T, E> existingDeleter,
-                          final BiFunction<D, V, V> insertedDeleter,
-                          boolean deletionsAtFixedPoints,
-                          Predicate<NodeFeatures<?>> needsForcedCopy)
-    {
-        return mutator(dataTransformer,
-                       deletionTransformer,
-                       existingDeleter,
-                       insertedDeleter,
-                       deletionsAtFixedPoints,
-                       (Predicate) needsForcedCopy,
-                       (Predicate) needsForcedCopy);
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public <V, E extends RangeState<E>>
     Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
                           final UpsertTransformer<D, E> deletionTransformer,
                           final UpsertTransformer<T, E> existingDeleter,
@@ -601,48 +548,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
     /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
-    /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
-    /// only called if there is both content and deletion at a given covered point. It should return null if the entry
-    /// is to be deleted.
-    /// @param insertedDeleter a function used to filter incoming entries that are covered by existing deletions
-    /// in this trie, called only if both an entry and a deletion apply to a given point. This function is not provided
-    /// with a path to the modified data.
-    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions.
-    /// @see DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints
-    public <V, E extends RangeState<E>>
-    void apply(DeletionAwareTrie<V, E> mutation,
-               final UpsertTransformerWithKeyProducer<T, V> dataTransformer,
-               final UpsertTransformerWithKeyProducer<D, E> deletionTransformer,
-               final UpsertTransformerWithKeyProducer<T, E> existingDeleter,
-               final BiFunction<D, V, V> insertedDeleter,
-               boolean deletionsAtFixedPoints,
-               Predicate<NodeFeatures<?>> needsForcedCopy)
-    throws TrieSpaceExhaustedException
-    {
-        // TODO: track hasDeletions and do plain Trie merges if neither this nor mutation has deletions.
-        mutator(dataTransformer,
-                deletionTransformer,
-                existingDeleter,
-                insertedDeleter,
-                deletionsAtFixedPoints,
-                needsForcedCopy)
-        .apply(mutation);
-    }
-
-    /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
-    /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
-    /// All of the deletions in the given mutation trie will be applied, removing any content and trie paths that become
-    /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
-    /// of the trie will be combined with the incoming deletions.
-    ///
-    /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
-    /// different than the element type for this memtable trie.
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
-    /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
-    /// if the entry should not be added or preserved.
-    /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
-    /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
-    /// deletions cancel out or should not be preserved.
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -661,9 +566,14 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                Predicate<NodeFeatures<?>> needsForcedCopy)
     throws TrieSpaceExhaustedException
     {
-        apply(mutation,
-              (UpsertTransformerWithKeyProducer<T, V>) dataTransformer,
-              deletionTransformer, existingDeleter, insertedDeleter, deletionsAtFixedPoints, needsForcedCopy);
+        // TODO: track hasDeletions and do plain Trie merges if neither this nor mutation has deletions.
+        mutator(dataTransformer,
+                deletionTransformer,
+                existingDeleter,
+                insertedDeleter,
+                deletionsAtFixedPoints,
+                needsForcedCopy)
+        .apply(mutation);
     }
 
     class DumpCursor extends InMemoryReadTrie<T>.DumpCursor<DeletionAwareInMemoryCursor<T, D>> implements DeletionAwareCursor<String, D>

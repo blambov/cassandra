@@ -28,7 +28,6 @@ import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
-import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 
@@ -38,7 +37,7 @@ import static org.apache.cassandra.db.memtable.TrieMemtable.PartitionData;
  *  The function we provide to the trie utilities to perform any partition and row inserts and updates
  */
 public class TriePartitionUpdater
-implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
+implements InMemoryBaseTrie.UpsertTransformer<Object, Object>
 {
     protected final TrieMemtable.MemtableShard owner;
     public final InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>.Mutator<Object, TrieTombstoneMarker> mutator;
@@ -71,21 +70,21 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
     }
 
     @Override
-    public Object apply(@Nullable Object existing, Object update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object apply(@Nullable Object existing, Object update)
     {
         if (update instanceof CellData)
-            return applyCell((TrieCellData) existing, (CellData<?>) update, keyState);
+            return applyCell((TrieCellData) existing, (CellData<?>) update);
         else if (update == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return update; // TODO check if something else needs to be done
         else if (update instanceof LivenessInfo)
-            return applyRow((LivenessInfo) existing, (LivenessInfo) update, keyState);
+            return applyRow((LivenessInfo) existing, (LivenessInfo) update);
         else if (update == TrieBackedPartition.PARTITION_MARKER)
             return mergePartitionMarkers((PartitionData) existing);
         else
             throw new AssertionError("Unexpected update type: " + update.getClass());
     }
 
-    public TrieTombstoneMarker mergeMarkers(@Nullable TrieTombstoneMarker existing, TrieTombstoneMarker update, InMemoryBaseTrie.KeyProducer<TrieTombstoneMarker> keyState)
+    public TrieTombstoneMarker mergeMarkers(@Nullable TrieTombstoneMarker existing, TrieTombstoneMarker update)
     {
         if (existing == null)
         {
@@ -99,7 +98,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         }
     }
 
-    public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object applyMarker(Object existingContent, TrieTombstoneMarker updateMarker)
     {
         // Most common case first
         if (existingContent instanceof CellData)
@@ -107,7 +106,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         else if (existingContent == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return existingContent;
         else if (existingContent instanceof LivenessInfo)
-            return applyRowDeletion((LivenessInfo) existingContent, updateMarker, keyState);
+            return applyRowDeletion((LivenessInfo) existingContent, updateMarker);
         else if (existingContent instanceof PartitionData)
             return applyPartitionDeletion((PartitionData) existingContent, updateMarker);
         else
@@ -128,9 +127,9 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         return existing;
     }
 
-    public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    public Object applyRowDeletion(LivenessInfo existing, TrieTombstoneMarker updateMarker)
     {
-        TrieTombstoneMarker.Covering rowDeletion = updateMarker.succedingState(Direction.FORWARD);
+        TrieTombstoneMarker.Covering rowDeletion = updateMarker.applicableToPointForward();
         if (rowDeletion == null)
             return existing; // there is no row deletion here
 
@@ -153,7 +152,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
             return content;
         else if (content instanceof LivenessInfo)
         {
-            TrieTombstoneMarker.Covering rowDeletion = marker.succedingState(Direction.FORWARD);
+            TrieTombstoneMarker.Covering rowDeletion = marker.applicableToPointForward();
             if (rowDeletion == null || !rowDeletion.deletes((LivenessInfo) content))
                 return content;
             else
@@ -170,10 +169,9 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
      *
      * @param existing Existing LivenessInfo for this clustering, or null if there isn't any.
      * @param insert LivenessInfo to be inserted.
-     * @param keyState Used to obtain the path through which this node was reached.
      * @return the insert row, or the merged row, copied using our allocator
      */
-    LivenessInfo applyRow(@Nullable LivenessInfo existing, LivenessInfo insert, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    LivenessInfo applyRow(@Nullable LivenessInfo existing, LivenessInfo insert)
     {
         if (existing == null)
         {
@@ -191,7 +189,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
         }
     }
 
-    CellData applyCell(@Nullable TrieCellData existing, CellData<?> update, InMemoryBaseTrie.KeyProducer<Object> keyState)
+    CellData applyCell(@Nullable TrieCellData existing, CellData<?> update)
     {
         if (existing == null)
         {
@@ -220,7 +218,7 @@ implements InMemoryBaseTrie.UpsertTransformerWithKeyProducer<Object, Object>
      * @param existing Any partition data already associated with the partition.
      * @return the combined partition data, creating a new marker if one did not already exist.
      */
-    private PartitionData mergePartitionMarkers(@Nullable PartitionData existing)
+    protected PartitionData mergePartitionMarkers(@Nullable PartitionData existing)
     {
         if (existing == null)
         {

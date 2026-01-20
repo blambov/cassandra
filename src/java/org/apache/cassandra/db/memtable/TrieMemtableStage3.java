@@ -641,13 +641,7 @@ public class TrieMemtableStage3 extends AbstractAllocatorMemtable
                     long offHeap = data.isEmpty() ? 0 : data.usedSizeOffHeap();
                     try
                     {
-                        data.mutator(updater,
-                                     updater::mergeMarkers,
-                                     updater::applyMarker,
-                                     updater::applyMarker,
-                                     true,
-                                     FORCE_COPY_PARTITION_BOUNDARY)
-                            .apply(TriePartitionUpdateStage3.asMergableTrie(update));
+                        updater.apply(data, TriePartitionUpdateStage3.asMergableTrie(update));
                     }
                     catch (TrieSpaceExhaustedException e)
                     {
