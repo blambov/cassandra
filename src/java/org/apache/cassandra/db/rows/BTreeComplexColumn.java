@@ -238,7 +238,7 @@ public class BTreeComplexColumn extends ComplexColumnData
         return new BTreeComplexColumn(column, newCells, newDeletion);
     }
 
-    public BTreeComplexColumn transformAndFilter(Function<? super Cell<?>, ? extends Cell<?>> function)
+    public BTreeComplexColumn transformAndFilter(Function<? super CellData<?>, ? extends CellData<?>> function)
     {
         return update(complexDeletion, BTree.transformAndFilter(cells, function));
     }

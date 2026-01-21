@@ -210,7 +210,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IDataSize
      *   2) doesn't include any {@code null} results of {@code function}
      *   3) has precisely the provided {@code LivenessInfo}
      */
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<Cell<?>, Cell<?>> cellFunction);
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> cellFunction);
 
     public Row clone(Cloner cloner);
 
@@ -303,7 +303,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IDataSize
 
     public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, long initialValue);
 
-    public Row mergeWith(Row update, ColumnData.PostReconciliationFunction onReconcile);
+    public Row mergeWith(Row update);
 
     /**
      * A row deletion/tombstone.

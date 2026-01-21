@@ -1254,10 +1254,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
     {
         OpOrder.Group opOrderGroup;
 
-        long onHeapSize()
-        {
-            return 0;
-        }
+        abstract long onHeapSize();
     }
 
     @VisibleForTesting
@@ -1322,6 +1319,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         public ByteBuffer load(long address, int length)
         {
             return MemoryUtil.getByteBuffer(address, length);
+        }
+
+        @Override
+        long onHeapSize()
+        {
+            return 0;
         }
     }
 }

@@ -113,6 +113,13 @@ public abstract class Cell<V> extends ColumnData implements CellData<V>
         return new BufferCell(column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, value, path());
     }
 
+    @Override
+    public Cell<?> toCell(ColumnMetadata column, CellPath cellPath)
+    {
+        assert false : "toCell should not be called when CellData is already a cell.";
+        return this;
+    }
+
     /**
      * The serialization format for cell is:
      *     [ flags ][ timestamp ][ deletion time ][    ttl    ][ path size ][ path ][ value size ][ value ]

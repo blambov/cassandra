@@ -34,6 +34,7 @@ import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
@@ -204,7 +205,7 @@ public class RowWithSourceTable implements Row
     }
 
     @Override
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<Cell<?>, Cell<?>> function)
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> function)
     {
         return maybeWrapRow(row.transformAndFilter(infoFunction, function));
     }
@@ -312,10 +313,9 @@ public class RowWithSourceTable implements Row
     }
 
     @Override
-    public Row mergeWith(Row updateAsRow,
-                         ColumnData.PostReconciliationFunction reconcileF)
+    public Row mergeWith(Row updateAsRow)
     {
-        return maybeWrapRow(row.mergeWith(updateAsRow, reconcileF));
+        return maybeWrapRow(row.mergeWith(updateAsRow));
     }
 
     @Override

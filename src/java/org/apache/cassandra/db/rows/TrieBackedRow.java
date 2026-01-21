@@ -74,11 +74,8 @@ import static org.apache.cassandra.db.partitions.TrieBackedPartition.noConflictI
 import static org.apache.cassandra.db.partitions.TrieBackedPartition.noExistingSelfDeletion;
 import static org.apache.cassandra.db.partitions.TrieBackedPartition.noIncomingSelfDeletion;
 
-/**
- * Immutable implementation of a Row object.
- *
- * Stores either Cell, or TrieCellData (if the row comes from a memtable trie).
- */
+/// Immutable implementation of a [Row] object.
+/// Stores either [Cell], or [TrieCellData] (if the row comes from a memtable trie).
 public class TrieBackedRow extends AbstractRow
 {
     private static final long EMPTY_SIZE = ObjectSizes.measure(emptyRow(Clustering.EMPTY));
@@ -219,6 +216,7 @@ public class TrieBackedRow extends AbstractRow
     {
         try
         {
+            assert !deletion.isLive();
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = newTrie();
             // We need to put the deletion as well as a deletion-path row marker.
             RangeTrie<TrieTombstoneMarker> deletionTrie = rowDeletionTrie(deletion);
@@ -550,8 +548,8 @@ public class TrieBackedRow extends AbstractRow
         Object o = data.get(cellKey(columnIds, c, null));
         if (o == null || o instanceof Cell)
             return (Cell) o;
-        TrieCellData trieCellData = (TrieCellData) o;
-        return trieCellData.toCell(c, null);
+        CellData cellData = (CellData) o;
+        return cellData.toCell(c, null);
     }
 
     public Cell<?> getCell(ColumnMetadata c, CellPath path)
@@ -560,8 +558,8 @@ public class TrieBackedRow extends AbstractRow
         Object o = data.get(cellKey(columnIds, c, path));
         if (o == null || o instanceof Cell)
             return (Cell) o;
-        TrieCellData trieCellData = (TrieCellData) o;
-        return trieCellData.toCell(c, path);
+        CellData cellData = (CellData) o;
+        return cellData.toCell(c, path);
     }
 
     public ComplexColumnData getComplexColumnData(ColumnMetadata c)
@@ -644,11 +642,10 @@ public class TrieBackedRow extends AbstractRow
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
-        TrieCellData c = (TrieCellData) value;
         ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
         long columnIdx = ByteSourceInverse.getVariableLengthUnsignedInteger(pathBytes);
         ColumnMetadata column = columns.getSimple((int) columnIdx);
-        return c.toCell(column, column.isComplex() ? cellPath(column, pathBytes) : null);
+        return value.toCell(column, column.isComplex() ? cellPath(column, pathBytes) : null);
     }
 
     public int columnCount()
@@ -678,12 +675,13 @@ public class TrieBackedRow extends AbstractRow
 
     public static Object deleteData(TrieTombstoneMarker marker, Object existing)
     {
-        if (marker == TrieTombstoneMarker.LevelMarker.ROW)
-            return existing;
         if (existing == COMPLEX_COLUMN_MARKER)
             return existing;
 
         DeletionTime deletion = marker.applicableToPointForward();
+        if (deletion == null)
+            return existing;
+
         if (existing instanceof LivenessInfo)
         {
             if (deletion.deletes(((LivenessInfo) existing).timestamp()))
@@ -691,9 +689,9 @@ public class TrieBackedRow extends AbstractRow
             else
                 return existing;
         }
-        if (existing instanceof Cell)
+        if (existing instanceof CellData)
         {
-            if (deletion.deletes((Cell<?>) existing))
+            if (deletion.deletes((CellData) existing))
                 return null;
             else
                 return existing;
@@ -703,9 +701,9 @@ public class TrieBackedRow extends AbstractRow
 
     public static Object dropCellValue(Object existing)
     {
-        if (!(existing instanceof Cell))
+        if (!(existing instanceof CellData))
             return existing;
-        return ((Cell<?>) existing).withSkippedValue();
+        return ((CellData) existing).withSkippedValue();
     }
 
     public static Object mergeRowHeader(Object x, Object y)
@@ -882,8 +880,7 @@ public class TrieBackedRow extends AbstractRow
     public Row markCounterLocalToBeCleared()
     {
         return transformAndFilter(x -> x,
-                                  c -> c.column().isCounterColumn() ? c.markCounterLocalToBeCleared()
-                                                                    : c);
+                                  c -> c.markCounterLocalToBeCleared());
     }
 
     public boolean hasDeletion(int nowInSec)
@@ -922,6 +919,9 @@ public class TrieBackedRow extends AbstractRow
     {
         // Applies the deletion to the branch, removing any shadowed data (caller should ensure there isn't any, but
         // we do this properly for safety).
+        if (newDeletion.isLive())
+            return this;
+
         return new TrieBackedRow(columns, columnIds, clustering,
                                  data.mergeWithDeletion(rowDeletionTrie(newDeletion),
                                                         TrieBackedRow::deleteData,
@@ -955,7 +955,7 @@ public class TrieBackedRow extends AbstractRow
 
     @Override
     public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                                  Function<Cell<?>, Cell<?>> cellFunction)
+                                  Function<CellData<?>, CellData<?>> cellFunction)
     {
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValues(
             (Object x) ->
@@ -964,9 +964,9 @@ public class TrieBackedRow extends AbstractRow
                 {
                     return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
-                else if (x instanceof Cell)
+                else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((Cell<?>) x);
+                    return cellFunction.apply((CellData<?>) x);
                 }
                 else
                     return x;   // complex column marker
@@ -974,7 +974,7 @@ public class TrieBackedRow extends AbstractRow
     }
 
     public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                                  Function<Cell<?>, Cell<?>> cellFunction,
+                                  Function<CellData, CellData> cellFunction,
                                   Function<DeletionTime, DeletionTime> markerFunction)
     {
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValuesAndDeletions(
@@ -984,9 +984,9 @@ public class TrieBackedRow extends AbstractRow
                 {
                     return (livenessInfoFunction.apply((LivenessInfo) x));
                 }
-                else if (x instanceof Cell)
+                else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((Cell<?>) x);
+                    return cellFunction.apply((CellData) x);
                 }
                 else
                     return x;   // complex column marker
@@ -1000,7 +1000,7 @@ public class TrieBackedRow extends AbstractRow
         InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = newTrie();
         try
         {
-            newTrie.mutator(((ex, toClone) -> toClone instanceof Cell ? cloner.clone((Cell<?>) toClone) : toClone),
+            newTrie.mutator(((ex, toClone) -> toClone instanceof CellData ? ((CellData) toClone).clone(cloner) : toClone),
                             mergeTombstoneRanges(),
                             noIncomingSelfDeletion(),
                             noExistingSelfDeletion(),
@@ -1074,43 +1074,15 @@ public class TrieBackedRow extends AbstractRow
         return new Builder(regularAndStaticColumns);
     }
 
-    private static Object mergeData(Object existing, Object update, ColumnData.PostReconciliationFunction reconcileF)
+    private static Object mergeData(Object existing, Object update)
     {
         if (update instanceof LivenessInfo)
             return LivenessInfo.merge((LivenessInfo) existing, (LivenessInfo) update);
-        else if (update instanceof Cell)
+        else if (update instanceof CellData)
         {
-            Cell<?> existingCell = (Cell<?>) existing;
-            Cell<?> updateCell = (Cell<?>) update;
-            if (existingCell == null)
-                return reconcileF.insert(updateCell);
-            else
-                return reconcileF.merge(existingCell, Cells.reconcile(existingCell, updateCell));
-        }
-        else
-        {
-            assert existing == COMPLEX_COLUMN_MARKER;
-            return existing;
-        }
-    }
-
-    private static Object deleteData(Object existing, TrieTombstoneMarker marker, ColumnData.PostReconciliationFunction reconcileF)
-    {
-        if (marker == TrieTombstoneMarker.LevelMarker.ROW)
-            return existing;
-
-        DeletionTime deletion = marker.applicableToPointForward();
-        if (existing instanceof LivenessInfo)
-            return deletion.deletes((LivenessInfo) existing) ? LivenessInfo.EMPTY : existing;
-        else if (existing instanceof Cell)
-        {
-            Cell<?> existingCell = (Cell<?>) existing;
-            assert existingCell != null;
-            if (!deletion.deletes(existingCell))
-                return existingCell;
-
-            reconcileF.delete(existingCell);
-            return null;
+            CellData existingCell = (CellData) existing;
+            CellData updateCell = (CellData) update;
+            return Cells.reconcile(existingCell, updateCell);
         }
         else
         {
@@ -1124,13 +1096,12 @@ public class TrieBackedRow extends AbstractRow
         return InMemoryDeletionAwareTrie.shortLived(BYTE_COMPARABLE_VERSION, TrieBackedRow::shouldPreserveContentWithoutChildren);
     }
 
-    public Row mergeWith(Row updateAsRow,
-                         ColumnData.PostReconciliationFunction reconcileF)
+    public Row mergeWith(Row updateAsRow)
     {
         if (!(updateAsRow instanceof TrieBackedRow))
             throw new IllegalArgumentException("Merging different row types.");
         TrieBackedRow update = (TrieBackedRow) updateAsRow;
-        if (!this.columns.equals(update.columns))
+        if (!this.columns.containsAll(update.columns))
             throw new IllegalArgumentException("Can't handle varying column lists.");
 
         try
@@ -1138,9 +1109,9 @@ public class TrieBackedRow extends AbstractRow
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> mergedData = newTrie();
             makeMutator(mergedData)
                 .apply(this.data.mergeWith(update.data,
-                                           (ex, up) -> mergeData(ex, up, reconcileF),
+                                           TrieBackedRow::mergeData,
                                            TrieTombstoneMarker::mergeUpdate,
-                                           (marker, ex) -> deleteData(ex, marker, reconcileF),
+                                           TrieBackedRow::deleteData,
                                            true
                 ));
             return new TrieBackedRow(this.columns,

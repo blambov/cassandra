@@ -18,10 +18,8 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.Iterator;
-import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 
@@ -69,7 +67,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         Object cell = data.contentOnlyTrie().get(TrieBackedRow.cellPath(-1, column, path));
         if (cell == null || cell instanceof Cell)
             return (Cell<?>) cell;
-        return ((TrieCellData) cell).toCell(column, path);
+        return ((CellData) cell).toCell(column, path);
     }
 
     public Cell<?> getCellByIndex(int idx)
@@ -82,14 +80,14 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
-        return ((TrieCellData) value).toCell(column, TrieBackedRow.cellPath(column, ByteSource.preencoded(keyBytes, 0, keyLength)));
+        return value.toCell(column, TrieBackedRow.cellPath(column, ByteSource.preencoded(keyBytes, 0, keyLength)));
     }
 
     private Cell<?> cellDataToCell(CellData value, ByteComparable.Preencoded key)
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
-        return ((TrieCellData) value).toCell(column, TrieBackedRow.cellPath(column, key.getPreencodedBytes()));
+        return value.toCell(column, TrieBackedRow.cellPath(column, key.getPreencodedBytes()));
     }
 
     @VisibleForTesting
@@ -160,9 +158,9 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                     c = (Cell<?>) content;
                 else
                 {
-                    TrieCellData tcd = (TrieCellData) content;
+                    CellData cd = (CellData) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = tcd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
+                    c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
                 longValue = accumulator.apply(c, longValue);
             }
@@ -194,9 +192,9 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                     c = (Cell<?>) content;
                 else
                 {
-                    TrieCellData tcd = (TrieCellData) content;
+                    CellData cd = (CellData) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = tcd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
+                    c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
                 longValue = accumulator.apply(arg, c, longValue);
             }

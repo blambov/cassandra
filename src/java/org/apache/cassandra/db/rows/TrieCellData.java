@@ -21,15 +21,8 @@ package org.apache.cassandra.db.rows;
 import java.nio.ByteBuffer;
 
 import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.marshal.CollectionType;
-import org.apache.cassandra.db.marshal.ValueAccessor;
-import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class TrieCellData implements CellData<ByteBuffer>
+public class TrieCellData extends AbstractBufferCellData
 {
     public interface ExternalBufferSaver
     {
@@ -61,11 +54,6 @@ public class TrieCellData implements CellData<ByteBuffer>
     final UnsafeBuffer buffer;
     final int offset;
     final ExternalBufferLoader loader;
-
-    public static int size(CellData<?> unused)
-    {
-        return 32;
-    }
 
     public static void serialize(CellData<?> cell, UnsafeBuffer buffer, int offset,
                                  ExternalBufferSaver externalBufferSaver)
@@ -100,19 +88,6 @@ public class TrieCellData implements CellData<ByteBuffer>
         this.buffer = buffer;
         this.offset = offset;
         this.loader = loader;
-    }
-
-    public Cell<ByteBuffer> toCell(ColumnMetadata column, CellPath path)
-    {
-        return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
-    }
-
-    public static CellData reconcile(TrieCellData existing, CellData<?> update)
-    {
-        if (existing == null)
-            return update;
-
-        return Cells.reconcile(existing, update);
     }
 
     private byte getFlags()
@@ -158,12 +133,6 @@ public class TrieCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public ValueAccessor<ByteBuffer> accessor()
-    {
-        return ByteBufferAccessor.instance;
-    }
-
-    @Override
     public long timestamp()
     {
         return buffer.getLong(offset + TIMESTAMP_OFFSET);
@@ -187,36 +156,9 @@ public class TrieCellData implements CellData<ByteBuffer>
         return 0;
     }
 
-    @Override
-    public CellData withNewValue(long timestamp, ByteBuffer value)
-    {
-        return null;
-    }
-
     public static long offTrieSize(CellData<?> cell)
     {
         int sz = cell.valueSize();
         return sz <= MAX_LENGTH ? 0 : sz;
-    }
-
-    @Override
-    public String toString()
-    {
-        if (isCounterCell())
-            return String.format("[?=%d ts=%d]", CounterContext.instance().total(value(), accessor()), timestamp());
-        if (isTombstone())
-            return String.format("[?=<tombstone> %s]", livenessInfoString());
-        else
-            return String.format("[?=%s %s]", ByteBufferUtil.bytesToHex(buffer()), livenessInfoString());
-    }
-
-    private String livenessInfoString()
-    {
-        if (isExpiring())
-            return String.format("ts=%d ttl=%d ldt=%d", timestamp(), ttl(), localDeletionTime());
-        else if (isTombstone())
-            return String.format("ts=%d ldt=%d", timestamp(), localDeletionTime());
-        else
-            return String.format("ts=%d", timestamp());
     }
 }

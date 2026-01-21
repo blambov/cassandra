@@ -162,6 +162,66 @@ public abstract class Cells
     }
 
     /**
+     * Computes the reconciliation of a complex column given its pre-existing
+     * cells and the ones it is updated with, and generating index update if
+     * appropriate.
+     * <p>
+     * Note that this method assumes that the provided cells can meaningfully
+     * be reconciled together, that is that the cells are for the same row and same
+     * complex column.
+     * <p>
+     * Also note that which cells is provided as {@code existing} and which are
+     * provided as {@code update} matters for index updates.
+     *
+     * @param column the complex column the cells are for.
+     * @param existing the pre-existing cells, the ones that are updated. This can be
+     * {@code null} if this reconciliation correspond to an insertion.
+     * @param update the newly added cells, the update. This can be {@code null} out
+     * of convenience, in which case this function simply copy the cells from
+     * {@code existing} to {@code writer}.
+     * @param deletion the deletion time that applies to the cells being considered.
+     * This deletion time may delete cells in both {@code existing} and {@code update}.
+     * @param builder the row build to which the result of the reconciliation is written.
+     */
+    public static void reconcileComplex(ColumnMetadata column,
+                                        Iterator<Cell<?>> existing,
+                                        Iterator<Cell<?>> update,
+                                        DeletionTime deletion,
+                                        Row.Builder builder)
+    {
+        Comparator<CellPath> comparator = column.cellPathComparator();
+        Cell<?> nextExisting = getNext(existing);
+        Cell<?> nextUpdate = getNext(update);
+        while (nextExisting != null || nextUpdate != null)
+        {
+            int cmp = nextExisting == null ? 1
+                                           : (nextUpdate == null ? -1
+                                                                 : comparator.compare(nextExisting.path(), nextUpdate.path()));
+            if (cmp < 0)
+            {
+                if (!deletion.deletes(nextExisting))
+                    builder.addCell(nextExisting);
+                nextExisting = getNext(existing);
+            }
+            else if (cmp > 0)
+            {
+                if (!deletion.deletes(nextUpdate))
+                    builder.addCell(nextUpdate);
+                nextUpdate = getNext(update);
+            }
+            else
+            {
+                Cell<?> merged = Cells.reconcile(nextExisting, nextUpdate);
+                if (!deletion.deletes(merged))
+                    builder.addCell(merged);
+                nextExisting = getNext(existing);
+                nextUpdate = getNext(update);
+            }
+        }
+    }
+
+
+    /**
      * Adds to the builder a representation of the given existing cell that, when merged/reconciled with the given
      * update cell, produces the same result as merging the original with the update.
      * <p>

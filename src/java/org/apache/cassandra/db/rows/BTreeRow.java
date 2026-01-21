@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.AbstractCollection;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
@@ -32,7 +31,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 import com.google.common.collect.Collections2;
-import com.google.common.collect.Iterators;
 import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.db.Clustering;
@@ -40,8 +38,6 @@ import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
-import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 
@@ -512,11 +508,11 @@ public class BTreeRow extends AbstractRow
     }
 
     @Override
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<Cell<?>, Cell<?>> cellFunction)
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> cellFunction)
     {
         return update(infoFunction.apply(primaryKeyLivenessInfo), deletion, BTree.<ColumnData, ColumnData>transformAndFilter(
             btree,
-            cd -> cd.column.isSimple() ? cellFunction.apply((Cell<?>) cd)
+            cd -> cd.column.isSimple() ? (Cell<?>) cellFunction.apply((Cell<?>) cd)
                                        : ((BTreeComplexColumn)cd).transformAndFilter(cellFunction)));
     }
 
@@ -586,13 +582,15 @@ public class BTreeRow extends AbstractRow
     }
 
     @Override
-    public Row mergeWith(Row updateAsRow,
-                         ColumnData.PostReconciliationFunction reconcileF)
+    public Row mergeWith(Row updateAsRow)
     {
         if (!(updateAsRow instanceof BTreeRow))
             throw new IllegalArgumentException("Merging different row types.");
-        BTreeRow update = (BTreeRow) updateAsRow;
+        return mergeWith((BTreeRow) updateAsRow, ColumnData.noOp);
+    }
 
+    public Row mergeWith(BTreeRow update, ColumnData.PostReconciliationFunction reconcileF)
+    {
         Object[] existingBtree = this.btree;
         Object[] updateBtree = update.btree;
 
