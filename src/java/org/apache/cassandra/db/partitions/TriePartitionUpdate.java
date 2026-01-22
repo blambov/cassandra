@@ -23,6 +23,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import com.google.common.base.Predicates;
 import com.google.common.primitives.Ints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +40,7 @@ import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
@@ -50,12 +52,13 @@ import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
-import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
 /**
  * A trie-backed PartitionUpdate. Immutable.
@@ -79,7 +82,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                                 int rowCountIncludingStatic,
                                 int tombstoneCount,
                                 int dataSize,
-                                DeletionAwareTrie<Object, TrieTombstoneMarker> trie)
+                                InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie)
     {
         super(key, columns, stats, rowCountIncludingStatic, tombstoneCount, trie, metadata);
         this.dataSize = dataSize;
@@ -376,12 +379,38 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         return marks;
     }
 
-    private static void addMarksForRow(Row row, List<CounterMark> marks)
+    private void addMarksForRow(Row row, List<CounterMark> marks)
     {
         for (Cell<?> cell : row.cells())
         {
             if (cell.isCounterCell())
-                marks.add(new CounterMark(row, cell.column(), cell.path()));
+                marks.add(new CounterMark(this, row, cell.column(), cell.path()));
+        }
+    }
+
+    @Override
+    public void setCounterMarkValue(Row row, ColumnMetadata column, CellPath path, ByteBuffer value)
+    {
+
+        ByteComparable key = v ->
+            ByteSource.concat(metadata.comparator.asByteComparable(row.clustering()).asComparableBytes(v),
+                              TrieBackedRow.columnKey(columns.columns(row.isStatic()), column),
+                              path != null ? TrieBackedRow.cellPathKey(column, path, v) : ByteSource.EMPTY);
+        try
+        {
+            ((InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>) trie).apply(
+                DeletionAwareTrie.<ByteBuffer, TrieTombstoneMarker>singleton(key, BYTE_COMPARABLE_VERSION, value),
+                (c, v) -> ((Cell) c).withUpdatedValue(v),
+                (x, y) -> x,
+                (x, y) -> x,
+                (x, y) -> y,
+                true,
+                Predicates.alwaysFalse()
+            );
+        }
+        catch (TrieSpaceExhaustedException e)
+        {
+            throw new AssertionError(e);
         }
     }
 

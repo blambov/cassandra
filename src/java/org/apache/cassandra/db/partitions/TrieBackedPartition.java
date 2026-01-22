@@ -759,7 +759,7 @@ public class TrieBackedPartition implements Partition
             return this;
         }
 
-        public DeletionAwareTrie<Object, TrieTombstoneMarker> trie()
+        public InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie()
         {
             return trie;
         }

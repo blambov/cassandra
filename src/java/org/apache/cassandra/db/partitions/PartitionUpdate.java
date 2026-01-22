@@ -453,12 +453,14 @@ public interface PartitionUpdate extends Partition
      */
     class CounterMark
     {
+        private final PartitionUpdate update;
         private final Row row;
         private final ColumnMetadata column;
         private final CellPath path;
 
-        protected CounterMark(Row row, ColumnMetadata column, CellPath path)
+        protected CounterMark(PartitionUpdate update, Row row, ColumnMetadata column, CellPath path)
         {
+            this.update = update;
             this.row = row;
             this.column = column;
             this.path = path;
@@ -490,9 +492,14 @@ public interface PartitionUpdate extends Partition
         {
             // This is a bit of a giant hack as this is the only place where we mutate a Row object. This makes it more efficient
             // for counters however and this won't be needed post-#6506 so that's probably fine.
-            assert row instanceof BTreeRow;
-            ((BTreeRow)row).setValue(column, path, value);
+            update.setCounterMarkValue(row, column, path, value);
         }
+    }
+
+    default void setCounterMarkValue(Row row, ColumnMetadata column, CellPath path, ByteBuffer value)
+    {
+        assert row instanceof BTreeRow;
+        ((BTreeRow)row).setValue(column, path, value);
     }
 
     /**

@@ -193,25 +193,6 @@ public class TrieBackedRow extends AbstractRow
         return new TrieBackedRow(Columns.NONE, EMPTY_COLUMN_IDS, clustering, EMPTY_ROW);
     }
 
-    public static TrieBackedRow singleCellRow(Clustering<?> clustering, Cell<?> cell)
-    {
-        try
-        {
-            Columns columns = Columns.of(cell.column);
-            Object2IntHashMap<ColumnIdentifier> columnIds = makeColumnIdsMap(columns);
-            InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie = newTrie();
-            ByteComparable cellKey = cellKey(columnIds, cell);
-            if (cell.column.isComplex())
-                trie.putRecursive(columnKey(columnIds, cell.column), COMPLEX_COLUMN_MARKER, noConflictInData());
-            trie.putRecursive(cellKey, cell, noConflictInData());
-            return createLive(columns, columnIds, clustering, LivenessInfo.EMPTY, trie);
-        }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e);
-        }
-    }
-
     public static TrieBackedRow emptyDeletedRow(Clustering<?> clustering, DeletionTime deletion)
     {
         try
@@ -261,23 +242,6 @@ public class TrieBackedRow extends AbstractRow
                                               false,
                                               TrieTombstoneMarker.LevelMarker.ROW),
                               TrieTombstoneMarker::mergeUpdate);
-    }
-
-    public static TrieBackedRow noCellLiveRow(Clustering<?> clustering, LivenessInfo primaryKeyLivenessInfo)
-    {
-        assert !primaryKeyLivenessInfo.isEmpty();
-        try
-        {
-            return createLive(Columns.NONE,
-                              EMPTY_COLUMN_IDS,
-                              clustering,
-                              primaryKeyLivenessInfo,
-                              newTrie());
-        }
-        catch (TrieSpaceExhaustedException e)
-        {
-            throw new AssertionError(e);
-        }
     }
 
     private static int minDeletionTime(CellData cell)
@@ -471,10 +435,15 @@ public class TrieBackedRow extends AbstractRow
             return Deletion.regular(delTime);
     }
 
-    static ByteComparable cellKey(Object2IntHashMap<ColumnIdentifier> columnIds, Cell<?> cell)
+    public static ByteSource columnKey(Columns columns, ColumnMetadata column)
     {
-        ColumnMetadata column = cell.column;
-        return cellKey(columnIds, column, cell.path());
+        return ByteSource.variableLengthUnsignedInteger(columns.simpleIdx(column));
+    }
+
+    public static ByteSource cellPathKey(ColumnMetadata column, CellPath path, ByteComparable.Version version)
+    {
+        return ByteSource.withTerminator(ByteSource.TERMINATOR,
+                                         getCellPathType(column).asComparableBytes(path.get(0), version));
     }
 
     private static ByteComparable cellKey(Object2IntHashMap<ColumnIdentifier> columnIds, ColumnMetadata column, CellPath path)
@@ -504,10 +473,8 @@ public class TrieBackedRow extends AbstractRow
             return v -> ByteSource.concat(columnIdPrefix(columnId),
                                           ByteSource.oneByte(ByteSource.GT_NEXT_COMPONENT));
         else
-        return v -> ByteSource.concat(columnIdPrefix(columnId),
-                                      ByteSource.withTerminator(ByteSource.TERMINATOR,
-                                                                getCellPathType(column).asComparableBytes(path.get(0), v)
-                                      ));
+            return v -> ByteSource.concat(columnIdPrefix(columnId),
+                                          cellPathKey(column, path, v));
         // TODO: figure out a better way to do path slices and remove the leading path byte as
 //        return v -> ByteSource.concat(columnIdPrefix(columnId),
 //                                      ((MultiCellCapableType<Object>)column.type).nameComparator().asComparableBytes(path.get(0), v),
