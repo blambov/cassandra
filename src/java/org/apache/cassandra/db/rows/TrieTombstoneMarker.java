@@ -477,7 +477,7 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
         public TrieTombstoneMarker restrict(boolean applicableBefore, boolean applicableAfter)
         {
             if ((!applicableBefore || leftDeletion == null) && (!applicableAfter || rightDeletion == null))
-                return null;
+                return levelMarkerIfPresent;
             if (applicableBefore && applicableAfter)
                 return this;
             return new Boundary(applicableBefore ? leftDeletion : null,
