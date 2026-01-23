@@ -232,7 +232,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
 
     private static <D extends RangeState<D>> D dropDeletion(D state, D toDrop)
     {
-        if (state == toDrop)
+        if (state.equals(toDrop))
             return null;
         if (!state.isBoundary())
             return state;

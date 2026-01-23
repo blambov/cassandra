@@ -530,10 +530,23 @@ public class TrieBackedRow extends AbstractRow
     {
         assert c.isComplex();
         DeletionAwareTrie<Object, TrieTombstoneMarker> tail = data.tailTrie(columnKey(columnIds, c));
-        if (tail != null && (tail.get(ByteComparable.EMPTY) != null || tail.applicableDeletion(ByteComparable.EMPTY) != null))
+        if (!isColumnDataTrieEmpty(tail))
             return new TrieBackedComplexColumn(c, tail);
         else
             return null;
+    }
+
+    private static boolean isColumnDataTrieEmpty(DeletionAwareTrie<Object, TrieTombstoneMarker> tail)
+    {
+        if (tail == null)
+            return true;
+        // We may be left with only a COMPLEX_COLUMN_MARKER after some transformation.
+        if (tail instanceof InMemoryDeletionAwareTrie)
+            return false; // in-memory trie will drop the marker
+        if (tail.applicableDeletion(ByteComparable.EMPTY) != null)
+            return false;
+        // otherwise it's empty if it has no cells
+        return !tail.filteredValuesIterator(Direction.FORWARD, CellData.class).hasNext();
     }
 
     public ColumnData getColumnData(ColumnMetadata c)
@@ -588,9 +601,8 @@ public class TrieBackedRow extends AbstractRow
             if (value instanceof CellData)
                 return cellFromCellData((CellData) value, bytes, byteLength, columns);
 
-            // Column may have become empty after a deletion. If this is the case, don't return it.
-            if (tailTrie == null ||
-                tailTrie.get(ByteComparable.EMPTY) == null) // only a deletion path exists
+            // We may be left with only a COLUMN_DATA_MARKER after a deletion. If this is the case, don't return it.
+            if (isColumnDataTrieEmpty(tailTrie))
                 return null;
 
             long columnIndex = ByteSourceInverse.getVariableLengthUnsignedInteger(ByteSource.preencoded(bytes, 0, byteLength));

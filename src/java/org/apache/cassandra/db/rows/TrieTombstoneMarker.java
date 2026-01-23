@@ -282,8 +282,8 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
                 return other.mergeWith(this);
             if (other instanceof Point)
                 return other.mergeWith(this);
-            if (other == LevelMarker.ROW)
-                return new Boundary(this, this, null);
+            if (other instanceof LevelMarker)
+                return new Boundary(this, this, (LevelMarker) other);
 
             return combine(this, (Covering) other);
         }
@@ -420,11 +420,14 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
             Covering newLeft = combine(leftDeletion, otherLeft);
             Covering otherRight = existing.rightDeletion();
             Covering newRight = combine(rightDeletion, otherRight);
-            if (leftDeletion == newLeft && rightDeletion == newRight)
+            LevelMarker otherLevelMarker = (existing instanceof Boundary) ? ((Boundary) existing).levelMarkerIfPresent : null;
+            LevelMarker newLevelMarker = levelMarkerIfPresent != null ? levelMarkerIfPresent : otherLevelMarker;
+
+            if (leftDeletion == newLeft && rightDeletion == newRight && levelMarkerIfPresent == newLevelMarker)
                 return this;
-            if (otherLeft == newLeft && otherRight == newRight)
+            if (otherLeft == newLeft && otherRight == newRight && newLevelMarker == otherLevelMarker)
                 return existing;
-            return make(newLeft, newRight, levelMarkerIfPresent);
+            return make(newLeft, newRight, newLevelMarker);
         }
 
         @Override
