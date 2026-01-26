@@ -90,6 +90,11 @@ public class TrieBackedRow extends AbstractRow
         }
     };
 
+    static final TrieSet REMOVE_ROOTS_CHILDREN = TrieSet.range(BYTE_COMPARABLE_VERSION,
+                                                               v -> ByteSource.oneByte(0),
+                                                               v -> ByteSource.oneByte(255))
+                                                        .negation();
+
     private final Clustering<?> clustering;
     private final Object2IntHashMap<ColumnIdentifier> columnIds;
     private final Columns columns;
@@ -740,8 +745,15 @@ public class TrieBackedRow extends AbstractRow
             BitSet fetchedIds = getColumnIds(fetched);
             if (!filter.fetchesAllColumns(isStatic()))
             {
-                // We need to select only the fetched columns, but not move the row deletions to the column level
-                filteredData = filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(fetchedIds)));
+                // Select only the fetched columns.
+                if (!fetched.isEmpty())
+                    filteredData = filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, mapIdsToColumnKeys(fetchedIds)));
+                else
+                {
+                    // If the fetched list is empty, we will lose the row liveness info and marker if we apply the
+                    // filter as above. Instead we intersect with a set that removes all children.
+                    filteredData = filteredData.intersect(REMOVE_ROOTS_CHILDREN);
+                }
             }
 
             BitSet fetchedButNotQueried = fetchedIds;

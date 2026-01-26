@@ -628,10 +628,6 @@ We could just as well start with this...
 
 # TODOs
 
-org.apache.cassandra.cql3.ViewSchemaTest
-
-- Somehow harden DATrie.intersectDirect?
-
 - Figure out what to do about PartitionUpdate and Memtable data size not including keys.
 
 - What if the columns set changes and moves column indexes? Reject updates that don't fit our initial metadata?

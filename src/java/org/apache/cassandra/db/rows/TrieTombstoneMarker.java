@@ -818,7 +818,8 @@ public interface TrieTombstoneMarker extends RangeState<TrieTombstoneMarker>, IM
         @Override
         public TrieTombstoneMarker restrict(boolean applicableBefore, boolean applicableAfter)
         {
-            return null;
+            // Markers must be retained regardless of set coverage.
+            return this;
         }
 
         @Override

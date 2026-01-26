@@ -398,7 +398,8 @@ public class TrieBackedPartition implements Partition
 
     public Row getRow(Clustering<?> clustering, ByteComparable path)
     {
-        return toRow(trie.tailTrie(path, false), clustering);
+        // getRow must return range and partition deletion applicable to the row
+        return toRow(trie.tailTrie(path, true), clustering);
     }
 
     public UnfilteredRowIterator unfilteredIterator()
