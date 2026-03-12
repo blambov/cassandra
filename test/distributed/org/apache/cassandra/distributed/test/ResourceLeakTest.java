@@ -124,7 +124,7 @@ public class ResourceLeakTest extends TestBaseImpl
         MBeanServer server = ManagementFactory.getPlatformMBeanServer();
         HotSpotDiagnosticMXBean mxBean = ManagementFactory.newPlatformMXBeanProxy(
         server, "com.sun.management:type=HotSpotDiagnostic", HotSpotDiagnosticMXBean.class);
-        mxBean.dumpHeap(outputFilename("heap", description, ".hprof"), live);
+//        mxBean.dumpHeap(outputFilename("heap", description, ".hprof"), live);
     }
 
     static void dumpOpenFiles(String description) throws IOException, InterruptedException

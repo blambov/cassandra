@@ -120,7 +120,7 @@ public final class HeapUtils
                     String fullPath = File.getPath(absoluteBasePath.toString(), filename).toString();
 
                     logger.info("Writing heap dump to {} on partition w/ {} free bytes...", absoluteBasePath, freeSpaceBytes);
-                    mxBean.dumpHeap(fullPath, false);
+//                    mxBean.dumpHeap(fullPath, false);
                     logger.info("Heap dump written to {}", fullPath);
 
                     // Disable further heap dump creations until explicitly re-enabled.

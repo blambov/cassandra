@@ -98,6 +98,8 @@ public enum CassandraRelevantProperties
     CASSANDRA_STREAMING_DEBUG_STACKTRACE_LIMIT("cassandra.streaming.debug_stacktrace_limit", "2"),
     CASSANDRA_UNSAFE_TIME_UUID_NODE("cassandra.unsafe.timeuuidnode"),
     CASSANDRA_VERSION("cassandra.version"),
+    /** The length of time to wait for task cessation when we want to run something with compactions disabled. */
+    CESSATION_WAIT_SECONDS("cassandra.task_cessation_wait_seconds"),
     /** default heartbeating period is 1 minute */
     CHECK_DATA_RESURRECTION_HEARTBEAT_PERIOD("check_data_resurrection_heartbeat_period_milli", "60000"),
     CHRONICLE_ANALYTICS_DISABLE("chronicle.analytics.disable"),
