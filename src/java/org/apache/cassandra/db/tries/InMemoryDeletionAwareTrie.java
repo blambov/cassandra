@@ -249,6 +249,8 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         final boolean deletionsAtFixedPoints;
         final InMemoryRangeTrie.MutatorStatic<D, E> deletionMutator;
         final InMemoryTrie.RangeMutator<T, E> deleter;
+        private RangeCursor<E> currentIncomingDeletionBranch = null;
+        private int currentExistingAlternateBranch = NONE;
 
         Mutator(UpsertTransformer<T, V> dataTransformer,
                 UpsertTransformer<D, E> deletionTransformer,
@@ -279,6 +281,11 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             int depth = state.currentDepth;
             while (true)
             {
+                int existingAlternateBranch = state.alternateBranch();
+                currentExistingAlternateBranch = existingAlternateBranch;
+                RangeCursor<E> incomingAlternateBranch = mutationCursor.deletionBranchCursor(Direction.FORWARD);
+                currentIncomingDeletionBranch = incomingAlternateBranch;
+
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
@@ -286,8 +293,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 // in the right order.
                 applyContent(mutationCursor.content());
 
-                int existingAlternateBranch = state.alternateBranch();
-                RangeCursor<E> incomingAlternateBranch = mutationCursor.deletionBranchCursor(Direction.FORWARD);
                 long position;
                 if (incomingAlternateBranch != null || existingAlternateBranch != NONE)
                 {
@@ -502,15 +507,22 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         }
 
         /// Only valid until the return from the current apply() call.
+        @SuppressWarnings({"unchecked", "rawtypes"})
         public RangeTrie<D> getExistingDeletionTailTrie()
         {
-            return dir -> new InMemoryRangeTrie.InMemoryRangeCursor<>(deletionState.trie, dir, deletionState.existingFullNode());
+            if (isNull(currentExistingAlternateBranch))
+                return null;
+            int node = currentExistingAlternateBranch;
+            return dir -> new InMemoryRangeTrie.InMemoryRangeCursor<>(
+            (InMemoryBaseTrie<D>) state.trie(), dir, node);
         }
 
         /// Only valid until the return from the current apply() call.
         public RangeTrie<E> getMutationDeletionTailTrie()
         {
-            return deleter.mutationCursor::tailCursor;
+            if (currentIncomingDeletionBranch == null)
+                return null;
+            return currentIncomingDeletionBranch::tailCursor;
         }
     }
 
