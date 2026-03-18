@@ -198,13 +198,13 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
-    public synchronized CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, int gcBefore)
+    public synchronized CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
         // The tasks need to be split by repair status and disk, but otherwise we must assume the user knows what they
         // are doing.
         List<AbstractCompactionTask> tasks = new ArrayList<>();
         for (Arena arena : getCompactionArenas(sstables, UnifiedCompactionStrategy::isSuitableForCompaction))
-            tasks.addAll(super.getUserDefinedTasks(arena.sstables, gcBefore));
+            tasks.addAll(super.getUserDefinedTasks(arena.sstables, sstableLockId, gcBefore));
         return CompactionTasks.create(tasks);
     }
 
@@ -253,7 +253,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
-    public synchronized CompactionTasks getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public synchronized CompactionTasks getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         if (permittedParallelism <= 0)
             permittedParallelism = Integer.MAX_VALUE;
@@ -266,6 +266,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
             for (var aggregate : getMaximalAggregates())
             {
                 txn = realm.tryModify(aggregate.getSelected().sstables(),
+                                                           sstableLockId,
                                                            OperationType.COMPACTION,
                                                            aggregate.getSelected().id());
 
@@ -413,6 +414,7 @@ public class UnifiedCompactionStrategy extends AbstractCompactionStrategy
         Preconditions.checkArgument(!selected.isEmpty());
 
         LifecycleTransaction transaction = realm.tryModify(selected.sstables(),
+                                                           null,
                                                            OperationType.COMPACTION,
                                                            selected.id());
         if (transaction != null)

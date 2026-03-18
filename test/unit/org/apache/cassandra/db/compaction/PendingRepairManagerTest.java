@@ -220,7 +220,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
         Assert.assertNotNull(prm.get(repairID));
         LocalSessionAccessor.finalizeUnsafe(repairID);
 
-        Collection<AbstractCompactionTask> tasks = prm.getMaximalTasks(FBUtilities.nowInSeconds(), false, 0);
+        Collection<AbstractCompactionTask> tasks = prm.getMaximalTasks(null, FBUtilities.nowInSeconds(), false, 0);
         try
         {
             Assert.assertEquals(1, tasks.size());
@@ -240,7 +240,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
         mutateRepaired(sstable, repairId, false);
         prm.addSSTable(sstable);
 
-        Collection<AbstractCompactionTask> tasks = prm.createUserDefinedTasks(Collections.singleton(sstable), 100);
+        Collection<AbstractCompactionTask> tasks = prm.createUserDefinedTasks(Collections.singleton(sstable), null, 100);
         Assert.assertEquals(1, tasks.size());
     }
 
@@ -257,7 +257,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
         mutateRepaired(sstable2, repairId2, false);
         prm.addSSTable(sstable);
         prm.addSSTable(sstable2);
-        Collection<AbstractCompactionTask> tasks = prm.createUserDefinedTasks(Lists.newArrayList(sstable, sstable2), 100);
+        Collection<AbstractCompactionTask> tasks = prm.createUserDefinedTasks(Lists.newArrayList(sstable, sstable2), null, 100);
         Assert.assertEquals(2, tasks.size());
     }
 

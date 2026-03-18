@@ -111,18 +111,18 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
     }
 
     @Override
-    public Collection<AbstractCompactionTask> getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public Collection<AbstractCompactionTask> getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(strategies.size());
         for (CompactionStrategy strategy : strategies)
         {
-           tasks.addAll(strategy.getMaximalTasks(gcBefore, splitOutput, permittedParallelism));
+           tasks.addAll(strategy.getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism));
         }
         return tasks;
     }
 
     @Override
-    public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer<CompactionSSTable> sstables, int gcBefore)
+    public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer<CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(strategies.size());
         for (int i = 0; i < strategies.size(); i++)
@@ -130,7 +130,7 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
             if (sstables.isGroupEmpty(i))
                 continue;
 
-            tasks.addAll(strategies.get(i).getUserDefinedTasks(sstables.getGroup(i), gcBefore));
+            tasks.addAll(strategies.get(i).getUserDefinedTasks(sstables.getGroup(i), sstableLockId, gcBefore));
         }
         return tasks;
     }

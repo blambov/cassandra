@@ -914,28 +914,24 @@ public class CompactionStrategyManager implements CompactionStrategyContainer
     }
 
     @Override
-    public CompactionTasks getMaximalTasks(final int gcBefore, final boolean splitOutput, int permittedParallelism)
+    public CompactionTasks getMaximalTasks(UUID sstableLockId, final int gcBefore, final boolean splitOutput, int permittedParallelism)
     {
         maybeReloadDiskBoundaries();
-        // runWithCompactionsDisabled cancels active compactions and disables them, then we are able
-        // to make the repaired/unrepaired strategies mark their own sstables as compacting. Once the
-        // sstables are marked the compactions are re-enabled
-        return realm.runWithCompactionsDisabled(() -> {
-            List<AbstractCompactionTask> tasks = new ArrayList<>();
-            readLock.lock();
-            try
+
+        List<AbstractCompactionTask> tasks = new ArrayList<>();
+        readLock.lock();
+        try
+        {
+            for (AbstractStrategyHolder holder : holders)
             {
-                for (AbstractStrategyHolder holder : holders)
-                {
-                    tasks.addAll(holder.getMaximalTasks(gcBefore, splitOutput, permittedParallelism));
-                }
+                tasks.addAll(holder.getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism));
             }
-            finally
-            {
-                readLock.unlock();
-            }
-            return CompactionTasks.create(CompositeCompactionTask.applyParallelismLimit(tasks, permittedParallelism));
-        }, false, false, TableOperation.StopTrigger.COMPACTION);
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+        return CompactionTasks.create(CompositeCompactionTask.applyParallelismLimit(tasks, permittedParallelism));
     }
 
     /**
@@ -948,7 +944,7 @@ public class CompactionStrategyManager implements CompactionStrategyContainer
      * @return a list of compaction tasks corresponding to the sstables requested
      */
     @Override
-    public CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, int gcBefore)
+    public CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
         maybeReloadDiskBoundaries();
         List<AbstractCompactionTask> ret = new ArrayList<>();
@@ -958,7 +954,7 @@ public class CompactionStrategyManager implements CompactionStrategyContainer
             List<GroupedSSTableContainer<CompactionSSTable>> groupedSSTables = groupSSTables(sstables);
             for (int i = 0; i < holders.size(); i++)
             {
-                ret.addAll(holders.get(i).getUserDefinedTasks(groupedSSTables.get(i), gcBefore));
+                ret.addAll(holders.get(i).getUserDefinedTasks(groupedSSTables.get(i), sstableLockId, gcBefore));
             }
             return CompactionTasks.create(ret);
         }

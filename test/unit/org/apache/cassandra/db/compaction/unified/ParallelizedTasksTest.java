@@ -88,7 +88,7 @@ public class ParallelizedTasksTest extends ShardingTestBase
 
         populate(rowCount, compact);
 
-        LifecycleTransaction transaction = cfs.getTracker().tryModify(cfs.getLiveSSTables(), OperationType.COMPACTION, UnifiedCompactionStrategy.nextTimeUUID());
+        LifecycleTransaction transaction = cfs.getTracker().tryModify(cfs.getLiveSSTables(), null, OperationType.COMPACTION, UnifiedCompactionStrategy.nextTimeUUID());
 
         ShardManager shardManager = new ShardManagerNoDisks(SortedLocalRanges.forTestingFull(cfs));
 

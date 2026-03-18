@@ -198,7 +198,7 @@ public class RandomizedCancelCompactionsTest extends CQLTester
                         CountDownLatch cancelLatch = new CountDownLatch(1);
                         Predicate<SSTableReader> predicate = (sstable) -> sstable.intersects(Collections.singleton(range));
                         if (cfs.runWithCompactionsDisabled(
-                            () -> {
+                            opId -> {
                                 logger.debug("Successful cancellation for range [{}, {}]", rangeStart, rangeEnd);
                                 cancellationSuccess.incrementAndGet();
                                 assertEquals("No sstables intersecting range may be compacting inside runWithCompactionsDisabled block",

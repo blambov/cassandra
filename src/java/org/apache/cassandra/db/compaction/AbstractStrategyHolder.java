@@ -173,9 +173,9 @@ public abstract class AbstractStrategyHolder
 
     public abstract Collection<TasksSupplier> getBackgroundTaskSuppliers(int gcBefore);
 
-    public abstract Collection<AbstractCompactionTask> getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism);
+    public abstract Collection<AbstractCompactionTask> getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism);
 
-    public abstract Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer<CompactionSSTable> sstables, int gcBefore);
+    public abstract Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer<CompactionSSTable> sstables, UUID sstableLockId, int gcBefore);
 
     public <S extends CompactionSSTable> GroupedSSTableContainer<S> createGroupedSSTableContainer()
     {

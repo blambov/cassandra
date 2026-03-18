@@ -343,43 +343,44 @@ public class LocalSessions
                 UUID session = sst.getPendingRepair();
                 return session != null && sessions.contains(session);
             };
-            return cfs.runWithCompactionsDisabled(() -> doReleaseRepairData(cfs, sessions),
+            return cfs.runWithCompactionsDisabled(id -> doReleaseRepairData(cfs, sessions, id),
                                                   predicate, false, true, true, TableOperation.StopTrigger.CLEANUP);
         }
         else
         {
-            return doReleaseRepairData(cfs, sessions);
+            return doReleaseRepairData(cfs, sessions, LifecycleTransaction.newId());
         }
     }
 
-    private CleanupSummary doReleaseRepairData(ColumnFamilyStore cfs, Collection<UUID> sessions)
+    private CleanupSummary doReleaseRepairData(ColumnFamilyStore cfs, Collection<UUID> sessions, UUID sstableLockId)
     {
         List<Pair<UUID, RepairFinishedCompactionTask>> tasks = new ArrayList<>(sessions.size());
         for (UUID session : sessions)
         {
             if (canCleanup(session))
-                tasks.add(Pair.create(session, getRepairFinishedCompactionTask(cfs, session)));
+                tasks.add(Pair.create(session, getRepairFinishedCompactionTask(cfs, session, sstableLockId)));
         }
 
         return new CleanupTask(cfs, tasks).cleanup();
     }
 
-    private RepairFinishedCompactionTask getRepairFinishedCompactionTask(ColumnFamilyStore cfs, UUID session)
+    private RepairFinishedCompactionTask getRepairFinishedCompactionTask(ColumnFamilyStore cfs, UUID session, UUID sstableLockId)
     {
         Set<SSTableReader> sstables = cfs.getPendingRepairSSTables(session);
         if (sstables.isEmpty())
             return null;
 
-        return getRepairFinishedCompactionTask(cfs, session, sstables);
+        return getRepairFinishedCompactionTask(cfs, session, sstables, sstableLockId);
     }
 
     private RepairFinishedCompactionTask getRepairFinishedCompactionTask(CompactionRealm realm,
                                                                          UUID session,
-                                                                         Collection<? extends CompactionSSTable> sstables)
+                                                                         Collection<? extends CompactionSSTable> sstables,
+                                                                         UUID sstableLockId)
     {
         long repairedAt = getFinalSessionRepairedAt(session);
         boolean isTransient = sstables.iterator().next().isTransient();
-        LifecycleTransaction txn = realm.tryModify(sstables, OperationType.COMPACTION);
+        LifecycleTransaction txn = realm.tryModify(sstables, sstableLockId, OperationType.COMPACTION);
         return txn == null ? null : new RepairFinishedCompactionTask(realm, txn, session, repairedAt, isTransient);
     }
 
@@ -401,7 +402,10 @@ public class LocalSessions
 
         return finalizations.entrySet()
                             .stream()
-                            .map(entry -> getRepairFinishedCompactionTask(realm, entry.getKey(), entry.getValue()))
+                            .map(entry -> getRepairFinishedCompactionTask(realm,
+                                                                          entry.getKey(),
+                                                                          entry.getValue(),
+                                                                          LifecycleTransaction.newId()))
                             .filter(Predicates.notNull())
                             .collect(Collectors.toList());
     }

@@ -38,7 +38,7 @@ public class CompositeCompactionTask extends AbstractCompactionTask
 
     public CompositeCompactionTask(AbstractCompactionTask first)
     {
-        super(first.realm, first.realm.tryModify(Collections.emptyList(), OperationType.COMPACTION, first.transaction.opId()));
+        super(first.realm, first.realm.tryModify(Collections.emptyList(), null, OperationType.COMPACTION, first.transaction.opId()));
         tasks = new ArrayList<>();
         addTask(first);
     }

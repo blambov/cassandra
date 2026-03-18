@@ -385,7 +385,7 @@ public class CompactionControllerTest extends SchemaLoader
 
         twcs.startup();
 
-        CompactionTasks tasks = twcs.getUserDefinedTasks(sstables, 0);
+        CompactionTasks tasks = twcs.getUserDefinedTasks(sstables, null, 0);
 
         CompactionTask task = (CompactionTask) tasks.iterator().next();
 

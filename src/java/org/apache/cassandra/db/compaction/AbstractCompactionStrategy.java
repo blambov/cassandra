@@ -175,12 +175,12 @@ abstract class AbstractCompactionStrategy implements CompactionStrategy
      */
     @Override
     @SuppressWarnings("resource")
-    public synchronized CompactionTasks getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public synchronized CompactionTasks getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         Iterable<? extends CompactionSSTable> filteredSSTables = Iterables.filter(getSSTables(), sstable -> !sstable.isMarkedSuspect());
         if (Iterables.isEmpty(filteredSSTables))
             return CompactionTasks.empty();
-        LifecycleTransaction txn = realm.tryModify(filteredSSTables, OperationType.COMPACTION);
+        LifecycleTransaction txn = realm.tryModify(filteredSSTables, sstableLockId, OperationType.COMPACTION);
         if (txn == null)
             return CompactionTasks.empty();
         return CompactionTasks.create(Collections.singleton(createCompactionTask(gcBefore, txn, true, splitOutput)));
@@ -197,11 +197,11 @@ abstract class AbstractCompactionStrategy implements CompactionStrategy
      */
     @Override
     @SuppressWarnings("resource")
-    public synchronized CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, int gcBefore)
+    public synchronized CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
         assert !sstables.isEmpty(); // checked for by CM.submitUserDefined
 
-        LifecycleTransaction modifier = realm.tryModify(sstables, OperationType.COMPACTION);
+        LifecycleTransaction modifier = realm.tryModify(sstables, sstableLockId, OperationType.COMPACTION);
         if (modifier == null)
         {
             logger.trace("Unable to mark {} for compaction; probably a background compaction got to it first.  You can disable background compactions temporarily if this is a problem", sstables);

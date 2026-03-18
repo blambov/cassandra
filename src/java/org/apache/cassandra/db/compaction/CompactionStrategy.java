@@ -86,7 +86,7 @@ public interface CompactionStrategy extends CompactionObserver
      * Is responsible for marking its sstables as compaction-pending.
      */
     @SuppressWarnings("resource")
-    CompactionTasks getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism);
+    CompactionTasks getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism);
 
     /**
      * @param sstables SSTables to compact. Must be marked as compacting.
@@ -98,7 +98,7 @@ public interface CompactionStrategy extends CompactionObserver
      * Is responsible for marking its sstables as compaction-pending.
      */
     @SuppressWarnings("resource")
-    CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, int gcBefore);
+    CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, UUID sstableLockId, int gcBefore);
 
     /**
      * Get the estimated remaining compactions.

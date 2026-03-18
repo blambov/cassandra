@@ -26,7 +26,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -35,6 +34,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -50,7 +50,6 @@ import javax.management.openmbean.OpenType;
 import javax.management.openmbean.SimpleType;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -2624,7 +2623,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     {
         for (final ColumnFamilyStore cfs : concatWithIndexes())
         {
-            cfs.runWithCompactionsDisabled((Callable<Void>) () -> {
+            cfs.runWithCompactionsDisabled(id -> {
                 cfs.data.reset(memtableFactory.create(new AtomicReference<>(CommitLogPosition.NONE), cfs.metadata, cfs));
                 cfs.reloadCompactionStrategy(metadata().params.compaction, CompactionStrategyContainer.ReloadReason.FULL);
                 return null;
@@ -2702,35 +2701,32 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
                 now = Math.max(now, sstable.maxDataAge);
         truncatedAt = now;
 
-        Runnable truncateRunnable = new Runnable()
+        Function<UUID, Object> truncateRunnable = id ->
         {
-            public void run()
-            {
-                log.log("Truncating {}.{} with truncatedAt={}", keyspace.getName(), getTableName(), truncatedAt);
-                // since truncation can happen at different times on different nodes, we need to make sure
-                // that any repairs are aborted, otherwise we might clear the data on one node and then
-                // stream in data that is actually supposed to have been deleted
-                ActiveRepairService.instance.abort((prs) -> prs.getTableIds().contains(metadata.id),
-                                                   "Stopping parent sessions {} due to truncation of tableId="+metadata.id);
-                data.notifyTruncated(replayAfter, truncatedAt);
-                
-                if (!noSnapshot && DatabaseDescriptor.isAutoSnapshot()) 
-                    snapshot(Keyspace.getTimestampedSnapshotNameWithPrefix(name, SNAPSHOT_TRUNCATE_PREFIX));
+            log.log("Truncating {}.{} with truncatedAt={}", keyspace.getName(), getTableName(), truncatedAt);
+            // since truncation can happen at different times on different nodes, we need to make sure
+            // that any repairs are aborted, otherwise we might clear the data on one node and then
+            // stream in data that is actually supposed to have been deleted
+            ActiveRepairService.instance.abort((prs) -> prs.getTableIds().contains(metadata.id),
+                                               "Stopping parent sessions {} due to truncation of tableId="+metadata.id);
+            data.notifyTruncated(replayAfter, truncatedAt);
 
-                discardSSTables(truncatedAt);
+            if (!noSnapshot && DatabaseDescriptor.isAutoSnapshot())
+                snapshot(Keyspace.getTimestampedSnapshotNameWithPrefix(name, SNAPSHOT_TRUNCATE_PREFIX));
 
-                indexManager.truncateAllIndexesBlocking(truncatedAt);
-                viewManager.truncateBlocking(replayAfter, truncatedAt);
+            discardSSTables(truncatedAt);
 
-                Nodes.local().saveTruncationRecord(ColumnFamilyStore.this, truncatedAt, replayAfter);
-                logger.trace("cleaning out row cache");
-                invalidateCaches();
+            indexManager.truncateAllIndexesBlocking(truncatedAt);
+            viewManager.truncateBlocking(replayAfter, truncatedAt);
 
-            }
+            Nodes.local().saveTruncationRecord(ColumnFamilyStore.this, truncatedAt, replayAfter);
+            logger.trace("cleaning out row cache");
+            invalidateCaches();
+            return null;
         };
 
         storageHandler.runWithReloadingDisabled(() -> {
-            runWithCompactionsDisabled(Executors.callable(truncateRunnable), true, true, AbstractTableOperation.StopTrigger.TRUNCATE);
+            runWithCompactionsDisabled(truncateRunnable, true, true, AbstractTableOperation.StopTrigger.TRUNCATE);
         });
 
         viewManager.build();
@@ -2768,7 +2764,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     }
 
     @Override
-    public <V> V runWithCompactionsDisabled(Callable<V> callable, boolean interruptValidation, boolean interruptViews, TableOperation.StopTrigger trigger)
+    public <V> V runWithCompactionsDisabled(Function<UUID, V> callable, boolean interruptValidation, boolean interruptViews, TableOperation.StopTrigger trigger)
     {
         return runWithCompactionsDisabled(callable, (sstable) -> true, interruptValidation, interruptViews, true, trigger);
     }
@@ -2784,7 +2780,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
      *                         must be able to handle LocalPartitioner sstables!
      * @param trigger the cause for interrupting compactions
      */
-    public <V> V runWithCompactionsDisabled(Callable<V> callable,
+    public <V> V runWithCompactionsDisabled(Function<UUID, V> callable,
                                             Predicate<SSTableReader> sstablesPredicate,
                                             boolean interruptValidation,
                                             boolean interruptViews,
@@ -2798,9 +2794,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         {
             logger.debug("Started cancelling in-progress compactions for {}", metadata.name);
             Iterable<ColumnFamilyStore> toInterruptFor = concatWith(interruptIndexes, interruptViews);
+            UUID opId = LifecycleTransaction.newId();
 
             try (CompactionManager.CompactionPauser pause = CompactionManager.instance.pauseGlobalCompaction();
-                 CompactionManager.CompactionPauser pausedStrategies = pauseCompactionStrategies(toInterruptFor))
+                 CompactionManager.CompactionPauser pausedStrategies = lockSSTables(toInterruptFor, opId, sstablesPredicate))
             {
                 // Cancel scheduled compactions matching predicate. This must be done first because tasks progress from
                 // scheduled to active.
@@ -2819,7 +2816,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
                 // run our task
                 try
                 {
-                    return callable.call();
+                    return callable.apply(opId);
                 }
                 catch (Exception e)
                 {
@@ -2855,7 +2852,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         return true;
     }
 
-    private static CompactionManager.CompactionPauser pauseCompactionStrategies(Iterable<ColumnFamilyStore> toPause)
+    private static CompactionManager.CompactionPauser lockSSTables(Iterable<ColumnFamilyStore> toPause, UUID opId, Predicate<SSTableReader> sstablePredicate)
     {
         ArrayList<ColumnFamilyStore> successfullyPaused = new ArrayList<>();
         try
@@ -2863,25 +2860,25 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
             for (ColumnFamilyStore cfs : toPause)
             {
                 successfullyPaused.ensureCapacity(successfullyPaused.size() + 1); // to avoid OOM:ing after pausing the strategies
-                cfs.getCompactionStrategy().pause();
+                cfs.getTracker().lockSSTables(opId, sstablePredicate);
                 successfullyPaused.add(cfs);
             }
-            return () -> maybeFail(resumeAll(null, toPause));
+            return () -> maybeFail(unlockAll(null, toPause, opId));
         }
         catch (Throwable t)
         {
-            resumeAll(t, successfullyPaused);
+            unlockAll(t, successfullyPaused, opId);
             throw t;
         }
     }
 
-    private static Throwable resumeAll(Throwable accumulate, Iterable<ColumnFamilyStore> cfss)
+    private static Throwable unlockAll(Throwable accumulate, Iterable<ColumnFamilyStore> cfss, UUID opId)
     {
         for (ColumnFamilyStore cfs : cfss)
         {
             try
             {
-                cfs.getCompactionStrategy().resume();
+                cfs.getTracker().unlockSSTables(opId);
             }
             catch (Throwable t)
             {
@@ -2893,10 +2890,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
 
     public LifecycleTransaction markAllCompacting(final OperationType operationType, TableOperation.StopTrigger trigger)
     {
-        Callable<LifecycleTransaction> callable = () -> {
+        Function<UUID, LifecycleTransaction> callable = id -> {
             assert data.getCompacting().isEmpty() : data.getCompacting();
             Iterable<SSTableReader> sstables = Iterables.filter(getLiveSSTables(), sstable -> !sstable.isMarkedSuspect());
-            LifecycleTransaction modifier = data.tryModify(sstables, operationType);
+            LifecycleTransaction modifier = data.tryModify(sstables, id, operationType, id);
             assert modifier != null: "something marked things compacting while compactions are disabled";
             return modifier;
         };
@@ -3700,10 +3697,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
 
     @Override
     public LifecycleTransaction tryModify(Iterable<? extends CompactionSSTable> ssTableReaders,
+                                          UUID sstableLockId,
                                           OperationType operationType,
                                           UUID id)
     {
-        return data.tryModify(Iterables.transform(ssTableReaders, SSTableReader.class::cast), operationType, id);
+        return data.tryModify(Iterables.transform(ssTableReaders, SSTableReader.class::cast), sstableLockId, operationType, id);
     }
 
     public CompactionRealm.OverlapTracker getOverlapTracker(Iterable<SSTableReader> sources)

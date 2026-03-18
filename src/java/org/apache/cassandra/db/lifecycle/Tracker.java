@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -134,25 +135,26 @@ public class Tracker
 
     public LifecycleTransaction tryModify(SSTableReader sstable, OperationType operationType)
     {
-        return tryModify(singleton(sstable), operationType, LifecycleTransaction.newId());
+        return tryModify(singleton(sstable), null, operationType, LifecycleTransaction.newId());
     }
 
     public LifecycleTransaction tryModify(Iterable<? extends SSTableReader> sstables,
                                           OperationType operationType)
     {
-        return tryModify(sstables, operationType, LifecycleTransaction.newId());
+        return tryModify(sstables, null, operationType, LifecycleTransaction.newId());
     }
 
     /**
      * @return a Transaction over the provided sstables if we are able to mark the given @param sstables as compacted, before anyone else
      */
     public LifecycleTransaction tryModify(Iterable<? extends SSTableReader> sstables,
+                                          UUID lockId,
                                           OperationType operationType,
                                           UUID uuid)
     {
         if (Iterables.isEmpty(sstables))
             return new LifecycleTransaction(this, operationType, sstables, uuid);
-        if (null == apply(permitCompacting(sstables), updateCompacting(emptySet(), sstables)))
+        if (null == apply(permitCompacting(sstables), updateCompacting(emptySet(), sstables), lockId))
             return null;
         return new LifecycleTransaction(this, operationType, sstables, uuid);
     }
@@ -163,7 +165,7 @@ public class Tracker
     @VisibleForTesting
     public Pair<View, View> apply(Function<View, View> function)
     {
-        return apply(Predicates.alwaysTrue(), function);
+        return apply((x, y) -> true, function, null);
     }
 
     Throwable apply(Function<View, View> function, Throwable accumulate)
@@ -183,12 +185,12 @@ public class Tracker
      * atomically tests permit against the view and applies function to it, if permit yields true, returning the original;
      * otherwise the method aborts, returning null
      */
-    Pair<View, View> apply(Predicate<View> permit, Function<View, View> function)
+    Pair<View, View> apply(BiFunction<View, UUID, Boolean> permit, Function<View, View> function, UUID opId)
     {
         while (true)
         {
             View cur = view.get();
-            if (!permit.apply(cur))
+            if (!permit.apply(cur, opId))
                 return null;
             View updated = function.apply(cur);
             if (view.compareAndSet(cur, updated))
@@ -283,6 +285,16 @@ public class Tracker
         notifyAdded(sstables, operationType, isInitialSSTables);
     }
 
+    public void lockSSTables(UUID opId, Predicate<SSTableReader> predicate)
+    {
+        apply(View.lockSSTables(opId, predicate));
+    }
+
+    public void unlockSSTables(UUID opId)
+    {
+        apply(View.unlockSSTables(opId));
+    }
+
     /** (Re)initializes the tracker, purging all references. */
     @VisibleForTesting
     public void reset(Memtable memtable)
@@ -291,7 +303,8 @@ public class Tracker
                           Collections.emptyList(),
                           Collections.emptyMap(),
                           Collections.emptyMap(),
-                          SSTableIntervalTree.empty()));
+                          SSTableIntervalTree.empty(),
+                          Collections.emptyMap()));
     }
 
     public Throwable dropOrUnloadSSTablesIfInvalid(String message, @Nullable Throwable accumulate)

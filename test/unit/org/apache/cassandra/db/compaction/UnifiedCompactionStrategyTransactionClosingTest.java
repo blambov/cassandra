@@ -82,7 +82,7 @@ public class UnifiedCompactionStrategyTransactionClosingTest extends BaseCompact
 
         try
         {
-            strategy.getMaximalTasks(0, false, 20);
+            strategy.getMaximalTasks(null, 0, false, 20);
         }
         catch (RuntimeException e)
         {

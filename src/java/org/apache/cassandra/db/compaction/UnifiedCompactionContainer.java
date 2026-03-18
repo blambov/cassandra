@@ -245,15 +245,15 @@ public class UnifiedCompactionContainer implements CompactionStrategyContainer
     }
 
     @Override
-    public CompactionTasks getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public CompactionTasks getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
-        return strategy.getMaximalTasks(gcBefore, splitOutput, permittedParallelism);
+        return strategy.getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism);
     }
 
     @Override
-    public CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, int gcBefore)
+    public CompactionTasks getUserDefinedTasks(Collection<? extends CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
-        return strategy.getUserDefinedTasks(sstables, gcBefore);
+        return strategy.getUserDefinedTasks(sstables, sstableLockId, gcBefore);
     }
 
     @Override

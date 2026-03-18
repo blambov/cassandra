@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 
 import javax.annotation.Nullable;
@@ -90,6 +91,7 @@ abstract class LegacyAbstractCompactionStrategy extends AbstractCompactionStrate
                 Preconditions.checkNotNull(selected);
 
                 LifecycleTransaction transaction = realm.tryModify(selected.sstables(),
+                                                                   null,
                                                                    OperationType.COMPACTION,
                                                                    selected.id());
                 if (transaction != null)
@@ -251,10 +253,10 @@ abstract class LegacyAbstractCompactionStrategy extends AbstractCompactionStrate
         }
     }
 
-    public synchronized CompactionTasks getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public synchronized CompactionTasks getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         removeDeadSSTables();
-        return super.getMaximalTasks(gcBefore, splitOutput, permittedParallelism);
+        return super.getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism);
     }
 
     /**

@@ -191,7 +191,7 @@ public class PendingAntiCompaction
         }
 
         @SuppressWarnings("resource")
-        private AcquireResult acquireTuple()
+        private AcquireResult acquireTuple(UUID sstableLockId)
         {
             // this method runs with compactions stopped & disabled
             try
@@ -201,7 +201,7 @@ public class PendingAntiCompaction
                 if (sstables.isEmpty())
                     return new AcquireResult(cfs, null, null);
 
-                LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
+                LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, sstableLockId, OperationType.ANTICOMPACTION, sstableLockId);
                 if (txn != null)
                     return new AcquireResult(cfs, Refs.ref(sstables), txn);
                 else

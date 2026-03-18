@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.lifecycle;
 
 import java.util.*;
+import java.util.function.BiFunction;
 
 import javax.annotation.Nullable;
 
@@ -27,6 +28,7 @@ import com.google.common.base.Functions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
 
+import org.apache.commons.math.analysis.BinaryFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,9 +86,16 @@ public class View
     final Map<SSTableReader, SSTableReader> sstablesMap;
     final Map<SSTableReader, SSTableReader> compactingMap;
 
+    final Map<UUID, Predicate<SSTableReader>> sstableLocksRequested;
+
     final SSTableIntervalTree intervalTree;
 
-    View(List<Memtable> liveMemtables, List<Memtable> flushingMemtables, Map<SSTableReader, SSTableReader> sstables, Map<SSTableReader, SSTableReader> compacting, SSTableIntervalTree intervalTree)
+    View(List<Memtable> liveMemtables,
+         List<Memtable> flushingMemtables,
+         Map<SSTableReader, SSTableReader> sstables,
+         Map<SSTableReader, SSTableReader> compacting,
+         SSTableIntervalTree intervalTree,
+         Map<UUID, Predicate<SSTableReader>> sstableLocksRequested)
     {
         assert liveMemtables != null;
         assert flushingMemtables != null;
@@ -102,6 +111,7 @@ public class View
         this.compactingMap = compacting;
         this.compacting = compactingMap.keySet();
         this.intervalTree = intervalTree;
+        this.sstableLocksRequested = sstableLocksRequested;
         this.sstablesByFilename = Maps.newHashMapWithExpectedSize(sstables.size());
         for (SSTableReader sstable : this.sstables)
             this.sstablesByFilename.put(sstable.getDataFile().name(), sstable);
@@ -287,29 +297,43 @@ public class View
                 assert all(mark, Helpers.idIn(view.sstablesMap));
                 return new View(view.liveMemtables, view.flushingMemtables, view.sstablesMap,
                                 replace(view.compactingMap, unmark, mark),
-                                view.intervalTree);
+                                view.intervalTree,
+                                view.sstableLocksRequested);
             }
         };
     }
 
+    public boolean isLockRequested(SSTableReader reader, UUID opId)
+    {
+        for (var en : sstableLocksRequested.entrySet())
+        {
+            if (opId == en.getKey())
+                continue;
+
+            if (en.getValue().apply(reader))
+                return true;
+        }
+        return false;
+    }
+
     // construct a predicate to reject views that do not permit us to mark these readers compacting;
     // i.e. one of them is either already compacting, has been compacted, or has been replaced
-    static Predicate<View> permitCompacting(final Iterable<? extends SSTableReader> readers)
+    static BiFunction<View, UUID, Boolean> permitCompacting(final Iterable<? extends SSTableReader> readers)
     {
-        return new Predicate<View>()
-        {
-            public boolean apply(View view)
+        return (view, opId) ->
             {
                 for (SSTableReader reader : readers)
-                    if (view.compacting.contains(reader) || view.sstablesMap.get(reader) != reader || reader.isMarkedCompacted())
+                    if (view.compacting.contains(reader) ||
+                        view.sstablesMap.get(reader) != reader ||
+                        reader.isMarkedCompacted() ||
+                        view.isLockRequested(reader, opId))
                     {
                         logger.debug("Refusing to compact {}, already compacting={}, suspect={}, compacted={}", reader,
                                      view.compacting.contains(reader), reader.isMarkedSuspect(), reader.isMarkedCompacted());
                         return false;
                     }
                 return true;
-            }
-        };
+            };
     }
 
     // construct a function to change the liveset in a Snapshot
@@ -323,7 +347,8 @@ public class View
             {
                 Map<SSTableReader, SSTableReader> sstableMap = replace(view.sstablesMap, remove, add);
                 return new View(view.liveMemtables, view.flushingMemtables, sstableMap, view.compactingMap,
-                                SSTableIntervalTree.build(sstableMap.keySet()));
+                                SSTableIntervalTree.build(sstableMap.keySet()),
+                                view.sstableLocksRequested);
             }
         };
     }
@@ -337,7 +362,7 @@ public class View
             {
                 List<Memtable> newLive = ImmutableList.<Memtable>builder().addAll(view.liveMemtables).add(newMemtable).build();
                 assert newLive.size() == view.liveMemtables.size() + 1;
-                return new View(newLive, view.flushingMemtables, view.sstablesMap, view.compactingMap, view.intervalTree);
+                return new View(newLive, view.flushingMemtables, view.sstablesMap, view.compactingMap, view.intervalTree, view.sstableLocksRequested);
             }
         };
     }
@@ -356,7 +381,7 @@ public class View
                                                            filter(flushing, not(lessThan(toFlush)))));
                 assert newLive.size() == live.size() - 1;
                 assert newFlushing.size() == flushing.size() + 1;
-                return new View(newLive, newFlushing, view.sstablesMap, view.compactingMap, view.intervalTree);
+                return new View(newLive, newFlushing, view.sstablesMap, view.compactingMap, view.intervalTree, view.sstableLocksRequested);
             }
         };
     }
@@ -373,13 +398,40 @@ public class View
 
                 if (flushed == null || Iterables.isEmpty(flushed))
                     return new View(view.liveMemtables, flushingMemtables, view.sstablesMap,
-                                    view.compactingMap, view.intervalTree);
+                                    view.compactingMap, view.intervalTree, view.sstableLocksRequested);
 
                 Map<SSTableReader, SSTableReader> sstableMap = replace(view.sstablesMap, emptySet(), flushed);
                 return new View(view.liveMemtables, flushingMemtables, sstableMap, view.compactingMap,
-                                SSTableIntervalTree.build(sstableMap.keySet()));
+                                SSTableIntervalTree.build(sstableMap.keySet()), view.sstableLocksRequested);
             }
         };
+    }
+
+    static Function<View, View> lockSSTables(UUID opId, Predicate<SSTableReader> predicate)
+    {
+
+        return view -> new View(view.liveMemtables,
+                                view.flushingMemtables,
+                                view.sstablesMap,
+                                view.compactingMap,
+                                view.intervalTree,
+                                ImmutableMap.copyOf(concat(view.sstableLocksRequested.entrySet(),
+                                                           ImmutableMap.of(opId, predicate).entrySet())));
+    }
+
+    static Function<View, View> unlockSSTables(UUID opId)
+    {
+        return view -> new View(view.liveMemtables,
+                                view.flushingMemtables,
+                                view.sstablesMap,
+                                view.compactingMap,
+                                view.intervalTree,
+                                exceptKey(view.sstableLocksRequested, opId));
+    }
+
+    static <K, V> ImmutableMap<K, V> exceptKey(Map<K, V> source, K key)
+    {
+        return ImmutableMap.copyOf(Maps.filterKeys(source, k -> key != k));
     }
 
     private static <T extends Comparable<T>> Predicate<T> lessThan(final T lessThan)

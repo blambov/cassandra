@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 
 import com.google.common.base.Function;
@@ -116,36 +117,31 @@ public class TrackerTest
         final Tracker tracker = Tracker.newDummyTracker(cfs.metadata);
         final View resultView = ViewTest.fakeView(0, 0, cfs);
         final AtomicInteger count = new AtomicInteger();
-        tracker.apply(new Predicate<View>()
-        {
-            public boolean apply(View view)
+        tracker.apply((view, lockId) ->
             {
                 // confound the CAS by swapping the view, and check we retry
                 if (count.incrementAndGet() < 3)
                     tracker.view.set(ViewTest.fakeView(0, 0, cfs));
                 return true;
-            }
-        }, new Function<View, View>()
-        {
-            @Nullable
-            public View apply(View view)
+            }, new Function<View, View>()
             {
-                return resultView;
-            }
-        });
+                @Nullable
+                public View apply(View view)
+                {
+                    return resultView;
+                }
+            },
+            null);
         Assert.assertEquals(3, count.get());
         Assert.assertEquals(resultView, tracker.getView());
 
         count.set(0);
         // check that if the predicate returns false, we stop immediately and return null
-        Assert.assertNull(tracker.apply(new Predicate<View>()
+        Assert.assertNull(tracker.apply((view, id) ->
         {
-            public boolean apply(View view)
-            {
                 count.incrementAndGet();
                 return false;
-            }
-        }, null));
+        }, null, null));
         Assert.assertEquals(1, count.get());
         Assert.assertEquals(resultView, tracker.getView());
     }

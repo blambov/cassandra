@@ -32,6 +32,8 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import com.google.common.collect.Iterators;
+import com.google.common.util.concurrent.Uninterruptibles;
+
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.compaction.TableOperation;
@@ -125,9 +127,9 @@ public class ColumnFamilyStoreTest
         CountDownLatch task2StaredtLatch = new CountDownLatch(1);
 
         Thread task1 = new Thread(() -> {
-            cfs.runWithCompactionsDisabled(() -> {
+            cfs.runWithCompactionsDisabled(lockId -> {
                                                task1StaredtLatch.countDown();
-                                               task1FinishLatch.await();
+                                               Uninterruptibles.awaitUninterruptibly(task1FinishLatch);
                                                return null;
                                            },
                                            true,
@@ -137,7 +139,7 @@ public class ColumnFamilyStoreTest
         task1.start();
 
         Thread task2 = new Thread(() -> {
-            cfs.runWithCompactionsDisabled(() -> {
+            cfs.runWithCompactionsDisabled(lockId -> {
                                                task2StaredtLatch.countDown();
                                                return null;
                                            },

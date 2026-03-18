@@ -17,9 +17,11 @@
  */
 package org.apache.cassandra.db.compaction;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
@@ -165,18 +167,25 @@ public class LongLeveledCompactionStrategyTest
         //Flush sstable
         store.forceBlockingFlush(UNIT_TESTS);
 
-        store.runWithCompactionsDisabled(new Callable<Void>()
+        store.runWithCompactionsDisabled(new Function<UUID, Void>()
         {
-            public Void call() throws Exception
+            public Void apply(UUID lockId)
             {
                 Iterable<SSTableReader> allSSTables = store.getSSTables(SSTableSet.LIVE);
                 for (SSTableReader sstable : allSSTables)
                 {
                     if (sstable.getSSTableLevel() == 0)
                     {
-                        System.out.println("Mutating L0-SSTABLE level to L1 to simulate a bug: " + sstable.getFilename());
-                        sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 1);
-                        sstable.reloadSSTableMetadata();
+                        try
+                        {
+                            System.out.println("Mutating L0-SSTABLE level to L1 to simulate a bug: " + sstable.getFilename());
+                            sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 1);
+                            sstable.reloadSSTableMetadata();
+                        }
+                        catch (IOException e)
+                        {
+                            throw new RuntimeException(e);
+                        }
                     }
                 }
 

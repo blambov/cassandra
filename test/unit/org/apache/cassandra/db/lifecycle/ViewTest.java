@@ -26,6 +26,7 @@ import java.util.Set;
 import com.google.common.base.Function;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.junit.BeforeClass;
@@ -91,18 +92,18 @@ public class ViewTest
         View initialView = fakeView(0, 5, cfs, true);
         View cur = initialView;
         List<SSTableReader> readers = ImmutableList.copyOf(initialView.sstables);
-        Assert.assertTrue(View.permitCompacting(readers).apply(cur));
+        Assert.assertTrue(View.permitCompacting(readers).apply(cur, null));
         // check we permit compacting duplicates in the predicate, so we don't spin infinitely if there is a screw up
-        Assert.assertTrue(View.permitCompacting(ImmutableList.copyOf(concat(readers, readers))).apply(cur));
+        Assert.assertTrue(View.permitCompacting(ImmutableList.copyOf(concat(readers, readers))).apply(cur, null));
         // check we fail in the application in the presence of duplicates
         testFailure(View.updateCompacting(emptySet(), concat(readers.subList(0, 1), readers.subList(0, 1))), cur);
 
         // do lots of trivial checks that the compacting set and related methods behave properly for a simple update
         cur = View.updateCompacting(emptySet(), readers.subList(0, 2)).apply(cur);
-        Assert.assertTrue(View.permitCompacting(readers.subList(2, 5)).apply(cur));
-        Assert.assertFalse(View.permitCompacting(readers.subList(0, 2)).apply(cur));
-        Assert.assertFalse(View.permitCompacting(readers.subList(0, 1)).apply(cur));
-        Assert.assertFalse(View.permitCompacting(readers.subList(1, 2)).apply(cur));
+        Assert.assertTrue(View.permitCompacting(readers.subList(2, 5)).apply(cur, null));
+        Assert.assertFalse(View.permitCompacting(readers.subList(0, 2)).apply(cur, null));
+        Assert.assertFalse(View.permitCompacting(readers.subList(0, 1)).apply(cur, null));
+        Assert.assertFalse(View.permitCompacting(readers.subList(1, 2)).apply(cur, null));
         Assert.assertTrue(readers.subList(2, 5).containsAll(copyOf(cur.getNoncompacting(readers))));
         Assert.assertEquals(3, copyOf(cur.getNoncompacting(readers)).size());
         Assert.assertTrue(ImmutableSet.copyOf(cur.select(SSTableSet.NONCOMPACTING)).containsAll(readers.subList(2, 5)));
@@ -128,8 +129,8 @@ public class ViewTest
 
         // unmark compacting, and check our methods are all correctly updated
         cur = View.updateCompacting(copyOf(readers.subList(0, 1)), emptySet()).apply(cur);
-        Assert.assertTrue(View.permitCompacting(concat(readers.subList(0, 1), of(r2), readers.subList(3, 5))).apply(cur));
-        Assert.assertFalse(View.permitCompacting(readers.subList(1, 2)).apply(cur));
+        Assert.assertTrue(View.permitCompacting(concat(readers.subList(0, 1), of(r2), readers.subList(3, 5))).apply(cur, null));
+        Assert.assertFalse(View.permitCompacting(readers.subList(1, 2)).apply(cur, null));
         testFailure(View.updateCompacting(emptySet(), readers.subList(1, 2)), cur);
         testFailure(View.updateCompacting(copyOf(readers.subList(0, 2)), emptySet()), cur);
         Assert.assertTrue(copyOf(concat(readers.subList(0, 1), readers.subList(2, 5))).containsAll(copyOf(cur.getNoncompacting(readers))));
@@ -225,6 +226,6 @@ public class ViewTest
         for (int i = 0 ; i < sstableCount ; i++)
             sstables.add(MockSchema.sstable(i, keepRef, cfs));
         return new View(ImmutableList.copyOf(memtables), Collections.<Memtable>emptyList(), Helpers.identityMap(sstables),
-                        Collections.<SSTableReader, SSTableReader>emptyMap(), SSTableIntervalTree.build(sstables));
+                        Collections.<SSTableReader, SSTableReader>emptyMap(), SSTableIntervalTree.build(sstables), ImmutableMap.of());
     }
 }

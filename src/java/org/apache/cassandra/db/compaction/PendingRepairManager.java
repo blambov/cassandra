@@ -340,7 +340,7 @@ class PendingRepairManager
         return get(sessionID).getNextBackgroundTasks(gcBefore);
     }
 
-    synchronized Collection<AbstractCompactionTask> getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    synchronized Collection<AbstractCompactionTask> getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         if (strategies.isEmpty())
             return ImmutableList.of();
@@ -354,7 +354,7 @@ class PendingRepairManager
             }
             else
             {
-                maximalTasks.addAll(entry.getValue().getMaximalTasks(gcBefore, splitOutput, permittedParallelism));
+                maximalTasks.addAll(entry.getValue().getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism));
             }
         }
         return maximalTasks;
@@ -425,9 +425,14 @@ class PendingRepairManager
         return strategy != null && strategy.getSSTables().contains(sstable);
     }
 
-    public Collection<AbstractCompactionTask> createUserDefinedTasks(Collection<CompactionSSTable> sstables, int gcBefore)
+    public Collection<AbstractCompactionTask> createUserDefinedTasks(Collection<CompactionSSTable> sstables, UUID sstableLockId, int gcBefore)
     {
         Map<UUID, List<CompactionSSTable>> group = sstables.stream().collect(Collectors.groupingBy(s -> s.getPendingRepair()));
-        return group.entrySet().stream().map(g -> strategies.get(g.getKey()).getUserDefinedTasks(g.getValue(), gcBefore)).flatMap(Collection::stream).collect(Collectors.toList());
+        return group.entrySet()
+                    .stream()
+                    .map(g -> strategies.get(g.getKey())
+                                        .getUserDefinedTasks(g.getValue(), sstableLockId, gcBefore))
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
     }
 }

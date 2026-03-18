@@ -1783,7 +1783,7 @@ public class UnifiedCompactionStrategyTest extends BaseCompactionStrategyTest
         when(controller.maxConcurrentCompactions()).thenReturn(1000);
         UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(strategyFactory, controller);
 
-        CompactionTasks limitedParallelismTasks = strategy.getMaximalTasks(0, false, parallelismLimit);
+        CompactionTasks limitedParallelismTasks = strategy.getMaximalTasks(null, 0, false, parallelismLimit);
         Collection<AbstractCompactionTask> allTasks = (parallelismLimit > 0)
                                              ? limitedParallelismTasks.stream().flatMap(t -> t instanceof CompositeCompactionTask
                                                                                              ? ((CompositeCompactionTask) t).tasks.stream()

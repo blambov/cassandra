@@ -22,9 +22,8 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.function.Function;
 
-import com.google.common.base.Function;
 import com.google.common.base.Predicate;
 
 import org.apache.cassandra.db.DecoratedKey;
@@ -251,6 +250,7 @@ public interface CompactionRealm
      * The transaction will convert the given CompactionSSTable handles into open SSTableReaders.
      */
     LifecycleTransaction tryModify(Iterable<? extends CompactionSSTable> sstables,
+                                   UUID sstableLockId,
                                    OperationType operationType,
                                    UUID id);
 
@@ -259,9 +259,20 @@ public interface CompactionRealm
      * The transaction will convert the given CompactionSSTable handles into open SSTableReaders.
      */
     default LifecycleTransaction tryModify(Iterable<? extends CompactionSSTable> sstables,
+                                           UUID sstableLockId,
                                            OperationType operationType)
     {
-        return tryModify(sstables, operationType, LifecycleTransaction.newId());
+        return tryModify(sstables, sstableLockId, operationType, LifecycleTransaction.newId());
+    }
+
+    /**
+     * Initiate a transaction to modify the given sstables and operation type, most often a compaction.
+     * The transaction will convert the given CompactionSSTable handles into open SSTableReaders.
+     */
+    default LifecycleTransaction tryModify(Iterable<? extends CompactionSSTable> sstables,
+                                           OperationType operationType)
+    {
+        return tryModify(sstables, null, operationType, LifecycleTransaction.newId());
     }
 
     /**
@@ -319,5 +330,5 @@ public interface CompactionRealm
     /**
      * Run an operation with concurrent compactions being stopped.
      */
-    <V> V runWithCompactionsDisabled(Callable<V> callable, boolean interruptValidation, boolean interruptViews, TableOperation.StopTrigger trigger);
+    <V> V runWithCompactionsDisabled(Function<UUID, V> callable, boolean interruptValidation, boolean interruptViews, TableOperation.StopTrigger trigger);
 }

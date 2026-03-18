@@ -122,18 +122,18 @@ public class PendingRepairHolder extends AbstractStrategyHolder
     }
 
     @Override
-    public Collection<AbstractCompactionTask> getMaximalTasks(int gcBefore, boolean splitOutput, int permittedParallelism)
+    public Collection<AbstractCompactionTask> getMaximalTasks(UUID sstableLockId, int gcBefore, boolean splitOutput, int permittedParallelism)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(managers.size());
         for (PendingRepairManager manager : managers)
         {
-            tasks.addAll(manager.getMaximalTasks(gcBefore, splitOutput, permittedParallelism));
+            tasks.addAll(manager.getMaximalTasks(sstableLockId, gcBefore, splitOutput, permittedParallelism));
         }
         return tasks;
     }
 
     @Override
-    public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer sstables, int gcBefore)
+    public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer sstables, UUID sstableLockId, int gcBefore)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(managers.size());
 
@@ -142,7 +142,7 @@ public class PendingRepairHolder extends AbstractStrategyHolder
             if (sstables.isGroupEmpty(i))
                 continue;
 
-            tasks.addAll(managers.get(i).createUserDefinedTasks(sstables.getGroup(i), gcBefore));
+            tasks.addAll(managers.get(i).createUserDefinedTasks(sstables.getGroup(i), sstableLockId, gcBefore));
         }
         return tasks;
     }

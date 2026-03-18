@@ -42,6 +42,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -930,16 +931,18 @@ public class CompactionManager implements CompactionManagerMBean
                                          TableOperationObserver obs)
     {
         // The default parallelism is half the number of compaction threads to leave enough room for other compactions.
-        if (permittedParallelism < 0)
-            permittedParallelism = getCoreCompactorThreads() / 2;
-        else if (permittedParallelism == 0)
-            permittedParallelism = Integer.MAX_VALUE;
+        int parallelism = permittedParallelism < 0
+                          ? permittedParallelism = getCoreCompactorThreads() / 2
+                          : permittedParallelism == 0
+                            ? permittedParallelism = Integer.MAX_VALUE
+                            : permittedParallelism;
 
         // here we compute the task off the compaction executor, so having that present doesn't
         // confuse runWithCompactionsDisabled -- i.e., we don't want to deadlock ourselves, waiting
         // for ourselves to finish/acknowledge cancellation before continuing.
 
-        CompactionTasks tasks = cfStore.getCompactionStrategy().getMaximalTasks(gcBefore, splitOutput, permittedParallelism);
+        CompactionTasks tasks = cfStore.runWithCompactionsDisabled(lockId -> cfStore.getCompactionStrategy().getMaximalTasks(lockId, gcBefore, splitOutput, parallelism),
+                                                                   false, false, TableOperation.StopTrigger.COMPACTION);
 
         if (tasks.isEmpty())
             return Collections.emptyList();
@@ -990,14 +993,14 @@ public class CompactionManager implements CompactionManagerMBean
      */
     public void forceCompactionForTokenRange(ColumnFamilyStore cfStore, Collection<Range<Token>> ranges)
     {
-        Callable<CompactionTasks> taskCreator = () -> {
+        Function<UUID, CompactionTasks> taskCreator = sstableLockId -> {
             Collection<SSTableReader> sstables = sstablesInBounds(cfStore, ranges);
             if (sstables == null || sstables.isEmpty())
             {
                 logger.debug("No sstables found for the provided token range");
                 return CompactionTasks.empty();
             }
-            return cfStore.getCompactionStrategy().getUserDefinedTasks(sstables, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()));
+            return cfStore.getCompactionStrategy().getUserDefinedTasks(sstables, sstableLockId, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()));
         };
 
         try (CompactionTasks tasks = cfStore.runWithCompactionsDisabled(taskCreator,
@@ -1169,7 +1172,7 @@ public class CompactionManager implements CompactionManagerMBean
                 }
                 else
                 {
-                    try (CompactionTasks tasks = cfs.getCompactionStrategy().getUserDefinedTasks(sstables, gcBefore))
+                    try (CompactionTasks tasks = cfs.getCompactionStrategy().getUserDefinedTasks(sstables, null, gcBefore))
                     {
                         for (AbstractCompactionTask task : tasks)
                         {

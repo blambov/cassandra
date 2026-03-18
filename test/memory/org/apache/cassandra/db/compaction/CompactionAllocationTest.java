@@ -390,7 +390,7 @@ public class CompactionAllocationTest
         Set<SSTableReader> sstables = cfs.getLiveSSTables();
 
         CompactionTasks tasks = cfs.getCompactionStrategyContainer()
-                                   .getUserDefinedTasks(sstables, FBUtilities.nowInSeconds());
+                                   .getUserDefinedTasks(sstables, null, FBUtilities.nowInSeconds());
         Assert.assertFalse(tasks.isEmpty());
 
         String compactionSummary = "SKIPPED";
