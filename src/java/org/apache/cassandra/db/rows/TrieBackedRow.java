@@ -45,11 +45,9 @@ import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.MultiCellCapableType;
-import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
-import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.Trie;
@@ -254,13 +252,13 @@ public class TrieBackedRow extends AbstractRow
 
     private static class Accumulator implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
     {
-        final LongAccumulator<CellData> cellAccumulator;
+        final LongAccumulator<CellData<?, ?>> cellAccumulator;
         final LongAccumulator<LivenessInfo> livenessAccumulator;
         final LongAccumulator<DeletionTime> markerAccumulator;
         long value;
 
         Accumulator(long initialValue,
-                    LongAccumulator<CellData> cellAccumulator,
+                    LongAccumulator<CellData<?, ?>> cellAccumulator,
                     LongAccumulator<LivenessInfo> livenessAccumulator,
                     LongAccumulator<DeletionTime> markerAccumulator)
         {
@@ -276,7 +274,7 @@ public class TrieBackedRow extends AbstractRow
             if (content instanceof LivenessInfo)
                 value = livenessAccumulator.apply((LivenessInfo) content, value);
             else if (content instanceof CellData)
-                value = cellAccumulator.apply((CellData) content, value);
+                value = cellAccumulator.apply((CellData<?, ?>) content, value);
             else if (content != COMPLEX_COLUMN_MARKER)
                 throw new AssertionError("Unexpected content type: " + content);
         }
@@ -301,7 +299,7 @@ public class TrieBackedRow extends AbstractRow
     /// `accumulate` method.
     long accumulate(long initialValue,
                     LongAccumulator<LivenessInfo> livenessAccumulator,
-                    LongAccumulator<CellData> cellAccumulator,
+                    LongAccumulator<CellData<?, ?>> cellAccumulator,
                     LongAccumulator<DeletionTime> markerAccumulator)
     {
         Accumulator accumulator = new Accumulator(initialValue, cellAccumulator, livenessAccumulator, markerAccumulator);
@@ -493,7 +491,7 @@ public class TrieBackedRow extends AbstractRow
         Object o = data.get(cellKey(columnIds, c, null));
         if (o == null || o instanceof Cell)
             return (Cell) o;
-        CellData cellData = (CellData) o;
+        CellData<?, ?> cellData = (CellData<?, ?>) o;
         return cellData.toCell(c, null);
     }
 
@@ -504,7 +502,7 @@ public class TrieBackedRow extends AbstractRow
         Object o = data.get(cellKey(columnIds, c, path));
         if (o == null || o instanceof Cell)
             return (Cell) o;
-        CellData cellData = (CellData) o;
+        CellData<?, ?> cellData = (CellData<?, ?>) o;
         return cellData.toCell(c, path);
     }
 
@@ -585,7 +583,7 @@ public class TrieBackedRow extends AbstractRow
         {
             // value is given by combineDataAndDeletionForColumnIterator above
             if (value instanceof CellData)
-                return cellFromCellData((CellData) value, bytes, byteLength, columns);
+                return cellFromCellData((CellData<?, ?>) value, bytes, byteLength, columns);
 
             long columnIndex = ByteSourceInverse.getVariableLengthUnsignedInteger(ByteSource.preencoded(bytes, 0, byteLength));
             assert ((int) columnIndex) == columnIndex;
@@ -596,7 +594,7 @@ public class TrieBackedRow extends AbstractRow
 
     }
 
-    private static Cell<?> cellFromCellData(CellData value, byte[] bytes, int byteLength, Columns columns)
+    private static Cell<?> cellFromCellData(CellData<?, ?> value, byte[] bytes, int byteLength, Columns columns)
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
@@ -771,7 +769,7 @@ public class TrieBackedRow extends AbstractRow
         }
         if (existing instanceof CellData)
         {
-            if (deletion.deletes((CellData) existing))
+            if (deletion.deletes((CellData<?, ?>) existing))
                 return null;
             else
                 return existing;
@@ -783,7 +781,7 @@ public class TrieBackedRow extends AbstractRow
     {
         if (!(existing instanceof CellData))
             return existing;
-        return ((CellData) existing).withSkippedValue();
+        return ((CellData<?, ?>) existing).withSkippedValue();
     }
     private static ByteComparable[] mapIdsToColumnKeys(BitSet fetchedIds)
     {
@@ -934,7 +932,7 @@ public class TrieBackedRow extends AbstractRow
     }
 
     Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                           Function<CellData, CellData> cellFunction,
+                           Function<CellData<?, ?>, CellData<?, ?>> cellFunction,
                            Function<DeletionTime, DeletionTime> markerFunction)
     {
         DeletionAwareTrie<Object, TrieTombstoneMarker> mappedData = data.mapValuesAndDeletions(
@@ -946,7 +944,7 @@ public class TrieBackedRow extends AbstractRow
                 }
                 else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((CellData) x);
+                    return cellFunction.apply((CellData<?, ?>) x);
                 }
                 else
                     return x;   // complex column marker
@@ -964,7 +962,7 @@ public class TrieBackedRow extends AbstractRow
         InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> newTrie = newTrie();
         try
         {
-            newTrie.mutator(((ex, toClone) -> toClone instanceof CellData ? ((CellData) toClone).clone(cloner) : toClone),
+            newTrie.mutator(((ex, toClone) -> toClone instanceof CellData ? ((CellData<?, ?>) toClone).clone(cloner) : toClone),
                             mergeTombstoneRanges(),
                             noIncomingSelfDeletion(),
                             noExistingSelfDeletion(),
@@ -1046,9 +1044,9 @@ public class TrieBackedRow extends AbstractRow
             return LivenessInfo.merge((LivenessInfo) existing, (LivenessInfo) update);
         else if (update instanceof CellData)
         {
-            CellData existingCell = (CellData) existing;
-            CellData updateCell = (CellData) update;
-            return Cells.reconcile(existingCell, updateCell);
+            CellData<?, ?> existingCell = (CellData<?, ?>) existing;
+            CellData<?, ?> updateCell = (CellData<?, ?>) update;
+            return Cells.<CellData>reconcile(existingCell, updateCell);
         }
         else
         {
@@ -1091,7 +1089,7 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
-    private static int minDeletionTime(CellData cell)
+    private static int minDeletionTime(CellData<?, ?> cell)
     {
         return cell.isTombstone() ? Integer.MIN_VALUE : cell.localDeletionTime();
     }
@@ -1132,7 +1130,7 @@ public class TrieBackedRow extends AbstractRow
         {
             if (!(content instanceof CellData))
                 return null;
-            return cellFromCellData((CellData) content, bytes, byteLength, columns);
+            return cellFromCellData((CellData<?, ?>) content, bytes, byteLength, columns);
         }
     }
 

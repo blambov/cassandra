@@ -77,7 +77,7 @@ public class TriePartitionUpdater
     {
         // Most common case first
         if (update instanceof CellData)
-            return applyCell((TrieCellData) existing, (CellData) update);
+            return applyCell((TrieCellData) existing, (CellData<?, ?>) update);
         else if (update == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return update;
         else if (update instanceof LivenessInfo)
@@ -114,7 +114,7 @@ public class TriePartitionUpdater
 
         // Most common case first
         if (existingContent instanceof CellData)
-            return applyCellDeletion((CellData) existingContent, deletion);
+            return applyCellDeletion((CellData<?, ?>) existingContent, deletion);
         else if (existingContent == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             return existingContent;
         else if (existingContent instanceof LivenessInfo)
@@ -125,7 +125,7 @@ public class TriePartitionUpdater
             throw new AssertionError("Unexpected content in trie " + existingContent + " for deletion " + updateMarker);
     }
 
-    private CellData applyCellDeletion(CellData existingContent, DeletionTime deletion)
+    private CellData<?, ?> applyCellDeletion(CellData<?, ?> existingContent, DeletionTime deletion)
     {
         if (!deletion.deletes(existingContent))
             return existingContent;
@@ -193,7 +193,7 @@ public class TriePartitionUpdater
         }
     }
 
-    CellData applyCell(@Nullable TrieCellData existing, CellData update)
+    CellData<?, ?> applyCell(@Nullable TrieCellData existing, CellData<?, ?> update)
     {
         if (existing == null)
         {
@@ -202,7 +202,7 @@ public class TriePartitionUpdater
         }
         else
         {
-            CellData reconciled = Cells.<CellData>reconcile(existing, update);
+            CellData<?, ?> reconciled = Cells.<CellData>reconcile(existing, update);
             if (reconciled != existing)
             {
                 long timeDelta = Math.abs(reconciled.timestamp() - existing.timestamp());

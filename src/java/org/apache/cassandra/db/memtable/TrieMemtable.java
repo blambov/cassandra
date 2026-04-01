@@ -1092,7 +1092,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             // most common first
             if (content instanceof CellData)
             {
-                TrieCellData.serialize((CellData) content, buffer, offset, manager);
+                TrieCellData.serialize((CellData<?, ?>) content, buffer, offset, manager);
             }
             else
             {

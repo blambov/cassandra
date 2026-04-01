@@ -474,7 +474,7 @@ public class TrieBackedPartitionMemtableAccountingTest
         return size;
     }
 
-    private static long sizeOf(CellData cell)
+    private static long sizeOf(CellData<?, ?> cell)
     {
         return TrieCellData.offTrieSize(cell);
     }

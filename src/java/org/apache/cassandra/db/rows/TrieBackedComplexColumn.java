@@ -69,7 +69,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         Object cell = data.contentOnlyTrie().get(TrieBackedRow.cellKey(-1, column, path));
         if (cell == null || cell instanceof Cell)
             return (Cell<?>) cell;
-        return ((CellData) cell).toCell(column, path);
+        return ((CellData<?, ?>) cell).toCell(column, path);
     }
 
     @Override
@@ -79,14 +79,14 @@ public class TrieBackedComplexColumn extends ComplexColumnData
         return cellDataToCell(entry.getValue(), entry.getKey());
     }
 
-    private Cell<?> cellDataToCell(CellData value, byte[] keyBytes, int keyLength)
+    private Cell<?> cellDataToCell(CellData<?, ?> value, byte[] keyBytes, int keyLength)
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
         return value.toCell(column, TrieBackedRow.cellPath(column, ByteSource.preencoded(keyBytes, 0, keyLength)));
     }
 
-    private Cell<?> cellDataToCell(CellData value, ByteComparable.Preencoded key)
+    private Cell<?> cellDataToCell(CellData<?, ?> value, ByteComparable.Preencoded key)
     {
         if (value instanceof Cell)
             return (Cell<?>) value;
@@ -94,9 +94,9 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @VisibleForTesting
-    public CellData getCellWithoutPath(CellPath path)
+    public CellData<?, ?> getCellWithoutPath(CellPath path)
     {
-        return (CellData) data.contentOnlyTrie().get(TrieBackedRow.cellKey(-1, column, path));
+        return (CellData<?, ?>) data.contentOnlyTrie().get(TrieBackedRow.cellKey(-1, column, path));
     }
 
     @Override
@@ -118,7 +118,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
             if (!(content instanceof CellData))
                 return null;
 
-            return cellDataToCell((CellData) content, bytes, byteLength);
+            return cellDataToCell((CellData<?, ?>) content, bytes, byteLength);
         }
     }
 
@@ -152,7 +152,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                     c = (Cell<?>) content;
                 else
                 {
-                    CellData cd = (CellData) content;
+                    CellData<?, ?> cd = (CellData<?, ?>) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
                     c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
@@ -186,7 +186,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                     c = (Cell<?>) content;
                 else
                 {
-                    CellData cd = (CellData) content;
+                    CellData<?, ?> cd = (CellData<?, ?>) content;
                     ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
                     c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
                 }
