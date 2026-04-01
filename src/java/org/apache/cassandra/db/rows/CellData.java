@@ -141,11 +141,13 @@ public interface CellData<V>
     CellData<?> markCounterLocalToBeCleared();
 
     /**
-     * Returns a cell with the same column and path as this one, but with new timestamp and value (deletion time and
-     * TTL are set to none).
+     * Returns a cell with the same column and path as this one, but with new data (timestamps and value).
      * Note that this can and will return a cell/CellData of a different type.
      */
-    CellData<?> withNewValue(long timestamp, ByteBuffer value);
+    CellData<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value);
 
+    /**
+     * Binds a CellData object to the given column and cell path to turn it into a Cell.
+     */
     Cell<?> toCell(ColumnMetadata column, CellPath cellPath);
 }

@@ -658,7 +658,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
             if (this.allocator instanceof NativeAllocator)
                 this.cellDataBufferManager = new NativeBufferManager((NativeAllocator) allocator);
             else
-                this.cellDataBufferManager = new SlabBufferManager((MemtableBufferAllocator) allocator, ObjectSizes.sizeOfByteBufferWithoutData(BUFFER_TYPE));
+                this.cellDataBufferManager = new SlabBufferManager((MemtableBufferAllocator) allocator, BUFFER_TYPE.onHeapSizeWithoutData());
 
             this.data = InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, BUFFER_TYPE, opOrder,
                                                             new TrieSerializer(cellDataBufferManager, this));

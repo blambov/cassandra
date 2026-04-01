@@ -21,7 +21,6 @@ package org.apache.cassandra.utils;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.io.compress.BufferType;
 import org.github.jamm.MemoryLayoutSpecification;
 import org.github.jamm.MemoryMeter;
 
@@ -34,11 +33,11 @@ public class ObjectSizes
                                                               .withGuessing(MemoryMeter.Guess.FALLBACK_UNSAFE)
                                                               .ignoreKnownSingletons();
 
-    private static final long EMPTY_HEAP_BUFFER_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    public static final long EMPTY_HEAP_BUFFER_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    public static final long DIRECT_BUFFER_HEAP_SIZE = measure(ByteBuffer.allocateDirect(0));
+
     private static final long EMPTY_BYTE_ARRAY_SIZE = measure(new byte[0]);
     private static final long EMPTY_STRING_SIZE = measure("");
-
-    private static final long DIRECT_BUFFER_HEAP_SIZE = measure(ByteBuffer.allocateDirect(0));
 
     /**
      * Memory a byte array consumes
@@ -165,19 +164,6 @@ public class ObjectSizes
             return EMPTY_HEAP_BUFFER_SIZE + bufLen;
 
         return EMPTY_HEAP_BUFFER_SIZE + (arrayLen == 0 ? EMPTY_BYTE_ARRAY_SIZE : sizeOfArray(arrayLen, 1));
-    }
-
-    public static long sizeOfByteBufferWithoutData(BufferType bufferType)
-    {
-        switch (bufferType)
-        {
-            case ON_HEAP:
-                return EMPTY_HEAP_BUFFER_SIZE;
-            case OFF_HEAP:
-                return DIRECT_BUFFER_HEAP_SIZE;
-            default:
-                throw new AssertionError();
-        }
     }
 
     /**

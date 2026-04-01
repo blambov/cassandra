@@ -108,7 +108,7 @@ public abstract class Cell<V> extends ColumnData implements CellData<V>
     public abstract Cell<?> purge(DeletionPurger purger, int nowInSec);
 
     @Override
-    public Cell withNewValue(long timestamp, ByteBuffer value)
+    public Cell<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
     {
         return new BufferCell(column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, value, path());
     }

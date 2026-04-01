@@ -329,7 +329,7 @@ public class TrieBackedPartitionMemtableAccountingTest
                 cellDataBufferManager = new TrieMemtable.NativeBufferManager((NativeAllocator) allocator);
             else
                 cellDataBufferManager = new TrieMemtable.SlabBufferManager((MemtableBufferAllocator) allocator,
-                                                                           ObjectSizes.sizeOfByteBufferWithoutData(bufferTypeFor(allocationType)));
+                                                                           bufferTypeFor(allocationType).onHeapSizeWithoutData());
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie =
                InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, bufferTypeFor(allocationType), opOrder,
                                                    new TrieMemtable.TrieSerializer(cellDataBufferManager, null));
@@ -375,7 +375,7 @@ public class TrieBackedPartitionMemtableAccountingTest
                 cellDataBufferManager = new TrieMemtable.NativeBufferManager((NativeAllocator) recreatedAllocator);
             else
                 cellDataBufferManager = new TrieMemtable.SlabBufferManager((MemtableBufferAllocator) recreatedAllocator,
-                                                                           ObjectSizes.sizeOfByteBufferWithoutData(bufferTypeFor(allocationType)));
+                                                                           bufferTypeFor(allocationType).onHeapSizeWithoutData());
             InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> recreatedTrie =
             InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, bufferTypeFor(allocationType), opOrder,
                                                 new TrieMemtable.TrieSerializer(cellDataBufferManager, null));

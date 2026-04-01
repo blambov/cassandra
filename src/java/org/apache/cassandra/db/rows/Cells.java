@@ -158,7 +158,7 @@ public abstract class Cells
         else if (merged == rightValue && timestamp == rightTimestamp)
             return right;
         else // merge clocks and timestamps.
-            return (C) left.withNewValue(timestamp, merged); // Cell.withNewValue returns Cell
+            return (C) left.withNewData(timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged); // Cell.withNewValue returns Cell
     }
 
     /**

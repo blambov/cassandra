@@ -38,7 +38,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public CellData<?> withNewValue(long timestamp, ByteBuffer value)
+    public CellData<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
     {
         return new BufferCellData(value, timestamp, Cell.NO_DELETION_TIME, Cell.NO_TTL, isCounterCell());
     }
