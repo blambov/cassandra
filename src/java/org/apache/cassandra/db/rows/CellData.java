@@ -26,7 +26,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.memory.ByteBufferCloner;
 import org.apache.cassandra.utils.memory.Cloner;
 
-public interface CellData<V>
+public interface CellData<V, C extends CellData<?, ?>>
 {
     public static final int NO_TTL = 0;
     public static final int NO_DELETION_TIME = Integer.MAX_VALUE;
@@ -121,33 +121,33 @@ public interface CellData<V>
     long unsharedHeapSizeExcludingData();
 
 
-    CellData<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime);
+    C withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime);
 
-    CellData<?> updateAllTimestamp(long newTimestamp);
+    C updateAllTimestamp(long newTimestamp);
 
     /**
      * Used to apply the same optimization as in {@link Cell.Serializer#deserialize} when
      * the column is not queried but eventhough it's used for digest calculation.
      * @return a cell with an empty buffer as value
      */
-    CellData<?> withSkippedValue();
+    C withSkippedValue();
 
-    CellData<?> clone(Cloner cloner);
+    C clone(Cloner cloner);
 
-    CellData<?> clone(ByteBufferCloner cloner);
+    C clone(ByteBufferCloner cloner);
 
-    CellData<?> purge(DeletionPurger purger, int nowInSec);
+    C purge(DeletionPurger purger, int nowInSec);
 
-    CellData<?> markCounterLocalToBeCleared();
+    C markCounterLocalToBeCleared();
 
     /**
      * Returns a cell with the same column and path as this one, but with new data (timestamps and value).
      * Note that this can and will return a cell/CellData of a different type.
      */
-    CellData<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value);
+    C withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value);
 
     /**
      * Binds a CellData object to the given column and cell path to turn it into a Cell.
      */
-    Cell<?> toCell(ColumnMetadata column, CellPath cellPath);
+    Cell<V> toCell(ColumnMetadata column, CellPath cellPath);
 }

@@ -506,11 +506,11 @@ public class BTreeRow extends AbstractRow
     }
 
     @Override
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> cellFunction)
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, CellTransformer cellFunction)
     {
         return update(infoFunction.apply(primaryKeyLivenessInfo), deletion, BTree.<ColumnData, ColumnData>transformAndFilter(
             btree,
-            cd -> cd.column.isSimple() ? (Cell<?>) cellFunction.apply((Cell<?>) cd)
+            cd -> cd.column.isSimple() ? cellFunction.apply((Cell<?>) cd)
                                        : ((BTreeComplexColumn)cd).transformAndFilter(cellFunction)));
     }
 

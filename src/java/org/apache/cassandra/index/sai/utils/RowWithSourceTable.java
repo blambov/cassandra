@@ -205,7 +205,7 @@ public class RowWithSourceTable implements Row
     }
 
     @Override
-    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, Function<CellData<?>, CellData<?>> function)
+    public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> infoFunction, CellTransformer function)
     {
         return maybeWrapRow(row.transformAndFilter(infoFunction, function));
     }

@@ -29,7 +29,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferCloner;
 import org.apache.cassandra.utils.memory.Cloner;
 
-public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
+public abstract class AbstractBufferCellData implements CellData<ByteBuffer, AbstractBufferCellData>
 {
     @Override
     public ValueAccessor<ByteBuffer> accessor()
@@ -38,31 +38,31 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public CellData<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
+    public BufferCellData withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
     {
         return new BufferCellData(value, timestamp, Cell.NO_DELETION_TIME, Cell.NO_TTL, isCounterCell());
     }
 
     @Override
-    public CellData<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime)
+    public BufferCellData withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime)
     {
         return new BufferCellData(value(), newTimestamp, newLocalDeletionTime, ttl(), isCounterCell());
     }
 
     @Override
-    public CellData<?> updateAllTimestamp(long newTimestamp)
+    public BufferCellData updateAllTimestamp(long newTimestamp)
     {
         return new BufferCellData(value(), isTombstone() ? newTimestamp - 1 : newTimestamp, localDeletionTime(), ttl(), isCounterCell());
     }
 
     @Override
-    public CellData<?> withSkippedValue()
+    public BufferCellData withSkippedValue()
     {
         return new BufferCellData(ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp(), localDeletionTime(), ttl(), isCounterCell());
     }
 
     @Override
-    public CellData<?> clone(Cloner cloner)
+    public AbstractBufferCellData clone(Cloner cloner)
     {
         if (!(cloner instanceof ByteBufferCloner))
             throw new AssertionError("Only byte buffer cloner supported for transient CellData.");
@@ -71,7 +71,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public CellData<?> clone(ByteBufferCloner cloner)
+    public AbstractBufferCellData clone(ByteBufferCloner cloner)
     {
         ByteBuffer value = value();
         ByteBuffer newBuffer = cloner.clone(value);
@@ -79,7 +79,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public CellData<?> purge(DeletionPurger purger, int nowInSec)
+    public AbstractBufferCellData purge(DeletionPurger purger, int nowInSec)
     {
         if (!isLive(nowInSec))
         {
@@ -103,7 +103,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
     }
 
     @Override
-    public CellData<?> markCounterLocalToBeCleared()
+    public AbstractBufferCellData markCounterLocalToBeCleared()
     {
         if (!isCounterCell())
             return this;
@@ -134,7 +134,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer>
             return String.format("ts=%d", timestamp());
     }
 
-    public Cell<ByteBuffer> toCell(ColumnMetadata column, CellPath path)
+    public BufferCell toCell(ColumnMetadata column, CellPath path)
     {
         return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
     }

@@ -1090,9 +1090,9 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             assert !shouldPresentAfterBranch || content instanceof TrieTombstoneMarker;
             // most common first
-            if (content instanceof CellData<?>)
+            if (content instanceof CellData)
             {
-                TrieCellData.serialize((CellData<?>) content, buffer, offset, manager);
+                TrieCellData.serialize((CellData) content, buffer, offset, manager);
             }
             else
             {

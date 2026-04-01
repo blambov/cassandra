@@ -244,9 +244,9 @@ public class BTreeComplexColumn extends ComplexColumnData
         return new BTreeComplexColumn(column, newCells, newDeletion);
     }
 
-    public BTreeComplexColumn transformAndFilter(Function<? super CellData<?>, ? extends CellData<?>> function)
+    public BTreeComplexColumn transformAndFilter(Row.CellTransformer function)
     {
-        return update(complexDeletion, BTree.transformAndFilter(cells, function));
+        return update(complexDeletion, BTree.<Cell<?>, Cell<?>>transformAndFilter(cells, function::apply));
     }
 
     public BTreeComplexColumn transformAndFilter(DeletionTime newDeletion, Function<? super Cell, ? extends Cell> function)

@@ -842,8 +842,7 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public Row markCounterLocalToBeCleared()
     {
-        return transformAndFilter(x -> x,
-                                  c -> c.markCounterLocalToBeCleared());
+        return transformAndFilter(x -> x, CellData::markCounterLocalToBeCleared);
     }
 
     @Override
@@ -916,18 +915,18 @@ public class TrieBackedRow extends AbstractRow
 
     @Override
     public Row transformAndFilter(Function<LivenessInfo, LivenessInfo> livenessInfoFunction,
-                                  Function<CellData<?>, CellData<?>> cellFunction)
+                                  CellTransformer cellFunction)
     {
         return new TrieBackedRow(columns, columnIds, clustering, data.mapValues(
             (Object x) ->
             {
                 if (x instanceof LivenessInfo)
                 {
-                    return (livenessInfoFunction.apply((LivenessInfo) x));
+                    return livenessInfoFunction.apply((LivenessInfo) x);
                 }
                 else if (x instanceof CellData)
                 {
-                    return cellFunction.apply((CellData<?>) x);
+                    return cellFunction.apply((CellData) x);
                 }
                 else
                     return x;   // complex column marker
@@ -1092,7 +1091,7 @@ public class TrieBackedRow extends AbstractRow
         }
     }
 
-    private static int minDeletionTime(CellData<?> cell)
+    private static int minDeletionTime(CellData cell)
     {
         return cell.isTombstone() ? Integer.MIN_VALUE : cell.localDeletionTime();
     }

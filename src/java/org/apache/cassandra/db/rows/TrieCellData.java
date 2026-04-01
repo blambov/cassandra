@@ -55,7 +55,7 @@ public class TrieCellData extends AbstractBufferCellData
     final int offset;
     final ExternalBufferLoader loader;
 
-    public static void serialize(CellData<?> cell, UnsafeBuffer buffer, int offset,
+    public static void serialize(CellData cell, UnsafeBuffer buffer, int offset,
                                  ExternalBufferSaver externalBufferSaver)
     {
         ByteBuffer value = cell.buffer();
@@ -156,7 +156,7 @@ public class TrieCellData extends AbstractBufferCellData
         return 0;
     }
 
-    public static long offTrieSize(CellData<?> cell)
+    public static long offTrieSize(CellData cell)
     {
         int sz = cell.valueSize();
         return sz <= MAX_LENGTH ? 0 : sz;

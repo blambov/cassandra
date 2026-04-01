@@ -94,9 +94,9 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @VisibleForTesting
-    public CellData<?> getCellWithoutPath(CellPath path)
+    public CellData getCellWithoutPath(CellPath path)
     {
-        return (CellData<?>) data.contentOnlyTrie().get(TrieBackedRow.cellKey(-1, column, path));
+        return (CellData) data.contentOnlyTrie().get(TrieBackedRow.cellKey(-1, column, path));
     }
 
     @Override

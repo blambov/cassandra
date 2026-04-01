@@ -39,7 +39,7 @@ import org.apache.cassandra.utils.memory.Cloner;
  *   2) expiring cells: on top of regular cells, those have a ttl and a local deletion time (when they are expired).
  *   3) tombstone cells: those won't have value, but they have a local deletion time (when the tombstone was created).
  */
-public abstract class Cell<V> extends ColumnData implements CellData<V>
+public abstract class Cell<V> extends ColumnData implements CellData<V, Cell<?>>
 {
     public static final int MAX_DELETION_TIME = NO_DELETION_TIME - 1;
 
@@ -114,7 +114,7 @@ public abstract class Cell<V> extends ColumnData implements CellData<V>
     }
 
     @Override
-    public Cell<?> toCell(ColumnMetadata column, CellPath cellPath)
+    public Cell<V> toCell(ColumnMetadata column, CellPath cellPath)
     {
         assert false : "toCell should not be called when CellData is already a cell.";
         return this;

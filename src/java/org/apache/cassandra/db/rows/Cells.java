@@ -65,7 +65,7 @@ public abstract class Cells
      * For non-counter cells, this will always be either {@code c1} or {@code c2}, but for
      * counter cells this can be a newly allocated cell.
      */
-    public static <C extends CellData> C reconcile(C c1, C c2)
+    public static <C extends CellData<?, C>> C reconcile(C c1, C c2)
     {
         if (c1 == null || c2 == null)
             return c2 == null ? c1 : c2;
@@ -76,7 +76,7 @@ public abstract class Cells
         return resolveRegular(c1, c2);
     }
 
-    private static <C extends CellData> C resolveRegular(C left, C right)
+    private static <C extends CellData<?, C>> C resolveRegular(C left, C right)
     {
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
@@ -118,7 +118,7 @@ public abstract class Cells
         return compareValues(left, right) >= 0 ? left : right;
     }
 
-    private static <C extends CellData> C resolveCounter(C left, C right)
+    private static <C extends CellData<?, C>> C resolveCounter(C left, C right)
     {
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
@@ -158,7 +158,7 @@ public abstract class Cells
         else if (merged == rightValue && timestamp == rightTimestamp)
             return right;
         else // merge clocks and timestamps.
-            return (C) left.withNewData(timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged); // Cell.withNewValue returns Cell
+            return left.withNewData(timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged);
     }
 
     /**
@@ -298,14 +298,10 @@ public abstract class Cells
         return iterator == null || !iterator.hasNext() ? null : iterator.next();
     }
 
-    private static <L, R> int compareValues(CellData<L> left, CellData<R> right)
+    @SuppressWarnings("rawtypes")
+    private static int compareValues(CellData left, CellData right)
     {
         return ValueAccessor.compare(left.value(), left.accessor(), right.value(), right.accessor());
-    }
-
-    public static <L, R> boolean valueEqual(Cell<L> left, Cell<R> right)
-    {
-        return ValueAccessor.equals(left.value(), left.accessor(), right.value(), right.accessor());
     }
 
     public static <T, V> T composeValue(Cell<V> cell, AbstractType<T> type)
