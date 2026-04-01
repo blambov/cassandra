@@ -110,7 +110,7 @@ public abstract class Cell<V> extends ColumnData implements CellData<V, Cell<?>>
     @Override
     public Cell<?> withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
     {
-        return new BufferCell(column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, value, path());
+        return new BufferCell(column(), timestamp, ttl, localDeletionTime, value, path());
     }
 
     @Override

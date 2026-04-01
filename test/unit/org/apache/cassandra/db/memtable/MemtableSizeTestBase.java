@@ -19,7 +19,9 @@
 package org.apache.cassandra.db.memtable;
 
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Random;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -55,17 +57,22 @@ public abstract class MemtableSizeTestBase extends CQLTester
     int deletedPartitions = 10_000;
     int deletedRows = 5_000;
 
-    @Parameterized.Parameter()
+    @Parameterized.Parameter(0)
     public String memtableClass = "TrieMemtable";
 
-    @Parameterized.Parameters(name = "{0}")
+    @Parameterized.Parameter(1)
+    public int valueSize = 8;
+
+    @Parameterized.Parameters(name = "{0} value size {1}")
     public static List<Object> parameters()
     {
-        return ImmutableList.of("SkipListMemtable",
-                                "TrieMemtableStage1",
-                                "TrieMemtableStage2",
-                                "TrieMemtableStage3",
-                                "TrieMemtable");
+        return ImmutableList.of(new Object[] {"SkipListMemtable", 8},
+                                new Object[] {"TrieMemtableStage1", 8},
+                                new Object[] {"TrieMemtableStage1", 32},
+                                new Object[] {"TrieMemtableStage2", 8},
+                                new Object[] {"TrieMemtableStage3", 8},
+                                new Object[] {"TrieMemtable", 8},
+                                new Object[] {"TrieMemtable", 32});
     }
 
     // Must be within 3% of the real usage. We are actually more precise than this, but the threshold is set higher to
@@ -110,7 +117,7 @@ public abstract class MemtableSizeTestBase extends CQLTester
         CQLTester.disablePreparedReuseForTest();
         keyspace = createKeyspace("CREATE KEYSPACE %s with replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 } and durable_writes = false");
 
-        table = createTable(keyspace, "CREATE TABLE %s ( userid bigint, picid bigint, commentid bigint, PRIMARY KEY(userid, picid))" +
+        table = createTable(keyspace, "CREATE TABLE %s ( userid bigint, picid bigint, commentid blob, PRIMARY KEY(userid, picid))" +
                                       " with compression = {'enabled': false}" +
                                       " and memtable = { 'class': '" + memtableClass + "'}");
         execute("use " + keyspace + ';');
@@ -120,6 +127,14 @@ public abstract class MemtableSizeTestBase extends CQLTester
         cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
         cfs.disableAutoCompaction();
         cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
+    }
+
+    ByteBuffer valueFor(long v)
+    {
+        Random rand = new Random(v);
+        byte[] bytes = new byte[valueSize];
+        rand.nextBytes(bytes);
+        return ByteBuffer.wrap(bytes);
     }
 
     @Test
@@ -143,7 +158,7 @@ public abstract class MemtableSizeTestBase extends CQLTester
             for (i = 0; i < limit; ++i)
             {
                 for (long j = 0; j < rowsPerPartition; ++j)
-                    execute(writeStatement, i, j, i + j);
+                    execute(writeStatement, i, j, valueFor(i + j));
             }
 
             System.out.println("Deleting " + deletedPartitions + " partitions");
@@ -226,7 +241,7 @@ public abstract class MemtableSizeTestBase extends CQLTester
         for (long i = 0; i < partitions; ++i)
         {
             for (long j = 0; j < rowsPerPartition; ++j)
-                execute(writeStatement, i, j, i + j);
+                execute(writeStatement, i, j, valueFor(i + j));
         }
 
         long rowSize = memtable.getEstimatedAverageRowSize();

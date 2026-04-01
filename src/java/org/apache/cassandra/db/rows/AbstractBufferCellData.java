@@ -29,6 +29,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferCloner;
 import org.apache.cassandra.utils.memory.Cloner;
 
+/// Base class for pathless [CellData] objects.
 public abstract class AbstractBufferCellData implements CellData<ByteBuffer, AbstractBufferCellData>
 {
     @Override
@@ -40,7 +41,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer, Abs
     @Override
     public BufferCellData withNewData(long timestamp, int ttl, int localDeletionTime, ByteBuffer value)
     {
-        return new BufferCellData(value, timestamp, Cell.NO_DELETION_TIME, Cell.NO_TTL, isCounterCell());
+        return new BufferCellData(value, timestamp, ttl, localDeletionTime, isCounterCell());
     }
 
     @Override
@@ -134,6 +135,7 @@ public abstract class AbstractBufferCellData implements CellData<ByteBuffer, Abs
             return String.format("ts=%d", timestamp());
     }
 
+    @Override
     public BufferCell toCell(ColumnMetadata column, CellPath path)
     {
         return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);

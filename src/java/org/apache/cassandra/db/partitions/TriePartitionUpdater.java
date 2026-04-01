@@ -27,7 +27,7 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.TrieBackedRow;
-import org.apache.cassandra.db.rows.TrieCellData;
+import org.apache.cassandra.db.memtable.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;

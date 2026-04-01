@@ -99,6 +99,8 @@
 
 - Test `!includeCoveringDeletions`, also add it to tailTrie.
 
+- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes (needs directed getFirstChild method).
+
 - Add documentation for TrieMemtable:
     - Structure of the trie, markers
     - Handling of deletion types
@@ -138,8 +140,6 @@
 ### Maybe:
 - More flexible tombstone intersection so that partition or row tombstones remain at that level when intersected. This
   is not easy as we need stop on the return path when skipping.
-
-- Make InMemoryRangeTrie cursor's `getNearestContent` directly walk trie nodes (needs directed getFirstChild method).
 
 - Map value only for intersection
 
@@ -762,6 +762,12 @@ Memtable in heap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.651MiB
 Memtable in offheap_buffers mode: 215000 ops, 10.247MiB serialized bytes, 67.928MiB (3%) on-heap, 5.902MiB (0%) off-heap
 Memtable in offheap_objects mode: 215000 ops, 10.247MiB serialized bytes, 35.465MiB (2%) on-heap, 11.276MiB (1%) off-heap
 
+32-byte payload
+Memtable in unslabbed_heap_buffers mode: 215000 ops, 14.825MiB serialized bytes, 78.409MiB (4%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 215000 ops, 14.825MiB serialized bytes, 72.229MiB (4%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 215000 ops, 14.825MiB serialized bytes, 67.929MiB (3%) on-heap, 10.480MiB (1%) off-heap
+Memtable in offheap_objects mode: 215000 ops, 14.825MiB serialized bytes, 35.466MiB (2%) on-heap, 15.854MiB (1%) off-heap
+
 Memtable in offheap_objects mode: 4150000 ops, 203.562MiB serialized bytes, 605.671MiB (31%) on-heap, 214.907MiB (11%) off-heap
 46.7s
 ```
@@ -803,6 +809,17 @@ Memtable in unslabbed_heap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 
 Memtable in heap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 36.156MiB (2%) on-heap, 0B (0%) off-heap
 Memtable in offheap_buffers mode: 230000 ops, 6.104MiB serialized bytes, 90.750KiB (0%) on-heap, 36.068MiB (2%) off-heap
 Memtable in offheap_objects mode: 230000 ops, 3.052MiB serialized bytes, 90.500KiB (0%) on-heap, 35.762MiB (2%) off-heap
+
+32-byte value direct arraylist
+Memtable in unslabbed_heap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 51.873MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 51.873MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 13.059MiB (1%) on-heap, 41.866MiB (2%) off-heap
+Memtable in offheap_objects mode: 230000 ops, 7.629MiB serialized bytes, 90.625KiB (0%) on-heap, 41.866MiB (2%) off-heap
+
+
+32-byte ContentManagerPojo
+Memtable in offheap_objects mode: 230000 ops, 7.629MiB serialized bytes, 90.625KiB (0%) on-heap, 41.866MiB (2%) off-heap
+
 
 Memtable in offheap_objects mode: 4300000 ops, 61.035MiB serialized bytes, 92.500KiB (0%) on-heap, 648.863MiB (33%) off-heap
 39.2s

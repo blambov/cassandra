@@ -45,6 +45,7 @@ import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.MultiCellCapableType;
+import org.apache.cassandra.db.memtable.TrieCellData;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
@@ -490,7 +491,7 @@ public class TrieBackedRow extends AbstractRow
         assert !c.isComplex();
         Object o = data.get(cellKey(columnIds, c, null));
         if (o == null || o instanceof Cell)
-            return (Cell) o;
+            return (Cell<?>) o;
         CellData<?, ?> cellData = (CellData<?, ?>) o;
         return cellData.toCell(c, null);
     }
@@ -501,7 +502,7 @@ public class TrieBackedRow extends AbstractRow
         assert c.isComplex();
         Object o = data.get(cellKey(columnIds, c, path));
         if (o == null || o instanceof Cell)
-            return (Cell) o;
+            return (Cell<?>) o;
         CellData<?, ?> cellData = (CellData<?, ?>) o;
         return cellData.toCell(c, path);
     }
@@ -924,6 +925,7 @@ public class TrieBackedRow extends AbstractRow
                 }
                 else if (x instanceof CellData)
                 {
+                    //noinspection rawtypes
                     return cellFunction.apply((CellData) x);
                 }
                 else
@@ -1004,7 +1006,7 @@ public class TrieBackedRow extends AbstractRow
     {
         long heapSize = EMPTY_SIZE + clustering.unsharedHeapSizeExcludingData();
         if (data instanceof InMemoryDeletionAwareTrie)
-            heapSize += ((InMemoryDeletionAwareTrie) data).usedSizeOnHeap();
+            heapSize += ((InMemoryDeletionAwareTrie<?, ?>) data).usedSizeOnHeap();
 
         return accumulate(heapSize,
                           (liveness, v) -> v + liveness.unsharedHeapSize(),
@@ -1046,6 +1048,7 @@ public class TrieBackedRow extends AbstractRow
         {
             CellData<?, ?> existingCell = (CellData<?, ?>) existing;
             CellData<?, ?> updateCell = (CellData<?, ?>) update;
+            //noinspection unchecked
             return Cells.<CellData>reconcile(existingCell, updateCell);
         }
         else
