@@ -108,9 +108,16 @@
     - Substructure as tail tries
     - etc.
 
+- Add a commit adding indexing support after first Cell-level trie implementation
+
 # TODOs
 
-- Add a commit adding indexing support after first Cell-level trie implementation
+- Add javadoc for InMemory*Trie factories.
+ 
+- Document content-management changes in InMemoryTrie.md and TrieMemtable.md
+
+
+- TODO: tests for ContentManagerBytes
 
 - Test range prefixes with content at EMPTY.
 

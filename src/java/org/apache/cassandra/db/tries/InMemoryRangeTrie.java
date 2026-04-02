@@ -761,7 +761,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
     /// Can be used to apply multiple modifications to the trie using [#apply(RangeTrie)].
     public class Mutator<U extends RangeState<U>> extends MutatorStatic<S, U>
     {
-        /// See [InMemoryTrie#mutator(UpsertTransformerWithKeyProducer, Predicate, Predicate)] for the meaning of the
+        /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of the
         /// parameters.
         Mutator(UpsertTransformer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy)
         {

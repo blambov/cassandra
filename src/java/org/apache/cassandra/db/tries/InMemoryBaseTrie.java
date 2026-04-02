@@ -36,6 +36,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 {
     // See the trie format description in InMemoryReadTrie.
+
     // constants for space calculations
     static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
 
@@ -46,10 +47,15 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
 
     InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, boolean presentContentOnDescentPath, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
+        this(byteComparableVersion, presentContentOnDescentPath, null, bufferType, lifetime, opOrder);
+    }
+
+    InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, boolean presentContentOnDescentPath, Predicate<T> shouldPreserveWithoutChildren, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    {
         this(byteComparableVersion,
              presentContentOnDescentPath,
              new BufferManagerMultibuf(bufferType, lifetime, opOrder),  // last one is 1G for a total of ~2G bytes
-             new ContentManagerPojo<>(lifetime, null, opOrder));  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
+             new ContentManagerPojo<>(shouldPreserveWithoutChildren, lifetime, opOrder));  // takes at least 4 bytes to write pointer to one content -> 4 times smaller than buffers
     }
 
     InMemoryBaseTrie(ByteComparable.Version byteComparableVersion, boolean presentContentOnDescentPath, BufferManager bufferManager, ContentManager<T> contentManager)

@@ -47,14 +47,18 @@ public abstract class InMemoryReadTrie<T>
      - a sparse node occupies exactly one cell.
      - a split node occupies a variable number of cells.
      - a prefix node can be placed in the same cell as the node it augments, or in a separate cell.
+     - a leaf node may be stored in one cell or use a negative leaf id and use no cells.
 
     Nodes are referenced in that buffer by an integer position/pointer, the 'node pointer'. Note that node pointers are
     not pointing at the beginning of cells, and we call 'pointer offset' the offset of the node pointer to the cell it
     points into. The value of a 'node pointer' is used to decide what kind of node is pointed:
 
-     - If the pointer is negative, we have a leaf node. Since a leaf has no children, we need no data outside of its
-       content to represent it, and that content is stored in a 'content list', not in the nodes buffer. The content
-       of a particular leaf node is located at the (pointer & CONTENT_INDEX_MASK) position in the content list.
+     - If the pointer is negative, we have a leaf node. Since a leaf has no children, we need no data other than its
+       content to represent it, and that content is mapped to this id by the content manager, which may store a list
+       of content values corresponding to these ids.
+
+     - If the 'pointer offset' is 29, we have a leaf node whose content is serialized in the bytes of the cell, in
+       the manner chosen by the content manager.
 
      - If the 'pointer offset' is smaller than 28, we have a chain node with one transition. The transition character is
        the byte at the position pointed in the 'node buffer', and the child is pointed by:
@@ -97,15 +101,17 @@ public abstract class InMemoryReadTrie<T>
        One split node may need up to 1 + 4 + 4*8 cells (1184 bytes) to store all its children.
 
      - If the pointer offset is 31, we have a prefix node. These are two types:
-       -- Embedded prefix nodes occupy the free bytes in a chain or split node. The byte at offset 4 has the offset
+       -- Embedded prefix nodes occupy the free bytes in a chain or split node. The byte at offset 8 has the offset
           within the 32-byte cell for the augmented node.
-       -- Full prefix nodes have 0xFF at offset 4 and a pointer at 28, pointing to the augmented node.
-       Both types contain an index for content at offset 0. The augmented node cannot be a leaf or NONE -- in the former
-       case the leaf itself contains the content index, in the latter we use a leaf instead.
+       -- Full prefix nodes have 0xFF at offset 8 and a pointer at 28, pointing to the augmented node.
+       Both types contain a leaf pointer for content at offset 0, specifying the content associated with the augmented
+       node, and a secondary pointer at offset 4. The secondary pointer's usage depends on the exact type of trie --
+       it can be return path content (in range tries) or alternate branch pointer (in deletion-aware tries).
+       The augmented node cannot be a leaf, because in that case we can either drop the prefix (if there's no secondary
+       pointer) or pull the content pointer to it; the augmented node can be NONE only if the secondary pointer is
+       non-null (otherwise we can use a leaf instead of prefix).
        The term "node" when applied to these is a bit of a misnomer as they are not presented as separate nodes during
-       traversals. Instead, they augment a node, changing only its content. Internally we create a Node object for the
-       augmented node and wrap a PrefixNode around it, which changes the `content()` method and routes all other
-       calls to the augmented node's methods.
+       traversals. Instead, they augment a node, changing only its content/alternate branch.
 
      When building a trie we first allocate the content, then create a chain node leading to it. While we only have
      single transitions leading to a chain node, we can expand that node (attaching a character and using pointer - 1)
@@ -114,7 +120,7 @@ public abstract class InMemoryReadTrie<T>
      child, we switch to split.
 
      Cells can be reused once they are no longer used and cannot be in the state of a concurrently running reader. See
-     MemoryAllocationStrategy for details.
+     MemoryManager for details.
 
      For further descriptions and examples of the mechanics of the trie, see InMemoryTrie.md.
      */
@@ -135,15 +141,15 @@ public abstract class InMemoryReadTrie<T>
     // bytes. The last two bytes contain an ordering of the transitions (in base-6) which is used for iteration. On
     // update the pointer is set last, i.e. during reads the node may show that a transition exists and list a character
     // for it, but pointer may still be null.
-    static final int SPARSE_OFFSET = CELL_SIZE - 3;
+    static final int SPARSE_OFFSET = CELL_SIZE - 2;
     // min and max offset for a chain node. A cell of chain node is laid out as a pointer at LAST_POINTER_OFFSET,
     // preceded by characters that lead to it. Thus a full chain cell contains CELL_SIZE-4 transitions/chain nodes.
     static final int CHAIN_MIN_OFFSET = 0;
     static final int CHAIN_MAX_OFFSET = CELL_SIZE - 5;
     // Prefix node, an intermediate node augmenting its child node with content.
-    static final int PREFIX_OFFSET = CELL_SIZE - 2;
+    static final int PREFIX_OFFSET = CELL_SIZE - 1;
     // Content node, 32 bytes to be filled by content manager
-    static final int PAYLOAD_OFFSET = CELL_SIZE - 1;
+    static final int PAYLOAD_OFFSET = CELL_SIZE - 3;
 
     /*
      Offsets and values for navigating in a cell for particular node type. Those offsets are 'from the node pointer'
@@ -181,28 +187,8 @@ public abstract class InMemoryReadTrie<T>
 
     volatile int root;
 
-    /*
-     EXPANDABLE DATA STORAGE
-
-     The tries will need more and more space in buffers and content lists as they grow. Instead of using ArrayList-like
-     reallocation with copying, which may be prohibitively expensive for large buffers, we use a sequence of
-     buffers/content arrays that double in size on every expansion.
-
-     For a given address x the index of the buffer can be found with the following calculation:
-        index_of_most_significant_set_bit(x / min_size + 1)
-     (relying on sum (2^i) for i in [0, n-1] == 2^n - 1) which can be performed quickly on modern hardware.
-
-     Finding the offset within the buffer is then
-        x + min - (min << buffer_index)
-
-     The allocated space starts 256 bytes for the buffer and 16 entries for the content list.
-
-     Note that a buffer is not allowed to split 32-byte cells (code assumes same buffer can be used for all bytes
-     inside the cell).
-     */
-
-    final BufferManager bufferManager;
     final ByteComparable.Version byteComparableVersion;
+    final BufferManager bufferManager;
     final ContentManager<T> contentManager;
 
     /// If true, the content always is presented on the descent path of any walk (useful for metadata-carrying tries).

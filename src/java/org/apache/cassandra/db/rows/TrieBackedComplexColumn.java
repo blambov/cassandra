@@ -81,14 +81,14 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     private Cell<?> cellDataToCell(CellData<?, ?> value, byte[] keyBytes, int keyLength)
     {
-        if (value instanceof Cell)
+        if (value instanceof Cell || value == null)
             return (Cell<?>) value;
         return value.toCell(column, TrieBackedRow.cellPath(column, ByteSource.preencoded(keyBytes, 0, keyLength)));
     }
 
     private Cell<?> cellDataToCell(CellData<?, ?> value, ByteComparable.Preencoded key)
     {
-        if (value instanceof Cell)
+        if (value instanceof Cell || value == null)
             return (Cell<?>) value;
         return value.toCell(column, TrieBackedRow.cellPath(column, key.getPreencodedBytes()));
     }
@@ -147,15 +147,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                 if (!(content instanceof CellData))
                     return;
 
-                Cell<?> c;
-                if (content instanceof Cell)
-                    c = (Cell<?>) content;
-                else
-                {
-                    CellData<?, ?> cd = (CellData<?, ?>) content;
-                    ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
-                }
+                Cell<?> c = cellDataToCell((CellData<?, ?>) content, bytes, byteLength);
                 longValue = accumulator.apply(c, longValue);
             }
 
@@ -181,15 +173,7 @@ public class TrieBackedComplexColumn extends ComplexColumnData
                 if (!(content instanceof CellData))
                     return;
 
-                Cell<?> c;
-                if (content instanceof Cell)
-                    c = (Cell<?>) content;
-                else
-                {
-                    CellData<?, ?> cd = (CellData<?, ?>) content;
-                    ByteSource.Peekable pathBytes = ByteSource.preencoded(bytes, 0, byteLength);
-                    c = cd.toCell(column, TrieBackedRow.cellPath(column, pathBytes));
-                }
+                Cell<?> c = cellDataToCell((CellData<?, ?>) content, bytes, byteLength);
                 longValue = accumulator.apply(arg, c, longValue);
             }
 

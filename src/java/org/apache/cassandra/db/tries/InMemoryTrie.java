@@ -75,6 +75,16 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         super(byteComparableVersion, presentContentOnDescentPath, bufferType, lifetime, opOrder);
     }
 
+    InMemoryTrie(ByteComparable.Version byteComparableVersion,
+                 BufferType bufferType,
+                 ExpectedLifetime lifetime,
+                 OpOrder opOrder,
+                 boolean presentContentOnDescentPath,
+                 Predicate<T> shouldPreserveWithoutChildren)
+    {
+        super(byteComparableVersion, presentContentOnDescentPath, shouldPreserveWithoutChildren, bufferType, lifetime, opOrder);
+    }
+
     InMemoryTrie(ByteComparable.Version byteComparableVersion, boolean presentContentOnDescentPath, BufferManager bufferManager, ContentManager<T> contentManager)
     {
         super(byteComparableVersion, presentContentOnDescentPath, bufferManager, contentManager);
@@ -175,10 +185,9 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     /// predicates) and can be used repeatedly to apply modifications to the trie using [#apply(Trie)].
     public class Mutator<U> extends InMemoryBaseTrie.Mutator<T, U, Cursor<U>, ApplyState<T>>
     {
-        /// See [InMemoryTrie#mutator(UpsertTransformerWithKeyProducer, Predicate, Predicate)] for the meaning of the
+        /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of the
         /// parameters.
-        Mutator(UpsertTransformer<T, U> transformer,
-                Predicate<NodeFeatures<U>> needsForcedCopy)
+        Mutator(UpsertTransformer<T, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy)
         {
             super(transformer, needsForcedCopy, applyState);
         }
@@ -249,7 +258,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
     {
         int initialDepth;
 
-        /// See [InMemoryTrie#mutator(UpsertTransformerWithKeyProducer, Predicate, Predicate)] for the meaning of
+        /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of
         /// the parameters.
         RangeMutator(ApplyState<T> state,
                      UpsertTransformer<T, S> transformer,
@@ -355,7 +364,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
             {
                 T combinedContent = transformer.apply(existingContent, content);
                 if (combinedContent != existingContent)
-                    if (combinedContent != existingContent)state.setDescentPathContent(combinedContent, // can be null
+                    state.setDescentPathContent(combinedContent, // can be null
                                                 state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
             }
         }

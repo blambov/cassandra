@@ -35,55 +35,50 @@ import org.apache.cassandra.utils.memory.Cloner;
 
 public class ComplexColumnWithSourceTable extends ComplexColumnData
 {
-    private final ComplexColumnData source;
+    private final ComplexColumnData wrapped;
     private final Object sourceTable;
 
-    public ComplexColumnWithSourceTable(ComplexColumnData source, Object sourceTable)
+    public ComplexColumnWithSourceTable(ComplexColumnData wrapped, Object sourceTable)
     {
-        super(source.column());
-        this.source = source;
+        super(wrapped.column());
+        this.wrapped = wrapped;
         this.sourceTable = sourceTable;
-    }
-
-    public Object sourceTable()
-    {
-        return sourceTable;
     }
 
     @Override
     public int dataSize()
     {
-        return source.dataSize();
+        return wrapped.dataSize();
     }
 
     @Override
     public int liveDataSize(int nowInSec)
     {
-        return source.liveDataSize(nowInSec);
+        return wrapped.liveDataSize(nowInSec);
     }
 
     @Override
     public long unsharedHeapSizeExcludingData()
     {
-        return source.unsharedHeapSizeExcludingData();
+        return wrapped.unsharedHeapSizeExcludingData();
     }
 
     @Override
     public void validate()
     {
-        source.validate();
+        wrapped.validate();
     }
 
     @Override
     public boolean hasInvalidDeletions()
     {
-        return source.hasInvalidDeletions();
+        return wrapped.hasInvalidDeletions();
     }
 
     @Override
     public void digest(Digest digest)
     {
-        source.digest(digest);
+        wrapped.digest(digest);
     }
 
     @Override
@@ -95,90 +90,90 @@ public class ComplexColumnWithSourceTable extends ComplexColumnData
     @Override
     public ComplexColumnData updateAllTimestamp(long newTimestamp)
     {
-        return wrapIfNew(((ComplexColumnData) source.updateAllTimestamp(newTimestamp)));
+        return wrapIfNew(((ComplexColumnData) wrapped.updateAllTimestamp(newTimestamp)));
     }
 
     @Override
     public ComplexColumnData markCounterLocalToBeCleared()
     {
-        return wrapIfNew(((ComplexColumnData) source.markCounterLocalToBeCleared()));
+        return wrapIfNew(((ComplexColumnData) wrapped.markCounterLocalToBeCleared()));
     }
 
     @Override
     public boolean hasCells()
     {
-        return source.hasCells();
+        return wrapped.hasCells();
     }
 
     @Override
     public int cellsCount()
     {
-        return source.cellsCount();
+        return wrapped.cellsCount();
     }
 
     private Cell<?> wrapCell(Cell<?> c)
     {
-        return c != null ? new CellWithSourceTable<>(c, source) : null;
+        return c != null ? new CellWithSourceTable<>(c, sourceTable) : null;
     }
 
     @Override
     public Cell<?> getCell(CellPath path)
     {
-        return wrapCell(source.getCell(path));
+        return wrapCell(wrapped.getCell(path));
     }
 
     @Override
     public Cell<?> getCellByIndex(int idx)
     {
-        return wrapCell(source.getCellByIndex(idx));
+        return wrapCell(wrapped.getCellByIndex(idx));
     }
 
     @Override
     public DeletionTime complexDeletion()
     {
-        return source.complexDeletion();
+        return wrapped.complexDeletion();
     }
 
     @Override
     public Iterator<Cell<?>> iterator()
     {
-        return Iterators.transform(source.iterator(), this::wrapCell);
+        return Iterators.transform(wrapped.iterator(), this::wrapCell);
     }
 
     @Override
     public Iterator<Cell<?>> reverseIterator()
     {
-        return Iterators.transform(source.reverseIterator(), this::wrapCell);
+        return Iterators.transform(wrapped.reverseIterator(), this::wrapCell);
     }
 
     @Override
     public long accumulate(LongAccumulator<Cell<?>> accumulator, long initialValue)
     {
-        return source.accumulate(accumulator, initialValue);
+        return wrapped.accumulate((cell, v) -> accumulator.apply(wrapCell(cell), v), initialValue);
     }
 
     @Override
     public <A> long accumulate(BiLongAccumulator<A, Cell<?>> accumulator, A arg, long initialValue)
     {
-        return source.accumulate(accumulator, arg, initialValue);
+        return wrapped.accumulate((a, cell, v) -> accumulator.apply(a, wrapCell(cell), v), arg, initialValue);
     }
 
     @Override
     public ComplexColumnData purge(DeletionPurger purger, int nowInSec)
     {
-        return wrapIfNew(source.purge(purger, nowInSec));
+        return wrapIfNew(wrapped.purge(purger, nowInSec));
     }
 
     @Override
     public long maxTimestamp()
     {
-        return source.maxTimestamp();
+        return wrapped.maxTimestamp();
     }
 
     @Override
     public long minTimestamp()
     {
-        return source.minTimestamp();
+        return wrapped.minTimestamp();
     }
 
     private ComplexColumnData wrapIfNew(ComplexColumnData maybeNewCell)
@@ -187,7 +182,7 @@ public class ComplexColumnWithSourceTable extends ComplexColumnData
             return null;
         // If the source's method returned a reference to the same source, then
         // we can skip creating a new wrapper.
-        if (maybeNewCell == this.source)
+        if (maybeNewCell == this.wrapped)
             return this;
         return new ComplexColumnWithSourceTable(maybeNewCell, sourceTable);
     }

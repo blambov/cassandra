@@ -154,9 +154,11 @@ public class FilteringTest
 
         // set up in-memory trie with dangling non-clazz clean-up
         InMemoryTrie<T> copy = new InMemoryTrie<>(VERSION,
+                                                  BufferType.ON_HEAP,
+                                                  InMemoryBaseTrie.ExpectedLifetime.SHORT,
+                                                  null,
                                                   true,
-                                                  new BufferManagerMultibuf(BufferType.ON_HEAP, InMemoryBaseTrie.ExpectedLifetime.SHORT, null),
-                                                  new ContentManagerPojo<>(InMemoryBaseTrie.ExpectedLifetime.SHORT, clazz::isInstance, null));
+                                                  clazz::isInstance);
         try
         {
             copy.mutator((x, y) -> y,

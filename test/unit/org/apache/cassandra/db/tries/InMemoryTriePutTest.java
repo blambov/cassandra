@@ -62,7 +62,8 @@ public class InMemoryTriePutTest extends InMemoryTrieTestBase
     }
 
     // This tests that trie space allocation works correctly close to the 2G limit. It is normally disabled because
-    // the test machines don't provide enough heap memory (test requires ~8G heap to finish). Run it manually when
+    // the test machines don't provide enough heap memory (test requires ~8G heap to finish). Run it manually and
+    // separately (so that the size limit can be set before the in-memory trie static initialization) when
     // InMemoryTrie.allocateBlock is modified.
     @Ignore
     @Test

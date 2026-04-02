@@ -18,53 +18,50 @@
 
 package org.apache.cassandra.db.tries;
 
-public interface ContentManager<T>
+/// Content manager for in-memory tries. Deals with allocation, access and recycling of trie content, mapping objects
+/// to and from leaf pointers in the trie.
+public interface ContentManager<T> extends MemoryManager
 {
-    /// Get the content for the given content pointer.
-    ///
-    /// @param id content pointer, encoded as ~index where index is the position in the content array.
-    /// @return the current content value.
-    T getContent(int id);
-
-    boolean shouldPresentAfterBranch(int contentId);
-
-    /// This is called when content is left without children and is used to remove dangling metadata
-    /// or markers for branches (e.g. rows) that have become empty.
-    boolean shouldPreserveWithoutChildren(int contentId);
-
     /// Add a new content value.
     ///
     /// @param value The value to add.
     /// @param contentAfterBranch Whether the content should be understood to reside after the branch, i.e. it is to be
     ///                           returned on the ascent path of the cursor walk.
-    /// @return A content id that can be used to reference the content, a negative number where
-    ///         `id & CONTENT_INDEX_MASK` encodes the position of the value in the content array.
+    /// @return A content id that can be used to reference the content. This id must be interpreted as a leaf by the
+    ///         trie code (i.e. it must either be negative or a valid pointer to a content cell).
     int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException;
 
     /// Change the content associated with a given content id.
     ///
-    /// @param id Encoded content id, where `id & CONTENT_INDEX_MASK` is the position in the content array.
+    /// @param id Encoded content id, returned from a previous call to [#addContent] or [#setContent].
     /// @param value New content value to store.
-    /// @return The id to use for the modified content; an attempt will be made to make this the same as id, but not
+    /// @return The id to use for the modified content; an attempt will be made to make this the same as `id`, but not
     ///         all content managers will be able to freely modify the data for a given id.
     ///         Implementations must ensure that if the id changes, the previous id is released.
     int setContent(int id, T value) throws TrieSpaceExhaustedException;
 
+    /// Prepare the given content id for recycling. The id cannot be immediately recycled,
+    /// because read operations as well as the ongoing mutation may still need it.
     void releaseContent(int id);
 
-    void completeMutation();
-    void abortMutation();
+    /// Get the content for the given content pointer.
+    ///
+    /// @param id content pointer, returned by a previous call to [#addContent].
+    /// @return the current content value.
+    T getContent(int id);
 
+    /// Returns false if the given contentId should be presented before the children of the branch in forward direction,
+    /// and true if it should be presented after them.
+    boolean shouldPresentAfterBranch(int contentId);
+
+    /// This is called when content is left without children and is used to remove dangling metadata
+    /// or markers for branches (e.g. rows) that have become empty.
+    ///
+    /// If it returns false, the content will be dropped when its branch becomes empty.
+    boolean shouldPreserveWithoutChildren(int contentId);
 
     /// Make a textual representation of the id for debugging.
     String dumpContentId(int id);
-
-    long usedSizeOnHeap();
-    long usedSizeOffHeap();
-
-    /// Returns the amount of memory that has been allocated for various buffers but isn't currently in use.
-    /// The total on-heap space used by the trie is `usedSizeOnHeap() + unusedReservedOnHeapMemory()`.
-    long unusedReservedOnHeapMemory();
 
     /// Release all recycled content references, including the ones waiting in still incomplete recycling lists.
     /// This is a test method and can cause null pointer exceptions if used on a live trie.

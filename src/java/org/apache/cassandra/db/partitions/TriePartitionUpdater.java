@@ -44,9 +44,10 @@ public class TriePartitionUpdater
 
     public long dataSize;
     public long colUpdateTimeDelta;
-
-    protected PartitionData currentPartition;
     public int partitionsAdded;
+
+    /// Holds a reference to the current partition's statistics, used to update them when merging data.
+    protected PartitionData currentPartition;
 
     public TriePartitionUpdater(TrieMemtable.MemtableShard owner,
                                 InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> data)

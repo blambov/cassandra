@@ -31,6 +31,30 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.CELL_SIZE;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.getBufferIdx;
 
+/// Multi-buffer implementation of a buffer manager, where multiple buffers of growing size are maintained and adding a
+/// new cell when the space is exhausted is accomplished by adding a new buffer with twice the size of the last one.
+/// This has some extra complexity compared to using a single buffer, but avoids having to copy buffers of up to 1GiB
+/// of data to grow.
+///
+/// EXPANDABLE DATA STORAGE
+///
+/// The tries will need more and more space in buffers and content lists as they grow. Instead of using ArrayList-like
+/// reallocation with copying, which may be prohibitively expensive for large buffers, we use a sequence of
+/// buffers/content arrays that double in size on every expansion.
+///
+/// For a given address `x` the index of the buffer can be found with the following calculation:
+///    ```index_of_most_significant_set_bit(x / min_size + 1)```
+/// (relying on `sum (2^i) for i in [0, n-1] == 2^n - 1`) which can be performed quickly on modern hardware.
+///
+/// Finding the offset within the buffer is then
+///    ```x + min - (min << buffer_index)```
+///
+/// The allocated space starts at 256 bytes for the buffer and 16 entries for the content list.
+///
+/// Note that a buffer is not allowed to split 32-byte cells (code assumes same buffer can be used for all bytes
+/// inside the cell).
+///
+/// This class can optionally recycle cells that are no longer in use.
 public class BufferManagerMultibuf implements BufferManager
 {
     static final int BUF_START_SHIFT = 8;
@@ -40,7 +64,6 @@ public class BufferManagerMultibuf implements BufferManager
     {
         assert BUF_START_SIZE % CELL_SIZE == 0 : "Initial buffer size must fit a full cell.";
     }
-
 
     /// Trie size limit. This is not enforced, but users must check from time to time that it is not exceeded (using
     /// [#reachedAllocatedSizeThreshold()]) and start switching to a new trie if it is.
@@ -64,9 +87,12 @@ public class BufferManagerMultibuf implements BufferManager
     final BufferType bufferType;    // on or off heap
     final MemoryAllocationStrategy cellAllocator;
 
-
     final UnsafeBuffer[] buffers;
 
+    /// Creates a new buffer manager with the given buffer type (on- or off-heap) and expected lifetime.
+    /// Short-lived managers will not recycle cells as it is simpler to throw the whole thing away at the end of its
+    /// lifecycle, while long-lived will track freed cells and will reuse them after the given opOrder indicates that
+    /// all operations that may be using them have finished.
     public BufferManagerMultibuf(BufferType bufferType,
                                  InMemoryBaseTrie.ExpectedLifetime lifetime,
                                  OpOrder opOrder)
@@ -201,29 +227,20 @@ public class BufferManagerMultibuf implements BufferManager
         return allocatedPos;
     }
 
-    /// Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content, or
-    /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
-    /// The latter means we are undercounting the actual usage, but the purpose of this reporting is to decide when
-    /// to flush out e.g. a memtable and if we include the unused space we would almost always end up flushing out
-    /// immediately after allocating a large buffer and not having a chance to use it. Counting only used space makes it
-    /// possible to flush out before making these large allocations.
+    @Override
     public long usedSizeOffHeap()
     {
         return (bufferType == BufferType.ON_HEAP ? 0 : usedBufferSpace());
     }
 
-    /// Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content, or
-    /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
-    /// The latter means we are undercounting the actual usage, but the purpose of this reporting is to decide when
-    /// to flush out e.g. a memtable and if we include the unused space we would almost always end up flushing out
-    /// immediately after allocating a large buffer and not having a chance to use it. Counting only used space makes it
-    /// possible to flush out before making these large allocations.
+    @Override
     public long usedSizeOnHeap()
     {
         return (bufferType == BufferType.ON_HEAP ? usedBufferSpace() : 0) +
                InMemoryBaseTrie.REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(allocatedPos, BUF_START_SHIFT, BUF_START_SIZE);
     }
 
+    @Override
     @VisibleForTesting
     public long usedBufferSpace()
     {

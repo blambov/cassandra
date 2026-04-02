@@ -65,6 +65,7 @@ import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryTrie;
+import org.apache.cassandra.db.tries.MemoryManager;
 import org.apache.cassandra.db.tries.TrieEntriesWalker;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.db.tries.TrieTailsIterator;
@@ -82,7 +83,6 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.MBeanWrapper;
-import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -1066,7 +1066,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
 
         @Override
-        public int serializedSizeOrSpecial(Object content, boolean shouldPresentAfterBranch)
+        public int idIfSpecial(Object content, boolean shouldPresentAfterBranch)
         {
             if (content == TrieBackedRow.COMPLEX_COLUMN_MARKER)
             {
@@ -1189,10 +1189,16 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             // We can always set in place, but we may need to release previously held buffer.
             if (manager.releaseNeeded())
-                releaseContent(buffer, offset);
+                release(buffer, offset);
 
             serialize(newContent, shouldPresentAfterBranch(buffer, offset), buffer, offset);
             return true;
+        }
+
+        @Override
+        public void releaseSpecial(int id)
+        {
+            // nothing to do, our specials are fixed
         }
 
         @Override
@@ -1250,13 +1256,13 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
 
         @Override
-        public boolean releaseNeeded(int id)
+        public boolean releaseNeeded()
         {
-            return manager.releaseNeeded() && id >= 0;
+            return manager.releaseNeeded();
         }
 
         @Override
-        public void releaseContent(UnsafeBuffer buffer, int offset)
+        public void release(UnsafeBuffer buffer, int offset)
         {
             if (flagsMatch(buffer, offset, TYPE_MASK, TYPE_CELL))
                 TrieCellData.release(buffer, offset, manager);
@@ -1330,12 +1336,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         /// If true, the release method will be called when a value is no longer in use
         abstract boolean releaseNeeded();
 
-        /// See [ContentManager#completeMutation]
+        /// See [MemoryManager#completeMutation]
         abstract void completeMutation();
-        /// See [ContentManager#abortMutation]
+        /// See [MemoryManager#abortMutation]
         abstract void abortMutation();
 
-        /// See [ContentManager#unusedReservedOnHeapMemory]
+        /// See [MemoryManager#unusedReservedOnHeapMemory]
         abstract long unusedReservedOnHeapMemory();
 
         /// See [ContentManager#releaseReferencesUnsafe]
@@ -1359,8 +1365,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             this.allocator = allocator;
             this.bufferSizeOnHeap = bufferSizeOnHeap;
-            this.buffers = new ContentManagerPojo<>(InMemoryBaseTrie.ExpectedLifetime.LONG,
-                                                    Predicates.alwaysTrue(),
+            this.buffers = new ContentManagerPojo<>(Predicates.alwaysTrue(), InMemoryBaseTrie.ExpectedLifetime.LONG,
                                                     opOrder);
         }
 

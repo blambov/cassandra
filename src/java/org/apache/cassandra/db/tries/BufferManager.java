@@ -23,17 +23,21 @@ import com.google.common.annotations.VisibleForTesting;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.io.compress.BufferType;
 
-public interface BufferManager
+/// Buffer-managing component of in-memory tries. Deals with the allocation, access and
+/// recycling of trie cells.
+public interface BufferManager extends MemoryManager
 {
     /// Allocate a cell to use for storing data. This uses the memory allocation strategy to reuse cells if any are
-    /// available, or to allocate new cells using [#allocateNewCell]. Because some node types rely on cells being
-    /// filled with 0 as initial state, any cell we get through the allocator must also be cleaned.
+    /// available, or to allocate new cells. Because some node types rely on cells being filled with 0 as initial state,
+    /// any cell we get through the allocator must also be cleaned.
     int allocateCell() throws TrieSpaceExhaustedException;
 
     /// Creates a copy of a given cell and marks the original for recycling. Used when a mutation needs to force-copy
     /// paths to ensure earlier states are still available for concurrent readers.
     int copyCell(int cell) throws TrieSpaceExhaustedException;
 
+    /// Prepare the given cell for recycling. The cell cannot be immediately recycled,
+    /// because read operations as well as the ongoing mutation may still need it.
     void recycleCell(int cell);
 
     /// Get the buffer to use for reading or writing to a given cell.
@@ -41,52 +45,16 @@ public interface BufferManager
     /// Get the offset to use for reading or writing to the given cell in the buffer returned by [#getBuffer].
     int inBufferOffset(int cell);
 
-    /// To be called when a mutation completes. No new readers must be able to see recycled content at the time of this
-    /// call (the paths for reaching them must have been overwritten via a volatile write; additionally, if the buffer
-    /// has grown, the root variable (which is stored outside the buffer) must have accepted a volatile write).
-    /// No recycled indexes can be made available for reuse before this is called, and before any readers started before
-    /// this call have completed.
-    void completeMutation();
-
-    /// Called when a mutation is aborted because of an exception. This means that the indexes that were marked for
-    /// recycling are still going to be in use (unless this is called, a later separate `completeMutation` call may
-    /// release and reuse them, causing corruption).
-    ///
-    /// Aborted mutations are not normal, and at this time we are not trying to ensure that a trie will behave at its
-    /// best if an abort has taken place (i.e. it may take more space, be slower etc.), but it should still operate
-    /// correctly.
-    void abortMutation();
-
-    /// Returns true if the allocation threshold has been reached. To be called by the the writing thread (ideally, just
+    /// Returns true if the allocation threshold has been reached. To be called by the mutating thread (ideally, just
     /// after the write completes). When this returns true, the user should switch to a new trie as soon as feasible.
     ///
     /// The trie expects up to 10% growth above this threshold. Any growth beyond that may be done inefficiently, and
     /// the trie will fail altogether when the size grows beyond 2G - 256 bytes.
     boolean reachedAllocatedSizeThreshold();
 
-    /// Returns the off heap size of the memtable trie itself, not counting any space taken by referenced content, or
-    /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
-    /// The latter means we are undercounting the actual usage, but the purpose of this reporting is to decide when
-    /// to flush out e.g. a memtable and if we include the unused space we would almost always end up flushing out
-    /// immediately after allocating a large buffer and not having a chance to use it. Counting only used space makes it
-    /// possible to flush out before making these large allocations.
-    long usedSizeOffHeap();
-
-    /// Returns the on heap size of the memtable trie itself, not counting any space taken by referenced content, or
-    /// any space that has been allocated but is not currently in use (e.g. recycled cells or preallocated buffer).
-    /// The latter means we are undercounting the actual usage, but the purpose of this reporting is to decide when
-    /// to flush out e.g. a memtable and if we include the unused space we would almost always end up flushing out
-    /// immediately after allocating a large buffer and not having a chance to use it. Counting only used space makes it
-    /// possible to flush out before making these large allocations.
-    long usedSizeOnHeap();
-
+    /// Returns the amount of memory in use in buffers, excluding any cells that are marked for recycling.
     @VisibleForTesting
     long usedBufferSpace();
-
-    /// Returns the amount of memory that has been allocated for various buffers but isn't currently in use.
-    /// The total on-heap space used by the trie is `usedSizeOnHeap() + unusedReservedOnHeapMemory()`.
-    @VisibleForTesting
-    long unusedReservedOnHeapMemory();
 
     /// Called to clean up all buffers when the trie is known to no longer be needed.
     void discardBuffers();

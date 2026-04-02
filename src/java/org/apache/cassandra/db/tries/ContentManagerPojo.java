@@ -30,6 +30,11 @@ import static org.apache.cassandra.db.tries.InMemoryBaseTrie.REFERENCE_ARRAY_ON_
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.getBufferIdx;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.inBufferOffset;
 
+/// Content manager storing data in lists of java objects. Encoded objects are put in the maintained lists and are
+/// mapped to negative content ids that encode the position in the list. This avoids taking up data cells for content,
+/// but has to maintain the list of references.
+///
+/// Like [BufferManagerMultibuf], we use multiple lists that grow in size and can optionally recycle indexes.
 public class ContentManagerPojo<T> implements ContentManager<T>
 {
     static final int CONTENT_FLAGS_SHIFT = 29;
@@ -46,7 +51,16 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     final Predicate<T> shouldPreserveWithoutChildren;
     final MemoryAllocationStrategy objectAllocator;
 
-    public ContentManagerPojo(InMemoryBaseTrie.ExpectedLifetime lifetime, Predicate<T> shouldPreserveWithoutChildren, OpOrder opOrder)
+    /// Creates a new content manager with the given expected lifetime.
+    /// Short-lived managers will not recycle cells as it is simpler to throw the whole thing away at the end of its
+    /// lifecycle, while long-lived will track freed cells and will reuse them after the given opOrder indicates that
+    /// all operations that may be using them have finished.
+    ///
+    /// @param shouldPreserveWithoutChildren Predicate used to check whether a given object should be preserved when
+    /// its branch becomes empty. See [ContentManager#shouldPreserveWithoutChildren].
+    public ContentManagerPojo(Predicate<T> shouldPreserveWithoutChildren,
+                              InMemoryBaseTrie.ExpectedLifetime lifetime,
+                              OpOrder opOrder)
     {
         this.contentArrays = new AtomicReferenceArray[29 - CONTENTS_START_SHIFT];
         this.shouldPreserveWithoutChildren = shouldPreserveWithoutChildren;
@@ -92,7 +106,6 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     {
         return "~" + (id & CONTENT_INDEX_MASK) + ((id & CONTENT_AFTER_BRANCH) != 0 ? "↑" : "");
     }
-
 
     /// Allocate a new position in the object array. Used by the memory allocation strategy to allocate a content spot
     /// when it runs out of recycled positions.

@@ -52,15 +52,15 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     static
     {
         // Measuring the empty size of long-lived tries, because these are the ones for which we want to track size.
-        InMemoryBaseTrie<Object> empty = new InMemoryDeletionAwareTrie<>(ByteComparable.Version.OSS50, BufferType.ON_HEAP, ExpectedLifetime.LONG, null);
+        InMemoryBaseTrie<Object> empty = new InMemoryDeletionAwareTrie<>(ByteComparable.Version.OSS50, null, BufferType.ON_HEAP, ExpectedLifetime.LONG, null);
         EMPTY_SIZE_ON_HEAP = ObjectSizes.measureDeep(empty);
-        empty = new InMemoryDeletionAwareTrie<>(ByteComparable.Version.OSS50, BufferType.OFF_HEAP, ExpectedLifetime.LONG, null);
+        empty = new InMemoryDeletionAwareTrie<>(ByteComparable.Version.OSS50, null, BufferType.OFF_HEAP, ExpectedLifetime.LONG, null);
         EMPTY_SIZE_OFF_HEAP = ObjectSizes.measureDeep(empty);
     }
 
-    InMemoryDeletionAwareTrie(ByteComparable.Version byteComparableVersion, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
+    InMemoryDeletionAwareTrie(ByteComparable.Version byteComparableVersion, Predicate<T> shouldPreserveContentWithoutChildren, BufferType bufferType, ExpectedLifetime lifetime, OpOrder opOrder)
     {
-        super(byteComparableVersion, true, bufferType, lifetime, opOrder);
+        super(byteComparableVersion, true, shouldPreserveContentWithoutChildren, bufferType, lifetime, opOrder);
     }
 
     InMemoryDeletionAwareTrie(ByteComparable.Version version, BufferManager bufferManager, ContentManager<T> contentManager)
@@ -71,21 +71,22 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion)
     {
-        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, null, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
     }
 
+    /// Create a short-lived on-heap in-memory deletion-aware trie, where content that has no children and fails the
+    /// `shouldPreserveContentWithoutChildren` predicate is removed.
+    /// This is used to clean up dangling metadata that has no meaning when its branch is empty.
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion, Predicate<T> shouldPreserveContentWithoutChildren)
     {
-        return new InMemoryDeletionAwareTrie<>(byteComparableVersion,
-                                               new BufferManagerMultibuf(BufferType.ON_HEAP, ExpectedLifetime.SHORT, null),
-                                               new ContentManagerPojo<>(ExpectedLifetime.SHORT, shouldPreserveContentWithoutChildren, null));
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, shouldPreserveContentWithoutChildren, BufferType.ON_HEAP, ExpectedLifetime.SHORT, null);
     }
 
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> shortLived(ByteComparable.Version byteComparableVersion, BufferType bufferType)
     {
-        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.SHORT, null);
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, null, bufferType, ExpectedLifetime.SHORT, null);
     }
 
     public static <T, D extends RangeState<D>>
@@ -97,9 +98,11 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder)
     {
-        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder);
+        return new InMemoryDeletionAwareTrie<>(byteComparableVersion, null, bufferType, ExpectedLifetime.LONG, opOrder);
     }
 
+    /// Create a long-lived in-memory deletion-aware trie, where data is stored in trie cells using the given
+    /// `contentSerializer`.
     public static <T, D extends RangeState<D>>
     InMemoryDeletionAwareTrie<T, D> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder, ContentSerializer<T> contentSerializer)
     {
@@ -252,7 +255,7 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         final InMemoryRangeTrie.MutatorStatic<D, E> deletionMutator;
         final InMemoryTrie.RangeMutator<T, E> deleter;
 
-        /// See [InMemoryDeletionAwareTrie#mutator(UpsertTransformerWithKeyProducer, UpsertTransformerWithKeyProducer, UpsertTransformerWithKeyProducer, BiFunction, boolean, Predicate, Predicate, Predicate, Predicate)]
+        /// See [InMemoryDeletionAwareTrie#mutator(UpsertTransformer, UpsertTransformer, UpsertTransformer, BiFunction, boolean, Predicate, Predicate)]
         /// for the meaning of the parameters.
         Mutator(UpsertTransformer<T, V> dataTransformer,
                 UpsertTransformer<D, E> deletionTransformer,
@@ -567,11 +570,6 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
     /// guarantees to concurrent readers, applied in data branches. See [NodeFeatures] for details.
     /// @param needsForcedCopyInDeletions a predicate which decides when to fully copy a branch to provide atomicity
     /// guarantees to concurrent readers, applied in deletion branches. See [NodeFeatures] for details.
-    /// @param danglingMetadataCleaner a predicate used to drop dangling metadata entries, i.e. values that have
-    /// meaning only if the branch under them is not empty. Called when a value with an empty branch is found; if the
-    /// predicate returns true, the value is dropped, which has the effect of removing the path to it as well.
-    /// @param danglingDeletionMetadataCleaner a predicate used to drop dangling metadata entries in the deletion
-    /// branches.
     public <V, E extends RangeState<E>>
     Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
                           final UpsertTransformer<D, E> deletionTransformer,

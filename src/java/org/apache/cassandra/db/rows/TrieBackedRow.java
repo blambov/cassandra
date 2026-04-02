@@ -153,8 +153,8 @@ public class TrieBackedRow extends AbstractRow
         return builder.build();
     }
 
-    /// Returns true if the given object is a level marker with no meaning of its own. Used to drop unproductive markers
-    /// that can remain after deletions.
+    /// Returns false if the given object is a level marker with no meaning of its own. Used to drop unproductive
+    /// markers that can remain after deletions.
     public static boolean shouldPreserveContentWithoutChildren(Object o)
     {
         return o != LivenessInfo.EMPTY && o != COMPLEX_COLUMN_MARKER && o != TrieTombstoneMarker.LevelMarker.ROW;
@@ -489,17 +489,18 @@ public class TrieBackedRow extends AbstractRow
     public Cell<?> getCell(ColumnMetadata c)
     {
         assert !c.isComplex();
-        Object o = data.get(cellKey(columnIds, c, null));
-        if (o == null || o instanceof Cell)
-            return (Cell<?>) o;
-        CellData<?, ?> cellData = (CellData<?, ?>) o;
-        return cellData.toCell(c, null);
+        return getCellInternal(c, null);
     }
 
     @Override
     public Cell<?> getCell(ColumnMetadata c, CellPath path)
     {
         assert c.isComplex();
+        return getCellInternal(c, path);
+    }
+
+    private Cell<?> getCellInternal(ColumnMetadata c, CellPath path)
+    {
         Object o = data.get(cellKey(columnIds, c, path));
         if (o == null || o instanceof Cell)
             return (Cell<?>) o;
@@ -754,13 +755,11 @@ public class TrieBackedRow extends AbstractRow
 
     private static Object deleteData(TrieTombstoneMarker marker, Object existing)
     {
-        if (existing == COMPLEX_COLUMN_MARKER)
-            return existing;
-
         DeletionTime deletion = marker.applicableToPointForward();
         if (deletion == null)
             return existing;
-
+        if (existing == COMPLEX_COLUMN_MARKER)
+            return existing;
         if (existing instanceof LivenessInfo)
         {
             if (deletion.deletes(((LivenessInfo) existing).timestamp()))
@@ -784,6 +783,7 @@ public class TrieBackedRow extends AbstractRow
             return existing;
         return ((CellData<?, ?>) existing).withSkippedValue();
     }
+
     private static ByteComparable[] mapIdsToColumnKeys(BitSet fetchedIds)
     {
         ByteComparable[] keys = new ByteComparable[fetchedIds.cardinality() * 2];

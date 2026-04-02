@@ -18,51 +18,59 @@
 
 package org.apache.cassandra.db.tries;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.agrona.concurrent.UnsafeBuffer;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
-public interface ContentSerializer<T>
+/// Object serialization used by [ContentManagerBytes]. Defines how the objects are store in trie cells, when they
+/// are mapped to special ids, and the special id mapping itself.
+public interface ContentSerializer<T> extends MemoryManager
 {
-    // size cannot be more than 32 bytes
-    int serializedSizeOrSpecial(T content, boolean shouldPresentAfterBranch);
+    /// Returns a negative special id if the given content should be stored as a special value, 0 or larger if the value
+    /// should be serialized.
+    int idIfSpecial(T content, boolean shouldPresentAfterBranch);
 
-    T special(int id);
-
-    boolean shouldPreserveWithoutChildren(int id);
-
-    // Has serialized size bytes to work with
+    /// Store the given content in the 32-byte cell at the given `offset` in `buffer`.
     void serialize(T content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset) throws TrieSpaceExhaustedException;
 
-    // Must know/store the length of the payload
+    /// Returns the value associated with the given special id.
+    T special(int id);
+
+    /// Load the content from the 32-byte cell at the given `offset` in `buffer`.
     T deserialize(UnsafeBuffer buffer, int offset);
 
-    // uses same shouldPresentAfterBranch value
+    /// Update the value at the given `offset` in `buffer` if possible.
+    /// If the call successfully update the value, it must return true. Otherwise, the value is stored in a different
+    /// cell/id and this one is released.
     boolean setInPlace(UnsafeBuffer buffer, int offset, T newContent) throws TrieSpaceExhaustedException;
 
-    boolean releaseNeeded(int id);
+    /// Prepare the given special id for recycling.
+    void releaseSpecial(int id);
 
-    void releaseContent(UnsafeBuffer buffer, int offset);
+    /// Should return true if this serializer needs to recycle external data for serialized content,
+    /// i.e. if [#release] must be called in addition to recycling the cell when the associated content is no longer in
+    /// use.
+    boolean releaseNeeded();
 
+    /// Prepare the external content in the given cell for recycling. Called only if [#releaseNeeded] returns true.
+    void release(UnsafeBuffer buffer, int offset);
+
+    /// See [ContentManager#shouldPreserveWithoutChildren]. Called for both serialized and special ids.
+    boolean shouldPreserveWithoutChildren(int id);
+
+    /// Whether the content with this special id should be presented before or after its branch.
     boolean shouldPresentSpecialAfterBranch(int id);
 
+    /// Whether the content in this cell should be presented before or after its branch.
     boolean shouldPresentAfterBranch(UnsafeBuffer buffer, int offset);
 
-    void completeMutation();
-
-    void abortMutation();
-
-    long usedSizeOnHeap();
-
-    long usedSizeOffHeap();
-
-    long unusedReservedOnHeapMemory();
-
+    /// Release all external references held. See [ContentManager#releaseReferencesUnsafe].
+    @VisibleForTesting
     void releaseReferencesUnsafe();
 
+    /// Make a string representation of the given id for debugging.
     String dumpSpecial(int id);
 
-    default String dumpContent(UnsafeBuffer buffer, int offset)
-    {
-        return ByteBufferUtil.bytesToHex(buffer.byteBuffer().duplicate().position(offset).limit(offset + 32));
-    }
+    /// Make a string representation of the given cell for debugging.
+    String dumpContent(UnsafeBuffer buffer, int offset);
 }
