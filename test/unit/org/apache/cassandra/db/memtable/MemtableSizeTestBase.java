@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.memtable;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.Random;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.Parameterized;
 
@@ -137,10 +140,38 @@ public abstract class MemtableSizeTestBase extends CQLTester
         return ByteBuffer.wrap(bytes);
     }
 
+    private static void runCommandAndDumpOutput(String cmd, int lineCount)
+    {
+        try
+        {
+            // Define the command and its arguments
+            ProcessBuilder builder = new ProcessBuilder("bash", "-c", cmd);
+
+            // Start the process
+            Process process = builder.start();
+
+            // Read the output from the command
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null && --lineCount >= 0)
+            {
+                System.out.println(line);
+            }
+            while ((reader.readLine()) != null) {}
+
+            // Wait for the command to finish and get exit code
+            int exitCode = process.waitFor();
+            System.out.println("Exited with code: " + exitCode);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
     @Test
     public void testSize() throws Throwable
     {
-
         try
         {
             buildAndFillTable(memtableClass);
@@ -196,8 +227,8 @@ public abstract class MemtableSizeTestBase extends CQLTester
             if (memtable instanceof TrieMemtableStage3)
                 ((TrieMemtableStage3) memtable).releaseReferencesUnsafe();
 
-//            System.out.println("Take jmap -histo:live <pid>");
-//            Thread.sleep(10000);
+            // To see a summary of the objects on the heap, uncomment this:
+            // runCommandAndDumpOutput("jmap -histo:live " + ProcessHandle.current().pid(), 25);
 
             long deepSizeAfter = meter.measureDeep(memtable);
             System.out.println("Memtable deep size " +

@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.db.rows.AbstractBufferCellData;
 import org.apache.cassandra.db.rows.CellData;
+import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 
 /// [CellData] objects stored in in-memory tries.
 /// Uses one 32-byte cell of an in-memory trie's buffer to store the data of a cell (without path and column id). This
@@ -31,16 +32,16 @@ import org.apache.cassandra.db.rows.CellData;
 /// store the handle.
 public class TrieCellData extends AbstractBufferCellData
 {
-    public interface ExternalBufferSaver
+    public interface ExternalBufferHandler
     {
         /// Store the data in the given buffer and return an integer handle for it (e.g. a native address).
-        long store(ByteBuffer buffer, int length);
-    }
+        long store(ByteBuffer buffer, int length) throws TrieSpaceExhaustedException;
 
-    public interface ExternalBufferLoader
-    {
-        /// Store the data in the given buffer and return an integer handle for it (e.g. a native address).
+        /// Load the data from the given handle (e.g. a native address) and return it in a buffer.
         ByteBuffer load(long handle, int length);
+
+        /// Release a handle which will no longer be used.
+        void release(long handle, int length);
     }
 
     public static final int OFFSET_TIMESTAMP = 0;
@@ -66,14 +67,15 @@ public class TrieCellData extends AbstractBufferCellData
 
     final UnsafeBuffer buffer;
     final int offset;
-    final ExternalBufferLoader loader;
+    final ExternalBufferHandler loader;
 
     /// Store the given cell data in the 32 bytes of `buffer` starting at offset `offset`. If the value cannot fit in
     /// this space, use the given external saver to store it, and save the resulting handle and the length of the value.
     public static void serialize(CellData<?, ?> cell,
                                  int typeBits,
                                  UnsafeBuffer buffer, int offset,
-                                 ExternalBufferSaver externalBufferSaver)
+                                 ExternalBufferHandler externalBufferSaver)
+    throws TrieSpaceExhaustedException
     {
         ByteBuffer value = cell.buffer();
         int length = value.remaining();
@@ -101,7 +103,7 @@ public class TrieCellData extends AbstractBufferCellData
 
     /// Construct a [CellData] representation of the data stored in the 32 bytes at the `offset` in `buffer`.
     /// The given `loader` is used to retrieve the value if it is stored externally.
-    public TrieCellData(UnsafeBuffer buffer, int offset, ExternalBufferLoader loader)
+    public TrieCellData(UnsafeBuffer buffer, int offset, ExternalBufferHandler loader)
     {
         this.buffer = buffer;
         this.offset = offset;
@@ -178,5 +180,15 @@ public class TrieCellData extends AbstractBufferCellData
     {
         int sz = cell.valueSize();
         return sz <= MAX_VALUE_LENGTH ? 0 : sz;
+    }
+
+    public static void release(UnsafeBuffer buffer, int offset, ExternalBufferHandler handler)
+    {
+        byte flags = buffer.getByte(offset + OFFSET_FLAGS);
+        if ((flags & FLAG_EXTERNAL) == 0)
+            return;
+        long handle = buffer.getLong(offset + OFFSET_EXTERNAL_HANDLE);
+        int length = buffer.getInt(offset + OFFSET_EXTERNAL_LENGTH);
+        handler.release(handle, length);
     }
 }

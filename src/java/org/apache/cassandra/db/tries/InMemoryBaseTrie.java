@@ -39,7 +39,7 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     // constants for space calculations
     static final long REFERENCE_ARRAY_ON_HEAP_SIZE = ObjectSizes.measureDeep(new AtomicReferenceArray<>(0));
 
-    enum ExpectedLifetime
+    public enum ExpectedLifetime
     {
         SHORT, LONG
     }

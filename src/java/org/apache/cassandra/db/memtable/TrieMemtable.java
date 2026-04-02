@@ -28,6 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Predicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +57,8 @@ import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.tries.ContentManager;
+import org.apache.cassandra.db.tries.ContentManagerPojo;
 import org.apache.cassandra.db.tries.ContentSerializer;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
 import org.apache.cassandra.db.tries.Direction;
@@ -663,6 +666,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
                 this.cellDataBufferManager = new NativeBufferManager((NativeAllocator) allocator);
             else
                 this.cellDataBufferManager = new SlabBufferManager((MemtableBufferAllocator) allocator,
+                                                                   opOrder,
                                                                    BUFFER_TYPE.onHeapSizeWithoutData());
 
             this.data = InMemoryDeletionAwareTrie.longLived(TrieBackedPartition.BYTE_COMPARABLE_VERSION, BUFFER_TYPE, opOrder,
@@ -1113,6 +1117,7 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
         @Override
         public void serialize(Object content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset)
+        throws TrieSpaceExhaustedException
         {
             assert !shouldPresentAfterBranch || content instanceof TrieTombstoneMarker;
             // most common first
@@ -1180,9 +1185,12 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         }
 
         @Override
-        public boolean setInPlace(UnsafeBuffer buffer, int offset, Object newContent)
+        public boolean setInPlace(UnsafeBuffer buffer, int offset, Object newContent) throws TrieSpaceExhaustedException
         {
-            // We can always set in place.
+            // We can always set in place, but we may need to release previously held buffer.
+            if (manager.releaseNeeded())
+                releaseContent(buffer, offset);
+
             serialize(newContent, shouldPresentAfterBranch(buffer, offset), buffer, offset);
             return true;
         }
@@ -1233,33 +1241,37 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         @Override
         public boolean shouldPresentAfterBranch(UnsafeBuffer buffer, int offset)
         {
-            return (buffer.getByte(offset + OFFSET_FLAGS) & (TYPE_MASK | FLAG_AFTER_BRANCH)) ==
-                   (TYPE_TOMBSTONE_MARKER | FLAG_AFTER_BRANCH);
+            return flagsMatch(buffer, offset,  TYPE_MASK | FLAG_AFTER_BRANCH, TYPE_TOMBSTONE_MARKER | FLAG_AFTER_BRANCH);
+        }
+
+        boolean flagsMatch(UnsafeBuffer buffer, int offset, int flagMask, int flagValue)
+        {
+            return (buffer.getByte(offset + OFFSET_FLAGS) & flagMask) == flagValue;
         }
 
         @Override
         public boolean releaseNeeded(int id)
         {
-            // We can't recycle allocator memory.
-            return false;
+            return manager.releaseNeeded() && id >= 0;
         }
 
         @Override
         public void releaseContent(UnsafeBuffer buffer, int offset)
         {
-            // Nothing to do as we can't release data in the allocator. Trie will remove its cells as needed.
+            if (flagsMatch(buffer, offset, TYPE_MASK, TYPE_CELL))
+                TrieCellData.release(buffer, offset, manager);
         }
 
         @Override
         public void completeMutation()
         {
-            // Nothing needed as we can't recycle allocator memory
+            manager.completeMutation();
         }
 
         @Override
         public void abortMutation()
         {
-            // Nothing needed as we can't recycle allocator memory
+            manager.abortMutation();
         }
 
         @Override
@@ -1273,6 +1285,18 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         {
             // managed separately in allocator
             return 0;
+        }
+
+        @Override
+        public long unusedReservedOnHeapMemory()
+        {
+            return manager.unusedReservedOnHeapMemory();
+        }
+
+        @Override
+        public void releaseReferencesUnsafe()
+        {
+            manager.releaseReferencesUnsafe();
         }
 
         @Override
@@ -1296,54 +1320,104 @@ public class TrieMemtable extends AbstractAllocatorMemtable
 
     /// Buffer manager for cell data, used to store data that does not fit the 15 bytes for value in the trie block.
     @VisibleForTesting
-    public static abstract class CellDataBufferManager implements TrieCellData.ExternalBufferSaver, TrieCellData.ExternalBufferLoader
+    public static abstract class CellDataBufferManager implements TrieCellData.ExternalBufferHandler
     {
         OpOrder.Group opOrderGroup;
 
+        /// On-heap size of any additional structures used to store the references to data
         abstract long onHeapSize();
+
+        /// If true, the release method will be called when a value is no longer in use
+        abstract boolean releaseNeeded();
+
+        /// See [ContentManager#completeMutation]
+        abstract void completeMutation();
+        /// See [ContentManager#abortMutation]
+        abstract void abortMutation();
+
+        /// See [ContentManager#unusedReservedOnHeapMemory]
+        abstract long unusedReservedOnHeapMemory();
+
+        /// See [ContentManager#releaseReferencesUnsafe]
+        abstract void releaseReferencesUnsafe();
     }
 
     /// Buffer manager for cell data, used to store data that does not fit the 15 bytes for value in the trie block.
     ///
     /// This option stores data in ByteBuffers allocated by the given [MemtableBufferAllocator] and keeps a list of the
-    /// ByteBuffers it returned.
+    /// ByteBuffers it returned in a long-lived [ContentManagerPojo].
     /// It has on-heap presence that is proportional to the number of large data values.
     @VisibleForTesting
     public static class SlabBufferManager extends CellDataBufferManager
     {
         final MemtableBufferAllocator allocator;
         final long bufferSizeOnHeap;
-        // TODO maybe use ContentManagerPojo for this
-        final ArrayList<ByteBuffer> buffers; // no need for this to be volatile, modifications will be made visible by separate volatile set
+        final ContentManagerPojo<ByteBuffer> buffers;
 
         @VisibleForTesting
-        public SlabBufferManager(MemtableBufferAllocator allocator, long bufferSizeOnHeap)
+        public SlabBufferManager(MemtableBufferAllocator allocator, OpOrder opOrder, long bufferSizeOnHeap)
         {
             this.allocator = allocator;
             this.bufferSizeOnHeap = bufferSizeOnHeap;
-            this.buffers = new ArrayList<>();
+            this.buffers = new ContentManagerPojo<>(InMemoryBaseTrie.ExpectedLifetime.LONG,
+                                                    Predicates.alwaysTrue(),
+                                                    opOrder);
         }
 
         @Override
-        public long store(ByteBuffer buffer, int length)
+        public long store(ByteBuffer buffer, int length) throws TrieSpaceExhaustedException
         {
-            ByteBuffer buf = allocator.allocate(length, opOrderGroup);
-            FastByteOperations.copy(buffer, 0, buf, 0, length);
-            int index = buffers.size();
-            buffers.add(buf);
-            return index;
+            ByteBuffer cloned = allocator.allocate(length, opOrderGroup);
+            FastByteOperations.copy(buffer, 0, cloned, 0, length);
+            return buffers.addContent(cloned, false);
         }
 
         @Override
         public ByteBuffer load(long handle, int length)
         {
-            return buffers.get((int) handle);
+            return buffers.getContent((int) handle);
         }
 
         @Override
         long onHeapSize()
         {
-            return ObjectSizes.sizeOfReferenceArray(buffers.size()) + buffers.size() * bufferSizeOnHeap;
+            return buffers.usedSizeOnHeap() + buffers.valuesCount() * bufferSizeOnHeap;
+        }
+
+        @Override
+        public boolean releaseNeeded()
+        {
+            return true;
+        }
+
+        @Override
+        public void release(long handle, int length)
+        {
+            buffers.releaseContent((int) handle);
+        }
+
+        @Override
+        public void completeMutation()
+        {
+            buffers.completeMutation();
+        }
+
+        @Override
+        public void abortMutation()
+        {
+            buffers.abortMutation();
+        }
+
+        @Override
+        long unusedReservedOnHeapMemory()
+        {
+            return buffers.unusedReservedOnHeapMemory();
+        }
+
+        @Override
+        void releaseReferencesUnsafe()
+        {
+            buffers.releaseReferencesUnsafe();
         }
     }
 
@@ -1381,6 +1455,42 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         long onHeapSize()
         {
             return 0;
+        }
+
+        @Override
+        public boolean releaseNeeded()
+        {
+            return false;
+        }
+
+        @Override
+        public void release(long handle, int length)
+        {
+            // Nothing to do as we can't release data in the allocator. Trie will remove its cells as needed.
+        }
+
+        @Override
+        public void completeMutation()
+        {
+            // Nothing needed as we can't recycle allocator memory
+        }
+
+        @Override
+        public void abortMutation()
+        {
+            // Nothing needed as we can't recycle allocator memory
+        }
+
+        @Override
+        long unusedReservedOnHeapMemory()
+        {
+            return 0;
+        }
+
+        @Override
+        void releaseReferencesUnsafe()
+        {
+            // no references held
         }
     }
 }

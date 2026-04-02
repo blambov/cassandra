@@ -28,6 +28,7 @@ class ContentManagerBytes<T> implements ContentManager<T>
 {
     private final ContentSerializer<T> serializer;
     private final BufferManager bufferManager;
+    private int valuesCount = 0;
 
     public ContentManagerBytes(ContentSerializer<T> serializer, BufferManager bufferManager)
     {
@@ -65,6 +66,7 @@ class ContentManagerBytes<T> implements ContentManager<T>
     @Override
     public int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException
     {
+        ++valuesCount;
         int sizeOrSpecial = serializer.serializedSizeOrSpecial(value, contentAfterBranch);
         if (sizeOrSpecial < 0)
             return sizeOrSpecial; // special value
@@ -97,6 +99,7 @@ class ContentManagerBytes<T> implements ContentManager<T>
     @Override
     public void releaseContent(int id)
     {
+        --valuesCount;
         if (id < 0)
             return;
         bufferManager.recycleCell(id);
@@ -147,19 +150,19 @@ class ContentManagerBytes<T> implements ContentManager<T>
     @Override
     public long unusedReservedOnHeapMemory()
     {
-        return 0;
+        return serializer.unusedReservedOnHeapMemory();
     }
 
     @Override
     public void releaseReferencesUnsafe()
     {
-        // nothing to do as we don't hold any references
+        serializer.releaseReferencesUnsafe();
     }
 
     @Override
     public int valuesCount()
     {
-        return -1; // unknown
+        return valuesCount;
     }
 
 }

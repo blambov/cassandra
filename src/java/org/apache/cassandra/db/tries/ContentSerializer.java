@@ -31,13 +31,13 @@ public interface ContentSerializer<T>
     boolean shouldPreserveWithoutChildren(int id);
 
     // Has serialized size bytes to work with
-    void serialize(T content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset);
+    void serialize(T content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset) throws TrieSpaceExhaustedException;
 
     // Must know/store the length of the payload
     T deserialize(UnsafeBuffer buffer, int offset);
 
     // uses same shouldPresentAfterBranch value
-    boolean setInPlace(UnsafeBuffer buffer, int offset, T newContent);
+    boolean setInPlace(UnsafeBuffer buffer, int offset, T newContent) throws TrieSpaceExhaustedException;
 
     boolean releaseNeeded(int id);
 
@@ -54,6 +54,10 @@ public interface ContentSerializer<T>
     long usedSizeOnHeap();
 
     long usedSizeOffHeap();
+
+    long unusedReservedOnHeapMemory();
+
+    void releaseReferencesUnsafe();
 
     String dumpSpecial(int id);
 

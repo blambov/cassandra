@@ -40,7 +40,8 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     static final int CONTENTS_START_SHIFT = 4;
     static final int CONTENTS_START_SIZE = 1 << CONTENTS_START_SHIFT;
 
-    private int contentCount = 0;
+    private int reservedCount = 0;
+    private int valuesCount = 0;
     final AtomicReferenceArray<T>[] contentArrays;
     final Predicate<T> shouldPreserveWithoutChildren;
     final MemoryAllocationStrategy objectAllocator;
@@ -97,7 +98,7 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     /// when it runs out of recycled positions.
     private int allocateNewObject()
     {
-        int index = contentCount++;
+        int index = reservedCount++;
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> array = contentArrays[leadBit];
         if (array == null)
@@ -112,6 +113,7 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     @Override
     public int addContent(T value, boolean contentAfterBranch) throws TrieSpaceExhaustedException
     {
+        ++valuesCount;
         int index = objectAllocator.allocate();
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
@@ -140,6 +142,7 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     @Override
     public void releaseContent(int id)
     {
+        --valuesCount;
         objectAllocator.recycle(id & CONTENT_INDEX_MASK);
     }
 
@@ -165,13 +168,13 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     public long usedSizeOnHeap()
     {
         return usedObjectSpace() +
-               REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(contentCount, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
+               REFERENCE_ARRAY_ON_HEAP_SIZE * getBufferIdx(reservedCount, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
     }
 
     @VisibleForTesting
     long usedObjectSpace()
     {
-        return (contentCount - objectAllocator.indexCountInPipeline()) * MemoryLayoutSpecification.SPEC.getReferenceSize();
+        return valuesCount() * MemoryLayoutSpecification.SPEC.getReferenceSize();
     }
 
     @Override
@@ -180,12 +183,12 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     {
         long bufferOverhead = 0;
 
-        int index = contentCount;
+        int index = reservedCount;
         int leadBit = getBufferIdx(index, CONTENTS_START_SHIFT, CONTENTS_START_SIZE);
         int ofs = inBufferOffset(index, leadBit, CONTENTS_START_SIZE);
         AtomicReferenceArray<T> contentArray = contentArrays[leadBit];
         long contentOverhead = ((contentArray != null ? contentArray.length() : 0) - ofs);
-        contentOverhead += objectAllocator.indexCountInPipeline();
+        contentOverhead += reservedCount - valuesCount;
         contentOverhead *= MemoryLayoutSpecification.SPEC.getReferenceSize();
 
         return bufferOverhead + contentOverhead;
@@ -209,6 +212,6 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     @Override
     public int valuesCount()
     {
-        return contentCount;
+        return valuesCount;
     }
 }

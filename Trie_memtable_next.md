@@ -816,8 +816,10 @@ Memtable in heap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 51.873MiB 
 Memtable in offheap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 13.059MiB (1%) on-heap, 41.866MiB (2%) off-heap
 Memtable in offheap_objects mode: 230000 ops, 7.629MiB serialized bytes, 90.625KiB (0%) on-heap, 41.866MiB (2%) off-heap
 
-
 32-byte ContentManagerPojo
+Memtable in unslabbed_heap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 51.789MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in heap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 51.789MiB (3%) on-heap, 0B (0%) off-heap
+Memtable in offheap_buffers mode: 230000 ops, 7.629MiB serialized bytes, 12.976MiB (1%) on-heap, 41.865MiB (2%) off-heap
 Memtable in offheap_objects mode: 230000 ops, 7.629MiB serialized bytes, 90.625KiB (0%) on-heap, 41.866MiB (2%) off-heap
 
 
