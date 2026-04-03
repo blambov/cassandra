@@ -596,7 +596,7 @@ public class TrieBackedRow extends AbstractRow
 
     }
 
-    private static Cell<?> cellFromCellData(CellData<?, ?> value, byte[] bytes, int byteLength, Columns columns)
+    public static Cell<?> cellFromCellData(CellData<?, ?> value, byte[] bytes, int byteLength, Columns columns)
     {
         if (value instanceof Cell)
             return (Cell<?>) value;

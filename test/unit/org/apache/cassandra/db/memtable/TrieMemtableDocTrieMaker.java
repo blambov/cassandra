@@ -60,14 +60,20 @@ public class TrieMemtableDocTrieMaker extends CQLTester
         execute("DELETE FROM %s using timestamp 412 where company='Apple' AND date<='2026-01-31' AND date>='2026-01-01'");
 
         TrieMemtable memtable = (TrieMemtable) getCurrentColumnFamilyStore().getCurrentMemtable();
+        System.out.println();
+        System.out.println(toShortString(memtable.dump()));
+        System.out.println();
         System.out.println(memtable.mergedTrie.dump(TrieMemtableDocTrieMaker::toShortString, TrieMemtableDocTrieMaker::toShortString));
+        System.out.println();
         System.out.println(memtable.mergedTrie.process(Direction.FORWARD, new TrieToMermaid<>(TrieMemtableDocTrieMaker::toShortString, TrieMemtableDocTrieMaker::toShortString, x -> String.format("%02x", x), true)));
+        System.out.println();
         System.out.println(memtable.mergedTrie.process(Direction.FORWARD, new TrieToDot<>(TrieMemtableDocTrieMaker::toShortString, TrieMemtableDocTrieMaker::toShortString, x -> String.format("%02x", x), true)));
+        System.out.println();
     }
 
     public static <T> String toShortString(T val)
     {
         String v = val.toString();
-        return v.replaceAll(", localDeletion=\\d+", "").replaceAll("(ts|deletedAt)=\\d+(\\d{3})","$1=$2");
+        return v.replaceAll(", localDeletion=\\d+", "");//.replaceAll("(ts|deletedAt)=\\d+(\\d{3})","$1=$2");
     }
 }

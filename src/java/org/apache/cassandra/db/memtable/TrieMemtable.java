@@ -19,6 +19,7 @@ package org.apache.cassandra.db.memtable;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,9 @@ import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.BufferDecoratedKey;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.LivenessInfo;
@@ -45,6 +48,7 @@ import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.partitions.AbstractUnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
@@ -52,6 +56,7 @@ import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdater;
 import org.apache.cassandra.db.partitions.TriePartitionUpdaterLegacyIndex;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.TrieBackedRow;
@@ -66,6 +71,7 @@ import org.apache.cassandra.db.tries.InMemoryBaseTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.db.tries.MemoryManager;
+import org.apache.cassandra.db.tries.TrieDumperWithPath;
 import org.apache.cassandra.db.tries.TrieEntriesWalker;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.db.tries.TrieTailsIterator;
@@ -457,6 +463,13 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         return BufferDecoratedKey.fromByteComparable(path,
                                                      TrieBackedPartition.BYTE_COMPARABLE_VERSION,
                                                      metadata.partitioner);
+    }
+
+    /// Make a textual representation of the trie, linking content with its type and key. See
+    /// [TrieMemtable.md](TrieMemtable.md) for an example of the output.
+    public String dump()
+    {
+        return mergedTrie.process(Direction.FORWARD, new Dumper(metadata()));
     }
 
     static final int PARTITIONDATA_OFFSET_ROW_COUNT = 0;
@@ -1496,6 +1509,56 @@ public class TrieMemtable extends AbstractAllocatorMemtable
         void releaseReferencesUnsafe()
         {
             // no references held
+        }
+    }
+
+    /// Trie dumper attaching paths and types to cells and a translation of the key for rows and partitions.
+    static class Dumper extends TrieDumperWithPath.DeletionAware<Object, TrieTombstoneMarker>
+    {
+        final TableMetadata metadata;
+        Columns columns;
+        int rowKeyLength = 0;
+        int partitionKeyLength = 0;
+
+        Dumper(TableMetadata metadata)
+        {
+            this.metadata = metadata;
+        }
+
+        @Override
+        public String contentToString(Object content)
+        {
+            if (content instanceof TrieCellData)
+            {
+                byte[] cellPath = Arrays.copyOfRange(keyBytes, rowKeyLength, keyPos);
+                Cell<?> asCell = TrieBackedRow.cellFromCellData((TrieCellData) content, cellPath, cellPath.length, columns);
+                return asCell.toString();
+            }
+            else if (content instanceof LivenessInfo)
+            {
+                rowKeyLength = keyPos;
+                Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(ByteBufferAccessor.instance,
+                                                                                            ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION, keyBytes, partitionKeyLength, keyPos - partitionKeyLength),
+                                                                                            TrieBackedPartition.BYTE_COMPARABLE_VERSION);
+                columns = metadata.regularAndStaticColumns().columns(clustering == Clustering.STATIC_CLUSTERING);
+                return content.toString() + " at " + clustering.toString(metadata);
+            }
+            else if (content instanceof PartitionData)
+            {
+                partitionKeyLength = keyPos;
+                BufferDecoratedKey key = BufferDecoratedKey.fromByteComparable(ByteComparable.preencoded(TrieBackedPartition.BYTE_COMPARABLE_VERSION, keyBytes, 0, keyPos),
+                                                                               TrieBackedPartition.BYTE_COMPARABLE_VERSION,
+                                                                               metadata.partitioner);
+                return content.toString() + " at " + metadata.partitionKeyType.getString(key.getKey());
+            }
+
+            return content.toString();
+        }
+
+        @Override
+        public String deletionToString(TrieTombstoneMarker deletionMarker)
+        {
+            return deletionMarker.toString();
         }
     }
 }
