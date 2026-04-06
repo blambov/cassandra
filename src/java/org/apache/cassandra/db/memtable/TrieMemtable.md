@@ -465,94 +465,116 @@ cells.
 
 We also have three types of markers that may appear multiple times and carry no additional information. For
 these (`LivenessInfo.EMPTY`, `TrieTombstoneMarker.Level.ROW` and `COMPLEX_COLUMN_MARKER`) we use special
-negative content ids that use no trie cells.
+content ids that use no trie cells.
 
 The tables below describe how the data is stored with an example for each.
 
-### TrieCellData for cells with values up to 15 bytes in length
+### TrieCellData.Embedded for cells with values up to 16 bytes in length
+
+Cell data that has values up to 16 bytes in length is stored by setting `offsetBits` to the length of the
+value and then filling the cell with:
 
 | bytes | content                     | example           | example decoding   |
 |-------|-----------------------------|-------------------|--------------------|
-| 0-7   | timestamp                   | 00000000 0000016F | 367                |
-| 8-11  | local deletion time         | 7FFFFFFF          | NO_EXPIRATION_TIME |
-| 12-15 | ttl                         | 00000000          | NO_TTL             |
-| 16-30 | value                       | 40744d47 ae147ae1 | 324.83             |
-| 31    | flags                       | 08                | TYPE_CELL + length |
+| 0-15  | value                       | 40744d47 ae147ae1 | 324.83             |
+| 16-19 | ttl                         | 00000000          | NO_TTL             |
+| 20-23 | local deletion time         | 7FFFFFFF          | NO_EXPIRATION_TIME |
+| 24-31 | timestamp                   | 00000000 0000016F | 367                |
 
-The flags byte contains:
-- Bits 4-5 (0x30): TYPE_CELL (0x00)
-- Bit 7 (0x80): FLAG_EXTERNAL must be 0
-- Bit 6 (0x40): FLAG_IS_COUNTER_CELL - set for counter cells
-- Bits 0-3 (0x0F): LENGTH_MASK - length of inline value (0-15 bytes)
+The example, with `offsetBits == 8`, encodes the cell data `[?=40744d47ae147ae1 ts=367]` for the cell 
+`[total=324.83 ts=367]` from above.
 
-The example encodes the cell data `[?=40744d47ae147ae1 ts=367]` for the cell `[total=324.83 ts=367]` from above.
+### TrieCellData.EmbeddedNoTTL for cells with values between 17 and 24 bytes in length with no TTL
 
-### TrieCellData for cells with values over 15 bytes in length
+If a cell is not expiring or expired/deleted, it has empty TTL and local deletion/expiration time.
+In this case we can use 8 extra bytes for value:
 
-| bytes | content               | example           | example decoding           |
-|-------|-----------------------|-------------------|----------------------------|
-| 0-7   | timestamp             | 00000000 0000016F | 367                        |
-| 8-11  | local deletion time   | 7FFFFFFF          | NO_EXPIRATION_TIME         |
-| 12-15 | ttl                   | 00000000          | NO_TTL                     |
-| 16-23 | external value handle | 12345678 90ABCDEF | address in direct memory   |
-| 24-27 | value length          | 20                | 32 bytes                   |
-| 28-30 | _unused_              |                   |                            |
-| 31    | flags                 | 80                | TYPE_CELL + FLAG_EXTERNAL  |
+| bytes | content                     | example                                                                         | example decoding        |
+|-------|-----------------------------|---------------------------------------------------------------------------------|-------------------------|
+| 0-23  | value                       | 53 61 6D 70 6C 65 20 74<br/>65 78 74 20 6F 66 20 32<br/>35 20 62 79 74 65 73 00 | Sample text of 23 bytes |
+| 24-31 | timestamp                   | 00000000 00000160                                                               | 352                     |
 
-The flags byte contains:
-- Bits 4-5 (0x30): TYPE_CELL (0x00)
-- Bit 7 (0x80): FLAG_EXTERNAL must be 1
-- Bit 6 (0x40): FLAG_IS_COUNTER_CELL - set for counter cells
+The example, with `offsetBits == 23`, encodes cell data `[?=53616D706C652074657874206F66203233206279746573 ts=352]` 
+containing an ASCII string.
 
-The example encodes a cell with timestamp 367, no expiration, and a 32-byte value stored in direct memory.
+### TrieCellData.Counter for counter cells up to 15 bytes in length
 
-### LivenessInfo
+For counters that can be embedded (usually with empty value), we use `offsetBits == 0x19` and store the value
+length in the cell.
 
 | bytes | content             | example           | example decoding   |
 |-------|---------------------|-------------------|--------------------|
-| 0-7   | timestamp           | 00000000 0000016F | 367                |
-| 8-11  | local deletion time | 7FFFFFFF          | NO_EXPIRATION_TIME |
-| 12-15 | ttl                 | 00000000          | NO_TTL             |
-| 16-30 | _unused_            |                   |                    |
-| 31    | flags               | 10                | TYPE_LIVENESS_INFO |
+| 0-14  | value               |                   |                    |
+| 15    | value length        | 00                | empty value        |
+| 16-19 | ttl                 | 00000000          | NO_TTL             |
+| 20-23 | local deletion time | 7FFFFFFF          | NO_EXPIRATION_TIME |
+| 24-31 | timestamp           | 00000000 0000016D | 365                |
+
+
+### TrieCellData.External for cells with values that can't be fitted in the available trie bytes
+
+Externally-stored value of cells use `offsetBits == 0x1A` and the following content:
+
+| bytes | content               | example           | example decoding         |
+|-------|-----------------------|-------------------|--------------------------|
+| 0     | is counter            | 00                | non-counter              |
+| 1-3   | _unused_              |                   |                          |
+| 4-7   | value length          | 20                | 32 bytes                 |
+| 8-15  | external value handle | 12345678 90ABCDEF | address in direct memory |
+| 16-19 | ttl                   | 00000000          | NO_TTL                   |
+| 20-23 | local deletion time   | 7FFFFFFF          | NO_EXPIRATION_TIME       |
+| 24-31 | timestamp             | 00000000 0000016C | 364                      |
+
+The example encodes a cell with timestamp 364, no expiration, and a 32-byte value stored in direct memory.
+
+### LivenessInfo
+
+We use `offsetBits == 0x1B` for liveness info.
+
+| bytes | content             | example           | example decoding   |
+|-------|---------------------|-------------------|--------------------|
+| 0-15  | _unused_            |                   |                    |
+| 16-19 | ttl                 | 00000000          | NO_TTL             |
+| 20-23 | local deletion time | 7FFFFFFF          | NO_EXPIRATION_TIME |
+| 24-31 | timestamp           | 00000000 0000016D | 365                |
 
 The example encodes the `[ts=367]` liveness info object from above.
 
 ### TrieTombstoneMarker
 
+Tombstone markers use two offset bit values, depending on whether they are to be presented before (`0x1C`)
+or after (`0x1D`) the child branch.
+
 | bytes | content                   | example           | example decoding                   |
 |-------|---------------------------|-------------------|------------------------------------|
-| 0-7   | left timestamp            |                   |                                    |
-| 8-11  | left local deletion time  |                   |                                    |
-| 12    | left tombstone kind       |                   |                                    |
+| 0     | has row level marker      | 00                | no row level marker                |
 | 13-15 | _unused_                  |                   |                                    |  
-| 16-23 | right timestamp           | 00000000 00000159 | 345 (right deletion timestamp)     |
-| 24-27 | right local deletion time | 69CFB5AF          | 1775220143                         |
-| 28    | right tombstone kind      | 01                | COLUMN (kind ordinal = 1)          |
-| 29-30 | _unused_                  |                   |                                    |  
-| 31    | flags                     | 21                | TYPE_TOMBSTONE_MARKER + side flags |
+| 3     | right tombstone kind      | 01                | COLUMN (kind ordinal = 1)          |
+| 4-7   | right local deletion time | 69CFB5AF          | 1775220143                         |
+| 8-15  | right timestamp           | 00000000 00000159 | 345 (right deletion timestamp)     |
+| 16-18 | _unused_                  |                   |                                    |  
+| 19    | left tombstone kind       | FF                | not present                        |
+| 20-23 | left local deletion time  |                   |                                    |
+| 24-31 | left timestamp            |                   |                                    |
 
-The flags byte contains:
-- Bits 4-5 (0x30): TYPE_TOMBSTONE_MARKER (0x20)
-- Bit 3 (0x08): FLAG_AFTER_BRANCH - set if marker should be presented after branch
-- Bit 2 (0x04): FLAG_IS_ROW_MARKER - set if this includes a row level marker
-- Bit 1 (0x02): FLAG_HAS_LEFT_DELETION - set if left deletion is active
-- Bit 0 (0x01): FLAG_HAS_RIGHT_DELETION - set if right deletion is active
-
-The example encodes `LIVE -> deletedAt=345, localDeletion=1775220143[COLUMN]`, a tombstone boundary
-that starts a column deletion with timestamp 345.
+The example, with `offsetBits == 0x1C`, encodes `LIVE -> deletedAt=345, localDeletion=1775220143[COLUMN]`, a
+tombstone boundary that starts a column deletion with timestamp 345.
 
 ### PartitionData
 
-| bytes | content             | example           | example decoding                    |
-|-------|---------------------|-------------------|-------------------------------------|
-| 0-7   | row count           | 00000000 00000001 | 1 row (including static)            |
-| 8-11  | tombstone count     | 00000008          | 8 tombstones                        |
-| 12-30 | _unused_            |                   |                                     |
-| 31    | flags               | 30                | TYPE_PARTITION_DATA                 |
+For partition data we use `offsetBits = 0x1E`.
+
+| bytes | content             | example  | example decoding                    |
+|-------|---------------------|----------|-------------------------------------|
+| 0-4   | row count           | 00000001 | 1 row (including static)            |
+| 4-7   | tombstone count     | 00000008 | 8 tombstones                        |
+| 8-31  | _unused_            |          |                                     |
 
 The example encodes partition metadata for a partition with 1 row and 8 tombstones, as seen in the
 "Apple" partition example above.
+
+The `PartitionData` object encapsulates this and stores the buffer and pointer. The mutation code uses this
+to modify the values in the buffer directly when a row/tombstone is added to the partition or removed.
 
 ### External buffer storage for large values
 

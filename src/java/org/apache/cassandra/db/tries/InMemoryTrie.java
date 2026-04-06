@@ -120,6 +120,16 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T> implements Trie<T>
         return new InMemoryTrie<>(byteComparableVersion, bufferType, ExpectedLifetime.LONG, opOrder, true);
     }
 
+    /// Long-lived tries are expected to stay around for a long time and will try to minimize the space wasted to data
+    /// or structure that is no longer referenced. To do this they need a signal that lets them know if all readers
+    /// started before a given point in time have completed work, given by the `opOrder` parameter.
+    public static <T> InMemoryTrie<T> longLived(ByteComparable.Version byteComparableVersion, BufferType bufferType, OpOrder opOrder, ContentSerializer<T> contentSerializer)
+    {
+        BufferManagerMultibuf bufferManager = new BufferManagerMultibuf(bufferType, ExpectedLifetime.LONG, opOrder);
+        ContentManager<T> contentManager = new ContentManagerBytes<>(contentSerializer, bufferManager);
+        return new InMemoryTrie<>(byteComparableVersion, true, bufferManager, contentManager);
+    }
+
     /// Creates a short-lived "ordered" in-memory trie, i.e. where reverse iteration presents content on the ascent
     /// path so that it can be correctly lexicographically ordered with any keys for which it is a prefix.
     ///

@@ -25,7 +25,7 @@ import org.apache.cassandra.io.compress.BufferType;
 
 /// Buffer-managing component of in-memory tries. Deals with the allocation, access and
 /// recycling of trie cells.
-public interface BufferManager extends MemoryManager
+public interface BufferManager extends MemoryManager, BufferAccessor
 {
     /// Allocate a cell to use for storing data. This uses the memory allocation strategy to reuse cells if any are
     /// available, or to allocate new cells. Because some node types rely on cells being filled with 0 as initial state,
@@ -39,11 +39,6 @@ public interface BufferManager extends MemoryManager
     /// Prepare the given cell for recycling. The cell cannot be immediately recycled,
     /// because read operations as well as the ongoing mutation may still need it.
     void recycleCell(int cell);
-
-    /// Get the buffer to use for reading or writing to a given cell.
-    UnsafeBuffer getBuffer(int cell);
-    /// Get the offset to use for reading or writing to the given cell in the buffer returned by [#getBuffer].
-    int inBufferOffset(int cell);
 
     /// Returns true if the allocation threshold has been reached. To be called by the mutating thread (ideally, just
     /// after the write completes). When this returns true, the user should switch to a new trie as soon as feasible.

@@ -37,10 +37,10 @@ import static org.apache.cassandra.db.tries.InMemoryReadTrie.inBufferOffset;
 /// Like [BufferManagerMultibuf], we use multiple lists that grow in size and can optionally recycle indexes.
 public class ContentManagerPojo<T> implements ContentManager<T>
 {
-    static final int CONTENT_FLAGS_SHIFT = 29;
+    static final int CONTENT_FLAGS_SHIFT = 30;
     static final int CONTENT_INDEX_MASK = (1 << CONTENT_FLAGS_SHIFT) - 1;
 
-    static final int CONTENT_AFTER_BRANCH = 1 << 30;
+    static final int CONTENT_AFTER_BRANCH = 1 << CONTENT_FLAGS_SHIFT;
 
     static final int CONTENTS_START_SHIFT = 4;
     static final int CONTENTS_START_SIZE = 1 << CONTENTS_START_SHIFT;
@@ -105,6 +105,12 @@ public class ContentManagerPojo<T> implements ContentManager<T>
     public String dumpContentId(int id)
     {
         return "~" + (id & CONTENT_INDEX_MASK) + ((id & CONTENT_AFTER_BRANCH) != 0 ? "↑" : "");
+    }
+
+    @Override
+    public int cellUsedIfAny(int id)
+    {
+        return -1;
     }
 
     /// Allocate a new position in the object array. Used by the memory allocation strategy to allocate a content spot

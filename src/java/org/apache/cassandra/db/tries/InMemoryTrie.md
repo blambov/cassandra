@@ -50,8 +50,9 @@ In-memory tries support two approaches for storing content/payload data:
 #### `ContentManagerPojo` - Object array storage
 
 This default approach stores content as Java objects in a separate content array. Leaf nodes reference values by 
-storing the array index as a negative pointer value (where `~pointer` gives the index). This approach is simple but 
-keeps content on-heap as Java objects, which can lead to garbage collection pressure for large tries.
+storing the array index as a negative pointer value (where masking away the sign and flags gives the index in the
+array). This approach is simple but keeps content on-heap as Java objects, which can lead to garbage collection
+pressure for large tries.
 
 #### `ContentManagerBytes` - Direct buffer storage
 
@@ -61,12 +62,16 @@ alongside the trie structure.
 
 `ContentManagerBytes` relies on a `ContentSerializer` interface to handle encoding and decoding of content. The 
 serializer defines:
-- How to serialize content into a 32-byte cell
-- How to deserialize content from a 32-byte cell
-- Which values should be treated as "special" (encoded as negative IDs without using cells)
+- How to serialize content into a 32-byte cell, returning a `offsetBits`, a 5-bit offset which is combined with
+  the cell base to form the leaf pointer/id.
+- How to deserialize content from a 32-byte cell and the pointer's `offsetBits`
+- Which values should be treated as "special" (encoded without using cells, using `offsetBits == 0x1F`)
+
+The `offsetBits` are to be used to help determine the type of content, and they also may be used to store e.g.
+length and flags that could otherwise take up a byte in the cell. 
 
 **Special values**: Some content types appear frequently and carry no additional data (e.g. markers, empty values). 
-These can be encoded as negative integers and mapped directly to singleton objects without allocating trie cells. The 
+These can be encoded as special values and mapped directly to singleton objects without allocating trie cells. The 
 `ContentSerializer` determines which values qualify as special via the `idIfSpecial()` method.
 
 **Large values**: When content doesn't fit in 32 bytes, the serializer can use its own external storage mechanism 

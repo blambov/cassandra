@@ -26,11 +26,13 @@ import java.util.Random;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Streams;
 import org.junit.Assert;
 import org.junit.Test;
 
 import org.agrona.collections.IntArrayList;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
@@ -60,22 +62,43 @@ public class CellReuseTest
     Random rand = new Random(2);
 
     @Test
-    public void testCellReusePartitionCopying() throws Exception
+    public void testCellReuseBytesPartitionCopying() throws Exception
     {
-        testCellReuse(FORCE_COPY_PARTITION);
+        testCellReuseBytes(FORCE_COPY_PARTITION);
     }
 
     @Test
-    public void testCellReuseNoCopying() throws Exception
+    public void testCellReuseBytesNoCopying() throws Exception
     {
-        testCellReuse(NO_ATOMICITY);
+        testCellReuseBytes(NO_ATOMICITY);
     }
 
-    public void testCellReuse(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate) throws Exception
+    public void testCellReuseBytes(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate) throws Exception
+    {
+        ByteComparable[] src = generateKeys(rand, COUNT);
+        InMemoryTrie<Object> trieLong = makeInMemoryTrie(src, opOrder -> InMemoryTrie.longLived(VERSION, BufferType.ON_HEAP, opOrder, new TestContentSerializer()),
+                                                             forceCopyPredicate);
+
+        verifyFreeCellsMatchUnreachable(trieLong);
+    }
+
+    @Test
+    public void testCellReusePojoPartitionCopying() throws Exception
+    {
+        testCellReusePojo(FORCE_COPY_PARTITION);
+    }
+
+    @Test
+    public void testCellReusePojoNoCopying() throws Exception
+    {
+        testCellReusePojo(NO_ATOMICITY);
+    }
+
+    public void testCellReusePojo(Predicate<InMemoryTrie.NodeFeatures<Object>> forceCopyPredicate) throws Exception
     {
         ByteComparable[] src = generateKeys(rand, COUNT);
         InMemoryTrie<Object> trieLong = makeInMemoryTrie(src, opOrder -> InMemoryTrie.longLived(VERSION, BufferType.ON_HEAP, opOrder),
-                                                             forceCopyPredicate);
+                                                         forceCopyPredicate);
 
         verifyFreeCellsMatchUnreachable(trieLong);
     }
@@ -234,9 +257,6 @@ public class CellReuseTest
                 markPrefixContent(trie, node + InMemoryTrie.PREFIX_ALTERNATE_OFFSET, set, objs);
                 markChild(trie, trie.followPrefixTransition(node), set, objs);
                 break;
-            case InMemoryReadTrie.PAYLOAD_OFFSET:
-                // payload node has no children
-                break;
             default:
                 assert trie.offset(node) <= InMemoryTrie.CHAIN_MAX_OFFSET && trie.offset(node) >= InMemoryTrie.CHAIN_MIN_OFFSET;
                 markChild(trie, trie.getIntVolatile((node & -32) + InMemoryTrie.LAST_POINTER_OFFSET), set, objs);
@@ -255,12 +275,21 @@ public class CellReuseTest
 
     private static void markChild(InMemoryBaseTrie<?> trie, int child, BitSet set, BitSet objs)
     {
-        if (child == InMemoryTrie.NONE)
-            return;
-        if (child > 0)
+        if (!InMemoryTrie.isNullOrLeaf(child))
             mark(trie, child, set, objs);
-        else
-            objs.set(~child);
+
+        if (InMemoryTrie.isLeaf(child))
+        {
+            int cell = trie.contentManager.cellUsedIfAny(child);
+            if (cell < 0)
+                objs.set(~child);
+            else
+            {
+                set.set(cell >> 5);
+                if (VERBOSE)
+                    System.out.println(trie.contentManager.dumpContentId(child));
+            }
+        }
     }
 
     static InMemoryTrie<Object> makeInMemoryTrie(ByteComparable[] src,
@@ -339,5 +368,131 @@ public class CellReuseTest
     throws TrieSpaceExhaustedException
     {
         trie.apply(mutation, (x, y) -> y, needsForcedCopy);
+    }
+
+    class TestContentSerializer implements ContentSerializer<Object>
+    {
+
+        @Override
+        public int idIfSpecial(Object content, boolean shouldPresentAfterBranch)
+        {
+            return content == Boolean.TRUE ? 0 : -1;
+        }
+
+        @Override
+        public int serialize(Object content, boolean shouldPresentAfterBranch, UnsafeBuffer buffer, int offset) throws TrieSpaceExhaustedException
+        {
+            ByteBuffer buf = (ByteBuffer) content;
+            buffer.putInt(offset, buf.remaining());
+            buffer.putBytes(offset + 4, buf, buf.position(), buf.remaining());
+            return 0;
+        }
+
+        @Override
+        public Object special(int id)
+        {
+            return Boolean.TRUE;
+        }
+
+        @Override
+        public Object deserialize(UnsafeBuffer buffer, int inBufferPos, int offsetBits)
+        {
+            int length = buffer.getInt(inBufferPos);
+            ByteBuffer buf = ByteBuffer.allocate(length);
+            buffer.getBytes(inBufferPos, buf, length);
+            return buf;
+        }
+
+        @Override
+        public void releaseSpecial(int id)
+        {
+
+        }
+
+        @Override
+        public boolean releaseNeeded(int offset)
+        {
+            return false;
+        }
+
+        @Override
+        public void release(UnsafeBuffer buffer, int inBufferPos, int offsetBits)
+        {
+
+        }
+
+        @Override
+        public boolean shouldPreserveWithoutChildren(int offset)
+        {
+            return offset != OFFSET_SPECIAL;
+        }
+
+        @Override
+        public boolean shouldPresentSpecialAfterBranch(int id)
+        {
+            return false;
+        }
+
+        @Override
+        public boolean shouldPresentAfterBranch(int offsetBits)
+        {
+            return false;
+        }
+
+        @VisibleForTesting
+        @Override
+        public void releaseReferencesUnsafe()
+        {
+
+        }
+
+        @Override
+        public String dumpSpecial(int id)
+        {
+            return "PARTITION";
+        }
+
+        @Override
+        public String dumpContent(UnsafeBuffer buffer, int inBufferPos, int offsetBits)
+        {
+            return ByteBufferUtil.bytesToHex((ByteBuffer) deserialize(buffer, inBufferPos, offsetBits));
+        }
+
+        @Override
+        public int updateInPlace(UnsafeBuffer buffer, int inBufferPos, int offsetBits, Object newContent) throws TrieSpaceExhaustedException
+        {
+            return serialize(newContent, false, buffer, inBufferPos);
+        }
+
+        @Override
+        public void completeMutation()
+        {
+
+        }
+
+        @Override
+        public void abortMutation()
+        {
+
+        }
+
+        @Override
+        public long usedSizeOffHeap()
+        {
+            return 0;
+        }
+
+        @Override
+        public long usedSizeOnHeap()
+        {
+            return 0;
+        }
+
+        @VisibleForTesting
+        @Override
+        public long unusedReservedOnHeapMemory()
+        {
+            return 0;
+        }
     }
 }

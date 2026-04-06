@@ -20,7 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import org.agrona.concurrent.UnsafeBuffer;
 
-import static org.apache.cassandra.db.tries.InMemoryReadTrie.PAYLOAD_OFFSET;
+import static org.apache.cassandra.db.tries.ContentSerializer.OFFSET_SPECIAL;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.offset;
 
 /// Content manager used for storing data directly in trie cells.
@@ -39,36 +39,59 @@ class ContentManagerBytes<T> implements ContentManager<T>
     private final BufferManager bufferManager;
     private int valuesCount = 0;
 
+    // Leaves have negative pointers. If we mask the sign bit and
+
+    static final int SIGN = 0x80000000;
+    static final int MASK_ID_TO_CELL = 0x7FFFFFE0;
+
+    static
+    {
+        assert offset(specialToContent(0)) == OFFSET_SPECIAL
+            : "OFFSET_SPECIAL must be 0x1F";
+    }
+
     public ContentManagerBytes(ContentSerializer<T> serializer, BufferManager bufferManager)
     {
         this.serializer = serializer;
         this.bufferManager = bufferManager;
     }
 
+    static final int contentToSpecial(int contentId)
+    {
+        return (~contentId) >> 5;
+    }
+
+    static final int specialToContent(int specialId)
+    {
+        assert specialId >= 0;
+        // ~ rather than - to permit an id of 0, and it also sets the offset to OFFSET_SPECIAL
+        return ~(specialId << 5);
+    }
+
     @Override
     public T getContent(int id)
     {
-        if (id < 0)
-            return serializer.special(id);
-        assert offset(id) == PAYLOAD_OFFSET;
-        int cell = id - PAYLOAD_OFFSET;
-        return serializer.deserialize(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
+        int offset = offset(id);
+        if (offset == OFFSET_SPECIAL)
+            return serializer.special(contentToSpecial(id));
+        int cell = id & MASK_ID_TO_CELL;
+        return serializer.deserialize(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell), offset);
     }
 
     @Override
-    public boolean shouldPresentAfterBranch(int contentId)
+    public boolean shouldPresentAfterBranch(int id)
     {
-        if (contentId < 0)
-            return serializer.shouldPresentSpecialAfterBranch(contentId);
-        assert offset(contentId) == PAYLOAD_OFFSET;
-        int cell = contentId - PAYLOAD_OFFSET;
-        return serializer.shouldPresentAfterBranch(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
+        int offset = offset(id);
+        if (offset == OFFSET_SPECIAL)
+            return serializer.shouldPresentSpecialAfterBranch(contentToSpecial(id));
+        return serializer.shouldPresentAfterBranch(offset);
     }
 
     @Override
-    public boolean shouldPreserveWithoutChildren(int contentId)
+    public boolean shouldPreserveWithoutChildren(int id)
     {
-        return serializer.shouldPreserveWithoutChildren(contentId);
+        int offset = offset(id);
+        return serializer.shouldPreserveWithoutChildren(offset);
     }
 
     @Override
@@ -76,55 +99,58 @@ class ContentManagerBytes<T> implements ContentManager<T>
     {
         ++valuesCount;
         int idIfSpecial = serializer.idIfSpecial(value, contentAfterBranch);
-        if (idIfSpecial < 0)
-            return idIfSpecial; // special value
+        if (idIfSpecial >= 0)
+            return specialToContent(idIfSpecial); // special value
 
         int cell = bufferManager.allocateCell();
-        serializer.serialize(value, contentAfterBranch, bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
-        return cell + PAYLOAD_OFFSET;
+        int offset = serializer.serialize(value, contentAfterBranch, bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
+        return cell | offset | SIGN;
     }
 
     @Override
     public int setContent(int id, T value) throws TrieSpaceExhaustedException
     {
-        if (id < 0)
+        int offset = offset(id);
+        // check if we are switching from a special
+        if (offset == OFFSET_SPECIAL)
         {
-            serializer.releaseSpecial(id);
-            --valuesCount;
-            return addContent(value, serializer.shouldPresentSpecialAfterBranch(id));
+            int specialId = contentToSpecial(id);
+            serializer.releaseSpecial(specialId);
+            --valuesCount; // compensate for +1 in addContent
+            return addContent(value, serializer.shouldPresentSpecialAfterBranch(specialId));
         }
 
-        assert offset(id) == PAYLOAD_OFFSET;
-        int cell = id - PAYLOAD_OFFSET;
-        UnsafeBuffer buffer = bufferManager.getBuffer(cell);
-        int offset = bufferManager.inBufferOffset(cell);
-        if (serializer.setInPlace(buffer, offset, value))
-            return id;
+        // Check if we need to switch to a special
+        boolean afterBranch = serializer.shouldPresentAfterBranch(offset);
+        int special = serializer.idIfSpecial(value, afterBranch);
+        int cell = id & MASK_ID_TO_CELL;
+        if (special >= 0)
+        {
+            if (serializer.releaseNeeded(offset))
+                serializer.release(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell), offset);
+            bufferManager.recycleCell(cell);
+            return specialToContent(special);
+        }
 
-        // Otherwise we need to move the content.
-        if (serializer.releaseNeeded())
-            serializer.release(buffer, offset);
-        bufferManager.recycleCell(id);
-        --valuesCount; // compensate for one added by addContent
-        return addContent(value, serializer.shouldPresentAfterBranch(buffer, offset));
+        int newOffset = serializer.updateInPlace(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell), offset, value);
+        return cell | SIGN | newOffset;
     }
 
     @Override
     public void releaseContent(int id)
     {
         --valuesCount;
-        if (id < 0)
+        int offset = offset(id);
+        if (offset == OFFSET_SPECIAL)
         {
             serializer.releaseSpecial(id);
             return;
         }
 
-        bufferManager.recycleCell(id);
-        if (!serializer.releaseNeeded())
-            return;
-        assert offset(id) == PAYLOAD_OFFSET;
-        int cell = id - PAYLOAD_OFFSET;
-        serializer.release(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
+        int cell = id & MASK_ID_TO_CELL;
+        if (serializer.releaseNeeded(offset))
+            serializer.release(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell), offset);
+        bufferManager.recycleCell(cell);
     }
 
     @Override
@@ -142,12 +168,18 @@ class ContentManagerBytes<T> implements ContentManager<T>
     @Override
     public String dumpContentId(int id)
     {
-        if (id < 0)
+        int offset = offset(id);
+        if (offset == OFFSET_SPECIAL)
             return serializer.dumpSpecial(id);
 
-        assert offset(id) == PAYLOAD_OFFSET;
-        int cell = id - PAYLOAD_OFFSET;
-        return serializer.dumpContent(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell));
+        int cell = id & MASK_ID_TO_CELL;
+        return serializer.dumpContent(bufferManager.getBuffer(cell), bufferManager.inBufferOffset(cell), offset);
+    }
+
+    @Override
+    public int cellUsedIfAny(int id)
+    {
+        return offset(id) == OFFSET_SPECIAL ? -1 : id & MASK_ID_TO_CELL;
     }
 
     @Override

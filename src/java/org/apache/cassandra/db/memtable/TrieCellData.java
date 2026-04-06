@@ -30,7 +30,7 @@ import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 /// includes liveness (timestamp/ttl/local deletion time) and value. If the value is small enough to fit, it is placed
 /// directly inside the 32-byte cell; otherwise we use the given saver/loader to map it to a long integer handle and
 /// store the handle.
-public class TrieCellData extends AbstractBufferCellData
+public abstract class TrieCellData extends AbstractBufferCellData
 {
     public interface ExternalBufferHandler
     {
@@ -44,151 +44,237 @@ public class TrieCellData extends AbstractBufferCellData
         void release(long handle, int length);
     }
 
-    public static final int OFFSET_TIMESTAMP = 0;
-    public static final int OFFSET_LOCAL_DELETION_TIME = 8;
-    public static final int OFFSET_TTL = 12;
+    public static final int OFFSET_TIMESTAMP = 24;
+    public static final int OFFSET_LOCAL_DELETION_TIME = 20;
+    public static final int OFFSET_TTL = 16;
     /// If the value fits, it is placed starting from this offset in the trie cell.
-    public static final int OFFSET_DATA = 16;
+    public static final int OFFSET_DATA = 0;
     /// If the value does not fit, these 8 bytes hold its external handle.
-    public static final int OFFSET_EXTERNAL_HANDLE = 16;
+    public static final int OFFSET_EXTERNAL_HANDLE = 8;
     /// If the value does not fit, these 4 bytes hold its length.
-    public static final int OFFSET_EXTERNAL_LENGTH = 24;
+    public static final int OFFSET_EXTERNAL_LENGTH = 4;
+    /// Byte storing whether an externally-stored cell is a counter
+    public static final int OFFSET_EXTERNAL_IS_COUNTER = 0;
 
-    public static final int OFFSET_FLAGS = 31;
-
-    /// If set, the value is stored externally, and we hold its handle and length.
-    static final byte FLAG_EXTERNAL = (byte) 0x80;
-    static final byte FLAG_IS_COUNTER_CELL = 0x40;
-
-    // Bits 0x30 cannot be used (used by TrieMemtable for type id)
-
-    static final int MAX_VALUE_LENGTH = 15;
-    static final byte LENGTH_MASK = 0x0F;
+    /// Length of an embedded counter
+    private static final int OFFSET_COUNTER_LENGTH = 15;
 
     final UnsafeBuffer buffer;
-    final int offset;
-    final ExternalBufferHandler loader;
+    final int inBufferPos;
 
-    /// Store the given cell data in the 32 bytes of `buffer` starting at offset `offset`. If the value cannot fit in
+    /// Store the given cell data in the 32 bytes of `buffer` starting at position `inBufferPos`. If the value cannot fit in
     /// this space, use the given external saver to store it, and save the resulting handle and the length of the value.
-    public static void serialize(CellData<?, ?> cell,
-                                 int typeBits,
-                                 UnsafeBuffer buffer, int offset,
-                                 ExternalBufferHandler externalBufferSaver)
+    public static int serialize(CellData<?, ?> cell,
+                                UnsafeBuffer buffer, int inBufferPos,
+                                ExternalBufferHandler externalBufferSaver)
     throws TrieSpaceExhaustedException
     {
         ByteBuffer value = cell.buffer();
         int length = value.remaining();
-        buffer.putLongOrdered(offset + OFFSET_TIMESTAMP, cell.timestamp());
-        buffer.putIntOrdered(offset + OFFSET_LOCAL_DELETION_TIME, cell.localDeletionTime());
-        buffer.putIntOrdered(offset + OFFSET_TTL, cell.ttl());
-        buffer.putByte(offset + OFFSET_FLAGS,
-                       (byte) (typeBits |
-                               (length <= MAX_VALUE_LENGTH ? 0 : FLAG_EXTERNAL) |
-                               (cell.isCounterCell() ? FLAG_IS_COUNTER_CELL : 0) |
-                               (length <= MAX_VALUE_LENGTH ? length : 0)));
+        buffer.putLongOrdered(inBufferPos + OFFSET_TIMESTAMP, cell.timestamp());
+        buffer.putIntOrdered(inBufferPos + OFFSET_LOCAL_DELETION_TIME, cell.localDeletionTime());
+        buffer.putIntOrdered(inBufferPos + OFFSET_TTL, cell.ttl());
 
-        if (length <= MAX_VALUE_LENGTH)
+        boolean isCounterCell = cell.isCounterCell();
+        if (isCounterCell && length <= OFFSET_COUNTER_LENGTH)
         {
-            // using the offset, length version of putBytes to make sure the source buffer's position is not touched
-            buffer.putBytes(offset + OFFSET_DATA, value, 0, length);
+            assert length <= OFFSET_COUNTER_LENGTH;
+            buffer.putByte(inBufferPos + OFFSET_COUNTER_LENGTH, (byte) length);
+            buffer.putBytes(inBufferPos + OFFSET_DATA, value, 0, length);
+            return TrieMemtable.TrieSerializer.TYPE_CELL_COUNTER;
         }
-        else
+
+        if (!isCounterCell && cellValueCanBeEmbedded(cell, length))
         {
-            long handle = externalBufferSaver.store(value, length);
-            buffer.putLongOrdered(offset + OFFSET_EXTERNAL_HANDLE, handle);
-            buffer.putIntOrdered(offset + OFFSET_EXTERNAL_LENGTH, length);
+            // Storing value embedded in trie cell. This may overwrite the TTL/local deletion, which we won't read if
+            // the length is above OFFSET_TTL.
+
+            // using the inBufferPos, length version of putBytes to make sure the source buffer's position is not touched
+            buffer.putBytes(inBufferPos + OFFSET_DATA, value, 0, length);
+            return length;
         }
-    }
 
-    /// Construct a [CellData] representation of the data stored in the 32 bytes at the `offset` in `buffer`.
-    /// The given `loader` is used to retrieve the value if it is stored externally.
-    public TrieCellData(UnsafeBuffer buffer, int offset, ExternalBufferHandler loader)
-    {
-        this.buffer = buffer;
-        this.offset = offset;
-        this.loader = loader;
-    }
-
-    private byte getFlags()
-    {
-        return buffer.getByte(offset + OFFSET_FLAGS);
-    }
-
-    @Override
-    public boolean isCounterCell()
-    {
-        return (getFlags() & FLAG_IS_COUNTER_CELL) != 0;
-    }
-
-    @Override
-    public int valueSize()
-    {
-        byte flags = getFlags();
-        if ((flags & FLAG_EXTERNAL) != 0)
-            return buffer.getInt(offset + OFFSET_EXTERNAL_LENGTH);
-        else
-            return flags & LENGTH_MASK;
-    }
-
-    @Override
-    public ByteBuffer value()
-    {
-        ByteBuffer buf;
-        byte flags = getFlags();
-        if ((flags & FLAG_EXTERNAL) == 0)
-        {
-            int length = flags & LENGTH_MASK;
-            buf = buffer.byteBuffer().duplicate();
-            buf.position(offset + OFFSET_DATA);
-            buf.limit(offset + OFFSET_DATA + length);
-            return buf; // we don't need to slice
-        }
-        else
-        {
-            long handle = buffer.getLong(offset + 16);
-            int length = buffer.getInt(offset + 24);
-            return loader.load(handle, length);
-        }
-    }
-
-    @Override
-    public long timestamp()
-    {
-        return buffer.getLong(offset + OFFSET_TIMESTAMP);
-    }
-
-    @Override
-    public int ttl()
-    {
-        return buffer.getInt(offset + OFFSET_TTL);
-    }
-
-    @Override
-    public int localDeletionTime()
-    {
-        return buffer.getInt(offset + OFFSET_LOCAL_DELETION_TIME);
-    }
-
-    @Override
-    public long unsharedHeapSizeExcludingData()
-    {
-        return 0;
+        // stored externally
+        long handle = externalBufferSaver.store(value, length);
+        buffer.putLongOrdered(inBufferPos + OFFSET_EXTERNAL_HANDLE, handle);
+        buffer.putIntOrdered(inBufferPos + OFFSET_EXTERNAL_LENGTH, length);
+        buffer.putByte(inBufferPos + OFFSET_EXTERNAL_IS_COUNTER, (byte) (isCounterCell ? 1 : 0));
+        return TrieMemtable.TrieSerializer.TYPE_CELL_EXTERNAL_VALUE;
     }
 
     public static long offTrieSize(CellData<?, ?> cell)
     {
         int sz = cell.valueSize();
-        return sz <= MAX_VALUE_LENGTH ? 0 : sz;
+        return cellValueCanBeEmbedded(cell, sz)
+               ? 0
+               : sz;
     }
 
-    public static void release(UnsafeBuffer buffer, int offset, ExternalBufferHandler handler)
+    private static boolean cellValueCanBeEmbedded(CellData<?, ?> cell, int length)
     {
-        byte flags = buffer.getByte(offset + OFFSET_FLAGS);
-        if ((flags & FLAG_EXTERNAL) == 0)
-            return;
-        long handle = buffer.getLong(offset + OFFSET_EXTERNAL_HANDLE);
-        int length = buffer.getInt(offset + OFFSET_EXTERNAL_LENGTH);
-        handler.release(handle, length);
+        // No expiration time implies no TTL
+        return length <= OFFSET_TTL || length <= OFFSET_TIMESTAMP && cell.localDeletionTime() == NO_DELETION_TIME;
+    }
+
+    TrieCellData(UnsafeBuffer buffer, int inBufferPos)
+    {
+        this.buffer = buffer;
+        this.inBufferPos = inBufferPos;
+    }
+
+    @Override
+    public boolean isCounterCell()
+    {
+        return false;
+    }
+
+    @Override
+    public long timestamp()
+    {
+        return buffer.getLong(inBufferPos + OFFSET_TIMESTAMP);
+    }
+
+    @Override
+    public int ttl()
+    {
+        return buffer.getInt(inBufferPos + OFFSET_TTL);
+    }
+
+    @Override
+    public int localDeletionTime()
+    {
+        return buffer.getInt(inBufferPos + OFFSET_LOCAL_DELETION_TIME);
+    }
+
+    @Override
+    public long unsharedHeapSizeExcludingData()
+    {
+        // Managed separately by trie/external handler
+        return 0;
+    }
+
+    public static TrieCellData embedded(UnsafeBuffer buffer, int inBufferPos, int length)
+    {
+        return length <= OFFSET_TTL ? new Embedded(buffer, inBufferPos, length)
+                                    : new EmbeddedNoTTL(buffer, inBufferPos, length);
+    }
+
+    public static class Embedded extends TrieCellData
+    {
+        final int length;
+
+        public Embedded(UnsafeBuffer buffer, int inBufferPos, int length)
+        {
+            super(buffer, inBufferPos);
+            this.length = length;
+        }
+
+
+        @Override
+        public int valueSize()
+        {
+            return length;
+        }
+
+        @Override
+        public ByteBuffer value()
+        {
+            ByteBuffer buf = buffer.byteBuffer().duplicate();
+            buf.position(inBufferPos + OFFSET_DATA);
+            buf.limit(inBufferPos + OFFSET_DATA + length);
+            return buf; // we don't need to slice
+        }
+
+        @Override
+        public int ttl()
+        {
+            if (length > OFFSET_TTL)
+                return NO_TTL;
+            else
+                return super.ttl();
+        }
+
+        @Override
+        public int localDeletionTime()
+        {
+            if (length > OFFSET_TTL)
+                return NO_DELETION_TIME;
+            else
+                return super.localDeletionTime();
+        }
+    }
+
+    public static class EmbeddedNoTTL extends Embedded
+    {
+        public EmbeddedNoTTL(UnsafeBuffer buffer, int inBufferPos, int length)
+        {
+            super(buffer, inBufferPos, length);
+        }
+
+        @Override
+        public int ttl()
+        {
+            return NO_TTL;
+        }
+
+        @Override
+        public int localDeletionTime()
+        {
+            return NO_DELETION_TIME;
+        }
+    }
+
+    public static class Counter extends Embedded
+    {
+        public Counter(UnsafeBuffer buffer, int inBufferPos)
+        {
+            super(buffer, inBufferPos, buffer.getByte(inBufferPos + OFFSET_COUNTER_LENGTH));
+        }
+
+        @Override
+        public boolean isCounterCell()
+        {
+            return true;
+        }
+    }
+
+    public static class External extends TrieCellData
+    {
+        final ExternalBufferHandler handler;
+        final boolean isCounterCell;
+
+        public External(UnsafeBuffer buffer, int inBufferPos, ExternalBufferHandler handler)
+        {
+            super(buffer, inBufferPos);
+            this.handler = handler;
+            this.isCounterCell = buffer.getByte(inBufferPos + OFFSET_EXTERNAL_IS_COUNTER) != 0;
+        }
+
+        @Override
+        public boolean isCounterCell()
+        {
+            return isCounterCell;
+        }
+
+        @Override
+        public int valueSize()
+        {
+            return buffer.getInt(inBufferPos + OFFSET_EXTERNAL_LENGTH);
+        }
+
+        @Override
+        public ByteBuffer value()
+        {
+            long handle = buffer.getLong(inBufferPos + OFFSET_EXTERNAL_HANDLE);
+            int length = buffer.getInt(inBufferPos + OFFSET_EXTERNAL_LENGTH);
+            return handler.load(handle, length);
+        }
+
+        public static void release(UnsafeBuffer buffer, int inBufferPos, ExternalBufferHandler handler)
+        {
+            long handle = buffer.getLong(inBufferPos + OFFSET_EXTERNAL_HANDLE);
+            int length = buffer.getInt(inBufferPos + OFFSET_EXTERNAL_LENGTH);
+            handler.release(handle, length);
+        }
     }
 }

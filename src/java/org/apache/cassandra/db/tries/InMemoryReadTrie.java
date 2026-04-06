@@ -47,7 +47,6 @@ public abstract class InMemoryReadTrie<T>
      - a sparse node occupies exactly one cell.
      - a split node occupies a variable number of cells.
      - a prefix node can be placed in the same cell as the node it augments, or in a separate cell.
-     - a leaf node may be stored in one cell or use a negative leaf id and use no cells.
 
     Nodes are referenced in that buffer by an integer position/pointer, the 'node pointer'. Note that node pointers are
     not pointing at the beginning of cells, and we call 'pointer offset' the offset of the node pointer to the cell it
@@ -56,9 +55,6 @@ public abstract class InMemoryReadTrie<T>
      - If the pointer is negative, we have a leaf node. Since a leaf has no children, we need no data other than its
        content to represent it, and that content is mapped to this id by the content manager, which may store a list
        of content values corresponding to these ids.
-
-     - If the 'pointer offset' is 29, we have a leaf node whose content is serialized in the bytes of the cell, in
-       the manner chosen by the content manager.
 
      - If the 'pointer offset' is smaller than 28, we have a chain node with one transition. The transition character is
        the byte at the position pointed in the 'node buffer', and the child is pointed by:
@@ -148,8 +144,6 @@ public abstract class InMemoryReadTrie<T>
     static final int CHAIN_MAX_OFFSET = CELL_SIZE - 5;
     // Prefix node, an intermediate node augmenting its child node with content.
     static final int PREFIX_OFFSET = CELL_SIZE - 1;
-    // Content node, 32 bytes to be filled by content manager
-    static final int PAYLOAD_OFFSET = CELL_SIZE - 3;
 
     /*
      Offsets and values for navigating in a cell for particular node type. Those offsets are 'from the node pointer'
@@ -277,12 +271,12 @@ public abstract class InMemoryReadTrie<T>
 
     static boolean isLeaf(int node)
     {
-        return node < NONE || offset(node) == PAYLOAD_OFFSET;
+        return node < NONE;
     }
 
     static boolean isNullOrLeaf(int node)
     {
-        return node <= NONE || offset(node) == PAYLOAD_OFFSET;
+        return node <= NONE;
     }
 
     /// Returns the number of transitions in a chain cell entered with the given pointer.
