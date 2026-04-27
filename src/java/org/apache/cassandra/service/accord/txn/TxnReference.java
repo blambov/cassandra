@@ -599,12 +599,6 @@ public abstract class TxnReference
         }
 
         @Override
-        public Cell<?> withUpdatedTimestamp(long newTimestamp)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public Cell<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime)
         {
             throw new UnsupportedOperationException();

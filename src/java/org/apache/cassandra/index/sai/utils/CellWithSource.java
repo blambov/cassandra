@@ -31,8 +31,6 @@ import org.apache.cassandra.db.marshal.ValueAccessor;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
-import org.apache.cassandra.db.rows.ColumnData;
-import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.io.sstable.SSTableId;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -140,12 +138,6 @@ public class CellWithSource<T> extends Cell<T>
     }
 
     @Override
-    public Cell<?> withUpdatedTimestamp(long newTimestamp)
-    {
-        return wrapIfNew(cell.withUpdatedTimestamp(newTimestamp));
-    }
-
-    @Override
     public Cell<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime)
     {
         return wrapIfNew(cell.withUpdatedTimestampAndLocalDeletionTime(newTimestamp, newLocalDeletionTime));
@@ -155,6 +147,12 @@ public class CellWithSource<T> extends Cell<T>
     public Cell<?> withSkippedValue()
     {
         return wrapIfNew(cell.withSkippedValue());
+    }
+
+    @Override
+    public Cell<?> withPath(CellPath path)
+    {
+        return wrapIfNew(cell.withPath(path));
     }
 
     @Override
@@ -200,21 +198,15 @@ public class CellWithSource<T> extends Cell<T>
     }
 
     @Override
-    public ColumnData updateAllTimestamp(long newTimestamp)
+    public Cell<?> updateAllTimestamp(long newTimestamp)
     {
         return wrapIfNew(cell.updateAllTimestamp(newTimestamp));
     }
 
     @Override
-    public ColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
+    public Cell<?> updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
     {
         return wrapIfNew(cell.updateTimesAndPathsForAccord(cellToMaybeNewListPath, newTimestamp, newLocalDeletionTime));
-    }
-
-    @Override
-    public ColumnData updateAllTimesWithNewCellPathForComplexColumnData(@Nonnull CellPath maybeNewPath, long newTimestamp, long newLocalDeletionTime)
-    {
-        return wrapIfNew(cell.updateAllTimesWithNewCellPathForComplexColumnData(maybeNewPath, newTimestamp, newLocalDeletionTime));
     }
 
     @Override
@@ -236,28 +228,15 @@ public class CellWithSource<T> extends Cell<T>
     }
 
     @Override
-    protected int localDeletionTimeAsUnsignedInt()
+    public int localDeletionTimeAsUnsignedInt()
     {
-        // Cannot call cell's localDeletionTimeAsUnsignedInt() because it's protected.
-        throw new UnsupportedOperationException();
+        return cell.localDeletionTimeAsUnsignedInt();
     }
 
     @Override
     public long maxTimestamp()
     {
         return cell.maxTimestamp();
-    }
-
-    private ColumnData wrapIfNew(ColumnData maybeNewColumnData)
-    {
-        if (maybeNewColumnData instanceof Cell)
-            return wrapIfNew((Cell<?>) maybeNewColumnData);
-        if (maybeNewColumnData instanceof ComplexColumnData)
-            return ((ComplexColumnData) maybeNewColumnData).transform(this::wrapIfNew);
-
-        // It's not clear when we would hit this code path, but it seems we should not
-        // hit this from SAI.
-        throw new IllegalStateException("Expected a Cell or ComplexColumnData instance, but got " + maybeNewColumnData);
     }
 
     private Cell<?> wrapIfNew(Cell<?> maybeNewCell)

@@ -521,7 +521,6 @@ public enum CassandraRelevantProperties
      * build a potential result set for search-then-sort query execution.
      */
     SAI_VECTOR_SEARCH_MAX_MATERIALIZE_KEYS("cassandra.sai.vector_search.max_materialized_keys", "16000"),
-
     /** Controls the maximum top-k limit for vector search */
     SAI_VECTOR_SEARCH_MAX_TOP_K("cassandra.sai.vector_search.max_top_k", "1000"),
 
@@ -679,6 +678,12 @@ public enum CassandraRelevantProperties
     /** Activate write survey mode. The node not becoming an active ring member, and you must use JMX StorageService->joinRing() to finalize the ring joining. */
     TEST_WRITE_SURVEY("cassandra.write_survey"),
     TOLERATE_SSTABLE_SIZE("cassandra.tolerate_sstable_size"),
+    /** To be used for tests: whether trie cursors should be verified for correctness. */
+    TRIE_DEBUG("cassandra.debug_tries"),
+    /** Number of shards for TrieMemtable. If not specified, defaults to {@link TrieMemtable#autoShardCount}  */
+    TRIE_MEMTABLE_SHARD_COUNT("cassandra.trie.memtable.shard.count"),
+    /** Whether to use fair locking for TrieMemtable shard locks. Defaults to false. */
+    TRIE_MEMTABLE_SHARD_LOCK_FAIRNESS("cassandra.trie.memtable.shard.lock.fairness", "false"),
     TRIGGERS_DIR("cassandra.triggers_dir"),
     TRUNCATE_BALLOT_METADATA("cassandra.truncate_ballot_metadata"),
     TYPE_UDT_CONFLICT_BEHAVIOR("cassandra.type.udt.conflict_behavior"),

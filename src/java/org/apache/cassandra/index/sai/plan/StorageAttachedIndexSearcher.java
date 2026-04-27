@@ -215,7 +215,7 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
             this.firstPrimaryKey = queryController.firstPrimaryKeyInRange();
             this.lastPrimaryKey = queryController.lastPrimaryKeyInRange();
 
-            // Ensure we don't fetch larger batches than the provided LIMIT to avoid fetching keys we won't use: 
+            // Ensure we don't fetch larger batches than the provided LIMIT to avoid fetching keys we won't use:
             this.partitionRowBatchSize = Math.min(PARTITION_ROW_BATCH_SIZE, command.limits().count());
         }
 
@@ -337,7 +337,7 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
         }
 
         /**
-         * Retrieves the next batch of primary keys (i.e. up to {@link #partitionRowBatchSize} of them) that belong to 
+         * Retrieves the next batch of primary keys (i.e. up to {@link #partitionRowBatchSize} of them) that belong to
          * the given partition and are selected by the query controller, advancing the underlying iterator only while
          * the next key belongs to that partition.
          *
@@ -450,7 +450,7 @@ public class StorageAttachedIndexSearcher implements Index.Searcher
         /**
          * Returns an iterator over the rows in the partition associated with the given iterator.
          * Initially, it retrieves the rows from the given iterator until it runs out of data.
-         * Then it iterates the remaining primary keys obtained from the index in batches until the end of the 
+         * Then it iterates the remaining primary keys obtained from the index in batches until the end of the
          * partition, lazily constructing an itertor for each batch. Only one row iterator is open at a time.
          * <p>
          * The rows are retrieved in the order of primary keys provided by the underlying index.

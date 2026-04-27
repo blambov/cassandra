@@ -163,6 +163,6 @@ public class TrieTermsDictionaryTest extends SAIRandomizedTester
 
     private ByteComparable asByteComparable(String s)
     {
-        return ByteComparable.fixedLength(ByteBufferUtil.bytes(s));
+        return ByteComparable.preencoded(OSS50, ByteBufferUtil.bytes(s));
     }
 }

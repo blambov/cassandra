@@ -54,21 +54,6 @@ public abstract class AbstractCell<V> extends Cell<V>
         return column.isCounterColumn() && !isTombstone();
     }
 
-    public boolean isLive(long nowInSec)
-    {
-        return isLive(nowInSec, localDeletionTime(), ttl());
-    }
-
-    public boolean isTombstone()
-    {
-        return localDeletionTime() != NO_DELETION_TIME && ttl() == NO_TTL;
-    }
-
-    public boolean isExpiring()
-    {
-        return ttl() != NO_TTL;
-    }
-
     public Cell<?> markCounterLocalToBeCleared()
     {
         if (!isCounterCell())
@@ -102,12 +87,6 @@ public abstract class AbstractCell<V> extends Cell<V>
         return this;
     }
 
-
-    public Cell<?> purgeDataOlderThan(long timestamp)
-    {
-        return this.timestamp() < timestamp ? null : this;
-    }
-
     @Override
     public Cell<?> clone(ByteBufferCloner cloner)
     {
@@ -134,7 +113,7 @@ public abstract class AbstractCell<V> extends Cell<V>
     }
 
     @Override
-    public ColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
+    public Cell<?> updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
     {
         long localDeletionTime = localDeletionTime() != NO_DELETION_TIME ? newLocalDeletionTime : NO_DELETION_TIME;
         return new BufferCell(column, isTombstone() ? newTimestamp - 1 : newTimestamp, ttl(), localDeletionTime, buffer(), path());
@@ -210,7 +189,18 @@ public abstract class AbstractCell<V> extends Cell<V>
                && left.ttl() == right.ttl()
                && left.localDeletionTime() == right.localDeletionTime()
                && ValueAccessor.equals(left.value(), left.accessor(), right.value(), right.accessor())
-               && Objects.equals(left.path(), right.path());
+               && pathsEqual(left.column, left.path(), right.path());
+    }
+
+    private static boolean pathsEqual(ColumnMetadata column, CellPath path1, CellPath path2)
+    {
+        if (path1 == path2)
+            return true;
+        if (path1 == null || path2 == null)
+            return false; // already true if both null
+
+        assert column.isComplex();
+        return ((CollectionType<?>)column.type).nameComparator().compare(path1.get(0), path2.get(0)) == 0;
     }
 
     @Override
@@ -243,7 +233,7 @@ public abstract class AbstractCell<V> extends Cell<V>
             CollectionType<?> ct = (CollectionType<?>) type;
             return String.format("[%s[%s]=%s %s]",
                                  column().name,
-                                 ct.nameComparator().getString(path().get(0)),
+                                 path() == null ? "?" : ct.nameComparator().getString(path().get(0)),
                                  isTombstone() ? "<tombstone>" : ct.valueComparator().getString(value(), accessor()),
                                  livenessInfoString());
         }

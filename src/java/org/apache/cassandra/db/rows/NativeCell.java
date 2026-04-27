@@ -112,7 +112,7 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
                       ByteBuffer value,
                       CellPath path)
     {
-        this(allocator, writeOp, column, timestamp, ttl, deletionTimeLongToUnsignedInteger(localDeletionTime), value, value.remaining(), path);
+        this(allocator, writeOp, column, timestamp, ttl, CellData.deletionTimeLongToUnsignedInteger(localDeletionTime), value, value.remaining(), path);
     }
 
     public NativeCell(AddressBasedAllocator allocator,
@@ -128,7 +128,8 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
         super(column);
         long size = offHeapSizeWithoutPath(valueLength);
 
-        assert column.isComplex() == (path != null);
+        // Trie-backed rows store path-less cells.
+        // assert column.isComplex() == (path != null);
         if (path != null)
         {
             assert path.size() == 1 : String.format("Expected path size to be 1 but was not; %s", path);
@@ -255,6 +256,12 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
     public long unsharedHeapSize()
     {
         return EMPTY_SIZE;
+    }
+
+    @Override
+    public Cell<?> withPath(CellPath path)
+    {
+        return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
     }
 
     @Override

@@ -33,6 +33,8 @@ import com.google.common.collect.Lists;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.CellSourceIdentifier;
+
+import org.apache.cassandra.db.CellSourceIdentifier;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
@@ -152,7 +154,7 @@ public class QueryController
     {
         return this.indexFilter;
     }
-    
+
     public boolean usesStrictFiltering()
     {
         return command.rowFilter().isStrict();
@@ -254,12 +256,12 @@ public class QueryController
      * The results from each call to {@link IndexSearchResultIterator#build(QueryViewBuilder.QueryExpressionView, AbstractBounds, QueryContext, boolean, Runnable)}
      * are added to a {@link KeyRangeIntersectionIterator} and returned if strict filtering is allowed.
      * <p>
-     * If strict filtering is not allowed, indexes are split into two groups according to the repaired status of their 
-     * backing SSTables. Results from searches over the repaired group are added to a 
+     * If strict filtering is not allowed, indexes are split into two groups according to the repaired status of their
+     * backing SSTables. Results from searches over the repaired group are added to a
      * {@link KeyRangeIntersectionIterator}, which is then added, along with results from searches on the unrepaired
      * set, to a top-level {@link KeyRangeUnionIterator}, and returned. This is done to ensure that AND queries do not
      * prematurely filter out matches on un-repaired partial updates. Post-filtering must also take this into
-     * account. (see {@link FilterTree#isSatisfiedBy(DecoratedKey, Row, Row)}) Note that Memtable-attached 
+     * account. (see {@link FilterTree#isSatisfiedBy(DecoratedKey, Row, Row)}) Note that Memtable-attached
      * indexes are treated as part of the unrepaired set.
      */
     public KeyRangeIterator.Builder getIndexQueryResults(Collection<Expression> expressions)
@@ -279,7 +281,7 @@ public class QueryController
             if (command.rowFilter().isStrict())
             {
                 // If strict filtering is enabled, evaluate indexes for both repaired and un-repaired SSTables together.
-                // This usually means we are making this local index query in the context of a user query that reads 
+                // This usually means we are making this local index query in the context of a user query that reads
                 // from a single replica and thus can safely perform local intersections.
                 for (QueryViewBuilder.QueryExpressionView queryExpressionView : queryView.view)
                     builder.add(IndexSearchResultIterator.build(queryExpressionView, mergeRange, queryContext, true, () -> {}));
@@ -291,7 +293,7 @@ public class QueryController
                 for (QueryViewBuilder.QueryExpressionView queryExpressionView : queryView.view)
                 {
                     Expression expression = queryExpressionView.expression;
-                    // The initial sizes here reflect little more than an effort to avoid resizing for 
+                    // The initial sizes here reflect little more than an effort to avoid resizing for
                     // partition-restricted searches w/ LCS:
                     List<SSTableIndex> repaired = new ArrayList<>(5);
                     List<SSTableIndex> unrepaired = new ArrayList<>(5);
@@ -303,7 +305,7 @@ public class QueryController
                         else
                             unrepaired.add(index);
 
-                    // Always build an iterator for the un-repaired set, given this must include Memtable indexes...  
+                    // Always build an iterator for the un-repaired set, given this must include Memtable indexes...
                     IndexSearchResultIterator unrepairedIterator =
                             IndexSearchResultIterator.build(expression, queryExpressionView.memtableIndexes, unrepaired, mergeRange, queryContext, true, () -> {});
 
@@ -319,7 +321,7 @@ public class QueryController
                         unrepairedIterator.close();
                     }
 
-                    // ...then only add an iterator to the repaired intersection if repaired SSTable indexes exist. 
+                    // ...then only add an iterator to the repaired intersection if repaired SSTable indexes exist.
                     if (!repaired.isEmpty())
                         repairedBuilder.add(IndexSearchResultIterator.build(expression, Collections.emptyList(), repaired, mergeRange, queryContext, false, () -> {}));
                 }

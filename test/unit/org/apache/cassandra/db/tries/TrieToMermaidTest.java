@@ -20,25 +20,23 @@ package org.apache.cassandra.db.tries;
 
 import org.junit.Test;
 
-import org.apache.cassandra.io.compress.BufferType;
-
-import static org.apache.cassandra.utils.LocalizeString.toLowerCaseLocalized;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 public class TrieToMermaidTest
 {
     @Test
     public void testToMermaidContent() throws Exception
     {
-        InMemoryTrie<String> trie = new InMemoryTrie<>(BufferType.OFF_HEAP);
+        InMemoryTrie<String> trie = InMemoryTrie.shortLived(TrieUtil.VERSION);
         // This was used as a basis the graphs in BTIFormat.md
         String s = "a allow an and any are as node of on the this to trie types with without";
-        s = toLowerCaseLocalized(s);
+        s = s.toLowerCase();
         for (String word : s.split("[^a-z]+"))
-            trie.putRecursive(InMemoryTrieTestBase.comparable(word), word, (x, y) -> y);
+            trie.putRecursive(TrieUtil.directComparable(word), word, (x, y) -> y);
 
-        System.out.println(trie.process(new TrieToMermaid(Object::toString,
+        System.out.println(trie.process(Direction.FORWARD,
+                                        new TrieToMermaid(Object::toString,
                                                       x -> Character.toString((char) ((int) x)),
-                                                      false),
-                                        Direction.FORWARD));
+                                                      false)));
     }
 }

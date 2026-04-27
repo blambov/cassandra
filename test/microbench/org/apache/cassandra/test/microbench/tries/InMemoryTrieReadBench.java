@@ -114,7 +114,7 @@ public class InMemoryTrieReadBench
             int sum = 0;
 
             @Override
-            public void accept(Byte aByte)
+            public void content(Byte aByte)
             {
                 sum += aByte;
             }
@@ -162,7 +162,7 @@ public class InMemoryTrieReadBench
             }
         }
         Counter counter = new Counter();
-        trie.process(counter, direction);
+        trie.process(direction, counter);
         return counter.sum;
     }
 

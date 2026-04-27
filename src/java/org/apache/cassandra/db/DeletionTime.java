@@ -24,6 +24,7 @@ import com.google.common.base.Objects;
 
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -38,7 +39,7 @@ import static java.lang.Math.min;
  */
 public abstract class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
 {
-    private static final int LOCAL_DELETION_TIME_LIVE = Cell.deletionTimeLongToUnsignedInteger(Long.MAX_VALUE);
+    private static final int LOCAL_DELETION_TIME_LIVE = CellData.deletionTimeLongToUnsignedInteger(Long.MAX_VALUE);
     private static final long MARKED_FOR_DELETE_AT_LIVE = Long.MIN_VALUE;
     public static final long EMPTY_SIZE = ObjectSizes.measure(new ImmutableDeletionTime(0, 0));
 
@@ -70,9 +71,9 @@ public abstract class DeletionTime implements Comparable<DeletionTime>, IMeasura
                 : new ImmutableDeletionTime(markedForDeleteAt, localDeletionTimeUnsignedInteger);
     }
 
-    private DeletionTime(long markedForDeleteAt, long localDeletionTime)
+    protected DeletionTime(long markedForDeleteAt, long localDeletionTime)
     {
-        this(markedForDeleteAt, Cell.deletionTimeLongToUnsignedInteger(localDeletionTime));
+        this(markedForDeleteAt, CellData.deletionTimeLongToUnsignedInteger(localDeletionTime));
     }
 
     private DeletionTime(long markedForDeleteAt, int localDeletionTimeUnsignedInteger)
@@ -97,7 +98,7 @@ public abstract class DeletionTime implements Comparable<DeletionTime>, IMeasura
      */
     public long localDeletionTime()
     {
-        return Cell.deletionTimeUnsignedIntegerToLong(localDeletionTimeUnsignedInteger);
+        return CellData.deletionTimeUnsignedIntegerToLong(localDeletionTimeUnsignedInteger);
     }
 
     public int localDeletionTimeUnsignedInteger()
@@ -176,7 +177,7 @@ public abstract class DeletionTime implements Comparable<DeletionTime>, IMeasura
         return deletes(info.timestamp());
     }
 
-    public boolean deletes(Cell<?> cell)
+    public boolean deletes(CellData<?, ?> cell)
     {
         return deletes(cell.timestamp());
     }
@@ -445,7 +446,7 @@ public abstract class DeletionTime implements Comparable<DeletionTime>, IMeasura
             if (localDeletionTime < 0 || localDeletionTime > Cell.MAX_DELETION_TIME) // invalid
                 this.localDeletionTimeUnsignedInteger = Cell.MAX_DELETION_TIME_UNSIGNED_INTEGER + 1;
             else
-                this.localDeletionTimeUnsignedInteger = Cell.deletionTimeLongToUnsignedInteger(localDeletionTime);
+                this.localDeletionTimeUnsignedInteger = CellData.deletionTimeLongToUnsignedInteger(localDeletionTime);
         }
 
         public void reset(DeletionTime deletionTime)
