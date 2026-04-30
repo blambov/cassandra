@@ -173,7 +173,6 @@ public interface CellData<V, C extends CellData<?, ?>>
     C withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime);
 
     C updateAllTimestamp(long newTimestamp);
-    // Note: CellData cannot implement updateTimesAndPathsForAccord because it has no knowledge of its path
 
     /**
      * Used to apply the same optimization as in {@link Cell.Serializer#deserialize} when

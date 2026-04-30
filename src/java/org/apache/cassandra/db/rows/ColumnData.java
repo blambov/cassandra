@@ -19,10 +19,6 @@ package org.apache.cassandra.db.rows;
 
 import java.util.Comparator;
 
-import javax.annotation.Nonnull;
-
-import com.google.common.base.Function;
-
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.Digest;
@@ -140,11 +136,6 @@ public abstract class ColumnData implements IMeasurableMemory
      * This exists for the Paxos path, see {@link PartitionUpdate#updateAllTimestamp} for additional details.
      */
     public abstract ColumnData updateAllTimestamp(long newTimestamp);
-
-    /**
-     * @param cellToMaybeNewListPath If the cell is a list append cell a new cell path is returned generated based on the Accord executeAt timestamp
-     */
-    public abstract ColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
 
     public abstract ColumnData markCounterLocalToBeCleared();
 

@@ -286,18 +286,6 @@ public class BTreeComplexColumn extends ComplexColumnData
     }
 
     @Override
-    public ComplexColumnData updateTimesAndPathsForAccord(@Nonnull com.google.common.base.Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
-    {
-        DeletionTime newDeletion = complexDeletion.isLive() ? complexDeletion : DeletionTime.build(newTimestamp - 1, newLocalDeletionTime);
-        com.google.common.base.Function<Cell, CellPath> maybeNewListPath;
-        if (column.type instanceof ListType && column.type.isMultiCell())
-            maybeNewListPath = cellToMaybeNewListPath;
-        else
-            maybeNewListPath = cell -> cell.path();
-        return transformAndFilter(newDeletion, cell -> ((AbstractCell<?>) cell).updateAllTimesWithNewCellPathForComplexColumnData(maybeNewListPath.apply(cell), newTimestamp, newLocalDeletionTime));
-    }
-
-    @Override
     public long maxTimestamp()
     {
         return BTree.<Cell>accumulate(cells, (cell, ts) -> Math.max(ts, cell.timestamp()), complexDeletion.markedForDeleteAt());

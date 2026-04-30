@@ -90,10 +90,6 @@ public abstract class Cell<V> extends ColumnData implements CellData<V, Cell<?>>
     // Overrides super type to provide a more precise return type.
     public abstract Cell<?> updateAllTimestamp(long newTimestamp);
 
-    @Override
-    // Overrides super type to provide a more precise return type.
-    public abstract Cell<?> updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
-
     /**
      * Used to apply the same optimization as in {@link Cell.Serializer#deserialize} when
      * the column is not queried but eventhough it's used for digest calculation.

@@ -20,9 +20,6 @@ package org.apache.cassandra.index.sai.utils;
 
 import java.util.Iterator;
 
-import javax.annotation.Nonnull;
-
-import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.db.CellSourceIdentifier;
@@ -101,12 +98,6 @@ public class ComplexColumnWithSource extends ComplexColumnData
     public ComplexColumnData updateAllTimestamp(long newTimestamp)
     {
         return wrapIfNew(wrapped.updateAllTimestamp(newTimestamp));
-    }
-
-    @Override
-    public ComplexColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
-    {
-        return wrapIfNew(wrapped.updateTimesAndPathsForAccord(cellToMaybeNewListPath, newTimestamp, newLocalDeletionTime));
     }
 
     @Override
