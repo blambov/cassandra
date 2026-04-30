@@ -19,6 +19,10 @@ package org.apache.cassandra.db.rows;
 
 import java.util.Iterator;
 
+import javax.annotation.Nonnull;
+
+import com.google.common.base.Function;
+
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.schema.ColumnMetadata;
@@ -64,7 +68,15 @@ public abstract class ComplexColumnData extends ColumnData implements Iterable<C
 
     public abstract <A> long accumulate(BiLongAccumulator<A, Cell<?>> accumulator, A arg, long initialValue);
 
+    @Override
     public abstract ComplexColumnData purge(DeletionPurger purger, long nowInSec);
 
+    @Override
     public abstract ComplexColumnData purgeDataOlderThan(long timestamp);
+
+    @Override
+    public abstract ComplexColumnData updateAllTimestamp(long newTimestamp);
+
+    @Override
+    public abstract ComplexColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
 }

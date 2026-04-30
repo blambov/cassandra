@@ -110,6 +110,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
@@ -170,6 +171,8 @@ public class StorageAttachedIndex implements Index
 
     private static final Set<Class<? extends IPartitioner>> ILLEGAL_PARTITIONERS =
             ImmutableSet.of(OrderPreservingPartitioner.class, LocalPartitioner.class, ByteOrderedPartitioner.class, RandomPartitioner.class);
+
+    public static final ByteComparable.Version BYTE_COMPARABLE_VERSION = ByteComparable.Version.OSS50;
 
     private final ColumnFamilyStore baseCfs;
     private final IndexMetadata indexMetadata;
@@ -555,7 +558,7 @@ public class StorageAttachedIndex implements Index
         if (indexTermType.columnMetadata().isStatic())
             validateTermSizeForRow(key, update.staticRow(), true, state);
         else
-            for (Row row : update)
+            for (Row row : update.rows())
                 validateTermSizeForRow(key, row, true, state);
     }
 

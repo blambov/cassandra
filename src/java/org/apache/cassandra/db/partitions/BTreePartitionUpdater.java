@@ -80,7 +80,7 @@ public class BTreePartitionUpdater extends BasePartitionUpdater implements Updat
             // a typical case when all values in the update are used in the result of the merge
             // clustering key cloning is needed when we have an insert but not needed when we have an update,
             // so we may allocate a bit more than needed sometimes
-            for (Row row : update)
+            for (Row row : update.rows())
             {
                 estimitedCloneSize += (int) row.accumulate((cd, v) -> v + cd.estimateCloneSize(cloner), 0);
                 estimitedCloneSize += cloner.estimateCloneSize(row.clustering());

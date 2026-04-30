@@ -24,14 +24,19 @@ import java.util.function.Supplier;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.db.CellSourceIdentifier;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.partitions.BTreePartitionUpdate;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.UnfilteredSource;
 import org.apache.cassandra.dht.Token;
@@ -150,6 +155,14 @@ public interface Memtable extends Comparable<Memtable>, UnfilteredSource, CellSo
         {
             return false;
         }
+
+        /**
+         * Override this method to provide a custom partition update factory for more efficient merging of updates.
+         */
+        default PartitionUpdate.Factory partitionUpdateFactory()
+        {
+            return BTreePartitionUpdate.FACTORY;
+        }
     }
 
     /**
@@ -179,6 +192,11 @@ public interface Memtable extends Comparable<Memtable>, UnfilteredSource, CellSo
          * {@link #localRangesUpdated()} call.
          */
         ShardBoundaries localRangeSplits(int shardCount);
+
+        /**
+         * Get the op-order primitive that protects data for the duration of reads.
+         */
+        public OpOrder readOrdering();
     }
 
     // Main write and read operations
@@ -227,6 +245,16 @@ public interface Memtable extends Comparable<Memtable>, UnfilteredSource, CellSo
      * the memtable.
      */
     TableMetadata metadata();
+
+    /**
+     * The {@link OpOrder} that guards reads from this memtable. This is used to ensure that the memtable does not corrupt any
+     * active reads because of other operations on it. Returns null if the memtable is not protected by an OpOrder
+     * (overridden by {@link AbstractAllocatorMemtable}).
+     */
+    default OpOrder readOrdering()
+    {
+        return null;
+    }
 
 
     // Memory usage tracking
@@ -302,6 +330,18 @@ public interface Memtable extends Comparable<Memtable>, UnfilteredSource, CellSo
      */
     void markExtraOffHeapUsed(long additionalSpace, OpOrder.Group opGroup);
 
+
+    /**
+     * Returns the amount of on-heap memory that has been allocated for this memtable but is not yet used.
+     * This is not counted in the memory usage to have a better flushing decision behaviour -- we do not want to flush
+     * immediately after allocating a new buffer but when we have actually used the space provided.
+     * The method is provided for testing the memory usage tracking of memtables.
+     */
+    @VisibleForTesting
+    default long unusedReservedOnHeapMemory()
+    {
+        return 0;
+    }
 
     // Flushing
 

@@ -94,8 +94,6 @@ public abstract class MemtableSizeTestBase extends CQLTester
     // Must be within 3% of the real usage. We are actually more precise than this, but the threshold is set higher to
     // avoid flakes. For on-heap allocators we allow for extra overheads below.
     final int MAX_DIFFERENCE_PERCENT = 3;
-    // Slab overhead, added when the memtable uses heap_buffers.
-    final int SLAB_OVERHEAD = 1024 * 1024;
     // Extra leniency for unslabbed buffers. We are not as precise there, and it's not a mode in real use.
     final int UNSLABBED_EXTRA_PERCENT = 2;
 

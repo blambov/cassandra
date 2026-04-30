@@ -611,7 +611,13 @@ public abstract class TxnReference
         }
 
         @Override
-        protected int localDeletionTimeAsUnsignedInt()
+        public Cell<?> withPath(CellPath path)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int localDeletionTimeAsUnsignedInt()
         {
             throw new UnsupportedOperationException();
         }

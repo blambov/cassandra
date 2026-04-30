@@ -317,24 +317,6 @@ public class TrieBackedRow extends AbstractRow
     }
 
     @Override
-    public long maxTimestamp()
-    {
-        return accumulate(Long.MIN_VALUE,
-                          (livenessInfo, maxTimestamp) -> Math.max(maxTimestamp, livenessInfo.timestamp()),
-                          (cell, maxTimestamp) -> Math.max(maxTimestamp, cell.timestamp()),
-                          (marker, maxTimestamp) -> Math.max(maxTimestamp, marker.markedForDeleteAt()));
-    }
-
-    @Override
-    public long minTimestamp()
-    {
-        return accumulate(Long.MAX_VALUE,
-                          (livenessInfo, minTimestamp) -> Math.min(minTimestamp, livenessInfo.timestamp()),
-                          (cell, minTimestamp) -> Math.min(minTimestamp, cell.timestamp()),
-                          (marker, minTimestamp) -> Math.min(minTimestamp, marker.markedForDeleteAt()));
-    }
-
-    @Override
     public Clustering<?> clustering()
     {
         return clustering;
@@ -1038,16 +1020,6 @@ public class TrieBackedRow extends AbstractRow
                      + deletion().dataSize();
 
         return Ints.checkedCast(accumulate((cd, v) -> v + cd.dataSize(), dataSize));
-    }
-
-    @Override
-    public int liveDataSize(long nowInSec)
-    {
-        int dataSize = clustering.dataSize()
-                       + primaryKeyLivenessInfo().dataSize()
-                       + deletion().dataSize();
-
-        return Ints.checkedCast(accumulate((cd, v) -> v + cd.liveDataSize(nowInSec), dataSize));
     }
 
     @Override

@@ -20,10 +20,6 @@ package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
 
-import javax.annotation.Nonnull;
-
-import com.google.common.base.Function;
-
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.marshal.ValueAccessor;
@@ -177,8 +173,7 @@ public interface CellData<V, C extends CellData<?, ?>>
     C withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime);
 
     C updateAllTimestamp(long newTimestamp);
-
-    C updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
+    // Note: CellData cannot implement updateTimesAndPathsForAccord because it has no knowledge of its path
 
     /**
      * Used to apply the same optimization as in {@link Cell.Serializer#deserialize} when

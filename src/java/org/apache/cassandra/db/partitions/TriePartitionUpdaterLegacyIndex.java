@@ -94,7 +94,8 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
     {
         Clustering<?> clustering = metadata.comparator.clusteringFromByteComparable(
             ByteArrayAccessor.instance,
-            byteComparableForCurrentDeletionBranchKey());
+            byteComparableForCurrentDeletionBranchKey(),
+            TrieBackedPartition.BYTE_COMPARABLE_VERSION);
 
         Row.Deletion updatedDeletion = updated != null ? Row.Deletion.regular(updated) : Row.Deletion.LIVE;
         if (existing == null)
@@ -269,6 +270,7 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
         return metadata.comparator.clusteringFromByteComparable(
             ByteArrayAccessor.instance,
             ByteComparable.preencoded(mutator.byteComparableVersion(),
-                                      mutator.getCurrentKeyBytes(currentPartitionDepth)));
+                                      mutator.getCurrentKeyBytes(currentPartitionDepth)),
+            TrieBackedPartition.BYTE_COMPARABLE_VERSION);
     }
 }

@@ -316,6 +316,36 @@ public interface ByteSource
         };
     }
 
+    /**
+     * Wrap a ByteSource in a length-fixing facade.
+     *
+     * If the length of {@code src} is less than {@code cutoff}, then pad it on the right with {@code padding} until
+     * the overall length equals {@code cutoff}.  If the length of {@code src} is greater than {@code cutoff}, then
+     * truncate {@code src} to that size.  Effectively a noop if {@code src} happens to have length {@code cutoff}.
+     *
+     * @param src the input source to wrap
+     * @param cutoff the size of the source returned
+     * @param padding a padding byte (an int subject to a 0xFF mask)
+     */
+    public static ByteSource cutOrRightPad(ByteSource src, int cutoff, int padding)
+    {
+        return new ByteSource()
+        {
+            int pos = 0;
+
+            @Override
+            public int next()
+            {
+                if (pos++ >= cutoff)
+                {
+                    return END_OF_STREAM;
+                }
+                int next = src.next();
+                return next == END_OF_STREAM ? padding : next;
+            }
+        };
+    }
+
     public static ByteSource append(ByteSource src, int lastByte)
     {
         return new ByteSource()

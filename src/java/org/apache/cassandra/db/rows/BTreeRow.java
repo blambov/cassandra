@@ -391,6 +391,16 @@ public class BTreeRow extends AbstractRow
         });
     }
 
+    public boolean hasComplex()
+    {
+        if (BTree.isEmpty(btree))
+            return false;
+
+        int size = BTree.size(btree);
+        ColumnData last = BTree.findByIndex(btree, size - 1);
+        return last.column.isComplex();
+    }
+
     public boolean hasComplexDeletion()
     {
         if (minLocalDeletionTime == Cell.MAX_DELETION_TIME || !hasComplex())
@@ -447,7 +457,7 @@ public class BTreeRow extends AbstractRow
         Deletion newDeletion = deletion.isLive() || (deletion.isShadowable() && !primaryKeyLivenessInfo.isEmpty())
                                ? Deletion.LIVE
                                : new Deletion(DeletionTime.build(newTimestamp - 1, newLocalDeletionTime), deletion.isShadowable());
-        return transformAndFilter(newInfo, newDeletion, (cd) -> cd.updateTimesAndPathsForAccord(cellToMaybeNewListPath, newTimestamp, newLocalDeletionTime));
+        return transformAndFilterColumns(newInfo, newDeletion, (cd) -> cd.updateTimesAndPathsForAccord(cellToMaybeNewListPath, newTimestamp, newLocalDeletionTime));
     }
 
     public Row withRowDeletion(DeletionTime newDeletion)
@@ -474,7 +484,7 @@ public class BTreeRow extends AbstractRow
         if (enforceStrictLiveness && newDeletion.isLive() && newInfo.isEmpty())
             return null;
 
-        return transformAndFilter(newInfo, newDeletion, (cd) -> cd.purge(purger, nowInSec));
+        return transformAndFilterColumns(newInfo, newDeletion, (cd) -> cd.purge(purger, nowInSec));
     }
 
     public Row purgeDataOlderThan(long timestamp, boolean enforceStrictLiveness)
@@ -594,14 +604,6 @@ public class BTreeRow extends AbstractRow
             ((BTreeComplexColumn) current).setValue(path, value);
     }
 
-    /**
-     * Exposed for TrieBackedPartitionStage2.
-     */
-    public Object[] getBTree()
-    {
-        return btree;
-    }
-
     public long getMinLocalDeletionTime()
     {
         return minLocalDeletionTime;
@@ -640,9 +642,9 @@ public class BTreeRow extends AbstractRow
     {
         try (Reconciler reconciler = reconciler(reconcileF, deletion))
         {
-            if (!rowDeletion.isLive())
+            if (!deletion.isLive())
             {
-                if (rowDeletion == existing.deletion())
+                if (deletion == existingDeletion)
                 {
                     updateBtree = BTree.transformAndFilter(updateBtree, reconciler::retain);
                 }
@@ -651,8 +653,7 @@ public class BTreeRow extends AbstractRow
                     existingBtree = BTree.transformAndFilter(existingBtree, reconciler::retain);
                 }
             }
-            Object[] tree = BTree.update(existingBtree, updateBtree, ColumnData.comparator, reconciler);
-            return new BTreeRow(existing.clustering, livenessInfo, rowDeletion, tree, minDeletionTime(tree, livenessInfo, deletion));
+            return BTree.update(existingBtree, updateBtree, ColumnData.comparator, reconciler);
         }
     }
 

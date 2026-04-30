@@ -21,6 +21,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 
+import javax.annotation.Nonnull;
+
+import com.google.common.base.Function;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.LivenessInfo;
@@ -78,28 +82,43 @@ public abstract class Cell<V> extends ColumnData implements CellData<V, Cell<?>>
 
     public abstract Cell<?> withUpdatedValue(ByteBuffer newValue);
 
+    @Override
+    // Overrides super type to provide a more precise return type.
     public abstract Cell<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime);
+
+    @Override
+    // Overrides super type to provide a more precise return type.
+    public abstract Cell<?> updateAllTimestamp(long newTimestamp);
+
+    @Override
+    // Overrides super type to provide a more precise return type.
+    public abstract Cell<?> updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
 
     /**
      * Used to apply the same optimization as in {@link Cell.Serializer#deserialize} when
      * the column is not queried but eventhough it's used for digest calculation.
      * @return a cell with an empty buffer as value
      */
+    @Override
     public abstract Cell<?> withSkippedValue();
 
     public abstract Cell<?> withPath(CellPath path);
 
     @Override
+    // Overrides super type to provide a more precise return type.
     public final Cell<?> clone(Cloner cloner)
     {
         return cloner.clone(this);
     }
 
+    @Override
     public int estimateCloneSize(Cloner cloner)
     {
         return cloner.estimateCloneSize(this);
     }
 
+    @Override
+    // Overrides super type to provide a more precise return type.
     public abstract Cell<?> clone(ByteBufferCloner cloner);
 
     @Override
@@ -111,6 +130,7 @@ public abstract class Cell<V> extends ColumnData implements CellData<V, Cell<?>>
     public abstract Cell<?> purge(DeletionPurger purger, long nowInSec);
 
     @Override
+    // Overrides super type to provide a more precise return type.
     public Cell<?> purgeDataOlderThan(long timestamp)
     {
         return timestamp() < timestamp ? null : this;

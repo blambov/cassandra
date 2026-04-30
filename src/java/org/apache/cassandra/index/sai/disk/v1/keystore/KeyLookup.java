@@ -28,6 +28,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 
+import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.disk.io.IndexInputReader;
 import org.apache.cassandra.index.sai.disk.v1.LongArray;
 import org.apache.cassandra.index.sai.disk.v1.SAICodecUtils;
@@ -172,7 +173,7 @@ public class KeyLookup
                 updateCurrentBlockIndex(currentPointId);
             }
 
-            return ByteSource.fixedLength(currentKey.bytes, currentKey.offset, currentKey.length);
+            return ByteSource.preencoded(currentKey.bytes, currentKey.offset, currentKey.length);
         }
 
         /**
@@ -366,7 +367,7 @@ public class KeyLookup
         {
             BytesRefBuilder builder = new BytesRefBuilder();
 
-            ByteSource byteSource = source.asComparableBytes(ByteComparable.Version.OSS50);
+            ByteSource byteSource = source.asComparableBytes(StorageAttachedIndex.BYTE_COMPARABLE_VERSION);
             int val;
             while ((val = byteSource.next()) != ByteSource.END_OF_STREAM)
                 builder.append((byte) val);

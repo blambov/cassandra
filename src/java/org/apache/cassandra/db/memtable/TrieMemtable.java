@@ -23,7 +23,6 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
@@ -124,7 +123,6 @@ public class TrieMemtable extends AbstractShardedMemtable
     public static final Predicate<InMemoryBaseTrie.NodeFeatures<Object>> FORCE_COPY_PARTITION_BOUNDARY =
         features -> TrieBackedPartition.isPartitionBoundary(features.content());
 
-    public static volatile int SHARD_COUNT = CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.getInt(autoShardCount());
     public static volatile boolean SHARD_LOCK_FAIRNESS = CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_LOCK_FAIRNESS.getBoolean();
 
     public static final String TRIE_MEMTABLE_CONFIG_OBJECT_NAME = "org.apache.cassandra.db:type=TrieMemtableConfig";
@@ -133,10 +131,6 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         MBeanWrapper.instance.registerMBean(new TrieMemtableConfig(), TRIE_MEMTABLE_CONFIG_OBJECT_NAME, MBeanWrapper.OnException.LOG);
     }
-
-    // Set to true when the memtable requests a switch (e.g. for trie size limit being reached) to ensure only one
-    // thread calls cfs.switchMemtableIfCurrent.
-    private final AtomicBoolean switchRequested = new AtomicBoolean(false);
 
     /// Sharded memtable sections. Each is responsible for a contiguous range of the token space (between `boundaries[i]`
     /// and `boundaries[i+1]`) and is written to by one thread at a time, while reads are carried out concurrently
@@ -154,7 +148,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     TrieMemtable(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner, Integer shardCountOption)
     {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);
-        this.metrics = TrieMemtableMetricsView.getOrCreate(metadataRef.keyspace, metadataRef.name);
+        this.metrics = new TrieMemtableMetricsView(metadataRef.keyspace, metadataRef.name);
         this.shards = generatePartitionShards(boundaries.shardCount(), metadataRef, metrics, owner.readOrdering());
         this.mergedTrie = makeMergedTrie(shards);
         logger.trace("Created memtable with {} shards", this.shards.length);
@@ -231,26 +225,19 @@ public class TrieMemtable extends AbstractShardedMemtable
     /// `commitLogSegmentPosition` should only be null if this is a secondary index, in which case it is *expected* to
     /// be null.
     @Override
-    public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
+    public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup, boolean ignoredAssumeMissing)
     {
         DecoratedKey key = update.partitionKey();
         MemtableShard shard = shards[boundaries.getShardForKey(key)];
         long colUpdateTimeDelta = shard.put(update, indexer, opGroup);
 
         if (shard.data.reachedAllocatedSizeThreshold())
-            signalFlushRequired(ColumnFamilyStore.FlushReason.TRIE_LIMIT, true);
+        {
+            logger.info("Scheduling flush for table {} due to trie size limit reached.", this.metadata.get());
+            owner.signalFlushRequired(this, ColumnFamilyStore.FlushReason.MEMTABLE_LIMIT);
+        }
 
         return colUpdateTimeDelta;
-    }
-
-    @Override
-    public void signalFlushRequired(ColumnFamilyStore.FlushReason flushReason, boolean skipIfSignaled)
-    {
-        if (!switchRequested.getAndSet(true) || !skipIfSignaled)
-        {
-            logger.info("Scheduling flush for table {} due to {}", this.metadata.get(), flushReason);
-            owner.signalFlushRequired(this, flushReason);
-        }
     }
 
     @Override
@@ -298,14 +285,6 @@ public class TrieMemtable extends AbstractShardedMemtable
         return shards.length;
     }
 
-    @Override
-    public long getEstimatedAverageRowSize()
-    {
-        if (estimatedAverageRowSize == null || currentOperations.get() > estimatedAverageRowSize.operations * 1.5)
-            estimatedAverageRowSize = new MemtableAverageRowSize(this, mergedTrie.contentOnlyTrie());
-        return estimatedAverageRowSize.rowSize;
-    }
-
     /// Returns the minimum timestamp if one available, otherwise `NO_MIN_TIMESTAMP`.
     /// [EncodingStats] uses a synthetic epoch TS at 2015. We don't want to leak that (CASSANDRA-18118) so we return
     /// `NO_MIN_TIMESTAMP` instead.
@@ -327,30 +306,6 @@ public class TrieMemtable extends AbstractShardedMemtable
         for (MemtableShard shard : shards)
             min =  EncodingStats.mergeMinLocalDeletionTime(min, shard.stats);
         return min;
-    }
-
-    @Override
-    public DecoratedKey minPartitionKey()
-    {
-        for (int i = 0; i < shards.length; i++)
-        {
-            MemtableShard shard = shards[i];
-            if (!shard.isClean())
-                return shard.minPartitionKey();
-        }
-        return null;
-    }
-
-    @Override
-    public DecoratedKey maxPartitionKey()
-    {
-        for (int i = shards.length - 1; i >= 0; i--)
-        {
-            MemtableShard shard = shards[i];
-            if (!shard.isClean())
-                return shard.maxPartitionKey();
-        }
-        return null;
     }
 
     @Override
@@ -861,7 +816,6 @@ public class TrieMemtable extends AbstractShardedMemtable
     /// The implementation of [UnfilteredPartitionIterator] used to walk partition ranges.
     static class MemtableUnfilteredPartitionIterator
     extends AbstractUnfilteredPartitionIterator
-    implements Memtable.MemtableUnfilteredPartitionIterator
     {
         private final TableMetadata metadata;
         private final Iterator<TrieBackedPartition> iter;
@@ -937,39 +891,8 @@ public class TrieMemtable extends AbstractShardedMemtable
             shard.data.releaseReferencesUnsafe();
     }
 
-    public static class TrieMemtableConfig implements TrieMemtableConfigMXBean
+    public static class TrieMemtableConfig extends ShardedMemtableConfig implements TrieMemtableConfigMXBean
     {
-        @Override
-        public void setShardCount(String shardCount)
-        {
-            if ("auto".equalsIgnoreCase(shardCount))
-            {
-                SHARD_COUNT = autoShardCount();
-                CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.setInt(SHARD_COUNT);
-            }
-            else
-            {
-                try
-                {
-                    SHARD_COUNT = Integer.parseInt(shardCount);
-                    CassandraRelevantProperties.TRIE_MEMTABLE_SHARD_COUNT.setInt(SHARD_COUNT);
-                }
-                catch (NumberFormatException ex)
-                {
-                    logger.warn("Unable to parse {} as valid value for shard count; leaving it as {}",
-                                shardCount, SHARD_COUNT);
-                    return;
-                }
-            }
-            logger.info("Requested setting shard count to {}; set to: {}", shardCount, SHARD_COUNT);
-        }
-
-        @Override
-        public String getShardCount()
-        {
-            return "" + SHARD_COUNT;
-        }
-
         @Override
         public void setLockFairness(String fairness)
         {

@@ -62,7 +62,7 @@ public abstract class AbstractShardedMemtable extends AbstractAllocatorMemtable
         this.boundaries = owner.localRangeSplits(shardCount);
     }
 
-    private static class ShardedMemtableConfig implements ShardedMemtableConfigMXBean
+    protected static class ShardedMemtableConfig implements ShardedMemtableConfigMXBean
     {
         @Override
         public void setDefaultShardCount(String shardCount)

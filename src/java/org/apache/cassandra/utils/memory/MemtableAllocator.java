@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
+import org.github.jamm.Unmetered;
 
 public abstract class MemtableAllocator
 {
@@ -77,6 +78,11 @@ public abstract class MemtableAllocator
         return offHeap;
     }
 
+    public long unusedReservedOnHeapMemory()
+    {
+        return 0; // only slabbed allocators would have non-zero here
+    }
+
     /**
      * Mark this allocator reclaiming; this will permit any outstanding allocations to temporarily
      * overshoot the maximum memory limit so that flushing can begin immediately
@@ -106,6 +112,7 @@ public abstract class MemtableAllocator
     public static class SubAllocator
     {
         // the tracker we are owning memory from
+        @Unmetered  // total pool size should not be included in memtable's deep size
         private final MemtablePool.SubPool parent;
 
         // the state of the memtable

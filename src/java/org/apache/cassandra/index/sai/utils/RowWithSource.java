@@ -298,18 +298,6 @@ public class RowWithSource implements Row
     }
 
     @Override
-    public long minTimestamp()
-    {
-        return row.minTimestamp();
-    }
-
-    @Override
-    public long maxTimestamp()
-    {
-        return row.maxTimestamp();
-    }
-
-    @Override
     public void apply(Consumer<ColumnData> function)
     {
         row.apply(function);

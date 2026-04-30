@@ -474,8 +474,7 @@ public class Commit
 
     private static PartitionUpdate withTimestamp(PartitionUpdate update, long timestamp)
     {
-        return PartitionUpdate.builder(update, 0)
-               .updateAllTimestamp(timestamp).build();
+        return update.withUpdatedTimestamps(timestamp);
     }
 
     public static class CommitSerializer<T extends Commit> implements IVersionedSerializer<T>

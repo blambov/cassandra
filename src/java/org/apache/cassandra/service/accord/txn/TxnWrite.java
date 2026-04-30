@@ -143,7 +143,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             PartitionUpdate update = deserialize(tables);
             if (!preserveTimestamps)
-                update = new PartitionUpdate.Builder(update, 0).updateAllTimestamp(timestamp).build();
+                update = update.withUpdatedTimestamps(timestamp);
             Mutation mutation = new Mutation(update, PotentialTxnConflicts.ALLOW);
             return executor.chain(() -> mutation.apply(false, false));
         }
@@ -299,11 +299,10 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 return toUpdate(tables);
 
             DecoratedKey key = baseUpdate.partitionKey();
-            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(baseUpdate.metadata(),
-                                                                                key,
-                                                                                columns(baseUpdate, referenceOps),
-                                                                                baseUpdate.rowCount(),
-                                                                                baseUpdate.canHaveShadowedData());
+            PartitionUpdate.Builder updateBuilder = PartitionUpdate.builder(baseUpdate.metadata(),
+                                                                            key,
+                                                                            columns(baseUpdate, referenceOps),
+                                                                            baseUpdate.rowCount());
 
             UpdateParameters up = parameters.updateParameters(baseUpdate.metadata(), key, index, timestamp);
             TxnData data = parameters.getData();

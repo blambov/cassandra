@@ -282,11 +282,11 @@ public class BTreeComplexColumn extends ComplexColumnData
     public BTreeComplexColumn updateAllTimestamp(long newTimestamp)
     {
         DeletionTime newDeletion = complexDeletion.isLive() ? complexDeletion : DeletionTime.build(newTimestamp - 1, complexDeletion.localDeletionTime());
-        return transformAndFilter(newDeletion, (Cell<?> cell) -> cell.updateAllTimestamp(newTimestamp));
+        return transformAndFilter(newDeletion, cell -> cell.updateAllTimestamp(newTimestamp));
     }
 
     @Override
-    public ColumnData updateTimesAndPathsForAccord(@Nonnull com.google.common.base.Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
+    public ComplexColumnData updateTimesAndPathsForAccord(@Nonnull com.google.common.base.Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
     {
         DeletionTime newDeletion = complexDeletion.isLive() ? complexDeletion : DeletionTime.build(newTimestamp - 1, newLocalDeletionTime);
         com.google.common.base.Function<Cell, CellPath> maybeNewListPath;
@@ -294,7 +294,7 @@ public class BTreeComplexColumn extends ComplexColumnData
             maybeNewListPath = cellToMaybeNewListPath;
         else
             maybeNewListPath = cell -> cell.path();
-        return transformAndFilter(newDeletion, (cell) -> (Cell<?>) cell.withPath(maybeNewListPath.apply(cell)).withUpdatedTimestampAndLocalDeletionTime(newTimestamp, newLocalDeletionTime));
+        return transformAndFilter(newDeletion, cell -> ((AbstractCell<?>) cell).updateAllTimesWithNewCellPathForComplexColumnData(maybeNewListPath.apply(cell), newTimestamp, newLocalDeletionTime));
     }
 
     @Override

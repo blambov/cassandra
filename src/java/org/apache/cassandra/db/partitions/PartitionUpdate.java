@@ -25,11 +25,9 @@ import java.util.List;
 import javax.annotation.Nonnull;
 
 import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
-import net.openhft.chronicle.core.util.ThrowingFunction;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.CounterMutation;
 import org.apache.cassandra.db.DecoratedKey;
@@ -38,35 +36,39 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.SimpleBuilders;
-import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.filter.ColumnFilter;
-import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.exceptions.CoordinatorBehindException;
 import org.apache.cassandra.exceptions.UnknownTableException;
 import org.apache.cassandra.index.IndexRegistry;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.metrics.TCMMetrics;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.utils.btree.BTree;
+import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.TableMetadatas;
+import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+import static org.apache.cassandra.db.SerializationHeader.StableHeaderSerializer.STABLE;
 import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EMPTY;
 
 /**
@@ -86,7 +88,9 @@ import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EM
 public interface PartitionUpdate extends Partition
 {
     @SuppressWarnings("Convert2MethodRef")
-    public static final PartitionUpdateSerializer serializer = new PartitionUpdateSerializer(tableId -> Schema.instance.getExistingTableMetadata(tableId));
+    public static final PartitionUpdateSerializer serializer = new PartitionUpdateSerializer();
+
+    Epoch serializedAtEpoch();
 
     DeletionInfo deletionInfo();
 
@@ -175,9 +179,14 @@ public interface PartitionUpdate extends Partition
      */
     PartitionUpdate withUpdatedTimestamps(long timestamp);
 
+    private static PartitionUpdate.Factory partitionUpdateFactory(TableMetadata metadata)
+    {
+        return metadata.params.memtable.factory().partitionUpdateFactory();
+    }
+
     static Builder builder(TableMetadata metadata, DecoratedKey partitionKey, RegularAndStaticColumns columns, int initialRowCapacity)
     {
-        return metadata.partitionUpdateFactory().builder(metadata, partitionKey, columns, initialRowCapacity);
+        return partitionUpdateFactory(metadata).builder(metadata, partitionKey, columns, initialRowCapacity);
     }
 
     static Builder builder(TableMetadata metadata, ByteBuffer partitionKey, RegularAndStaticColumns columns, int initialRowCapacity)
@@ -187,17 +196,17 @@ public interface PartitionUpdate extends Partition
 
     static PartitionUpdate emptyUpdate(TableMetadata metadata, DecoratedKey partitionKey)
     {
-        return metadata.partitionUpdateFactory().emptyUpdate(metadata, partitionKey);
+        return partitionUpdateFactory(metadata).emptyUpdate(metadata, partitionKey);
     }
 
     static PartitionUpdate singleRowUpdate(TableMetadata metadata, DecoratedKey valueKey, Row row)
     {
-        return metadata.partitionUpdateFactory().singleRowUpdate(metadata, valueKey, row);
+        return partitionUpdateFactory(metadata).singleRowUpdate(metadata, valueKey, row);
     }
 
     static PartitionUpdate fullPartitionDelete(TableMetadata metadata, DecoratedKey key, long timestamp, long nowInSec)
     {
-        return metadata.partitionUpdateFactory().fullPartitionDelete(metadata, key, timestamp, nowInSec);
+        return partitionUpdateFactory(metadata).fullPartitionDelete(metadata, key, timestamp, nowInSec);
     }
 
     static PartitionUpdate fullPartitionDelete(TableMetadata metadata, ByteBuffer key, long timestamp, long nowInSec)
@@ -207,13 +216,13 @@ public interface PartitionUpdate extends Partition
 
     static PartitionUpdate fromIterator(UnfilteredRowIterator partition, ColumnFilter filter)
     {
-        return partition.metadata().partitionUpdateFactory().fromIterator(partition, filter);
+        return partitionUpdateFactory(partition.metadata()).fromIterator(partition, filter);
     }
 
     static PartitionUpdate merge(List<? extends PartitionUpdate> updates)
     {
         assert !updates.isEmpty();
-        return updates.get(0).metadata().partitionUpdateFactory().merge(updates);
+        return partitionUpdateFactory(updates.get(0).metadata()).merge(updates);
     }
 
     PartitionUpdate withOnlyPresentColumns();
@@ -482,55 +491,92 @@ public interface PartitionUpdate extends Partition
         }
     }
 
-    class PartitionUpdateSerializer
+    public static class PartitionUpdateSerializer
     {
-        private final ThrowingFunction<? super TableId, ? extends TableMetadata, ? extends UnknownTableException> tableMetadataResolver;
-
-        public PartitionUpdateSerializer(ThrowingFunction<? super TableId, ? extends TableMetadata, ? extends UnknownTableException> tableMetadataResolver)
-        {
-            this.tableMetadataResolver = tableMetadataResolver;
-        }
-
         public void serialize(PartitionUpdate update, DataOutputPlus out, int version) throws IOException
         {
-            Preconditions.checkArgument(version != MessagingService.VERSION_DSE_68,
-                                        "Can't serialize to version " + version);
             try (UnfilteredRowIterator iter = update.unfilteredIterator())
             {
                 assert !iter.isReverseOrder();
 
                 update.metadata().id.serialize(out);
+                if (version >= MessagingService.VERSION_60)
+                    Epoch.serializer.serialize(update.metadata().epoch != null ? update.metadata().epoch : Epoch.EMPTY, out);
                 UnfilteredRowIteratorSerializer.serializer.serialize(iter, null, out, version, update.rowCount());
+            }
+        }
+
+        public void serializeWithoutKey(PartitionUpdate update, TableMetadatas tables, DataOutputPlus out, int version) throws IOException
+        {
+            try (UnfilteredRowIterator iter = update.unfilteredIterator())
+            {
+                tables.serialize(update.metadata(), out);
+                Epoch.serializer.serialize(update.metadata().epoch, out);
+                SerializationHeader header = new SerializationHeader(false, update.metadata(), iter.columns(), iter.stats());
+                UnfilteredRowIteratorSerializer.serializer.serializeWithoutKey(iter, header, out, version, update.rowCount(), STABLE, null);
             }
         }
 
         public PartitionUpdate deserialize(DataInputPlus in, int version, DeserializationHelper.Flag flag) throws IOException
         {
-            TableMetadata metadata = tableMetadataResolver.apply(TableId.deserialize(in));
-            if (version == MessagingService.VERSION_DSE_68)
+            TableId tableId = TableId.deserialize(in);
+            Epoch remoteVersion = null;
+            if (version >= MessagingService.VERSION_60)
+                remoteVersion = Epoch.serializer.deserialize(in);
+            TableMetadata tableMetadata;
+            try
             {
-                // ignore maxTimestamp
-                in.readLong();
+                tableMetadata = Schema.instance.getExistingTableMetadata(tableId);
             }
-            Factory factory = metadata.partitionUpdateFactory();
-            UnfilteredRowIteratorSerializer.Header header = UnfilteredRowIteratorSerializer.serializer.deserializeHeader(metadata, null, in, version, flag);
+            catch (UnknownTableException e)
+            {
+                ClusterMetadata metadata = ClusterMetadata.current();
+                Epoch localCurrentEpoch = metadata.epoch;
+                if (remoteVersion != null && localCurrentEpoch.isAfter(remoteVersion))
+                {
+                    TCMMetrics.instance.coordinatorBehindSchema.mark();
+                    throw new CoordinatorBehindException(e.getMessage(), e);
+                }
+                throw e;
+            }
+            UnfilteredRowIteratorSerializer.Header header = UnfilteredRowIteratorSerializer.serializer.deserializeHeader(tableMetadata, null, in, version, flag);
+            return deserialize(header, remoteVersion, tableMetadata, in, version, flag);
+        }
+
+        public PartitionUpdate deserialize(PartitionKey key, TableMetadatas tables, DataInputPlus in, int version, DeserializationHelper.Flag flag) throws IOException
+        {
+            TableMetadata tableMetadata = tables.deserialize(in);
+            Epoch remoteVersion = Epoch.serializer.deserialize(in);
+            UnfilteredRowIteratorSerializer.Header header = UnfilteredRowIteratorSerializer.serializer.deserializeHeaderWithoutKey(tableMetadata, key.partitionKey(), in, version, flag, STABLE, null);
+            return deserialize(header, remoteVersion, tableMetadata, in, version, flag);
+        }
+
+        private PartitionUpdate deserialize(UnfilteredRowIteratorSerializer.Header header, Epoch remoteVersion, TableMetadata tableMetadata, DataInputPlus in, int version, DeserializationHelper.Flag flag) throws IOException
+        {
             if (header.isEmpty)
-                return factory.emptyUpdate(metadata, header.key);
+                return partitionUpdateFactory(tableMetadata).emptyUpdate(tableMetadata, header.key);
 
             assert !header.isReversed;
             assert header.rowEstimate >= 0;
-            try (UnfilteredRowIterator partition = UnfilteredRowIteratorSerializer.serializer.deserialize(in, version, metadata, flag, header))
+            try (UnfilteredRowIterator partition = UnfilteredRowIteratorSerializer.serializer.deserialize(in, version, tableMetadata, flag, header))
             {
-                return factory.fromIterator(partition);
+                return partitionUpdateFactory(tableMetadata).fromIterator(partition, remoteVersion);
             }
         }
 
-        public static boolean isEmpty(ByteBuffer in, DeserializationHelper.Flag flag, DecoratedKey key) throws IOException
+        public static boolean isEmpty(ByteBuffer in, DeserializationHelper.Flag flag, DecoratedKey key, int version) throws IOException
         {
             int position = in.position();
             position += 16; // CFMetaData.serializer.deserialize(in, version);
             if (position >= in.limit())
                 throw new EOFException();
+
+            if (version >= MessagingService.VERSION_60)
+            {
+                long epoch = VIntCoding.getUnsignedVInt(in, position);
+                position += VIntCoding.computeUnsignedVIntSize(epoch);
+            }
+
             // DecoratedKey key = metadata.decorateKey(ByteBufferUtil.readWithVIntLength(in));
             int keyLength = VIntCoding.getUnsignedVInt32(in, position);
             position += keyLength + VIntCoding.computeUnsignedVIntSize(keyLength);
@@ -545,8 +591,20 @@ public interface PartitionUpdate extends Partition
             try (UnfilteredRowIterator iter = update.unfilteredIterator())
             {
                 return update.metadata().id.serializedSize()
-                       + (version == MessagingService.VERSION_DSE_68 ? TypeSizes.LONG_SIZE : 0)
-                       + UnfilteredRowIteratorSerializer.serializer.serializedSize(iter, null, version, update.rowCount());
+                     + (version >= MessagingService.VERSION_60 ? Epoch.serializer.serializedSize(update.metadata().epoch) : 0)
+                     + UnfilteredRowIteratorSerializer.serializer.serializedSize(iter, null, version, update.rowCount());
+            }
+        }
+
+        public long serializedSizeWithoutKey(PartitionUpdate update, TableMetadatas tables, int version)
+        {
+            try (UnfilteredRowIterator iter = update.unfilteredIterator())
+            {
+                long size = tables.serializedSize(update.metadata());
+                size += Epoch.serializer.serializedSize(update.metadata().epoch);
+
+                SerializationHeader header = new SerializationHeader(false, update.metadata(), iter.columns(), iter.stats());
+                return size + UnfilteredRowIteratorSerializer.serializer.serializedSizeWithoutKey(iter, header, version, update.rowCount(), STABLE, null);
             }
         }
     }
@@ -642,6 +700,7 @@ public interface PartitionUpdate extends Partition
         TableMetadata metadata();
 
         PartitionUpdate build();
+        PartitionUpdate build(Epoch serializedAtEpoch);
 
         RegularAndStaticColumns columns();
 
@@ -712,6 +771,16 @@ public interface PartitionUpdate extends Partition
          * the caller to close it.
          */
         PartitionUpdate fromIterator(UnfilteredRowIterator iterator);
+
+        /**
+         * Turns the given iterator into an update, setting the serialization epoch.
+         *
+         * @param iterator the iterator to turn into updates.
+         *
+         * Warning: this method does not close the provided iterator, it is up to
+         * the caller to close it.
+         */
+        PartitionUpdate fromIterator(UnfilteredRowIterator iterator, Epoch serializedAtEpoch);
 
         /**
          * Turns the given iterator into an update, filtering data through the given column filter.

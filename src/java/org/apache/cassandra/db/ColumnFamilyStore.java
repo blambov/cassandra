@@ -1883,6 +1883,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         return data;
     }
 
+    @Override
+    public OpOrder readOrdering()
+    {
+        return readOrdering;
+    }
+
     public Set<SSTableReader> getLiveSSTables()
     {
         return data.getView().liveSSTables();

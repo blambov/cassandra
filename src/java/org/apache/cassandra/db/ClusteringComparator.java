@@ -453,9 +453,8 @@ public class ClusteringComparator implements Comparator<Clusterable>
      * @param accessor Accessor to use to construct components.
      * @param comparable The clustering encoded as a byte-comparable sequence.
      */
-    public <V> Clustering<V> clusteringFromByteComparable(ValueAccessor<V> accessor, ByteComparable comparable)
+    public <V> Clustering<V> clusteringFromByteComparable(ValueAccessor<V> accessor, ByteComparable comparable, ByteComparable.Version version)
     {
-        ByteComparable.Version version = ByteComparable.Version.OSS50;
         ByteSource.Peekable orderedBytes = ByteSource.peekable(comparable.asComparableBytes(version));
         if (orderedBytes == null)
             return null;

@@ -50,8 +50,8 @@ public class TriePathReconstructor implements Cursor.ResettingTransitionsReceive
         keyPos = newLength;
     }
 
-    static ByteComparable toByteComparable(byte[] bytes, int byteLength)
+    static ByteComparable.Preencoded toByteComparable(ByteComparable.Version version, byte[] bytes, int byteLength)
     {
-        return ByteComparable.fixedLength(Arrays.copyOf(bytes, byteLength));
+        return ByteComparable.preencoded(version, Arrays.copyOf(bytes, byteLength));
     }
 }

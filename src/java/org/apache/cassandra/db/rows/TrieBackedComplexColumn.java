@@ -53,11 +53,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @Override
-    public boolean hasCells() {
-        return data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, CellData.class).hasNext();
-    }
-
-    @Override
     public int cellsCount()
     {
         return Iterators.size(data.contentOnlyTrie().filteredValuesIterator(Direction.FORWARD, CellData.class));
@@ -196,12 +191,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @Override
-    public int liveDataSize(long nowInSec)
-    {
-        return complexDeletion().isLive() ? dataSize() : 0;
-    }
-
-    @Override
     public long unsharedHeapSizeExcludingData()
     {
         throw new AssertionError("Should be collected by TrieBackedRow");
@@ -263,12 +252,6 @@ public class TrieBackedComplexColumn extends ComplexColumnData
 
     @Override
     public long maxTimestamp()
-    {
-        throw new AssertionError("Should be collected by TrieBackedRow");
-    }
-
-    @Override
-    public long minTimestamp()
     {
         throw new AssertionError("Should be collected by TrieBackedRow");
     }

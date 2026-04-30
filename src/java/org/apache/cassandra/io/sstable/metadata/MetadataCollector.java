@@ -43,6 +43,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.db.rows.ArrayCell;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.io.sstable.ClusteringDescriptor;
@@ -282,7 +283,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
         updateLocalDeletionTime(localDeletionTime);
 
         // isLive(nowInSec) is not used to avoid additional non-monomorphic calls of Cell methods
-        if (!cell.isLive(nowInSec, localDeletionTime, ttl))
+        if (!CellData.isLive(nowInSec, localDeletionTime, ttl))
             updateTombstoneCount();
     }
 

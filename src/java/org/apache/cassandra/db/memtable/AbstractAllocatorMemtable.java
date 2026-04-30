@@ -193,14 +193,22 @@ public abstract class AbstractAllocatorMemtable extends AbstractMemtableWithComm
         stats.ownsOffHeap += getAllocator().offHeap().owns();
     }
 
+    @Override
     public void markExtraOnHeapUsed(long additionalSpace, OpOrder.Group opGroup)
     {
         getAllocator().onHeap().allocate(additionalSpace, opGroup);
     }
 
+    @Override
     public void markExtraOffHeapUsed(long additionalSpace, OpOrder.Group opGroup)
     {
         getAllocator().offHeap().allocate(additionalSpace, opGroup);
+    }
+
+    @Override
+    public long unusedReservedOnHeapMemory()
+    {
+        return allocator.unusedReservedOnHeapMemory();
     }
 
     void scheduleFlush()

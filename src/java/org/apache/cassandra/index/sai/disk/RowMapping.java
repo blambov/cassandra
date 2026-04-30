@@ -29,6 +29,7 @@ import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
+import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.memory.MemtableIndex;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeys;
@@ -74,7 +75,7 @@ public class RowMapping
         }
     };
 
-    private final InMemoryTrie<Long> rowMapping = new InMemoryTrie<>(BufferType.OFF_HEAP);
+    private final InMemoryTrie<Long> rowMapping = InMemoryTrie.shortLivedOrdered(StorageAttachedIndex.BYTE_COMPARABLE_VERSION, BufferType.OFF_HEAP);
 
     private boolean complete = false;
 

@@ -29,6 +29,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
@@ -160,7 +161,9 @@ public interface PrimaryKey extends Comparable<PrimaryKey>, ByteComparable
          */
         public Clustering<?> clusteringFromByteComparable(ByteSource byteSource)
         {
-            Clustering<?> clustering = clusteringComparator.clusteringFromByteComparable(ByteBufferAccessor.instance, v -> byteSource);
+            Clustering<?> clustering = clusteringComparator.clusteringFromByteComparable(ByteBufferAccessor.instance,
+                                                                                         v -> byteSource,
+                                                                                         StorageAttachedIndex.BYTE_COMPARABLE_VERSION);
 
             // Clustering is null for static rows
             return (clustering == null) ? Clustering.STATIC_CLUSTERING : clustering;

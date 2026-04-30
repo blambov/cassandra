@@ -52,7 +52,7 @@ public class FilteredPartition extends ImmutableBTreePartition
 
     public RowIterator rowIterator(boolean reverse)
     {
-        final Iterator<Row> iter = iterator(reverse);
+        final Iterator<Row> iter = rowIterator(reverse);
         return new RowIterator()
         {
             public TableMetadata metadata()

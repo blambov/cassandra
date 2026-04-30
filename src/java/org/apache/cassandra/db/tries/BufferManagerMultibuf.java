@@ -27,6 +27,7 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.memory.MemoryUtil;
 
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.CELL_SIZE;
 import static org.apache.cassandra.db.tries.InMemoryReadTrie.getBufferIdx;
@@ -271,7 +272,7 @@ public class BufferManagerMultibuf implements BufferManager
         for (UnsafeBuffer b : buffers)
         {
             if (b != null)
-                FileUtils.clean(b.byteBuffer());
+                MemoryUtil.clean(b.byteBuffer());
         }
     }
 

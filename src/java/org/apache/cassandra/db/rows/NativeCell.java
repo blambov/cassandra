@@ -231,12 +231,6 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
         throw new UnsupportedOperationException();
     }
 
-    @Override
-    public Cell<?> withUpdatedTimestamp(long newTimestamp)
-    {
-        return new BufferCell(column, newTimestamp, ttl(), localDeletionTime(), byteBufferValue(), path());
-    }
-
     public Cell<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime)
     {
         return new BufferCell(column, newTimestamp, ttl(), newLocalDeletionTime, byteBufferValue(), path());
@@ -261,7 +255,7 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
     @Override
     public Cell<?> withPath(CellPath path)
     {
-        return new BufferCell(column, timestamp(), ttl(), localDeletionTime(), value(), path);
+        return new BufferCell(column, timestamp(), ttl(), localDeletionTimeAsUnsignedInt(), byteBufferValue(), path);
     }
 
     @Override
@@ -284,7 +278,7 @@ public class NativeCell extends AbstractCell<NativeData> implements NativeData
     }
 
     @Override
-    protected int localDeletionTimeAsUnsignedInt()
+    public int localDeletionTimeAsUnsignedInt()
     {
         return NativeEndianMemoryUtil.getInt(peer + DELETION);
     }

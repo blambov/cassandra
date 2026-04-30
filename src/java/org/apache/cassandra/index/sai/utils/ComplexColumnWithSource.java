@@ -20,6 +20,9 @@ package org.apache.cassandra.index.sai.utils;
 
 import java.util.Iterator;
 
+import javax.annotation.Nonnull;
+
+import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.db.CellSourceIdentifier;
@@ -53,12 +56,6 @@ public class ComplexColumnWithSource extends ComplexColumnData
     }
 
     @Override
-    public int liveDataSize(long nowInSec)
-    {
-        return wrapped.liveDataSize(nowInSec);
-    }
-
-    @Override
     public long unsharedHeapSize()
     {
         return wrapped.unsharedHeapSize();
@@ -68,6 +65,12 @@ public class ComplexColumnWithSource extends ComplexColumnData
     public long unsharedHeapSizeExcludingData()
     {
         return wrapped.unsharedHeapSizeExcludingData();
+    }
+
+    @Override
+    public int estimateCloneSize(Cloner cloner)
+    {
+        return wrapped.estimateCloneSize(cloner);
     }
 
     @Override
@@ -97,19 +100,19 @@ public class ComplexColumnWithSource extends ComplexColumnData
     @Override
     public ComplexColumnData updateAllTimestamp(long newTimestamp)
     {
-        return wrapIfNew(((ComplexColumnData) wrapped.updateAllTimestamp(newTimestamp)));
+        return wrapIfNew(wrapped.updateAllTimestamp(newTimestamp));
+    }
+
+    @Override
+    public ComplexColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime)
+    {
+        return wrapIfNew(wrapped.updateTimesAndPathsForAccord(cellToMaybeNewListPath, newTimestamp, newLocalDeletionTime));
     }
 
     @Override
     public ComplexColumnData markCounterLocalToBeCleared()
     {
         return wrapIfNew(((ComplexColumnData) wrapped.markCounterLocalToBeCleared()));
-    }
-
-    @Override
-    public boolean hasCells()
-    {
-        return wrapped.hasCells();
     }
 
     @Override
@@ -181,12 +184,6 @@ public class ComplexColumnWithSource extends ComplexColumnData
     public long maxTimestamp()
     {
         return wrapped.maxTimestamp();
-    }
-
-    @Override
-    public long minTimestamp()
-    {
-        return wrapped.minTimestamp();
     }
 
     private ComplexColumnData wrapIfNew(ComplexColumnData maybeNewCell)

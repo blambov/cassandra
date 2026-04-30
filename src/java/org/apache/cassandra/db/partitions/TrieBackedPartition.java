@@ -315,7 +315,6 @@ public class TrieBackedPartition implements Partition
         return stats;
     }
 
-    @Override
     public int rowCount()
     {
         return rowCountIncludingStatic - (hasStaticRow() ? 1 : 0);
@@ -376,13 +375,6 @@ public class TrieBackedPartition implements Partition
     public Iterator<Row> rowsIncludingStatic()
     {
         return rowIterator(trie, Direction.FORWARD);
-    }
-
-    @Override
-    public Row lastRow()
-    {
-        Iterator<Row> reverseIterator = rowIterator(nonStaticSubtrie(), Direction.REVERSE);
-        return reverseIterator.hasNext() ? reverseIterator.next() : null;
     }
 
     @Override
@@ -577,7 +569,7 @@ public class TrieBackedPartition implements Partition
     @Override
     public String toString()
     {
-        return Partition.toString(this);
+        return toString(true);
     }
 
     /// A snapshot of the current [TrieBackedPartition] data, copied on heap when retrieved.

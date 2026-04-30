@@ -38,6 +38,7 @@ import org.apache.lucene.util.Sorter;
 import org.apache.lucene.util.bkd.BKDWriter;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.index.sai.StorageAttachedIndex;
 import org.apache.cassandra.index.sai.disk.ResettableByteBuffersIndexOutput;
 import org.apache.cassandra.index.sai.disk.v1.SAICodecUtils;
 import org.apache.cassandra.index.sai.utils.IndexEntry;
@@ -517,7 +518,7 @@ public class BlockBalancedTreeWriter
          */
         void add(ByteComparable value, long rowID) throws IOException
         {
-            ByteSourceInverse.copyBytes(value.asComparableBytes(ByteComparable.Version.OSS50), packedValue);
+            ByteSourceInverse.copyBytes(value.asComparableBytes(StorageAttachedIndex.BYTE_COMPARABLE_VERSION), packedValue);
 
             if (DEBUG)
                 valueInOrder(valueCount + leafValueCount, lastPackedValue, packedValue, 0, rowID, lastRowID);
