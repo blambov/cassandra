@@ -245,6 +245,12 @@ public class TrieBackedComplexColumn extends ComplexColumnData
     }
 
     @Override
+    public int estimateCloneSize(Cloner cloner)
+    {
+        throw new AssertionError("Should be done by TriePartitionUpdate");
+    }
+
+    @Override
     public TrieBackedComplexColumn updateAllTimestamp(long newTimestamp)
     {
         throw new AssertionError("Should be done by TrieBackedRow");

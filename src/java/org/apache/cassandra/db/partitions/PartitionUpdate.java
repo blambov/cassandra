@@ -696,27 +696,10 @@ public interface PartitionUpdate extends Partition
         TableMetadata metadata();
 
         PartitionUpdate build();
-        PartitionUpdate build(Epoch serializedAtEpoch);
 
         RegularAndStaticColumns columns();
 
         DeletionTime partitionLevelDeletion();
-
-        /**
-         * Modify this update to set every timestamp for live data to {@code newTimestamp} and
-         * every deletion timestamp to {@code newTimestamp - 1}.
-         *
-         * There is no reason to use that expect on the Paxos code path, where we need ensure that
-         * anything inserted use the ballot timestamp (to respect the order of update decided by
-         * the Paxos algorithm). We use {@code newTimestamp - 1} for deletions because tombstones
-         * always win on timestamp equality and we don't want to delete our own insertions
-         * (typically, when we overwrite a collection, we first set a complex deletion to delete the
-         * previous collection before adding new elements. If we were to set that complex deletion
-         * to the same timestamp that the new elements, it would delete those elements). And since
-         * tombstones always wins on timestamp equality, using -1 guarantees our deletion will still
-         * delete anything from a previous update.
-         */
-        Builder updateAllTimestamp(long newTimestamp);
     }
 
     interface Factory

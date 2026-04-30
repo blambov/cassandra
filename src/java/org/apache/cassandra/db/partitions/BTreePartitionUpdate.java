@@ -580,11 +580,6 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
 
         public BTreePartitionUpdate build()
         {
-            return build(metadata.epoch);
-        }
-
-        public BTreePartitionUpdate build(Epoch serializationEpoch)
-        {
             // assert that we are not calling build() several times
             assert !isBuilt : "A PartitionUpdate.Builder should only get built once";
             Object[] add;
@@ -602,7 +597,7 @@ public class BTreePartitionUpdate extends AbstractBTreePartition implements Part
 
             isBuilt = true;
             return new BTreePartitionUpdate(metadata,
-                                            serializationEpoch,
+                                            metadata.epoch,
                                             partitionKey(),
                                             new BTreePartitionData(columns,
                                                                    merged,

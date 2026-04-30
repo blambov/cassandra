@@ -30,6 +30,7 @@ import javax.annotation.Nonnull;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterators;
 import com.google.common.primitives.Ints;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +51,6 @@ import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
@@ -62,6 +62,7 @@ import org.apache.cassandra.db.tries.RangeTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -79,6 +80,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     public static final Factory FACTORY = new TrieFactory();
 
     final int dataSize;
+    final Epoch serializedAtEpoch;
 
     private TriePartitionUpdate(TableMetadata metadata,
                                 DecoratedKey key,
@@ -89,8 +91,22 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
                                 int dataSize,
                                 InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie)
     {
+        this(metadata, metadata.epoch, key, columns, stats, rowCountIncludingStatic, tombstoneCount, dataSize, trie);
+    }
+
+    private TriePartitionUpdate(TableMetadata metadata,
+                                Epoch serializedAtEpoch,
+                                DecoratedKey key,
+                                RegularAndStaticColumns columns,
+                                EncodingStats stats,
+                                int rowCountIncludingStatic,
+                                int tombstoneCount,
+                                int dataSize,
+                                InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> trie)
+    {
         super(key, columns, stats, rowCountIncludingStatic, tombstoneCount, trie, metadata);
         this.dataSize = dataSize;
+        this.serializedAtEpoch = serializedAtEpoch;
     }
 
     @Override
@@ -178,9 +194,17 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     @SuppressWarnings("resource")
     public static TriePartitionUpdate fromIterator(UnfilteredRowIterator iterator)
     {
+        return fromIterator(iterator, iterator.metadata().epoch);
+    }
+
+    /** @see PartitionUpdate.Factory#fromIterator(UnfilteredRowIterator)  */
+    @SuppressWarnings("resource")
+    public static TriePartitionUpdate fromIterator(UnfilteredRowIterator iterator, Epoch serializedAtEpoch)
+    {
         ContentBuilder builder = build(iterator, true);
 
         return new TriePartitionUpdate(iterator.metadata(),
+                                       serializedAtEpoch,
                                        iterator.partitionKey(),
                                        iterator.columns(),
                                        iterator.stats(),
@@ -256,6 +280,12 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     }
 
     @Override
+    public Epoch serializedAtEpoch()
+    {
+        return serializedAtEpoch;
+    }
+
+    @Override
     public DeletionInfo deletionInfo()
     {
         // Collect deletion info from the trie.
@@ -326,18 +356,32 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
     @Override
     public long maxTimestamp()
     {
-        long maxTimestamp = LivenessInfo.NO_TIMESTAMP;
-        for (Iterator<TrieTombstoneMarker> it = trie.deletionOnlyTrie().valueIterator(); it.hasNext();)
+        assert trie instanceof InMemoryDeletionAwareTrie;
+        InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> inMemoryTrie = (InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker>) trie;
+        class Collector implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
         {
-            TrieTombstoneMarker next = it.next();
-            DeletionTime rightDeletion = next.rightDeletion(); // we can ignore left side as it has appeared on the right first
-            if (rightDeletion != null)
-                maxTimestamp = Math.max(maxTimestamp, rightDeletion.markedForDeleteAt());
-        }
-        for (Iterator<Row> it = rowsIncludingStatic(); it.hasNext();)
-            maxTimestamp = Math.max(maxTimestamp, Rows.collectMaxTimestamp(it.next()));
+            long maxTimestamp = LivenessInfo.NO_TIMESTAMP;
 
-        return maxTimestamp;
+            @Override
+            public void deletionMarker(TrieTombstoneMarker marker)
+            {
+                DeletionTime rightDeletion = marker.rightDeletion(); // we can ignore left side as it has appeared on the right first
+                if (rightDeletion != null)
+                    maxTimestamp = Math.max(maxTimestamp, rightDeletion.markedForDeleteAt());
+            }
+
+            @Override
+            public void content(Object o)
+            {
+                if (o instanceof Cell)
+                    maxTimestamp = Math.max(maxTimestamp, ((Cell<?>) o).timestamp());
+                else if (o instanceof LivenessInfo)
+                    maxTimestamp = Math.max(maxTimestamp, ((LivenessInfo) o).timestamp());
+            }
+        }
+        Collector collector = new Collector();
+        inMemoryTrie.process(Direction.FORWARD, collector);
+        return collector.maxTimestamp;
     }
 
     @Override
@@ -742,6 +786,12 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         public PartitionUpdate fromIterator(UnfilteredRowIterator iterator)
         {
             return TriePartitionUpdate.fromIterator(iterator);
+        }
+
+        @Override
+        public PartitionUpdate fromIterator(UnfilteredRowIterator iterator, Epoch serializedAtEpoch)
+        {
+            return TriePartitionUpdate.fromIterator(iterator, serializedAtEpoch);
         }
 
         @Override
