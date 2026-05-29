@@ -20,6 +20,8 @@ package org.apache.cassandra.db.filter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
+import java.util.List;
+import java.util.function.BiFunction;
 
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -32,6 +34,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Handles the selection of a subpart of a column.
@@ -75,6 +78,8 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
     protected abstract Kind kind();
 
     protected abstract CellPath comparisonPath();
+
+    public abstract void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper);
 
     public int compareTo(ColumnSubselection other)
     {
@@ -137,6 +142,13 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
         }
 
         @Override
+        public void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper)
+        {
+            targetList.add(mapper.apply(column, from));
+            targetList.add(mapper.apply(column, to));
+        }
+
+        @Override
         protected String toString(boolean cql, boolean redact)
         {
             // This asserts we're dealing with a collection since that's the only thing it's used for so far.
@@ -170,6 +182,14 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
         public int compareInclusionOf(CellPath path)
         {
             return column.cellPathComparator().compare(path, element);
+        }
+
+        @Override
+        public void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper)
+        {
+            ByteComparable path = mapper.apply(column, element);
+            targetList.add(path);
+            targetList.add(path);
         }
 
         @Override

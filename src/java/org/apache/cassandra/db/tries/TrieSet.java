@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.util.BitSet;
+
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -72,6 +74,20 @@ public interface TrieSet extends CursorWalkable<TrieSetCursor>
     static TrieSet ranges(ByteComparable.Version version, boolean leftInclusive, boolean rightInclusive, ByteComparable... boundaries)
     {
         return dir -> RangesCursor.create(dir, version, leftInclusive, rightInclusive, boundaries);
+    }
+
+    /// The set between the given pairs of boundaries. This is the same as the union of the range sets produced by
+    /// each pair in the `boundaries` array, done in a single step. `explicitPlaceAfter` determines the position
+    /// of each bound in relation to the subtree at the position, false for before (i.e. inclusive-left/exclusive-right)
+    /// and true for after (i.e. exclusive-left/inclusive-right).
+    ///
+    /// The keys in the array must be given in order, taking into account the place-after parameter (where e.g.
+    /// "a" with true place-after is greater than "ab").
+    ///
+    /// Also see [RangesCursor] for further information.
+    static TrieSet ranges(ByteComparable.Version version, BitSet explicitPlaceAfter, ByteComparable... boundaries)
+    {
+        return dir -> RangesCursor.create(dir, version, explicitPlaceAfter, boundaries);
     }
 
     /// The set between the given pairs of boundaries, start-inclusive and end-exclusive. This is the same as the union

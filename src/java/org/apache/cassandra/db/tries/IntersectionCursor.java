@@ -295,4 +295,88 @@ abstract class IntersectionCursor<T, C extends Cursor<T>> implements Cursor<T>
             }
         }
     }
+
+    /// Range intersection that does not restrict the returned states. This is unsafe and has very limited applications.
+    static class RangeContainedUnsafe<S extends RangeState<S>> extends IntersectionCursor<S, RangeCursor<S>> implements RangeCursor<S>
+    {
+        RangeContainedUnsafe(RangeCursor<S> source, TrieSetCursor set)
+        {
+            super(source, set);
+        }
+
+        @Override
+        public S precedingState()
+        {
+            return source.precedingState();
+        }
+
+        @Override
+        public S state()
+        {
+            return source.state();
+        }
+
+        @Override
+        public RangeCursor<S> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new RangeContainedUnsafe<>(source.tailCursor(direction), set.tailCursor(direction));
+                case SET_AHEAD:
+                    return source.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
+        }
+    }
+
+
+    /// Intersection that does not restrict the returned deletion states. This is unsafe and has very limited applications.
+    static class DeletionAwareContainedUnsafe<T, D extends RangeState<D>>
+    extends IntersectionCursor<T, DeletionAwareCursor<T, D>>
+    implements DeletionAwareCursor<T, D>
+    {
+        RangeCursor<D> applicableDeletionBranch;
+
+        public DeletionAwareContainedUnsafe(DeletionAwareCursor<T, D> source, TrieSetCursor set)
+        {
+            super(source, set);
+            applicableDeletionBranch = null;
+        }
+
+        @Override
+        public DeletionAwareCursor<T, D> tailCursor(Direction direction)
+        {
+            switch (state)
+            {
+                case MATCHING:
+                    return new DeletionAwareContainedUnsafe<>(source.tailCursor(direction), set.tailCursor(direction));
+                case SET_AHEAD:
+                    return source.tailCursor(direction);
+                default:
+                    throw new AssertionError();
+            }
+        }
+
+        @Override
+        public RangeCursor<D> deletionBranchCursor(Direction direction)
+        {
+            RangeCursor<D> deletions = source.deletionBranchCursor(direction);
+            if (deletions == null)
+                return null;
+
+            switch (state)
+            {
+                case SET_AHEAD:
+                    // Since the deletion branch cannot extend outside this branch, it is fully covered by the set.
+                    return deletions;
+                case MATCHING:
+                    return new RangeContainedUnsafe<>(deletions,
+                                                      set.tailCursor(direction));
+                default:
+                    throw new AssertionError();
+            }
+        }
+    }
 }

@@ -33,6 +33,7 @@ import java.util.function.Function;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.SortedSetMultimap;
 import com.google.common.primitives.Ints;
 
 import org.agrona.collections.Object2IntHashMap;
@@ -44,6 +45,7 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.filter.ColumnSubselection;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.MultiCellCapableType;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
@@ -103,6 +105,15 @@ public class TrieBackedRow extends AbstractRow
     public static final ByteComparable MISSING_COLUMN_KEY = encodeUnsignedInt(Long.MAX_VALUE);
 
     public static final int MAX_RECURSIVE_LENGTH = 128;
+
+    // TrieSet prepared for empty fetched columns set. Preserves liveness info and row deletion by stopping on
+    // (but not including) the root on both the forward and return path.
+    private static TrieSet NO_COLUMNS_SET = TrieSet.ranges(BYTE_COMPARABLE_VERSION,
+                                                           BitSet.valueOf(new long[] {0b1100}),
+                                                           ByteComparable.EMPTY,
+                                                           ByteComparable.EMPTY,
+                                                           ByteComparable.EMPTY,
+                                                           ByteComparable.EMPTY);
 
     /// The row's clustering key.
     private final Clustering<?> clustering;
@@ -453,6 +464,11 @@ public class TrieBackedRow extends AbstractRow
             return cellKey(id, column, path);
     }
 
+    private ByteComparable cellKey(ColumnMetadata column, CellPath path)
+    {
+        return cellKey(columnIds, column, path);
+    }
+
     private static ByteSource columnIdPrefix(int columnId)
     {
         if (columnId < 0)
@@ -529,7 +545,7 @@ public class TrieBackedRow extends AbstractRow
 
     private Cell<?> getCellInternal(ColumnMetadata c, CellPath path)
     {
-        Object o = data.get(cellKey(columnIds, c, path));
+        Object o = data.get(cellKey(c, path));
         if (o == null || o instanceof Cell)
             return (Cell<?>) o;
         CellData<?, ?> cellData = (CellData<?, ?>) o;
@@ -734,7 +750,6 @@ public class TrieBackedRow extends AbstractRow
 
         if (mayFilterColumns)
         {
-            // TODO: Column filter may include cell-level filters for complex columns, in both fetched and queried
             Columns queried = filter.queriedColumns().columns(isStatic());
             BitSet queriedIds = getColumnIds(queried);
 
@@ -743,7 +758,43 @@ public class TrieBackedRow extends AbstractRow
             // Filtering by fetched first avoids one operation in the former case.
             Columns fetched = filter.fetchedColumns().columns(isStatic());
             BitSet fetchedIds = getColumnIds(fetched);
-            if (fetchedIds.cardinality() != columns.size())
+
+            SortedSetMultimap<ColumnIdentifier, ColumnSubselection> subselections = filter.subSelections();
+            if (subselections != null)
+            {
+                BitSet subselectionIds = getColumnIdsFromIdentifiers(subselections.keySet());
+                ColumnToBoundaries boundariesAdder = (id, list, placeAfter) -> {
+                    ByteComparable columnKey = encodeUnsignedInt(id);
+                    if (subselectionIds.get(id))
+                    {
+                        ColumnMetadata columnMetadata = columns.getSimple(id);
+                        // Explicitly stop at the position before the column to present column deletion start
+                        // (ensuring that a reverse walk stops on the return path).
+                        list.add(columnKey);
+                        list.add(columnKey);
+                        int startedAt = list.size();
+                        for (ColumnSubselection cs : subselections.get(columnMetadata.name))
+                            cs.addBoundaries(list, this::cellKey);
+                        for (int i = startedAt; i < list.size(); i += 2)
+                            placeAfter.set(i + 1);  // inclusive end
+                        // Explicitly stop at the position after the column to present column deletion end
+                        // (ensuring that a forward walk stops on the return path).
+                        placeAfter.set(list.size());
+                        list.add(columnKey);
+                        placeAfter.set(list.size());
+                        list.add(columnKey);
+                    }
+                    else
+                    {
+                        // cover the whole column
+                        list.add(columnKey);
+                        placeAfter.set(list.size());
+                        list.add(columnKey);
+                    }
+                };
+                filteredData = restrictToColumnSet(filteredData, fetchedIds, boundariesAdder);
+            }
+            else if (fetchedIds.cardinality() != columns.size())
                 filteredData = restrictToColumnSet(filteredData, fetchedIds);
 
             BitSet fetchedButNotQueried = fetchedIds;
@@ -752,7 +803,7 @@ public class TrieBackedRow extends AbstractRow
             if (!fetchedButNotQueried.isEmpty())
             {
                 DeletionAwareTrie<Object, TrieTombstoneMarker> fetchedButNotQueriedData =
-                filteredData.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, true, true, mapIdsToColumnKeys(fetchedButNotQueried)))
+                filteredData.intersect(mapIdsToColumnKeys(fetchedButNotQueried))
                             .mapValues(TrieBackedRow::dropCellValue);
 
                 filteredData = filteredData.mergeWith(fetchedButNotQueriedData,
@@ -797,23 +848,18 @@ public class TrieBackedRow extends AbstractRow
 
     private static DeletionAwareTrie<Object, TrieTombstoneMarker> restrictToColumnSet(DeletionAwareTrie<Object, TrieTombstoneMarker> data, BitSet fetchedIds)
     {
-        // Because we do not support column-level deletions for simple columns, we need to keep the row-level deletion
-        // at the root. The intersection below moves it down to the cell level.
-        TrieTombstoneMarker.Covering rowDeletion = TrieTombstoneMarker.applicableDeletion(data, ByteComparable.EMPTY);
+        return restrictToColumnSet(data, fetchedIds, null);
+    }
 
-        // Restrict to the fetched columns with the liveness info.
-        if (!fetchedIds.isEmpty())
-            data = data.intersect(TrieSet.ranges(BYTE_COMPARABLE_VERSION, true, true, mapIdsToColumnKeys(fetchedIds)));
-        else
-            data = DeletionAwareTrie.singleton(ByteComparable.EMPTY, BYTE_COMPARABLE_VERSION, data.get(ByteComparable.EMPTY));
-
-        // Re-add the row deletion and the ascent-side Level.ROW marker, which we lose in the intersection above.
-        if (rowDeletion != null)
-            data = data.mergeWithDeletion(rowDeletionTrie(rowDeletion),
-                                                          (x, y) -> y, // Row deletion is already applied
-                                                          TrieTombstoneMarker::mergeUpdate,
-                                                          true);
-        return data;
+    private static DeletionAwareTrie<Object, TrieTombstoneMarker> restrictToColumnSet(DeletionAwareTrie<Object, TrieTombstoneMarker> data, BitSet fetchedIds, ColumnToBoundaries boundariesAdder)
+    {
+        // Because we do not support column-level deletions for simple columns, we need to keep the row- and column-
+        // level deletions at the root. We do this by using [DeletionAwareTrie#intersectContainedUnsafe] which doesn't
+        // move any of the deletion positions, but needs to be given a set that visits the return path positions for
+        // any deletion that is seen.
+        // This is a bit of a hack and fragile. To be replaced by normal intersection when we switch to merging sources
+        // as tries.
+        return data.intersectContainedUnsafe(mapIdsToColumnKeys(fetchedIds, boundariesAdder));
     }
 
     private static Object deleteData(Object existing, TrieTombstoneMarker marker)
@@ -852,19 +898,61 @@ public class TrieBackedRow extends AbstractRow
         return ((CellData<?, ?>) existing).withSkippedValue();
     }
 
-    private static ByteComparable[] mapIdsToColumnKeys(BitSet fetchedIds)
+    interface ColumnToBoundaries
     {
-        ByteComparable[] keys = new ByteComparable[fetchedIds.cardinality() * 2];
+        void addBoundaries(int columnId, List<ByteComparable> boundaries, BitSet placeAfter);
+    }
+
+    private static TrieSet mapIdsToColumnKeys(BitSet fetchedIds, ColumnToBoundaries boundariesAdder)
+    {
+        if (fetchedIds.isEmpty())
+            return NO_COLUMNS_SET;
+        if (boundariesAdder == null)
+            return mapIdsToColumnKeys(fetchedIds);
+
+        // (8 extra positions for root stops and at least one subselection's column stops)
+        List<ByteComparable> list = new ArrayList<>(fetchedIds.cardinality() * 2 + 8);
+        BitSet placeAfter = new BitSet();
+
+        // explicitly add a stop for the position before the root to ensure the closing of any row deletion in the
+        // reverse direction (where this is on the return path)
+        list.add(ByteComparable.EMPTY);
+        list.add(ByteComparable.EMPTY);
+
+        for (int i = fetchedIds.nextSetBit(0); i >= 0; i = fetchedIds.nextSetBit(i + 1))
+            boundariesAdder.addBoundaries(i, list, placeAfter);
+
+        // explicitly add a stop for the position after the root to ensure the closing of any row deletion in the
+        // forward direction (where this is on the return path)
+        placeAfter.set(list.size());
+        list.add(ByteComparable.EMPTY);
+        placeAfter.set(list.size());
+        list.add(ByteComparable.EMPTY);
+        return TrieSet.ranges(BYTE_COMPARABLE_VERSION, placeAfter, list.toArray(ByteComparable[]::new));
+    }
+
+
+    private static TrieSet mapIdsToColumnKeys(BitSet fetchedIds)
+    {
+        // simplification of the above code where there are no subselections
+        ByteComparable[] keys = new ByteComparable[fetchedIds.cardinality() * 2 + 4];
+        BitSet placeAfter = new BitSet();
         int keyPos = 0;
+        keys[keyPos++] = ByteComparable.EMPTY;
+        keys[keyPos++] = ByteComparable.EMPTY;
         for (int i = fetchedIds.nextSetBit(0); i >= 0; i = fetchedIds.nextSetBit(i + 1))
         {
-            final int id = i;
-            ByteComparable columnKey = encodeUnsignedInt(id);
-            keys[keyPos++] = columnKey; // add twice for inclusive start and end
-            keys[keyPos++] = columnKey;
+            ByteComparable columnKey = encodeUnsignedInt(i);
+            keys[keyPos++] = columnKey; // start before column
+            placeAfter.set(keyPos);
+            keys[keyPos++] = columnKey; // end after column
         }
+        placeAfter.set(keyPos);
+        keys[keyPos++] = ByteComparable.EMPTY;
+        placeAfter.set(keyPos);
+        keys[keyPos++] = ByteComparable.EMPTY;
         assert keyPos == keys.length;
-        return keys;
+        return TrieSet.ranges(BYTE_COMPARABLE_VERSION, placeAfter, keys);
     }
 
     private static ByteComparable encodeUnsignedInt(long id)
@@ -872,7 +960,7 @@ public class TrieBackedRow extends AbstractRow
         return v -> ByteSource.variableLengthUnsignedInteger(id);
     }
 
-    private BitSet getColumnIds(Columns fetched)
+    private BitSet getColumnIds(Iterable<ColumnMetadata> fetched)
     {
         BitSet fetchedIds = new BitSet();
         for (ColumnMetadata c : fetched)
@@ -883,6 +971,19 @@ public class TrieBackedRow extends AbstractRow
             fetchedIds.set(idx);
         }
         return fetchedIds;
+    }
+
+    private BitSet getColumnIdsFromIdentifiers(Iterable<ColumnIdentifier> selected)
+    {
+        BitSet selectedIds = new BitSet();
+        for (ColumnIdentifier c : selected)
+        {
+            int idx = columnIds.getValue(c);
+            if (idx == COLUMN_NOT_PRESENT)
+                continue;
+            selectedIds.set(idx);
+        }
+        return selectedIds;
     }
 
     @Override

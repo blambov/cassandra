@@ -167,6 +167,16 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new IntersectionCursor.DeletionAware<>(cursor(dir), set.cursor(dir));
     }
 
+    /// Perform an unsafe intersection with a set that must visit all positions containing deletion boundaries in the
+    /// source deletion branch. The returned intersection does not modify the returned ranges and is used to avoid
+    /// restricting the coverage of row- and column-level deletions to the span of the set.
+    ///
+    /// This operation does not guarantee that the result is well-formed and must be used with a lot of care.
+    default DeletionAwareTrie<T, D> intersectContainedUnsafe(TrieSet set)
+    {
+        return dir -> new IntersectionCursor.DeletionAwareContainedUnsafe<>(cursor(dir), set.cursor(dir));
+    }
+
     /// Specialized merge resolver for deletion-aware trie operations.
     ///
     /// This interface extends the basic [Trie.MergeResolver] to handle the additional complexity of
