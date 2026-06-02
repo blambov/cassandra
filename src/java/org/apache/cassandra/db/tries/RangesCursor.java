@@ -121,6 +121,12 @@ class RangesCursor implements TrieSetCursor
         long[] nextPositions = new long[arrayLength];
 
         ByteSource.Peekable[] sources = new ByteSource.Peekable[arrayLength];
+        if (explicitPlaceAfter != null && !direction.isForward())
+        {
+            explicitPlaceAfter = explicitPlaceAfter.get(0, arrayLength);
+            reverseBitSet(explicitPlaceAfter, arrayLength);
+        }
+
         for (int i = 0; i < arrayLength; ++i)
         {
             ByteComparable boundary = i < length ? boundaries[i] : null;
@@ -135,7 +141,7 @@ class RangesCursor implements TrieSetCursor
                 // Unspecified bounds are the same as empty string, inclusive.
                 assert destIndex == 0 || destIndex == arrayLength - 1;
                 sources[destIndex] = ByteSource.Peekable.EMPTY;
-                nextPositions[destIndex] = maybeOnReturnPath(sources, ENDS_AFTER, explicitPlaceAfter, direction, rootPosition, destIndex);
+                nextPositions[destIndex] = maybeOnReturnPath(sources, ENDS_AFTER, null, direction, rootPosition, destIndex);
             }
         }
 
@@ -151,12 +157,6 @@ class RangesCursor implements TrieSetCursor
                                     rootPosition,
                                     RangeState.NOT_CONTAINED);
         }
-        if (explicitPlaceAfter != null && !direction.isForward())
-        {
-            explicitPlaceAfter = explicitPlaceAfter.get(0, arrayLength);
-            reverseBitSet(explicitPlaceAfter);
-        }
-
         RangesCursor cursor = new RangesCursor(byteComparableVersion,
                                                endsAfterMask,
                                                explicitPlaceAfter,
@@ -350,13 +350,33 @@ class RangesCursor implements TrieSetCursor
             : "Cannot take tail of a position " + Cursor.toString(copyFrom.currentPosition) + " on the return path.";
         boolean directionMatches = newDirection == copyFrom.direction();
 
-        // Calculate the span of boundaries that are still active for the tail, including any matching return path
+        // Calculate the span of boundaries that are still active for the tail, not including any matching return path
+        // (the latter has the same effect as the set being open-ended at this tail).
         int startInclusive = copyFrom.currentIdx;
         int endExclusive = startInclusive;
         while (endExclusive < copyFrom.endIdx &&
                Cursor.compare(copyFrom.nextPositions[endExclusive],
-                              copyFrom.currentPosition | ON_RETURN_PATH_BIT) <= 0)
+                              copyFrom.currentPosition | ON_RETURN_PATH_BIT) < 0)
              ++endExclusive;
+
+        // Special treatment of a request to visit return path point for unsafe intersection.
+        boolean mayNeedReturnPathStop = copyFrom.explicitPlaceAfter != null;
+        if (mayNeedReturnPathStop)
+        {
+            if (endExclusive + 2 <= copyFrom.endIdx &&
+                Cursor.compare(copyFrom.nextPositions[endExclusive],
+                               copyFrom.currentPosition | ON_RETURN_PATH_BIT) == 0 &&
+                Cursor.compare(copyFrom.nextPositions[endExclusive + 1],
+                               copyFrom.currentPosition | ON_RETURN_PATH_BIT) == 0)
+                endExclusive += 2;
+
+            if (startInclusive >= 2 &&
+                Cursor.compare(copyFrom.nextPositions[startInclusive - 1],
+                               copyFrom.currentPosition) == 0 &&
+                Cursor.compare(copyFrom.nextPositions[startInclusive - 2],
+                               copyFrom.currentPosition) == 0)
+                startInclusive -= 2;
+        }
 
         // We can only drop an even number of boundaries on either size. Expand the indexes to make them even.
         int arrayStart = startInclusive & ~1;
@@ -373,7 +393,7 @@ class RangesCursor implements TrieSetCursor
         // Duplicate all selected boundaries, adjust depths and reverse the order if the direction doesn't match.
         BitSet explicitPlaceAfter = null;
         if (copyFrom.explicitPlaceAfter != null)
-            explicitPlaceAfter = copyFrom.explicitPlaceAfter.get(arrayStart, endExclusive);
+            explicitPlaceAfter = copyFrom.explicitPlaceAfter.get(arrayStart, arrayEnd);
         if (directionMatches)
         {
             for (int i = startInclusive; i < endExclusive; ++i)
@@ -396,7 +416,7 @@ class RangesCursor implements TrieSetCursor
             newStartIdx = arrayEnd - endExclusive;
 
             if (explicitPlaceAfter != null)
-                reverseBitSet(explicitPlaceAfter);
+                reverseBitSet(explicitPlaceAfter, arrayEnd - arrayStart);
         }
 
         // Determine the state the root needs to present.
@@ -413,6 +433,16 @@ class RangesCursor implements TrieSetCursor
             nextPositions[last] = rootPosition | ON_RETURN_PATH_BIT;
         }
 
+        if (mayNeedReturnPathStop)
+        {
+            // fix root positions with wrong incoming character
+            for (int i = 0; i < nextPositions.length; ++i)
+                if (Cursor.depth(nextPositions[i]) == 0)
+                    nextPositions[i] = rootPosition | (nextPositions[i] & Cursor.ON_RETURN_PATH_BIT);
+            while (newStartIdx < nextPositions.length && nextPositions[newStartIdx] == rootPosition)
+                ++newStartIdx;
+        }
+
         return new RangesCursor(copyFrom.byteComparableVersion,
                                 copyFrom.endsAfterMask,
                                 explicitPlaceAfter,
@@ -424,9 +454,9 @@ class RangesCursor implements TrieSetCursor
                                 rootState);
     }
 
-    private static void reverseBitSet(BitSet explicitPlaceAfter)
+    private static void reverseBitSet(BitSet explicitPlaceAfter, int length)
     {
-        int e = explicitPlaceAfter.length() - 1;
+        int e = length - 1;
         for (int i = 0; i < e; ++i, --e)
         {
             boolean b = explicitPlaceAfter.get(i);

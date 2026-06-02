@@ -38,6 +38,7 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import static org.apache.cassandra.db.tries.TrieUtil.FORWARD_COMPARATOR;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
@@ -161,9 +162,7 @@ public class RangesTrieSetTest
 
     void check(boolean endsInclusive, String... boundariesAsStrings)
     {
-        Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
-        for (int i = 0; i < boundariesAsStrings.length; ++i)
-            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
+        Preencoded[] boundaries = toByteComparables(boundariesAsStrings);
 
         System.out.println("Boundaries: " + Arrays.stream(boundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
         if (!boundariesValid(endsInclusive, false, boundaries))
@@ -175,6 +174,14 @@ public class RangesTrieSetTest
         TrieSet set = maybeSendThroughInMemoryTrie(ranges(endsInclusive, boundaries));
         check(endsInclusive, false, sendThroughInMemoryTrie, boundaries, set);
         verifyTails(endsInclusive, false, sendThroughInMemoryTrie, boundaries, set);
+    }
+
+    static Preencoded @NonNull [] toByteComparables(String... boundariesAsStrings)
+    {
+        Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
+        for (int i = 0; i < boundariesAsStrings.length; ++i)
+            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
+        return boundaries;
     }
 
     private TrieSet maybeSendThroughInMemoryTrie(TrieSet ranges)
@@ -198,9 +205,7 @@ public class RangesTrieSetTest
 
     void checkNegated(boolean endsInclusive, String... boundariesAsStrings)
     {
-        Preencoded[] boundaries = new Preencoded[boundariesAsStrings.length];
-        for (int i = 0; i < boundariesAsStrings.length; ++i)
-            boundaries[i] = boundariesAsStrings[i] != null ? TrieUtil.directComparable(boundariesAsStrings[i]) : null;
+        Preencoded[] boundaries = toByteComparables(boundariesAsStrings);
 
         Preencoded[] negatedBoundaries = getNegatedBoundaries(boundaries, Preencoded[]::new);
         System.out.println("Negated boundaries: " + Arrays.stream(negatedBoundaries).map(x -> x != null ? x.byteComparableAsString(VERSION) : null).collect(Collectors.toList()));
