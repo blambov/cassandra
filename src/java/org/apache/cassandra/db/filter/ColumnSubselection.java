@@ -20,8 +20,6 @@ package org.apache.cassandra.db.filter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
-import java.util.List;
-import java.util.function.BiFunction;
 
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -34,7 +32,6 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /**
  * Handles the selection of a subpart of a column.
@@ -79,7 +76,8 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
 
     protected abstract CellPath comparisonPath();
 
-    public abstract void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper);
+    public abstract CellPath startInclusive();
+    public abstract CellPath endInclusive();
 
     public int compareTo(ColumnSubselection other)
     {
@@ -141,11 +139,13 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
                 return 0;
         }
 
-        @Override
-        public void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper)
+        public CellPath startInclusive()
         {
-            targetList.add(mapper.apply(column, from));
-            targetList.add(mapper.apply(column, to));
+            return from;
+        }
+        public CellPath endInclusive()
+        {
+            return to;
         }
 
         @Override
@@ -184,12 +184,13 @@ public abstract class ColumnSubselection implements Comparable<ColumnSubselectio
             return column.cellPathComparator().compare(path, element);
         }
 
-        @Override
-        public void addBoundaries(List<ByteComparable> targetList, BiFunction<ColumnMetadata, CellPath, ByteComparable> mapper)
+        public CellPath startInclusive()
         {
-            ByteComparable path = mapper.apply(column, element);
-            targetList.add(path);
-            targetList.add(path);
+            return element;
+        }
+        public CellPath endInclusive()
+        {
+            return element;
         }
 
         @Override

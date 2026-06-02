@@ -18,8 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.BitSet;
-
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -94,24 +92,17 @@ class RangesCursor implements TrieSetCursor
     /// if `ENDS_AFTER` is set (i.e. the boundary is to the right/after the key).
     final int endsAfterMask;
 
-    final BitSet explicitPlaceAfter;
-
     public static RangesCursor full(Direction direction, ByteComparable.Version byteComparableVersion)
     {
-        return create(direction, byteComparableVersion, ENDS_AFTER, null, null, null);
+        return create(direction, byteComparableVersion, ENDS_AFTER, null, null);
     }
 
     public static RangesCursor create(Direction direction, ByteComparable.Version byteComparableVersion, boolean startsInclusive, boolean endsInclusive, ByteComparable... boundaries)
     {
-        return create(direction, byteComparableVersion, (startsInclusive ? 0 : STARTS_AFTER) | (endsInclusive ? ENDS_AFTER : 0), null, boundaries);
+        return create(direction, byteComparableVersion, (startsInclusive ? 0 : STARTS_AFTER) | (endsInclusive ? ENDS_AFTER : 0), boundaries);
     }
 
-    public static RangesCursor create(Direction direction, ByteComparable.Version byteComparableVersion, BitSet explicitPlaceAfter, ByteComparable... boundaries)
-    {
-        return create(direction, byteComparableVersion, 0, explicitPlaceAfter, boundaries);
-    }
-
-    public static RangesCursor create(Direction direction, ByteComparable.Version byteComparableVersion, int endsAfterMask, BitSet explicitPlaceAfter, ByteComparable... boundaries)
+    public static RangesCursor create(Direction direction, ByteComparable.Version byteComparableVersion, int endsAfterMask, ByteComparable... boundaries)
     {
         long rootPosition = Cursor.rootPosition(direction);
 
@@ -121,12 +112,6 @@ class RangesCursor implements TrieSetCursor
         long[] nextPositions = new long[arrayLength];
 
         ByteSource.Peekable[] sources = new ByteSource.Peekable[arrayLength];
-        if (explicitPlaceAfter != null && !direction.isForward())
-        {
-            explicitPlaceAfter = explicitPlaceAfter.get(0, arrayLength);
-            reverseBitSet(explicitPlaceAfter, arrayLength);
-        }
-
         for (int i = 0; i < arrayLength; ++i)
         {
             ByteComparable boundary = i < length ? boundaries[i] : null;
@@ -134,14 +119,14 @@ class RangesCursor implements TrieSetCursor
             if (boundary != null)
             {
                 sources[destIndex] = boundary.asPeekableBytes(byteComparableVersion);
-                nextPositions[destIndex] = maybeOnReturnPath(sources, endsAfterMask, explicitPlaceAfter, direction, rootPosition, destIndex);
+                nextPositions[destIndex] = maybeOnReturnPath(sources, endsAfterMask, direction, rootPosition, destIndex);
             }
             else
             {
                 // Unspecified bounds are the same as empty string, inclusive.
                 assert destIndex == 0 || destIndex == arrayLength - 1;
                 sources[destIndex] = ByteSource.Peekable.EMPTY;
-                nextPositions[destIndex] = maybeOnReturnPath(sources, ENDS_AFTER, null, direction, rootPosition, destIndex);
+                nextPositions[destIndex] = maybeOnReturnPath(sources, ENDS_AFTER, direction, rootPosition, destIndex);
             }
         }
 
@@ -151,15 +136,14 @@ class RangesCursor implements TrieSetCursor
         {
             return new RangesCursor(byteComparableVersion,
                                     0,
-                                    null,
                                     null, null,
                                     0, 0,
                                     rootPosition,
                                     RangeState.NOT_CONTAINED);
         }
+
         RangesCursor cursor = new RangesCursor(byteComparableVersion,
                                                endsAfterMask,
-                                               explicitPlaceAfter,
                                                nextPositions, sources,
                                                0, arrayLength,
                                                rootPosition,
@@ -170,12 +154,12 @@ class RangesCursor implements TrieSetCursor
 
     private RangesCursor(ByteComparable.Version byteComparableVersion,
                          int endsAfterMask,
-                         BitSet explicitPlaceAfter,
                          long[] nextPositions,
                          ByteSource.Peekable[] sources,
                          int startIdx,
                          int endIdxExclusive,
-                         long currentPosition, RangeState currentState)
+                         long currentPosition,
+                         RangeState currentState)
     {
         this.byteComparableVersion = byteComparableVersion;
         this.nextPositions = nextPositions;
@@ -185,7 +169,6 @@ class RangesCursor implements TrieSetCursor
         this.currentPosition = currentPosition;
         this.currentState = currentState;
         this.endsAfterMask = endsAfterMask;
-        this.explicitPlaceAfter = explicitPlaceAfter;
     }
 
     @Override
@@ -259,9 +242,9 @@ class RangesCursor implements TrieSetCursor
         return nextPosition;
     }
 
-    protected long maybeOnReturnPath(long nextPosition, int index, Direction direction)
+    private long maybeOnReturnPath(long nextPosition, int index, Direction direction)
     {
-        return maybeOnReturnPath(sources, endsAfterMask, explicitPlaceAfter, direction, nextPosition, index);
+        return maybeOnReturnPath(sources, endsAfterMask, direction, nextPosition, index);
     }
 
     /// Adjusts the position for keys that end after the current byte, in order to put the boundaries at the right
@@ -270,31 +253,21 @@ class RangesCursor implements TrieSetCursor
     /// This means, for example, placing inclusive right boundaries on the return path for forward iteration.
     private static long maybeOnReturnPath(ByteSource.Peekable[] sources,
                                           int endsAfterMask,
-                                          BitSet explicitPlaceAfter,
                                           Direction direction,
                                           long nextPosition,
                                           int index)
     {
+        // Fast path when the inclusivity options ask for no return path positions.
+        if (endsAfterMask == direction.select(0, STARTS_AFTER | ENDS_AFTER))
+            return nextPosition;
+
         if (sources[index].peek() != ByteSource.END_OF_STREAM)
             return nextPosition;
 
-        boolean placeAfter;
-        if (explicitPlaceAfter != null)
-        {
-            placeAfter = explicitPlaceAfter.get(index);
-        }
-        else
-        {
-            // Fast path when the inclusivity options ask for no return path positions.
-            if (endsAfterMask == direction.select(0, STARTS_AFTER | ENDS_AFTER))
-                return nextPosition;
-
-            int bitInMask = index & 1;
-            if (!direction.isForward()) // Ends and starts are swapped when going in reverse
-                bitInMask ^= 1;
-            placeAfter = (endsAfterMask & (1 << bitInMask)) != 0;
-        }
-
+        int bitInMask = index & 1;
+        if (!direction.isForward()) // Ends and starts are swapped when going in reverse
+            bitInMask ^= 1;
+        boolean placeAfter = (endsAfterMask & (1 << bitInMask)) != 0;
         if (placeAfter == direction.isForward()) // Return path is to the left when going in reverse
             return nextPosition | ON_RETURN_PATH_BIT;
         else
@@ -359,25 +332,6 @@ class RangesCursor implements TrieSetCursor
                               copyFrom.currentPosition | ON_RETURN_PATH_BIT) < 0)
              ++endExclusive;
 
-        // Special treatment of a request to visit return path point for unsafe intersection.
-        boolean mayNeedReturnPathStop = copyFrom.explicitPlaceAfter != null;
-        if (mayNeedReturnPathStop)
-        {
-            if (endExclusive + 2 <= copyFrom.endIdx &&
-                Cursor.compare(copyFrom.nextPositions[endExclusive],
-                               copyFrom.currentPosition | ON_RETURN_PATH_BIT) == 0 &&
-                Cursor.compare(copyFrom.nextPositions[endExclusive + 1],
-                               copyFrom.currentPosition | ON_RETURN_PATH_BIT) == 0)
-                endExclusive += 2;
-
-            if (startInclusive >= 2 &&
-                Cursor.compare(copyFrom.nextPositions[startInclusive - 1],
-                               copyFrom.currentPosition) == 0 &&
-                Cursor.compare(copyFrom.nextPositions[startInclusive - 2],
-                               copyFrom.currentPosition) == 0)
-                startInclusive -= 2;
-        }
-
         // We can only drop an even number of boundaries on either size. Expand the indexes to make them even.
         int arrayStart = startInclusive & ~1;
         int arrayEnd = ((endExclusive + 1) & ~1);
@@ -391,9 +345,6 @@ class RangesCursor implements TrieSetCursor
         int newStartIdx;
 
         // Duplicate all selected boundaries, adjust depths and reverse the order if the direction doesn't match.
-        BitSet explicitPlaceAfter = null;
-        if (copyFrom.explicitPlaceAfter != null)
-            explicitPlaceAfter = copyFrom.explicitPlaceAfter.get(arrayStart, arrayEnd);
         if (directionMatches)
         {
             for (int i = startInclusive; i < endExclusive; ++i)
@@ -414,9 +365,6 @@ class RangesCursor implements TrieSetCursor
                     nextPositions[destIndex] ^= ON_RETURN_PATH_BIT;
             }
             newStartIdx = arrayEnd - endExclusive;
-
-            if (explicitPlaceAfter != null)
-                reverseBitSet(explicitPlaceAfter, arrayEnd - arrayStart);
         }
 
         // Determine the state the root needs to present.
@@ -433,35 +381,13 @@ class RangesCursor implements TrieSetCursor
             nextPositions[last] = rootPosition | ON_RETURN_PATH_BIT;
         }
 
-        if (mayNeedReturnPathStop)
-        {
-            // fix root positions with wrong incoming character
-            for (int i = 0; i < nextPositions.length; ++i)
-                if (Cursor.depth(nextPositions[i]) == 0)
-                    nextPositions[i] = rootPosition | (nextPositions[i] & Cursor.ON_RETURN_PATH_BIT);
-            while (newStartIdx < nextPositions.length && nextPositions[newStartIdx] == rootPosition)
-                ++newStartIdx;
-        }
-
         return new RangesCursor(copyFrom.byteComparableVersion,
                                 copyFrom.endsAfterMask,
-                                explicitPlaceAfter,
                                 nextPositions,
                                 sources,
                                 newStartIdx,
                                 nextPositions.length,
                                 rootPosition,
                                 rootState);
-    }
-
-    private static void reverseBitSet(BitSet explicitPlaceAfter, int length)
-    {
-        int e = length - 1;
-        for (int i = 0; i < e; ++i, --e)
-        {
-            boolean b = explicitPlaceAfter.get(i);
-            explicitPlaceAfter.set(i, explicitPlaceAfter.get(e));
-            explicitPlaceAfter.set(e, b);
-        }
     }
 }

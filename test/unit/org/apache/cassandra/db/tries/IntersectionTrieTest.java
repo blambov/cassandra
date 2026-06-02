@@ -286,13 +286,13 @@ public class IntersectionTrieTest
                              TrieSet.ranges(VERSION, of(3), of(4)));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6), trie,
-                             TrieSet.ranges(VERSION, (ByteComparable) null, of(7)));
+                             TrieSet.ranges(VERSION, null, of(7)));
 
             testIntersection("", asList(3, 4, 5, 6, 7, 8, 9), trie,
                              TrieSet.ranges(VERSION, of(3), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), trie,
-                             TrieSet.ranges(VERSION, (ByteComparable) null, null));
+                             TrieSet.ranges(VERSION, null, null));
 
             testIntersection("", asList(3, 4, 5, 7, 8), trie,
                              TrieSet.ranges(VERSION, of(3), of(6), of(7), of(9)));
@@ -304,13 +304,13 @@ public class IntersectionTrieTest
                              TrieSet.ranges(VERSION, of(3), of(4), of(7), of(9), of(12), of(15)));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8), trie,
-                             TrieSet.ranges(VERSION, (ByteComparable) null, of(6), of(7), of(9)));
+                             TrieSet.ranges(VERSION, null, of(6), of(7), of(9)));
 
             testIntersection("", asList(3, 4, 5, 7, 8, 9), trie,
                              TrieSet.ranges(VERSION, of(3), of(6), of(7), null));
 
             testIntersection("", asList(0, 1, 2, 3, 4, 5, 7, 8, 9), trie,
-                             TrieSet.ranges(VERSION, (ByteComparable) null, of(6), of(7), null));
+                             TrieSet.ranges(VERSION, null, of(6), of(7), null));
 
             // Test some touching slices.
             testIntersection("", asList(3, 4, 5, 6, 7, 8), trie,
@@ -414,7 +414,7 @@ public class IntersectionTrieTest
     {
         testIntersection("", asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14), trie);
 
-        TrieSet set1 = TrieSet.ranges(VERSION, (ByteComparable) null, of(4), of(5), of(9), of(12), null);
+        TrieSet set1 = TrieSet.ranges(VERSION, null, of(4), of(5), of(9), of(12), null);
         TrieSet set2 = TrieSet.ranges(VERSION, of(2), of(7), of(8), of(10), of(12), of(14));
         TrieSet set3 = TrieSet.ranges(VERSION, of(1), of(2), of(3), of(4), of(5), of(6), of(7), of(8), of(9), of(10));
 
@@ -432,7 +432,7 @@ public class IntersectionTrieTest
                               .union(TrieSet.rangeExclusiveEnd(VERSION, of(14), of(15)))
                               .union(TrieSet.rangeExclusiveEnd(VERSION, of(12), null));
         TrieSet set2 = TrieSet.rangeExclusiveEnd(VERSION, of(2), of(7))
-                              .union(TrieSet.ranges(VERSION, (ByteComparable) null, of(8), of(10), null).negation())
+                              .union(TrieSet.ranges(VERSION, null, of(8), of(10), null).negation())
                               .union(TrieSet.ranges(VERSION, of(8), of(10), of(12), of(14)));
         TrieSet set3 = TrieSet.rangeExclusiveEnd(VERSION, of(1), of(2))
                               .union(TrieSet.rangeExclusiveEnd(VERSION, of(3), of(4)))

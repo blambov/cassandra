@@ -167,16 +167,6 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         return dir -> new IntersectionCursor.DeletionAware<>(cursor(dir), set.cursor(dir));
     }
 
-    /// Perform an unsafe intersection with a set that must visit all positions containing deletion boundaries in the
-    /// source deletion branch. The returned intersection does not modify the returned ranges and is used to avoid
-    /// restricting the coverage of row- and column-level deletions to the span of the set.
-    ///
-    /// This operation does not guarantee that the result is well-formed and must be used with a lot of care.
-    default DeletionAwareTrie<T, D> intersectContainedUnsafe(TrieSet set)
-    {
-        return dir -> new IntersectionCursor.DeletionAwareContainedUnsafe<>(cursor(dir), set.cursor(dir));
-    }
-
     /// Specialized merge resolver for deletion-aware trie operations.
     ///
     /// This interface extends the basic [Trie.MergeResolver] to handle the additional complexity of
@@ -281,12 +271,12 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param deletionTrie Range trie specifying the deletion to apply.
     /// @param deletionResolver Resolver for deletion marker conflicts. See [MergeResolver#resolveMarkers].
     /// @param deleter Function to apply deletion markers to live content. See [MergeResolver#applyMarker].
-    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See [MergeResolver#deletionsAtFixedPoints].
+    /// @param deletionsAtRoot True if deletion branches are at predetermined positions. See [MergeResolver#deletionsAtFixedPoints].
     /// @return A live view of the merged tries with deletions applied
     default DeletionAwareTrie<T, D> mergeWithDeletion(RangeTrie<D> deletionTrie,
                                                       BiFunction<D, T, T> deleter,
                                                       Trie.MergeResolver<D> deletionResolver,
-                                                      boolean deletionsAtFixedPoints)
+                                                      boolean deletionsAtRoot)
     {
         // TODO: Optimize/simplify
         return mergeWith(deletionBranch(ByteComparable.EMPTY,
@@ -295,74 +285,22 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
                          throwingResolver(),
                          deletionResolver,
                          deleter,
-                         deletionsAtFixedPoints);
+                         deletionsAtRoot);
     }
 
-    /// Constructs a view of the merge of this deletion-aware trie with another, applying deletions during the merge
-    /// process and a transformation over all values. The view is live, i.e. any write to any of the sources will be
-    /// reflected in the merged view.
-    ///
-    /// This merge applies each source's deletions to the other source's live data, and merges deletion branches
-    /// to form a valid deletion-aware trie.
-    ///
-    /// The resolvers will be called for all content and deletion boundaries, with the other argument being null if a
-    /// value applies in only one source.
-    ///
-    /// @param other The other deletion-aware trie to merge with
-    /// @param mergeResolver Resolver for live data conflicts between the two tries.
-    /// @param deletionResolver Resolver for deletion marker conflicts. See [MergeResolver#resolveMarkers].
-    /// @param deleter1 Function to apply deletion markers from the other source to live content in this.
-    ///                 See [MergeResolver#applyMarker].
-    /// @param deleter2 Function to apply deletion markers from this source to live content in the other.
-    ///                 See [MergeResolver#applyMarker].
-    /// @return A live view of the merged tries with deletions applied and data transformed
-    default <S, E extends RangeState<E>, R, Q extends RangeState<Q>>
-    DeletionAwareTrie<R, Q> mappingMergeWith(DeletionAwareTrie<S, E> other,
-                                            BiFunction<T, S, R> mergeResolver,
-                                            BiFunction<D, E, Q> deletionResolver,
-                                            BiFunction<E, T, T> deleter1,
-                                            BiFunction<D, S, S> deleter2,
-                                            boolean deletionsAtFixedPoints)
+    default <S extends RangeState<S>>
+    DeletionAwareTrie<T, D> intersectWith(RangeTrie<S> intersectionTrie,
+                                          Predicate<? super S> precedingIncludedInSet,
+                                          Predicate<? super D> precedingIncludedInSource,
+                                          BiFunction<T, ? super S, T> dataResolver,
+                                          BiFunction<D, ? super S, D> deletionResolver)
     {
-        return dir -> new MergeCursor.DeletionAwareMapping<>(mergeResolver,
-                                                             deletionResolver,
-                                                             deleter1,
-                                                             deleter2,
-                                                             cursor(dir),
-                                                             other.cursor(dir),
-                                                             deletionsAtFixedPoints);
+        return dir -> new IntersectionCursor.DeletionAwareByRange<>(cursor(dir), intersectionTrie.cursor(dir),
+                                                                    precedingIncludedInSet,
+                                                                    precedingIncludedInSource,
+                                                                    dataResolver,
+                                                                    deletionResolver);
     }
-
-    /// Constructs a view of the merge of this deletion-aware trie with a deletion. This has the same effect as merging
-    /// the trie with a deletion-aware trie containing only a deletion branch with the given data at its root.
-    ///
-    /// This merge applies the incoming deletions to this trie's live data, and merges it into this trie's deletion
-    /// branch, hoisting it to the root of the trie if necessary.
-    ///
-    /// The resolvers will be called for all content and deletion boundaries, with the other argument being null if a
-    /// value applies in only one source.
-    ///
-    /// @param deletionTrie Range trie specifying the deletion to apply.
-    /// @param deletionResolver Resolver for deletion marker conflicts. See [MergeResolver#resolveMarkers].
-    /// @param deleter Function to apply deletion markers to live content. See [MergeResolver#applyMarker].
-    /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See [MergeResolver#deletionsAtFixedPoints].
-    /// @return A live view of the merged tries with deletions applied and data transformed
-    default <E extends RangeState<E>, Q extends RangeState<Q>>
-    DeletionAwareTrie<T, Q> mappingMergeWithDeletion(RangeTrie<E> deletionTrie,
-                                                    BiFunction<E, T, T> deleter,
-                                                    BiFunction<D, E, Q> deletionResolver,
-                                                    boolean deletionsAtFixedPoints)
-    {
-        return mappingMergeWith(deletionBranch(ByteComparable.EMPTY,
-                                               deletionTrie.cursor(Direction.FORWARD).byteComparableVersion(),
-                                               deletionTrie),
-                                (x, y) -> x, // y is always null
-                                deletionResolver,
-                                deleter,
-                                (x, y) -> { throw new AssertionError(); },
-                                deletionsAtFixedPoints);
-    }
-
 
     /// See [MergeResolver]
     interface CollectionMergeResolver<T, D extends RangeState<D>>
