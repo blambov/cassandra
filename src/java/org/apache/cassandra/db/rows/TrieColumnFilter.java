@@ -483,13 +483,12 @@ public class TrieColumnFilter
 
         for (ColumnMetadata column : columns)
         {
-            int id = columnIds.get(column.name);
+            int id = TrieBackedRow.columnId(columnIds, column);
             if (id == TrieBackedRow.COLUMN_NOT_PRESENT)
                 continue;
-            boolean queried = queriedByUserTester.test(column);
             ByteComparable columnKey = TrieBackedRow.encodeUnsignedInt(id);
 
-            if (queried)
+            if (queriedByUserTester.test(column))
             {
                 SortedSet<ColumnSubselection> subselection = subselections != null ? subselections.get(column.name) : null;
                 if (subselection != null)

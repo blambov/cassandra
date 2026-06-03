@@ -310,6 +310,7 @@ implements RangeCursor<Q>
         public TrieSet(TrieSetCursor src, TrieSetCursor set)
         {
             super(src, set);
+            setInitialState();
         }
 
         @Override

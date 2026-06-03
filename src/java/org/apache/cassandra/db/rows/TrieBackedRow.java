@@ -440,7 +440,7 @@ public class TrieBackedRow extends AbstractRow
                                          getCellPathType(column).asComparableBytes(path.get(0), version));
     }
 
-    private static int columnId(Object2IntHashMap<ColumnIdentifier> columnIds, ColumnMetadata column)
+    static int columnId(Object2IntHashMap<ColumnIdentifier> columnIds, ColumnMetadata column)
     {
         return columnIds.getValue(column.name);
     }
