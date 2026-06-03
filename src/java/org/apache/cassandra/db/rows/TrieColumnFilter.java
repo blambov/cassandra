@@ -491,12 +491,12 @@ public class TrieColumnFilter
             if (queriedByUserTester.test(column))
             {
                 SortedSet<ColumnSubselection> subselection = subselections != null ? subselections.get(column.name) : null;
-                if (subselection != null)
+                if (subselection != null && !subselection.isEmpty())
                 {
                     for (ColumnSubselection ss : subselection)
                     {
                         trie.putRecursive(TrieBackedRow.cellKey(id, column, ss.startInclusive()), INCLUDED_START, false, TrieColumnFilter::addNew);
-                        trie.putRecursive(TrieBackedRow.cellKey(id, column, ss.startInclusive()), INCLUDED_END, true, TrieColumnFilter::addNew);
+                        trie.putRecursive(TrieBackedRow.cellKey(id, column, ss.endInclusive()), INCLUDED_END, true, TrieColumnFilter::addNew);
                     }
 
                     // preserve column marker and deletion
