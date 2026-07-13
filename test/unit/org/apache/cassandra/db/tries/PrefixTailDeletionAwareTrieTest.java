@@ -242,10 +242,10 @@ extends PrefixTailTestBase<InMemoryDeletionAwareTrie<Object, TestRangeState>,
                                                                                     testPrefix + delBranchRoot + delEnd,
                                                                                     deletion,
                                                                                     data);
-//        System.out.println("Source\n" + source.dump());
-//        System.out.println("Expected\n" + expected.dump());
-//        System.out.println("Prefixed FORWARD\n" + prefixed.dump());
-//        System.out.println("Prefixed REVERSE\n" + prefixed.process(Direction.REVERSE, new TrieDumper.DeletionAware<>(Object::toString, Object::toString)));
+        System.out.println("Source\n" + source.dump());
+        System.out.println("Expected\n" + expected.dump());
+        System.out.println("Prefixed FORWARD\n" + prefixed.dump());
+        System.out.println("Prefixed REVERSE\n" + prefixed.process(Direction.REVERSE, new TrieDumper.DeletionAware<>(Object::toString, Object::toString)));
 
         BiConsumer<DeletionAwareTrie<Object, TestRangeState>, DeletionAwareTrie<Object, TestRangeState>>
             verifier = delBranchRoot.isEmpty() ? TrieUtil::assertTriesEqual : TrieUtil::assertTrieContentEqual;

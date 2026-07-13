@@ -37,6 +37,7 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
 
     boolean atC1;
     boolean atC2;
+    long currentPosition;
 
     MergeCursor(C c1, D c2)
     {
@@ -45,6 +46,7 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
         this.c1 = c1;
         this.c2 = c2;
         atC1 = atC2 = true;
+        currentPosition = Cursor.unionFlagsMatchingPositions(c1.encodedPosition(), c2.encodedPosition());
     }
 
     @Override
@@ -83,13 +85,16 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
         long cmp = Cursor.compare(c1pos, c2pos);
         atC1 = cmp <= 0;
         atC2 = cmp >= 0;
-        return atC1 ? c1pos : c2pos;
+        if (atC1 && atC2)
+        return currentPosition = Cursor.unionFlagsMatchingPositions(c1pos, c2pos);
+        else
+            return currentPosition = atC1 ? c1pos : c2pos;
     }
 
     @Override
     public long encodedPosition()
     {
-        return atC1 ? c1.encodedPosition() : c2.encodedPosition();
+        return currentPosition;
     }
 
     @Override
@@ -347,9 +352,12 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
             if (tgt.hasDeletions())
                 return;
 
-            RangeCursor<E> deletionsBranch = src.deletionBranchCursor(src.direction());
-            if (deletionsBranch != null)
-                tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
+            if ((src.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0)
+            {
+                RangeCursor<E> deletionsBranch = src.deletionBranchCursor(src.direction());
+                if (deletionsBranch != null)
+                    tgt.addDeletions(deletionsBranch);  // apply all src deletions to tgt
+            }
         }
 
 
@@ -362,14 +370,14 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
 
             // if one of the two cursors is ahead, it can't affect this deletion branch
             if (!atC1)
-                return maybeSetDeletionsDepth(makeRangeCursor(null, c2.deletionBranchCursor(direction)), depth);
+                return maybeSetDeletionsDepth(makeRangeCursor(null, (c2.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0 ? c2.deletionBranchCursor(direction) : null), depth);
             if (!atC2)
-                return maybeSetDeletionsDepth(makeRangeCursor(c1.deletionBranchCursor(direction), null), depth);
+                return maybeSetDeletionsDepth(makeRangeCursor((c1.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0 ? c1.deletionBranchCursor(direction) : null, null), depth);
 
             // We are positioned at a common branch. If one has a deletion branch, we must combine it with the
             // deletion-tree branch of the other to make sure that we merge any higher-depth deletion branch with it.
-            RangeCursor<D> b1 = c1.deletionBranchCursor(direction);
-            RangeCursor<E> b2 = c2.deletionBranchCursor(direction);
+            RangeCursor<D> b1 = (c1.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0 ? c1.deletionBranchCursor(direction) : null;
+            RangeCursor<E> b2 = (c2.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0 ? c2.deletionBranchCursor(direction) : null;
             if (b1 == null && b2 == null)
                 return null;
 

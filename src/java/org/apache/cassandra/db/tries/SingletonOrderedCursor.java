@@ -92,7 +92,7 @@ class SingletonOrderedCursor<T> extends SingletonCursor<T>
         super.advanceMultiple(receiver);
         if (presentOnReturnPath)
             currentPosition |= ON_RETURN_PATH_BIT;
-        return currentPosition;
+        return encodedPosition();
     }
 
     @Override

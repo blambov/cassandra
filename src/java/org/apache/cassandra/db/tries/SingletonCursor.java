@@ -83,7 +83,7 @@ class SingletonCursor<T> implements Cursor<T>
         currentPosition = nextPosition;
         if (!Cursor.isExhausted(nextPosition))
             prepareNextPosition(currentPosition);
-        return currentPosition;
+        return encodedPosition();
     }
 
     @Override
@@ -106,6 +106,8 @@ class SingletonCursor<T> implements Cursor<T>
         }
         currentPosition = Cursor.positionForDescentWithByte(pos, current);
         nextPosition = Cursor.exhaustedPosition(currentPosition);
+        // atEnd() is unconditionally true here; set the bit directly.
+        currentPosition |= MAY_HAVE_CONTENT_BIT;
         return currentPosition;
     }
 
@@ -132,7 +134,9 @@ class SingletonCursor<T> implements Cursor<T>
     @Override
     public long encodedPosition()
     {
-        return currentPosition;
+        return Cursor.isExhausted(nextPosition) && !Cursor.isExhausted(currentPosition)
+               ? currentPosition | MAY_HAVE_CONTENT_BIT
+               : currentPosition;
     }
 
     @Override
@@ -213,6 +217,24 @@ class SingletonCursor<T> implements Cursor<T>
         {
             super(direction, currentPosition, nextPosition, src, byteComparableVersion, null);
             this.deletionBranch = deletionBranch;
+        }
+
+        @Override
+        public long encodedPosition()
+        {
+            long pos = super.encodedPosition();
+            if (atEnd())
+                pos |= MAY_HAVE_DELETION_BRANCH_BIT;
+            return pos;
+        }
+
+        @Override
+        public long advanceMultiple(TransitionsReceiver receiver)
+        {
+            long pos = super.advanceMultiple(receiver);
+            if (atEnd())
+                pos |= MAY_HAVE_DELETION_BRANCH_BIT;
+            return pos;
         }
 
         @Override

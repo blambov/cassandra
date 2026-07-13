@@ -87,14 +87,22 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
 
         while (true)
         {
-            T content = content();   // handle content on the root node
-            if (content != null)
-                walker.content(content);
-            RangeCursor<D> deletionBranch = deletionBranchCursor(direction());
-            if (deletionBranch != null && walker.enterDeletionsBranch())
+            if ((currentPosition & MAY_HAVE_DELETION_BRANCH_BIT) != 0)
             {
-                processDeletionBranch(walker, deletionBranch);
-                walker.exitDeletionsBranch();
+                RangeCursor<D> deletionBranch = deletionBranchCursor(direction());
+                if (deletionBranch != null && walker.enterDeletionsBranch())
+                {
+                    processDeletionBranch(walker, deletionBranch);
+                    walker.exitDeletionsBranch();
+                }
+            }
+            
+            // MAY_HAVE_CONTENT_BIT optimization: only call content() if flag indicates potential content
+            if ((currentPosition & MAY_HAVE_CONTENT_BIT) != 0)
+            {
+                T content = content();
+                if (content != null)
+                    walker.content(content);
             }
 
             long prevPosition = currentPosition;
@@ -113,7 +121,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
     private static <D> void processDeletionBranch(DeletionAwareWalker<?, ? super D, ?> walker, Cursor<D> cursor)
     {
         cursor.assertFresh();
-        D content = cursor.content();   // handle content on the root node
+        D content = (cursor.encodedPosition() & MAY_HAVE_CONTENT_BIT) != 0 ? cursor.content() : null;
         if (content == null)
             content = cursor.advanceToContent(walker);
 
@@ -171,9 +179,12 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         {
             if (state == State.C1_ONLY)
             {
-                RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction());
-                if (deletionsBranch != null)
-                    addCursor(deletionsBranch);
+                if ((c1.encodedPosition() & MAY_HAVE_DELETION_BRANCH_BIT) != 0)
+                {
+                    RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction());
+                    if (deletionsBranch != null)
+                        addCursor(deletionsBranch);
+                }
             }
             return encodedPosition;
         }
@@ -403,15 +414,19 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                     // already in deletion branch
                     break;
                 case C1_ONLY:
-                    RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction());
-                    if (deletionsBranch != null)
+                    if ((encodedPosition & MAY_HAVE_DELETION_BRANCH_BIT) != 0)
                     {
-                        addCursor(deletionsBranch);
-                        // deletion branches cannot be nested; skip past the current position in the main trie as we
-                        // don't need to further track it inside this branch
-                        c1.skipTo(Cursor.positionForSkippingBranch(encodedPosition));
-                        state = State.AT_C2;
+                        RangeCursor<D> deletionsBranch = c1.deletionBranchCursor(direction());
+                        if (deletionsBranch != null)
+                        {
+                            addCursor(deletionsBranch);
+                            // deletion branches cannot be nested; skip past the current position in the main trie as we
+                            // don't need to further track it inside this branch
+                            c1.skipTo(Cursor.positionForSkippingBranch(encodedPosition));
+                            state = State.AT_C2;
+                        }
                     }
+                    currentPosition = encodedPosition &= ~FLAGS_MASK;
                     break;
                 default:
                     throw new AssertionError("Deletion branch extends above its introduction");
