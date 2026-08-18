@@ -360,8 +360,10 @@ public class TriePartitionUpdateStage3 extends TrieBackedPartitionStage3 impleme
         {
             if (o instanceof RowData)
                 heapSize += ((RowData) o).unsharedHeapSizeExcludingData();
+            else if (o instanceof TrieTombstoneMarker)
+                heapSize += ((TrieTombstoneMarker) o).unsharedHeapSize();
             else
-                heapSize += ((DeletionInfo) o).unsharedHeapSize();
+                assert o == PARTITION_MARKER;
         }
         return heapSize;
     }
