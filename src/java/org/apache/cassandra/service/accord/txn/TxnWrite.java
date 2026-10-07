@@ -55,6 +55,7 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.ReadCommand.PotentialTxnConflicts;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.db.partitions.BTreePartitionUpdate;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.io.ParameterisedVersionedSerializer;
@@ -145,7 +146,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             PartitionUpdate update = deserialize(tables);
             if (!preserveTimestamps)
-                update = new PartitionUpdate.Builder(update, 0).updateAllTimestamp(timestamp).build();
+                update = update.withUpdatedTimestamps(timestamp);
             Mutation mutation = new Mutation(update, PotentialTxnConflicts.ALLOW);
             return executor.continuationChain(() -> mutation.apply(false, false));
         }
@@ -301,7 +302,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 return toUpdate(tables);
 
             DecoratedKey key = baseUpdate.partitionKey();
-            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(baseUpdate.metadata(),
+            PartitionUpdate.Builder updateBuilder = new BTreePartitionUpdate.Builder(baseUpdate.metadata(),
                                                                                 key,
                                                                                 columns(baseUpdate, referenceOps),
                                                                                 baseUpdate.rowCount(),
