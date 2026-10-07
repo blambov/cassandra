@@ -276,6 +276,11 @@ public class BTreeRow extends AbstractRow
                && BTree.isEmpty(btree);
     }
 
+    public boolean isEmptyAfterDeletion()
+    {
+        return primaryKeyLivenessInfo().isEmpty() && BTree.isEmpty(btree);
+    }
+
     public Deletion deletion()
     {
         return deletion;
@@ -340,7 +345,7 @@ public class BTreeRow extends AbstractRow
     {
         Map<ByteBuffer, DroppedColumn> droppedColumns = metadata.droppedColumns;
 
-        boolean mayFilterColumns = !filter.fetchesAllColumns(isStatic()) || !filter.allFetchedColumnsAreQueried();
+        boolean mayFilterColumns = filter != null && (!filter.fetchesAllColumns(isStatic()) || !filter.allFetchedColumnsAreQueried());
         // When merging sstable data in Row.Merger#merge(), rowDeletion is removed if it doesn't supersede activeDeletion.
         boolean mayHaveShadowed = !activeDeletion.isLive() && !deletion.time().supersedes(activeDeletion);
 
@@ -358,9 +363,11 @@ public class BTreeRow extends AbstractRow
             newDeletion = setActiveDeletionToRow ? Deletion.regular(activeDeletion) : Deletion.LIVE;
         }
 
-        Columns columns = filter.fetchedColumns().columns(isStatic());
+        ColumnFilter nonNullFilter = filter == null ? ColumnFilter.all(metadata) : filter;
+
+        Columns columns = nonNullFilter.fetchedColumns().columns(isStatic());
         Predicate<ColumnMetadata> inclusionTester = columns.inOrderInclusionTester();
-        Predicate<ColumnMetadata> queriedByUserTester = filter.queriedColumns().columns(isStatic()).inOrderInclusionTester();
+        Predicate<ColumnMetadata> queriedByUserTester = nonNullFilter.queriedColumns().columns(isStatic()).inOrderInclusionTester();
         final LivenessInfo rowLiveness = newInfo;
         return transformAndFilterColumns(newInfo, newDeletion, (cd) -> {
 
@@ -371,7 +378,7 @@ public class BTreeRow extends AbstractRow
             // we check isEmpty here to avoid bytes.hashCode calculation if it is not needed
             DroppedColumn dropped = droppedColumns.isEmpty() ? null : droppedColumns.get(column.name.bytes);
             if (column.isComplex())
-                return ((BTreeComplexColumn) cd).filter(filter, mayHaveShadowed ? activeDeletion : DeletionTime.LIVE, dropped, rowLiveness);
+                return ((BTreeComplexColumn) cd).filter(nonNullFilter, mayHaveShadowed ? activeDeletion : DeletionTime.LIVE, dropped, rowLiveness);
 
             Cell<?> cell = (Cell<?>) cd;
             // We include the cell unless it is 1) shadowed, 2) for a dropped column or 3) skippable.

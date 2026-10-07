@@ -71,6 +71,20 @@ public class BTreeComplexColumn extends ComplexColumnData
         this.complexDeletion = complexDeletion;
     }
 
+    /**
+     * Returns a b-tree version of the given complex column, converting it if necessary.
+     */
+    public static BTreeComplexColumn from(ComplexColumnData ccd)
+    {
+        if (ccd instanceof BTreeComplexColumn)
+            return (BTreeComplexColumn) ccd;
+        BTree.Builder<Cell<?>> builder = BTree.builder(ccd.column.cellComparator());
+        builder.auto(false);
+        for (Cell<?> c : ccd)
+            builder.add(c);
+        return new BTreeComplexColumn(ccd.column, builder.build(), ccd.complexDeletion());
+    }
+
     @Override
     public boolean hasCells()
     {
