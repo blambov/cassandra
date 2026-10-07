@@ -27,6 +27,7 @@ import com.google.common.collect.Iterators;
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CassandraUInt;
@@ -330,7 +331,7 @@ public class RangeTombstoneList implements Iterable<RangeTombstone>, IMeasurable
 
     public void updateAllTimestampAndLocalDeletionTime(long timestamp, long localDeletionTime)
     {
-        int unsignedLocalDeletionTime = Cell.deletionTimeLongToUnsignedInteger(localDeletionTime);
+        int unsignedLocalDeletionTime = CellData.deletionTimeLongToUnsignedInteger(localDeletionTime);
         for (int i = 0; i < size; i++)
         {
             markedAts[i] = timestamp;
