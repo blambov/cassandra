@@ -692,7 +692,13 @@ public abstract class InMemoryReadTrie<T>
         int currentFullNode;
         protected long currentPosition;
         protected int depth;
+        /// The content at the current position. Only valid if `pendingContentId` is `NONE`.
         protected T content;
+        /// The id of the content at the current position if it has not been retrieved yet, `NONE` otherwise.
+        /// Retrieving content may be expensive (e.g. it may need to be deserialized from the trie cells), and most of
+        /// the content a cursor passes through (e.g. when creating tail cursors or walking to a position) is never
+        /// requested. Because of this, we only retrieve it when [#content] is called.
+        int pendingContentId;
         final Direction direction;
         final boolean presentContentOnDescentPath;
 
@@ -812,7 +818,19 @@ public abstract class InMemoryReadTrie<T>
         @Override
         public T content()
         {
+            if (pendingContentId != NONE)
+            {
+                content = trie.getContent(pendingContentId);
+                pendingContentId = NONE;
+            }
             return content;
+        }
+
+        /// Set the content of the current position to the given id, to be retrieved if requested.
+        void setContentId(int contentId)
+        {
+            content = null;
+            pendingContentId = contentId;
         }
 
         @Override
@@ -833,7 +851,7 @@ public abstract class InMemoryReadTrie<T>
             currentPosition = Cursor.exhaustedPosition(direction);
             currentFullNode = NONE;
             currentNode = NONE;
-            content = null;
+            setContentId(NONE);
             depth = -1;
             return currentPosition;
         }
@@ -1234,19 +1252,19 @@ public abstract class InMemoryReadTrie<T>
                     {
                         // We are just starting, we need to present the forward-direction root first.
                         addBacktrack(node, transition, depth - 1);
-                        content = null;
+                        setContentId(NONE);
                     }
                     else
                     {
                         // There's no reason to delay going to the position of the content.
                         currentPosition |= ON_RETURN_PATH_BIT;
-                        content = trie.getContent(node);
+                        setContentId(node);
                         currentPosition |= MAY_HAVE_CONTENT_BIT;
                     }
                 }
                 else
                 {
-                    content = trie.getContent(node);
+                    setContentId(node);
                     currentPosition |= MAY_HAVE_CONTENT_BIT;
                 }
 
@@ -1254,40 +1272,41 @@ public abstract class InMemoryReadTrie<T>
             }
             else if (offset(node) == PREFIX_OFFSET)
             {
-                content = processPrefix(node, depth, transition);
-                if (content != null)
+                int contentId = processPrefix(node, depth, transition);
+                setContentId(contentId);
+                if (!isNull(contentId))
                     currentPosition |= MAY_HAVE_CONTENT_BIT;
                 currentNode = trie.getChildOfPrefixNode(node);
             }
             else
             {
-                content = null;
+                setContentId(NONE);
                 currentNode = node;
             }
         }
 
-        /// Get the content from a prefix node and/or put a backtracking entry for return path data.
+        /// Get the content id from a prefix node and/or put a backtracking entry for return path data.
         /// Overridden by range tries, where both descent and ascent path content can be present.
         ///
-        /// @return the descent path content, if present
-        T processPrefix(int node, int depth, int transition)
+        /// @return the id of the descent path content, or `NONE` if there is no such content
+        int processPrefix(int node, int depth, int transition)
         {
             return processPrefixEntry(node, depth, transition, PREFIX_CONTENT_OFFSET);
         }
 
-        T processPrefixEntry(int node, int depth, int transition, int contentPointerOffset)
+        int processPrefixEntry(int node, int depth, int transition, int contentPointerOffset)
         {
             int child = trie.getIntVolatile(node + contentPointerOffset);
             if (isNull(child))
-                return null;
+                return NONE;
 
             assert isLeaf(child);
             if (!shouldPresentOnTheReturnPath(child))
-                return trie.getContent(child);
+                return child;
 
             // this content needs to be presented on the return path
             addBacktrack(child, transition, depth - 1);
-            return null;
+            return NONE;
         }
 
         protected boolean shouldPresentOnTheReturnPath(int node)
@@ -1320,6 +1339,7 @@ public abstract class InMemoryReadTrie<T>
         {
             currentPosition = nextPosition;
             content = nodeContent;
+            pendingContentId = NONE;
             currentFullNode = fullNode;
             currentNode = node;
             return currentPosition;

@@ -35,6 +35,7 @@ import com.google.common.collect.MapMaker;
 import com.google.common.primitives.Ints;
 
 import net.openhft.chronicle.values.NotNull;
+import org.agrona.DirectBuffer;
 import org.agrona.collections.Object2IntHashMap;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.Clustering;
@@ -136,6 +137,20 @@ public class TrieBackedRow extends AbstractRow
     /// Copy of the row-level deletion time as [Row.Deletion] (also stored at the root of the deletion branch).
     private final Deletion deletion;
 
+    /// The number of columns in the row (see [#columnCount]), or -1 if not known, in which case it is computed on
+    /// demand.
+    private final int columnCount;
+    /// The number of cells in the row (see [#cellsCount]), or -1 if not known, in which case it is computed on demand.
+    private final int cellsCount;
+    /// Properties of the row, as a combination of the `FLAG_` values below. Only valid if `FLAG_KNOWN` is set,
+    /// otherwise the properties are computed on demand.
+    private final byte flags;
+
+    private static final byte FLAG_KNOWN = 0x01;
+    private static final byte FLAG_HAS_COMPLEX_DELETION = 0x02;
+    private static final byte FLAG_EMPTY = 0x04;
+    private static final byte FLAG_EMPTY_AFTER_DELETION = 0x08;
+
     /// Create a trie-backed version of a row, using the column definitions of the given table metadata.
     public static TrieBackedRow from(TableMetadata metadata, Row row)
     {
@@ -179,34 +194,60 @@ public class TrieBackedRow extends AbstractRow
                                 Clustering<?> clustering,
                                 DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
-        TrieTombstoneMarker deletionRoot = data.deletionAtRoot();
+        // Collect all properties of the row that we store with a single walk over its trie.
+        FeatureCollector features = new FeatureCollector();
+        data.process(Direction.FORWARD, features);
+
+        boolean isInMemory = data instanceof InMemoryDeletionAwareTrie;
+        TrieTombstoneMarker deletionRoot = features.deletionRoot;
         Deletion deletion = Deletion.LIVE;
-        long minLocalDeletionTime = CellData.MAX_DELETION_TIME;
+        long minLocalDeletionTime;
         if (deletionRoot != null)
         {
             TrieTombstoneMarker.Covering rowDeletionTime = deletionRoot.applicableToPointForward();
             if (rowDeletionTime != null)
                 deletion = Deletion.regular(rowDeletionTime);
-            if (data instanceof InMemoryDeletionAwareTrie || rowDeletionTime != null)
+            if (isInMemory || rowDeletionTime != null)
             {
                 // We only have a deletion row marker if we have a real deletion.
                 minLocalDeletionTime = Long.MIN_VALUE;
             }
-            else
-                minLocalDeletionTime = accumulate(minLocalDeletionTime, TrieBackedRow::mergeMinLocalDeletionTime, TrieBackedRow::mergeMinLocalDeletionTime, TrieBackedRow::mergeMinLocalDeletionTime, data);
+            else // any deletion forces the minimum
+                minLocalDeletionTime = features.hasApplicableDeletion ? Long.MIN_VALUE : features.contentMinLocalDeletionTime;
         }
         else
-            minLocalDeletionTime = accumulate(minLocalDeletionTime, TrieBackedRow::mergeMinLocalDeletionTime, TrieBackedRow::mergeMinLocalDeletionTime, data.contentOnlyTrie());
+            minLocalDeletionTime = features.contentMinLocalDeletionTime;
+
+        LivenessInfo rootLivenessInfo = features.rootLivenessInfo;
+        // These must match the results of isEmptyAfterDeletion(data) and isEmpty(data).
+        boolean isEmptyAfterDeletion = isInMemory ? rootLivenessInfo == null
+                                                  : (rootLivenessInfo == null || rootLivenessInfo == LivenessInfo.EMPTY) &&
+                                                    features.cellsCount == 0;
+        boolean isEmpty = isEmptyAfterDeletion && (isInMemory ? deletionRoot == null
+                                                              : !features.hasRootDeletionBoundary);
+        byte flags = FLAG_KNOWN;
+        if (features.hasComplexDeletion)
+            flags |= FLAG_HAS_COMPLEX_DELETION;
+        if (isEmpty)
+            flags |= FLAG_EMPTY;
+        if (isEmptyAfterDeletion)
+            flags |= FLAG_EMPTY_AFTER_DELETION;
 
         return new TrieBackedRow(columns,
                                  columnIds,
                                  clustering,
-                                 getLivenessInfo(data),
+                                 rootLivenessInfo != null ? rootLivenessInfo : LivenessInfo.EMPTY,
                                  deletion,
                                  minLocalDeletionTime,
+                                 // Column deletions can introduce columns that do not have a complex column marker.
+                                 // This is rare enough to just count the columns on demand in that case.
+                                 features.hasColumnDeletionStart ? -1 : features.columnCount,
+                                 features.cellsCount,
+                                 flags,
                                  data);
     }
 
+    /// Construct a row whose column count, cell count and flags are to be computed on demand.
     private TrieBackedRow(Columns columns,
                           Object2IntHashMap<ColumnIdentifier> columnIds,
                           Clustering<?> clustering,
@@ -215,14 +256,164 @@ public class TrieBackedRow extends AbstractRow
                           long minLocalDeletionTime,
                           DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
+        this(columns, columnIds, clustering, livenessInfo, deletion, minLocalDeletionTime, -1, -1, (byte) 0, data);
+    }
+
+    private TrieBackedRow(Columns columns,
+                          Object2IntHashMap<ColumnIdentifier> columnIds,
+                          Clustering<?> clustering,
+                          LivenessInfo livenessInfo,
+                          Deletion deletion,
+                          long minLocalDeletionTime,
+                          int columnCount,
+                          int cellsCount,
+                          byte flags,
+                          DeletionAwareTrie<Object, TrieTombstoneMarker> data)
+    {
         this.deletion = deletion;
         this.livenessInfo = livenessInfo;
         this.minLocalDeletionTime = minLocalDeletionTime;
+        this.columnCount = columnCount;
+        this.cellsCount = cellsCount;
+        this.flags = flags;
         assert data != null;
         this.columns = columns;
         this.columnIds = columnIds;
         this.clustering = clustering;
         this.data = data;
+    }
+
+    /// Walker collecting all the properties of a row that [#create] needs in a single pass over the row trie.
+    /// The results must match what [#getLivenessInfo], [DeletionAwareTrie#deletionAtRoot], [#countColumns],
+    /// [#cellsCount], [#hasComplexDeletion] and the minimum local deletion time accumulation would produce.
+    private static final class FeatureCollector implements DeletionAwareTrie.ValueConsumer<Object, TrieTombstoneMarker>
+    {
+        /// The liveness info at the root of the row, null if there is none.
+        LivenessInfo rootLivenessInfo = null;
+        /// The marker at the root of the deletion branch at the root of the row, i.e. [DeletionAwareTrie#deletionAtRoot].
+        TrieTombstoneMarker deletionRoot = null;
+        /// The minimum local deletion time of the live content of the row.
+        long contentMinLocalDeletionTime = CellData.MAX_DELETION_TIME;
+        /// Whether any boundary marker applies a deletion.
+        boolean hasApplicableDeletion = false;
+        /// The number of columns with live data, i.e. simple columns with a cell and complex columns with a marker.
+        int columnCount = 0;
+        /// The number of cells.
+        int cellsCount = 0;
+        /// Whether any marker introduces a column deletion. Such deletions may introduce columns without live data.
+        boolean hasColumnDeletionStart = false;
+        /// Whether the deletion branch at the root of the row introduces a column deletion.
+        boolean hasComplexDeletion = false;
+        /// Whether the deletion branch at the root of the row contains any boundaries.
+        boolean hasRootDeletionBoundary = false;
+
+        /// The depth of the current position in the live branch.
+        int depth = 0;
+        /// The depth of the complex column marker we are currently under, `Integer.MAX_VALUE` if none.
+        int complexColumnDepth = Integer.MAX_VALUE;
+        /// True when we are walking a deletion branch.
+        boolean inDeletionBranch = false;
+        /// True when the current deletion branch is at the root of the row.
+        boolean inRootDeletionBranch = false;
+        /// True until the current deletion branch walk moves from the branch's root.
+        boolean atDeletionBranchRoot = false;
+
+        @Override
+        public void content(Object content)
+        {
+            if (depth <= complexColumnDepth)
+                complexColumnDepth = Integer.MAX_VALUE; // we are not in the branch of a complex column
+
+            if (content instanceof CellData)
+            {
+                ++cellsCount;
+                if (complexColumnDepth == Integer.MAX_VALUE)
+                    ++columnCount; // simple column
+                contentMinLocalDeletionTime = mergeMinLocalDeletionTime((CellData<?, ?>) content, contentMinLocalDeletionTime);
+            }
+            else if (content == COMPLEX_COLUMN_MARKER)
+            {
+                ++columnCount;
+                complexColumnDepth = depth;
+            }
+            else if (content instanceof LivenessInfo)
+            {
+                if (depth == 0)
+                    rootLivenessInfo = (LivenessInfo) content;
+                contentMinLocalDeletionTime = mergeMinLocalDeletionTime((LivenessInfo) content, contentMinLocalDeletionTime);
+            }
+            else
+                throw new AssertionError("Unexpected content type: " + content);
+        }
+
+        @Override
+        public boolean enterDeletionsBranch()
+        {
+            inDeletionBranch = true;
+            inRootDeletionBranch = depth == 0;
+            atDeletionBranchRoot = true;
+            return true;
+        }
+
+        @Override
+        public void deletionMarker(TrieTombstoneMarker marker)
+        {
+            if (inRootDeletionBranch && atDeletionBranchRoot)
+                deletionRoot = marker;
+
+            if (marker.isBoundary() && marker.applicableToPointForward() != null)
+                hasApplicableDeletion = true;
+
+            TrieTombstoneMarker.Covering succeeding = marker.succedingState(Direction.FORWARD);
+            if (succeeding != null && succeeding.deletionKind() == TrieTombstoneMarker.Kind.COLUMN)
+                hasColumnDeletionStart = true;
+
+            if (inRootDeletionBranch)
+            {
+                if (marker instanceof TrieTombstoneMarker.Boundary)
+                    hasRootDeletionBoundary = true;
+                TrieTombstoneMarker.Covering introducedDeletion = marker.rightDeletion();
+                if (introducedDeletion != null && introducedDeletion.deletionKind() == TrieTombstoneMarker.Kind.COLUMN)
+                    hasComplexDeletion = true;
+            }
+        }
+
+        @Override
+        public void exitDeletionsBranch()
+        {
+            inDeletionBranch = false;
+            inRootDeletionBranch = false;
+        }
+
+        // Track the depth of the live branch. The positions given in deletion branches are relative to the branch
+        // root, and we only need to know if we are at that root.
+
+        @Override
+        public void resetPathLength(int newDepth)
+        {
+            if (inDeletionBranch)
+                atDeletionBranchRoot = false;
+            else
+                depth = newDepth;
+        }
+
+        @Override
+        public void addPathByte(int nextByte)
+        {
+            if (inDeletionBranch)
+                atDeletionBranchRoot = false;
+            else
+                ++depth;
+        }
+
+        @Override
+        public void addPathBytes(DirectBuffer buffer, int pos, int count)
+        {
+            if (inDeletionBranch)
+                atDeletionBranchRoot = false;
+            else
+                depth += count;
+        }
     }
 
     private static Object2IntHashMap<ColumnIdentifier> makeColumnIdsMap(Columns columns)
@@ -335,19 +526,6 @@ public class TrieBackedRow extends AbstractRow
     private static long accumulate(long initialValue,
                                    LongAccumulator<? super LivenessInfo> livenessAccumulator,
                                    LongAccumulator<? super CellData<?, ?>> cellAccumulator,
-                                   Trie<Object> data)
-    {
-        Accumulator accumulator = new Accumulator(initialValue, cellAccumulator, livenessAccumulator,
-                                                  (d, l) -> {
-                                                      throw new AssertionError();
-                                                  });
-        data.process(Direction.FORWARD, accumulator);
-        return accumulator.value;
-    }
-
-    private static long accumulate(long initialValue,
-                                   LongAccumulator<? super LivenessInfo> livenessAccumulator,
-                                   LongAccumulator<? super CellData<?, ?>> cellAccumulator,
                                    LongAccumulator<? super DeletionTime> markerAccumulator,
                                    DeletionAwareTrie<Object, TrieTombstoneMarker> data)
     {
@@ -410,6 +588,8 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public boolean isEmpty()
     {
+        if ((flags & FLAG_KNOWN) != 0)
+            return (flags & FLAG_EMPTY) != 0;
         // Empty has no live or deletion branch but may have an empty row marker.
         return isEmpty(data);
     }
@@ -438,6 +618,8 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public boolean isEmptyAfterDeletion()
     {
+        if ((flags & FLAG_KNOWN) != 0)
+            return (flags & FLAG_EMPTY_AFTER_DELETION) != 0;
         return isEmptyAfterDeletion(data);
     }
 
@@ -735,6 +917,8 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public int columnCount()
     {
+        if (columnCount >= 0)
+            return columnCount;
         return countColumns(data);
     }
 
@@ -753,6 +937,9 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public int cellsCount()
     {
+        if (cellsCount >= 0)
+            return cellsCount;
+
         class Counter implements BaseTrie.ValueConsumer<Object>
         {
             int count = 0;
@@ -896,6 +1083,9 @@ public class TrieBackedRow extends AbstractRow
     @Override
     public boolean hasComplexDeletion()
     {
+        if ((flags & FLAG_KNOWN) != 0)
+            return (flags & FLAG_HAS_COMPLEX_DELETION) != 0;
+
         for (Iterator<TrieTombstoneMarker> it = data.deletionBranchAtRoot().valueIterator(); it.hasNext();)
         {
             TrieTombstoneMarker marker = it.next();
@@ -1063,7 +1253,9 @@ public class TrieBackedRow extends AbstractRow
         {
             throw new AssertionError(e);
         }
-        return new TrieBackedRow(columns, columnIds, cloner.clone(clustering), livenessInfo, deletion, minLocalDeletionTime, newTrie);
+        // The copy has the same content, thus the same features.
+        return new TrieBackedRow(columns, columnIds, cloner.clone(clustering), livenessInfo, deletion, minLocalDeletionTime,
+                                 columnCount, cellsCount, flags, newTrie);
     }
 
     // TODO: Redo size collection to be more direct.

@@ -298,6 +298,8 @@ public class TrieMemtableStage2 extends AbstractTrieMemtable
 
     public FlushablePartitionSet<TrieBackedPartitionStage2> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
+        stopRecyclingIfWritesCompleted();
+
         Trie<Object> toFlush = mergedTrie.subtrie(toComparableBound(from, true), toComparableBound(to, true));
 
         var counter = new KeySizeAndCountCollector(); // need to jump over tails keys

@@ -121,18 +121,12 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
         }
 
         @Override
-        public T content()
+        int processPrefix(int node, int depth, int transition)
         {
-            return content;
-        }
-
-        @Override
-        T processPrefix(int node, int depth, int transition)
-        {
-            T content = super.processPrefix(node, depth, transition);
+            int contentId = super.processPrefix(node, depth, transition);
             if (trie.getIntVolatile(node + PREFIX_ALTERNATE_OFFSET) != NONE)
                 currentPosition |= MAY_HAVE_DELETION_BRANCH_BIT;
-            return content;
+            return contentId;
         }
 
         @Override

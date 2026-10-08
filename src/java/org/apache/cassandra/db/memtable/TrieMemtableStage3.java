@@ -294,6 +294,8 @@ public class TrieMemtableStage3 extends AbstractTrieMemtable
     @Override
     public FlushablePartitionSet<TrieBackedPartitionStage3> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
+        stopRecyclingIfWritesCompleted();
+
         DeletionAwareTrie<Object, TrieTombstoneMarker> toFlush = mergedTrie.subtrie(toComparableBound(from, true), toComparableBound(to, true));
 
         var counter = new KeySizeAndCountCollector(); // need to jump over tails keys

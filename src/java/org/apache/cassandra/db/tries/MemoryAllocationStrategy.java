@@ -59,6 +59,19 @@ public interface MemoryAllocationStrategy
     /// (either because they are in various stages of recycling, or have yet to see first use).
     long indexCountInPipeline();
 
+    /// Called when the trie is not going to be modified anymore. The strategy will stop reusing indexes and release
+    /// any state it holds to track when indexes can be reused. Mutations are not expected after this call, but if
+    /// they do happen, they will only use newly allocated indexes.
+    ///
+    /// This is important for strategies that track reuse with `OpOrder` barriers: because `OpOrder` groups link to the
+    /// groups issued after them, any barrier that is held keeps all later groups reachable. Holding on to barriers in
+    /// a trie that is no longer mutated (e.g. one that is being flushed) results in ever-growing linked lists of
+    /// objects that the garbage collector has to process.
+    default void stopRecycling()
+    {
+        // nothing in base class
+    }
+
     /// Constructs a list of all the indexes that are in the recycling pipeline.
     /// Used to test available and unreachable indexes are the same thing.
     @VisibleForTesting
@@ -182,6 +195,9 @@ public interface MemoryAllocationStrategy
         final Allocator allocator;
         final OpOrder opOrder;
 
+        /// Set by [#stopRecycling]. When set, no indexes are reused and no barriers are issued.
+        boolean recyclingStopped = false;
+
         public OpOrderReuseStrategy(Allocator allocator, OpOrder opOrder)
         {
             this.allocator = allocator;
@@ -197,7 +213,8 @@ public interface MemoryAllocationStrategy
             if (free.count == 0)
             {
                 IndexBlockList awaitingBarrierHead = free.nextList;
-                if (awaitingBarrierHead != null &&
+                if (!recyclingStopped &&
+                    awaitingBarrierHead != null &&
                     (awaitingBarrierHead.barrier == null || awaitingBarrierHead.barrier.allPriorOpsAreFinished()))
                 {
                     advanceFreeTo(awaitingBarrierHead);
@@ -220,6 +237,9 @@ public interface MemoryAllocationStrategy
             // Index blocks only enter these lists when the justReleased block is filled. Sanity check that
             // the block is still full.
             assert free.count == free.indexes.length;
+            // The barrier has expired and is no longer needed. Release it, so that it does not keep the OpOrder groups
+            // issued after it reachable for the lifetime of this block (see [MemoryAllocationStrategy#stopRecycling]).
+            free.barrier = null;
             // We could recycle/pool the IndexBlockList object that free was pointing to before this.
             // As the trie will create and drop many times more objects to end up filling one of these, the
             // potential impact does not appear to justify the extra complexity.
@@ -241,8 +261,8 @@ public interface MemoryAllocationStrategy
         public void completeMutation()
         {
             IndexBlockList toProcess = justReleased.nextList;
-            if (toProcess == null)
-                return;
+            if (toProcess == null || recyclingStopped)
+                return; // if recycling has been stopped, the released indexes are never reused
 
             // We have some completed blocks now, issue a barrier for them and move them to the
             // "free and awaiting barrier" queue.
@@ -279,6 +299,16 @@ public interface MemoryAllocationStrategy
             // We don't have a way of telling which, so we have to remove everything.
             justReleased.nextList = null;
             justReleased.count = 0;
+        }
+
+        @Override
+        public void stopRecycling()
+        {
+            recyclingStopped = true;
+            // Release all barriers. The indexes waiting on them will not be reused, but they stay in the queue so
+            // that they are still reported as not in use.
+            for (IndexBlockList list = free; list != null; list = list.nextList)
+                list.barrier = null;
         }
 
         /**
@@ -334,6 +364,15 @@ public interface MemoryAllocationStrategy
             // Ensure that the block we move to has been cleared. While we are at it, also clear other ones that are ready.
             clearIndexBlocksAndAdvanceTail();
             super.advanceFreeTo(newFreeBlock);
+        }
+
+        @Override
+        public void stopRecycling()
+        {
+            // The blocks that are not cleared yet may still be referenced by readers. Their barriers are released
+            // below, so we can no longer tell when it is safe to clear them; leave their references in place.
+            clearedTail = null;
+            super.stopRecycling();
         }
 
         private void clearIndexBlocksAndAdvanceTail()

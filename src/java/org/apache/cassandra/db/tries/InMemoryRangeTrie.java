@@ -106,13 +106,15 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         /// @inheritDoc
         /// Range tries may have two content values. Handle this possibility here.
         @Override
-        S processPrefix(int node, int depth, int transition)
+        int processPrefix(int node, int depth, int transition)
         {
-            S content1 = processPrefixEntry(node, depth, transition, PREFIX_CONTENT_OFFSET);
-            S content2 = processPrefixEntry(node, depth, transition, PREFIX_ALTERNATE_OFFSET);
-            assert (content1 == null) || (content2 == null) : "Prefix node with incompatible content pair " + content1 + " and " + content2;
+            int contentId1 = processPrefixEntry(node, depth, transition, PREFIX_CONTENT_OFFSET);
+            int contentId2 = processPrefixEntry(node, depth, transition, PREFIX_ALTERNATE_OFFSET);
+            assert isNull(contentId1) || isNull(contentId2) : "Prefix node with incompatible content pair " +
+                                                              trie.getContent(contentId1) + " and " +
+                                                              trie.getContent(contentId2);
             // It's not okay to have two backtracks either, but this is not trivial to check.
-            return content1 == null ? content2 : content1;
+            return isNull(contentId1) ? contentId2 : contentId1;
         }
 
         @Override
@@ -137,7 +139,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             if (!Cursor.isExhausted(position))
             {
                 // Always check if we are seeing new content; if we do, that's an easy state update.
-                S content = this.content;
+                S content = content();
                 if (content != null)
                 {
                     activeRange = content;
@@ -216,6 +218,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             // Deletion ranges active at entry and exit must be presented by the tail at its root. To do this, get
             // the closest content in both forward and reverse direction and adjust the content that the tail reports
             // for them.
+            S content = content();
             if (content == null)
                 setActiveState(); // prepare and store activeRange if it is needed
 

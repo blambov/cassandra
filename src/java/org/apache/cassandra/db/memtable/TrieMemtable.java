@@ -592,6 +592,15 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     public FlushablePartitionSet<TrieBackedPartition> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
+        if (writesCompleted())
+        {
+            // We are flushing a memtable that will not be modified anymore. Stop memory recycling in the shard tries,
+            // so that the read order barriers they hold do not keep all read order groups issued while the flush is
+            // running reachable.
+            for (MemtableShard shard : shards)
+                shard.data.stopRecycling();
+        }
+
         DeletionAwareTrie<Object, TrieTombstoneMarker> toFlush = mergedTrie.subtrie(toComparableBound(from, true), toComparableBound(to, true));
 
         var counter = new KeySizeAndCountCollector(); // need to jump over tails keys
@@ -1324,6 +1333,12 @@ public class TrieMemtable extends AbstractShardedMemtable
         }
 
         @Override
+        public void stopRecycling()
+        {
+            manager.stopRecycling();
+        }
+
+        @Override
         public long usedSizeOnHeap()
         {
             return manager.onHeapSize();
@@ -1388,6 +1403,11 @@ public class TrieMemtable extends AbstractShardedMemtable
         abstract void completeMutation();
         /// See [org.apache.cassandra.db.tries.MemoryManager#abortMutation]
         abstract void abortMutation();
+        /// See [org.apache.cassandra.db.tries.MemoryManager#stopRecycling]
+        void stopRecycling()
+        {
+            // nothing by default
+        }
 
         /// See [org.apache.cassandra.db.tries.MemoryManager#unusedReservedOnHeapMemory]
         @VisibleForTesting
@@ -1460,6 +1480,12 @@ public class TrieMemtable extends AbstractShardedMemtable
         public void abortMutation()
         {
             buffers.abortMutation();
+        }
+
+        @Override
+        void stopRecycling()
+        {
+            buffers.stopRecycling();
         }
 
         @Override

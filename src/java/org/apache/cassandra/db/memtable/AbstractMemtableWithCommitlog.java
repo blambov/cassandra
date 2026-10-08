@@ -66,6 +66,14 @@ public abstract class AbstractMemtableWithCommitlog extends AbstractMemtable
         assert writeBarrier != null : "Memtable must be switched out before being discarded.";
     }
 
+    /// Returns true if this memtable has been switched out and all writes to it have completed, i.e. if it is
+    /// guaranteed not to be modified anymore.
+    protected boolean writesCompleted()
+    {
+        OpOrder.Barrier barrier = writeBarrier;
+        return barrier != null && barrier.getSyncPoint() != null && barrier.allPriorOpsAreFinished();
+    }
+
     // decide if this memtable should take the write, or if it should go to the next memtable
     @Override
     public boolean accepts(OpOrder.Group opGroup, CommitLogPosition commitLogPosition)

@@ -300,6 +300,20 @@ public abstract class AbstractTrieMemtable extends AbstractShardedMemtable
     protected abstract AbstractMemtableShard<?, ?>[] getShards();
 
     /**
+     * If this memtable will not be modified anymore (i.e. it has been switched out and all writes to it have
+     * completed), stop memory recycling in the shard tries, so that the read order barriers they hold do not keep
+     * all read order groups issued while the memtable is being flushed reachable.
+     */
+    protected void stopRecyclingIfWritesCompleted()
+    {
+        if (!writesCompleted())
+            return;
+
+        for (AbstractMemtableShard<?, ?> shard : getShards())
+            shard.data.stopRecycling();
+    }
+
+    /**
      * Release all recycled content references, including the ones waiting in still incomplete recycling lists.
      * This is a test method and can cause null pointer exceptions if used on a live trie.
      */
