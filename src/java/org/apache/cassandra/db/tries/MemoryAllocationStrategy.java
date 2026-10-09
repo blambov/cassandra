@@ -232,8 +232,12 @@ public interface MemoryAllocationStrategy
 
         void advanceFreeTo(IndexBlockList awaitingBarrierHead)
         {
-            // A block is ready for reuse. Switch to it.
+            // A block is ready for reuse. Switch to it, and detach the exhausted block from the queue: if it has been
+            // promoted to the old generation, the link would keep all later blocks reachable until a full marking
+            // of the heap.
+            IndexBlockList exhausted = free;
             free = awaitingBarrierHead;
+            exhausted.nextList = null;
             // Index blocks only enter these lists when the justReleased block is filled. Sanity check that
             // the block is still full.
             assert free.count == free.indexes.length;

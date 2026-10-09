@@ -166,6 +166,9 @@ public class OpOrder
         private volatile boolean isBlocking; // indicates running operations are blocking future barriers
         private volatile ConcurrentLinkedQueue<WaitQueue.Signal> blocking; // signal to wait on to indicate isBlocking is true
         private final WaitQueue waiting = newWaitQueue(); // signal to wait on for completion
+        // serialises unlink() calls, shared by all groups of the same OpOrder; unlink() clears the links of the groups
+        // it completes, which concurrent calls could otherwise be traversing
+        private final Object unlinkLock;
 
         static final AtomicIntegerFieldUpdater<Group> runningUpdater = AtomicIntegerFieldUpdater.newUpdater(Group.class, "running");
         static final AtomicReferenceFieldUpdater<Group, ConcurrentLinkedQueue> blockingUpdater = AtomicReferenceFieldUpdater.newUpdater(Group.class, ConcurrentLinkedQueue.class, "blocking");
@@ -174,12 +177,14 @@ public class OpOrder
         private Group()
         {
             this.id = 0;
+            this.unlinkLock = new Object();
         }
 
         private Group(Group prev)
         {
             this.id = prev.id + 1;
             this.prev = prev;
+            this.unlinkLock = prev.unlinkLock;
         }
 
         // prevents any further operations starting against this Ordered instance
@@ -245,6 +250,13 @@ public class OpOrder
 
         public boolean isFinished()
         {
+            // The next link is set before a group can expire, and is cleared only when the group is unlinked (i.e.
+            // when it and all groups before it have finished). Read running first, so that a null next can only mean
+            // that the group is the current one (not expired) or that it has been unlinked.
+            boolean finished = running == FINISHED;
+            Group next = this.next;
+            if (next == null)
+                return finished;
             return next.prev == null;
         }
 
@@ -284,31 +296,43 @@ public class OpOrder
          */
         private void unlink()
         {
-            // walk back in time to find the start of the list
-            Group start = this;
-            while (true)
+            synchronized (unlinkLock)
             {
-                Group prev = start.prev;
-                if (prev == null)
-                    break;
-                // if we haven't finished this Ordered yet abort and let it clean up when it's done
-                if (prev.running != FINISHED)
+                // a concurrent call may have already unlinked us, together with any later groups that had finished
+                if (next == null)
                     return;
-                start = prev;
-            }
 
-            // now walk forwards in time, in case we finished up late
-            Group end = this.next;
-            while (end.running == FINISHED)
-                end = end.next;
+                // walk back in time to find the start of the list
+                Group start = this;
+                while (true)
+                {
+                    Group prev = start.prev;
+                    if (prev == null)
+                        break;
+                    // if we haven't finished this Ordered yet abort and let it clean up when it's done
+                    if (prev.running != FINISHED)
+                        return;
+                    start = prev;
+                }
 
-            // now walk from first to last, unlinking the prev pointer and waking up any blocking threads
-            while (start != end)
-            {
-                Group next = start.next;
-                next.prev = null;
-                start.waiting.signalAll();
-                start = next;
+                // now walk forwards in time, in case we finished up late
+                Group end = this.next;
+                while (end.running == FINISHED)
+                    end = end.next;
+
+                // now walk from first to last, unlinking the prev pointer and waking up any blocking threads
+                while (start != end)
+                {
+                    Group next = start.next;
+                    next.prev = null;
+                    start.waiting.signalAll();
+                    // Also clear the next pointer. Otherwise any finished group that is still referenced (e.g. by a
+                    // barrier), or that has been promoted and is waiting to be collected in the old generation, keeps
+                    // all groups created after it reachable, and the garbage collector has to copy this ever-growing
+                    // linked list (one element at a time) on every young collection.
+                    start.next = null;
+                    start = next;
+                }
             }
         }
 
