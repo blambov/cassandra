@@ -215,11 +215,18 @@ public interface MemoryAllocationStrategy
 
         void advanceFreeTo(IndexBlockList awaitingBarrierHead)
         {
-            // A block is ready for reuse. Switch to it.
+            // A block is ready for reuse. Switch to it, and detach the exhausted block from the queue: if it has been
+            // promoted to the old generation, the link would keep all later blocks reachable until a full marking
+            // of the heap.
+            IndexBlockList exhausted = free;
             free = awaitingBarrierHead;
+            exhausted.nextList = null;
             // Index blocks only enter these lists when the justReleased block is filled. Sanity check that
             // the block is still full.
             assert free.count == free.indexes.length;
+            // The barrier has expired and is no longer needed. Release it, so that it does not keep the OpOrder groups
+            // issued after it reachable for the lifetime of this block (see [MemoryAllocationStrategy#stopRecycling]).
+            free.barrier = null;
             // We could recycle/pool the IndexBlockList object that free was pointing to before this.
             // As the trie will create and drop many times more objects to end up filling one of these, the
             // potential impact does not appear to justify the extra complexity.
