@@ -59,6 +59,19 @@ public interface MemoryAllocationStrategy
     /// (either because they are in various stages of recycling, or have yet to see first use).
     long indexCountInPipeline();
 
+    /// Called when the trie is not going to be modified anymore. The strategy will stop reusing indexes and release
+    /// any state it holds to track when indexes can be reused. Mutations are not expected after this call, but if
+    /// they do happen, new cells will be used and the one in the current release pipeline will be lost.
+    ///
+    /// This is important for strategies that track reuse with `OpOrder` barriers: because `OpOrder` groups link to the
+    /// groups issued after them, any barrier that is held keeps all later groups reachable. Holding on to barriers in
+    /// a trie that is no longer mutated (e.g. one that is being flushed) results in ever-growing linked lists of
+    /// objects that the garbage collector has to process.
+    default void stopRecycling()
+    {
+        // nothing in base class
+    }
+
     /// Constructs a list of all the indexes that are in the recycling pipeline.
     /// Used to test available and unreachable indexes are the same thing.
     @VisibleForTesting
@@ -288,6 +301,15 @@ public interface MemoryAllocationStrategy
             justReleased.count = 0;
         }
 
+        @Override
+        public void stopRecycling()
+        {
+            // Drop the pipeline. The cells in it will never be released.
+            free.nextList = null;
+            awaitingBarrierTail = free;
+            justReleased.nextList = null;
+        }
+
         /**
          * Returns the number of indexes that are somewhere in the recycling pipeline.
          */
@@ -341,6 +363,15 @@ public interface MemoryAllocationStrategy
             // Ensure that the block we move to has been cleared. While we are at it, also clear other ones that are ready.
             clearIndexBlocksAndAdvanceTail();
             super.advanceFreeTo(newFreeBlock);
+        }
+
+        @Override
+        public void stopRecycling()
+        {
+            // The blocks that are not cleared yet may still be referenced by readers. Their barriers are released
+            // below, so we can no longer tell when it is safe to clear them; leave their references in place.
+            clearedTail = null;
+            super.stopRecycling();
         }
 
         private void clearIndexBlocksAndAdvanceTail()
