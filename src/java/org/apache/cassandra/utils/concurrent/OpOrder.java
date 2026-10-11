@@ -89,10 +89,16 @@ public class OpOrder
     private static final int FINISHED = -1;
 
     /**
+     * Constant that when an Ordered.running is equal to, indicates that the Ordered and all the ones before it are
+     * complete, and it has been unlinked. Only reachable from FINISHED, i.e. when no operations are running.
+     */
+    private static final int UNLINKED = Integer.MIN_VALUE;
+
+    /**
      * A linked list starting with the most recent Ordered object, i.e. the one we should start new operations from,
      * with (prev) links to any incomplete Ordered instances, and (next) links to any potential future Ordered instances.
-     * Once all operations started against an Ordered instance and its ancestors have been finished the next instance
-     * will unlink this one
+     * Once all operations started against an Ordered instance and its ancestors have been finished it is unlinked,
+     * clearing both its links.
      */
     private volatile Group current = new Group();
 
@@ -151,6 +157,7 @@ public class OpOrder
          * 4) ZOMBIE:    all our operations are finished, but some operations against an earlier Ordered are still
          *               running, or tidying up, so unlink() fails to remove us
          * 5) COMPLETE:  all operations started on or before us are FINISHED (and COMPLETE), so we are unlinked
+         *               (running == UNLINKED, and both our links are cleared)
          * <p/>
          * Another parallel states is ISBLOCKING:
          * <p/>
@@ -162,13 +169,12 @@ public class OpOrder
 
         private volatile Group prev, next;
         private final long id; // monotonically increasing id for compareTo()
-        private volatile int running = 0; // number of operations currently running.  < 0 means we're expired, and the count of tasks still running is -(running + 1)
+        // number of operations currently running.  < 0 means we're expired, and the count of tasks still running is
+        // -(running + 1), or UNLINKED once we and all groups before us have finished
+        private volatile int running = 0;
         private volatile boolean isBlocking; // indicates running operations are blocking future barriers
         private volatile ConcurrentLinkedQueue<WaitQueue.Signal> blocking; // signal to wait on to indicate isBlocking is true
         private final WaitQueue waiting = newWaitQueue(); // signal to wait on for completion
-        // serialises unlink() calls, shared by all groups of the same OpOrder; unlink() clears the links of the groups
-        // it completes, which concurrent calls could otherwise be traversing
-        private final Object unlinkLock;
 
         static final AtomicIntegerFieldUpdater<Group> runningUpdater = AtomicIntegerFieldUpdater.newUpdater(Group.class, "running");
         static final AtomicReferenceFieldUpdater<Group, ConcurrentLinkedQueue> blockingUpdater = AtomicReferenceFieldUpdater.newUpdater(Group.class, ConcurrentLinkedQueue.class, "blocking");
@@ -177,14 +183,12 @@ public class OpOrder
         private Group()
         {
             this.id = 0;
-            this.unlinkLock = new Object();
         }
 
         private Group(Group prev)
         {
             this.id = prev.id + 1;
             this.prev = prev;
-            this.unlinkLock = prev.unlinkLock;
         }
 
         // prevents any further operations starting against this Ordered instance
@@ -250,14 +254,7 @@ public class OpOrder
 
         public boolean isFinished()
         {
-            // The next link is set before a group can expire, and is cleared only when the group is unlinked (i.e.
-            // when it and all groups before it have finished). Read running first, so that a null next can only mean
-            // that the group is the current one (not expired) or that it has been unlinked.
-            boolean finished = running == FINISHED;
-            Group next = this.next;
-            if (next == null)
-                return finished;
-            return next.prev == null;
+            return running == UNLINKED;
         }
 
         public boolean isOldestLiveGroup()
@@ -278,7 +275,7 @@ public class OpOrder
                 else
                     signal.awaitUninterruptibly();
             }
-            assert running == FINISHED;
+            assert running == UNLINKED;
         }
 
         public OpOrder.Group prev()
@@ -287,52 +284,50 @@ public class OpOrder
         }
 
         /**
-         * called once we know all operations started against this Ordered have completed,
-         * however we do not know if operations against its ancestors have completed, or
-         * if its descendants have completed ahead of it, so we attempt to create the longest
-         * chain from the oldest still linked Ordered. If we can't reach the oldest through
-         * an unbroken chain of completed Ordered, we abort, and leave the still completing
-         * ancestor to tidy up.
+         * Called once all operations started against this Ordered have completed (i.e. on the transition to
+         * FINISHED). We do not know if operations against its ancestors have completed, or if its descendants have
+         * completed ahead of it.
+         * <p>
+         * Groups are unlinked strictly in order, one at a time, by the thread that claims them with a CAS from FINISHED
+         * to UNLINKED. A group may only be claimed when its prev link is null, i.e. when its predecessor has been
+         * unlinked (or it is the very first group). Each group is claimed exactly once, and only the thread that
+         * claimed it touches its links (apart from Barrier.issue(), which only sets the next link of the current group,
+         * which is never FINISHED). This is what makes it safe to clear the next link: nobody can be traversing it.
+         * <p>
+         * After claiming a group, the claiming thread clears its successor's prev link (making the successor the oldest
+         * linked group) and the group's own next link, wakes any waiters, and then tries to claim the successor. A
+         * successor whose operations finish concurrently cannot be missed: its last operation sets running to FINISHED
+         * and then reads its prev link, while we clear the prev link and then try to claim it. As all of these are
+         * volatile accesses, at least one of the two threads sees the other's write, and the CAS lets exactly one of
+         * them proceed with unlinking it.
+         * <p>
+         * Clearing the next links is important: if a group that has been unlinked is still referenced (e.g. by a
+         * Barrier), or has been promoted to the old generation and is waiting there to be collected, a next link would
+         * keep all groups created after it reachable, and the garbage collector would have to copy this ever-growing
+         * linked list (one element at a time) on every young collection.
          */
         private void unlink()
         {
-            synchronized (unlinkLock)
+            // If our predecessor is not unlinked yet, whoever unlinks it will see that we are finished and unlink us.
+            if (prev != null)
+                return;
+            // Claim; this fails if the thread that unlinked our predecessor has already claimed us.
+            if (!runningUpdater.compareAndSet(this, FINISHED, UNLINKED))
+                return;
+
+            Group group = this;
+            while (true)
             {
-                // a concurrent call may have already unlinked us, together with any later groups that had finished
-                if (next == null)
+                // Expired groups always have a next, and no one else can clear it as only one thread claims a group.
+                Group next = group.next;
+                next.prev = null;
+                group.next = null;
+                group.waiting.signalAll();
+                // If the next group has also finished, it may have checked its prev link before we cleared it above,
+                // and left it to us to unlink it.
+                if (!runningUpdater.compareAndSet(next, FINISHED, UNLINKED))
                     return;
-
-                // walk back in time to find the start of the list
-                Group start = this;
-                while (true)
-                {
-                    Group prev = start.prev;
-                    if (prev == null)
-                        break;
-                    // if we haven't finished this Ordered yet abort and let it clean up when it's done
-                    if (prev.running != FINISHED)
-                        return;
-                    start = prev;
-                }
-
-                // now walk forwards in time, in case we finished up late
-                Group end = this.next;
-                while (end.running == FINISHED)
-                    end = end.next;
-
-                // now walk from first to last, unlinking the prev pointer and waking up any blocking threads
-                while (start != end)
-                {
-                    Group next = start.next;
-                    next.prev = null;
-                    start.waiting.signalAll();
-                    // Also clear the next pointer. Otherwise any finished group that is still referenced (e.g. by a
-                    // barrier), or that has been promoted and is waiting to be collected in the old generation, keeps
-                    // all groups created after it reachable, and the garbage collector has to copy this ever-growing
-                    // linked list (one element at a time) on every young collection.
-                    start.next = null;
-                    start = next;
-                }
+                group = next;
             }
         }
 
