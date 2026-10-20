@@ -1473,9 +1473,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
             if (logger.isTraceEnabled())
                 logger.trace("Flush task for task {}@{} waited {} ms at the barrier", hashCode(), name, TimeUnit.NANOSECONDS.toMillis(nanoTime() - start));
 
-            // mark all memtables as flushing, removing them from the live memtable list
+            // mark all memtables as flushing, removing them from the live memtable list, and let them know that all
+            // writes to them have completed
             for (Map.Entry<ColumnFamilyStore, Memtable> entry : memtables.entrySet())
+            {
                 entry.getKey().data.markFlushing(entry.getValue());
+                entry.getValue().writeComplete();
+            }
 
             metric.memtableSwitchCount.inc();
 
@@ -1514,8 +1518,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
 
         public Collection<SSTableReader> flushMemtable(ColumnFamilyStore cfs, Memtable memtable, boolean flushNonCf2i)
         {
-            memtable.writeComplete();
-
             if (logger.isTraceEnabled())
                 logger.trace("Flush task task {}@{} flushing memtable {}", hashCode(), name, memtable);
 

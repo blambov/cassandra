@@ -1724,8 +1724,8 @@ public abstract class InMemoryBaseTrie<T> extends InMemoryReadTrie<T>
     }
 
     /// To be called when the trie is not going to be modified anymore (e.g. after a memtable has been switched out
-    /// and all writes to it have completed). Releases the state held to track when memory can be reused, including
-    /// any released cell blocks and `OpOrder` barriers (see [MemoryAllocationStrategy#stopRecycling]).
+    /// and all writes to it have completed). Drops the memory waiting to be reused, and the state held to track when it
+    /// can be (see [MemoryAllocationStrategy#stopRecycling]).
     /// Must be called by the writing thread, or after all writes have completed.
     public void stopRecycling()
     {

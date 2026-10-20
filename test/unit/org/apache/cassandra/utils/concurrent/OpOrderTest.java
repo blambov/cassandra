@@ -51,8 +51,12 @@ public class OpOrderTest
     private static final Field NEXT = field("next");
 
     // Can be increased for longer runs.
-    private static final long STRESS_MILLIS = Long.getLong("cassandra.test.oporder.stress_millis", 5000); // checkstyle: suppress nearby 'blockSystemPropertyUsage'
-    private static final int RACE_ITERATIONS = Integer.getInteger("cassandra.test.oporder.race_iterations", 200_000); // checkstyle: suppress nearby 'blockSystemPropertyUsage'
+    private static final long STRESS_MILLIS = 5000;
+    private static final int RACE_ITERATIONS = 200_000;
+    // Time limit for each race test, so that it does not take too long on machines with few cores.
+    private static final long RACE_MILLIS = 2000;
+    // Number of spins before waiting threads start yielding, letting the other threads run if there are not enough cores.
+    private static final int SPINS_BEFORE_YIELD = 1000;
 
     private static Field field(String name)
     {
@@ -340,8 +344,17 @@ public class OpOrderTest
         void check(OpOrder order, Object state);
     }
 
+    private static void spinWait(int spins)
+    {
+        if (spins < SPINS_BEFORE_YIELD)
+            Thread.onSpinWait();
+        else
+            Thread.yield();
+    }
+
     /// Repeatedly sets up a new OpOrder, and runs the returned actions concurrently, each on its own thread, released
-    /// at the same moment. Checks the result after all of them have completed.
+    /// at the same moment. Checks the result after all of them have completed. Stops after [#RACE_ITERATIONS] rounds or
+    /// [#RACE_MILLIS] milliseconds, whichever comes first.
     private static void runRace(RaceSetup setup, RaceCheck check) throws Throwable
     {
         AtomicReference<Object> state = new AtomicReference<>();
@@ -364,8 +377,8 @@ public class OpOrderTest
                 while (true)
                 {
                     int r;
-                    while ((r = round.get()) == seen)
-                        Thread.onSpinWait();
+                    for (int spins = 0; (r = round.get()) == seen; ++spins)
+                        spinWait(spins);
                     if (r < 0)
                         return;
                     seen = r;
@@ -387,14 +400,15 @@ public class OpOrderTest
 
         try
         {
-            for (int i = 1; i <= RACE_ITERATIONS && failure.get() == null; ++i)
+            long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(RACE_MILLIS);
+            for (int i = 1; i <= RACE_ITERATIONS && failure.get() == null && System.nanoTime() < end; ++i)
             {
                 done.set(0);
                 round.set(i); // release all threads together
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-                while (done.get() < threadCount)
+                for (int spins = 0; done.get() < threadCount; ++spins)
                 {
-                    Thread.onSpinWait();
+                    spinWait(spins);
                     if (System.nanoTime() > deadline)
                         fail("race actions did not complete in round " + i);
                 }

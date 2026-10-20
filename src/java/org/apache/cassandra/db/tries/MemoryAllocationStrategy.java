@@ -59,14 +59,14 @@ public interface MemoryAllocationStrategy
     /// (either because they are in various stages of recycling, or have yet to see first use).
     long indexCountInPipeline();
 
-    /// Called when the trie is not going to be modified anymore. The strategy will stop reusing indexes and release
-    /// any state it holds to track when indexes can be reused. Mutations are not expected after this call, but if
-    /// they do happen, new cells will be used and the one in the current release pipeline will be lost.
+    /// Called when the trie is not going to be modified anymore (e.g. when it is being flushed). The strategy drops the
+    /// indexes in its recycling pipeline, together with the state it holds to track when they can be reused (index
+    /// block lists and `OpOrder` barriers). The dropped indexes are never reused. As the pipeline only advances on
+    /// mutations, a trie that is no longer mutated would otherwise hold on to this state until it is discarded.
     ///
-    /// This is important for strategies that track reuse with `OpOrder` barriers: because `OpOrder` groups link to the
-    /// groups issued after them, any barrier that is held keeps all later groups reachable. Holding on to barriers in
-    /// a trie that is no longer mutated (e.g. one that is being flushed) results in ever-growing linked lists of
-    /// objects that the garbage collector has to process.
+    /// Mutations are not expected after this call. If they do happen, they still work correctly: new indexes are
+    /// allocated, and the indexes released after this call (or not yet issued a barrier when it was made) are recycled
+    /// as usual.
     default void stopRecycling()
     {
         // nothing in base class
@@ -237,8 +237,8 @@ public interface MemoryAllocationStrategy
             // Index blocks only enter these lists when the justReleased block is filled. Sanity check that
             // the block is still full.
             assert free.count == free.indexes.length;
-            // The barrier has expired and is no longer needed. Release it, so that it does not keep the OpOrder groups
-            // issued after it reachable for the lifetime of this block (see [MemoryAllocationStrategy#stopRecycling]).
+            // The barrier has expired and is no longer needed. Release it (and the OpOrder group it references) instead
+            // of holding on to it while the block is in use.
             free.barrier = null;
             // We could recycle/pool the IndexBlockList object that free was pointing to before this.
             // As the trie will create and drop many times more objects to end up filling one of these, the
@@ -368,8 +368,11 @@ public interface MemoryAllocationStrategy
         @Override
         public void stopRecycling()
         {
-            // The blocks that are not cleared yet may still be referenced by readers. Their barriers are released
-            // below, so we can no longer tell when it is safe to clear them; leave their references in place.
+            // Clearing only advances on mutations, so without this the blocks whose barrier expired after the last
+            // mutation would keep their references until the trie is discarded. Clear them now.
+            clearIndexBlocksAndAdvanceTail();
+            // The remaining blocks may still be referenced by readers. Their barriers are released below, so we can no
+            // longer tell when it is safe to clear them; leave their references in place.
             clearedTail = null;
             super.stopRecycling();
         }
