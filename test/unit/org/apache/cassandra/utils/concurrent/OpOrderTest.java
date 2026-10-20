@@ -35,6 +35,7 @@ import java.util.concurrent.locks.LockSupport;
 
 import org.junit.Test;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -221,7 +222,7 @@ public class OpOrderTest
     /// An unlinked group that is still referenced (e.g. by a barrier that is kept around, or because it has been
     /// promoted to an old generation) must not keep groups created after it alive.
     @Test
-    public void testUnlinkedGroupsDoNotRetainLaterGroups() throws InterruptedException
+    public void testUnlinkedGroupsDoNotRetainLaterGroups()
     {
         OpOrder order = new OpOrder();
         OpOrder.Barrier retained = order.newBarrier();
@@ -241,12 +242,13 @@ public class OpOrderTest
         assertNull(get(NEXT, retained.getSyncPoint()));
 
         // All the later groups except the current one should be collectable.
-        for (int attempt = 0; attempt < 20 && countAlive(later) > 1; ++attempt)
-        {
-            System.gc();
-            Thread.sleep(10);
-        }
-        assertTrue("unlinked groups still reachable: " + countAlive(later), countAlive(later) <= 1);
+        await().atMost(5, TimeUnit.SECONDS)
+               .pollInterval(10, TimeUnit.MILLISECONDS)
+               .untilAsserted(() -> {
+                   System.gc();
+                   int alive = countAlive(later);
+                   assertTrue("unlinked groups still reachable: " + alive, alive <= 1);
+               });
         assertTrue(retained.allPriorOpsAreFinished());
     }
 
@@ -550,9 +552,11 @@ public class OpOrderTest
             thread.setDaemon(true);
             thread.start();
         }
+        // Run until the time is up, or a thread fails.
         long deadline = System.currentTimeMillis() + STRESS_MILLIS;
-        while (System.currentTimeMillis() < deadline && failure.get() == null)
-            Thread.sleep(100);
+        await().atMost(STRESS_MILLIS + 10_000, TimeUnit.MILLISECONDS)
+               .pollInterval(100, TimeUnit.MILLISECONDS)
+               .until(() -> failure.get() != null || System.currentTimeMillis() >= deadline);
         stop.set(true);
         for (Thread thread : threads)
         {
