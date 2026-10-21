@@ -776,6 +776,7 @@ public class TrieMemtable extends AbstractShardedMemtable
                     columns = columns.mergeTo(update.columns());
                     stats = stats.mergeWith(update.stats());
                 }
+                this.cellDataBufferManager.opOrderGroup = null;
             }
             finally
             {

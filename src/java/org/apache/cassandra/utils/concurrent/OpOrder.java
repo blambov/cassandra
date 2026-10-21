@@ -235,6 +235,7 @@ public class OpOrder
                 int current = running;
                 if (current < 0)
                 {
+                    assert current != UNLINKED : "OpOrder group closed more than once.";
                     if (runningUpdater.compareAndSet(this, current, current + 1))
                     {
                         if (current + 1 == FINISHED)
