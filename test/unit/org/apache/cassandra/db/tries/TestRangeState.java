@@ -226,6 +226,23 @@ class TestRangeState implements RangeState<TestRangeState>
             onReturnPath = true;
         }
 
+        /// Moving to a new position clears the flag, which [#onReturnPath] sets again after the position's transition
+        /// is added. This is necessary because return path positions may have no content (e.g. when a mapping drops
+        /// it), in which case [#mapContent] does not reset the flag.
+        @Override
+        public void addPathByte(int nextByte)
+        {
+            onReturnPath = false;
+            super.addPathByte(nextByte);
+        }
+
+        @Override
+        public void resetPathLength(int newLength)
+        {
+            onReturnPath = false;
+            super.resetPathLength(newLength);
+        }
+
         @Override
         protected TestRangeState mapContent(TestRangeState content, byte[] bytes, int byteLength)
         {
