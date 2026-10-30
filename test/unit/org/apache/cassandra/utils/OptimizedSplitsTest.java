@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -269,10 +270,10 @@ public class OptimizedSplitsTest
                                                         new SizedItem("C", 12, 16, 1, 100)));
         assertEquals(List.of(2, 4, 6, 10, 12, 14), problem.boundaries);
 
-        // The first group can end where X ends, at 6, or fill up to 7 inside H, both of which only split H, after
-        // which splitting at 10 is free. Of two candidates that cost the same, the later one is kept.
+        // Splitting where X ends, at 6, and at 10 only splits H. Ending the first group inside H, at 7, would split
+        // no more, but groups only end inside sets that are over the limit, which H is not.
         assertEquals(List.of(6, 10), verifySplitsWithSplitter(problem, 20, 1));
-        // Without splitting inside sets, ending the first group at 6 does just as well.
+        // The same if the space can't be split.
         assertEquals(List.of(6, 10), verifySplits(problem, 20, 1));
     }
 
@@ -290,11 +291,9 @@ public class OptimizedSplitsTest
                                                         new SizedItem("C", 18, 21, 4, 9)));
         assertEquals(List.of(9, 13, 15, 16, 17, 18, 19), problem.boundaries);
 
-        // The first group can end at 9, or fill up to 11 inside A, both for free. A group from either can end where
-        // D starts, at 15, after which splitting at 18 is enough. A later candidate that costs no more is never worse:
-        // a group from it can end at any boundary beyond it that a group from an earlier one can end at, and where that
-        // group ends inside a set, it can end inside the same set too, or at the set's end, splitting no more items.
-        // So the later one is kept.
+        // The first group can end at 9 for free, and the next one where D starts, at 15, after which splitting at 18
+        // is enough. A fuller first group, ending inside A at 11, would be just as good but never better, so groups
+        // don't end inside sets that are within the limit (see testSplittingInsideSetsOnlyNeededForOversizedSets).
         assertEquals(List.of(9, 15, 18), verifySplitsWithSplitter(problem, 37, 6));
     }
 
@@ -396,9 +395,9 @@ public class OptimizedSplitsTest
         // With a set for every change in the items present, all items of a set span all of it. A split inside a set
         // thus splits all of its items, and a split at either end of the set a subset of them. A group that ends
         // inside a set that is within the limit could instead end at the start of the set, followed by a group of
-        // the set alone, which splits no more items and gets further, and further is never worse (see
-        // testOptimizedSplitsSplitterFullerGroupIsNeverWorse). So groups only ever need to end inside sets that are
-        // over the limit on their own, which is why there is no test where a group must end inside another set.
+        // the set alone, which splits no more items and leaves the group after it less to cover, which is never
+        // worse. So groups only ever need to end inside sets that are over the limit on their own, which is all
+        // optimizedSplits splits.
         long seed = System.nanoTime();
         Random rand = new Random(seed);
         try
@@ -543,6 +542,209 @@ public class OptimizedSplitsTest
         }
     }
 
+
+    static final class Result
+    {
+        final List<Integer> points = new ArrayList<>();
+        final List<Double> weights = new ArrayList<>();
+        double cost;
+
+        @Override
+        public boolean equals(Object o)
+        {
+            Result r = (Result) o;
+            return points.equals(r.points) && weights.equals(r.weights) && cost == r.cost;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "points " + points + " weights " + weights + " cost " + cost;
+        }
+    }
+
+    static Result result(OptimizedSplitsV2.Split<SizedItem, Integer> s)
+    {
+        Result r = new Result();
+        r.cost = s.accumulatedSplitCost;
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        return r;
+    }
+
+    static Result result(OptimizedSplitsV3.Split<SizedItem, Integer> s)
+    {
+        Result r = new Result();
+        r.cost = s.accumulatedSplitCost;
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        return r;
+    }
+
+    static Result result(OptimizedSplits.Split<Integer> s)
+    {
+        Result r = new Result();
+        r.cost = s.accumulatedSplitCost;
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        return r;
+    }
+
+    static Result run(int version, List<SizedItem> items, SizedItemSpace space, double limit)
+    {
+        switch (version)
+        {
+            case 2: return result(OptimizedSplitsV2.optimizedSplits(items, space, x -> x.splitCost, limit));
+            case 3: return result(OptimizedSplitsV3.optimizedSplits(items, space, x -> x.splitCost, limit));
+            default: return result(OptimizedSplits.optimizedSplits(items, space, x -> x.splitCost, limit));
+        }
+    }
+
+    @Test
+    public void scratchCompare()
+    {
+        Random rand = new Random(42);
+        int mismatches = 0;
+        int checked = 0;
+        for (int i = 0; i < 20000; ++i)
+        {
+            boolean big = rand.nextBoolean();
+            int count = big ? 10 + rand.nextInt(30) : 1 + rand.nextInt(8);
+            int range = big ? 100 : 20;
+            List<SizedItem> items = new ArrayList<>();
+            for (int j = 0; j < count; ++j)
+            {
+                int start = rand.nextInt(range);
+                items.add(new SizedItem("I" + j, start, start + 1 + rand.nextInt(rand.nextBoolean() ? 10 : 40), 1 + rand.nextInt(5), rand.nextInt(4)));
+            }
+            SplitProblem problem = new SplitProblem(items);
+            double total = problem.totalWeight();
+            boolean splittable = rand.nextBoolean();
+            int minLimit = splittable ? (int) Math.ceil(problem.maxUnitWeight()) : 0;
+            double limit = minLimit + rand.nextInt((int) total - minLimit + 2);
+            SizedItemSpace space = splittable ? SizedItemSpace.SPLITTABLE : SizedItemSpace.UNSPLITTABLE;
+            Result v3 = run(3, items, space, limit);
+            Result v4 = run(4, items, space, limit);
+            ++checked;
+            if (!v3.equals(v4))
+            {
+                if (++mismatches <= 5)
+                    log("SCRATCH mismatch " + items + " limit " + limit + " splittable " + splittable + "\n    v3 " + v3 + "\n    v4 " + v4);
+            }
+        }
+        log("SCRATCH equivalence: " + checked + " checked, " + mismatches + " mismatches");
+
+        String[][] series = { { "chain", "random", "true" }, { "chain", "equal", "true" }, { "chain", "increasing", "true" },
+                              { "random", "random", "true" }, { "random", "equal", "true" }, { "random", "increasing", "true" },
+                              { "chain", "random", "false" }, { "random", "random", "false" } };
+        for (String[] config : series)
+        {
+            for (double itemsPerGroup : new double[]{ 1.5, 5, 20 })
+            {
+                boolean[] running = { true, true, true };
+                for (int n = 1000; n <= 64000; n *= 4)
+                {
+                    List<SizedItem> items = benchItems(config[0], config[1], n, new Random(n));
+                    SplitProblem problem = new SplitProblem(items);
+                    double limit = Math.floor(problem.totalWeight() / (n / itemsPerGroup));
+                    boolean splittable = Boolean.parseBoolean(config[2]);
+                    StringBuilder line = new StringBuilder(String.format("BENCH %-6s %-10s %-5s items/group %4.1f n %5d",
+                                                                         config[0], config[1], splittable ? "split" : "whole", itemsPerGroup, n));
+                    for (int v = 0; v < 3; ++v)
+                    {
+                        int version = v + 2;
+                        if (!running[v])
+                        {
+                            line.append(String.format(" | V%d skipped", version));
+                            continue;
+                        }
+                        long[] times = new long[4];
+                        CountingSpace space = null;
+                        Result result = null;
+                        for (int r = 0; r < times.length; ++r)
+                        {
+                            space = new CountingSpace(splittable);
+                            long start = System.nanoTime();
+                            result = run(version, items, space, limit);
+                            times[r] = System.nanoTime() - start;
+                            if (times[r] > 6_000_000_000L)
+                            {
+                                times = Arrays.copyOf(times, r + 1);
+                                break;
+                            }
+                        }
+                        long[] measured = times.length > 1 ? Arrays.copyOfRange(times, 1, times.length) : times;
+                        Arrays.sort(measured);
+                        double ms = measured[measured.length / 2] / 1e6;
+                        if (ms > 3000)
+                            running[v] = false;
+                        line.append(String.format(" | V%d %8.1f ms %8d splits %9d weights cost %8.0f groups %6d", version, ms, space.splits, space.weights, result.cost, result.weights.size()));
+                    }
+                    log(line.toString());
+                }
+            }
+        }
+    }
+
+    static void log(String line)
+    {
+        try
+        {
+            java.nio.file.Files.writeString(java.nio.file.Path.of("/tmp/claude-1000/-home-blambov-git-cassandra5/6462ccbb-f40e-4926-aac8-78efd1db82c0/scratchpad/bench2.txt"),
+                                            line + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        }
+        catch (java.io.IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    static List<SizedItem> benchItems(String layout, String costModel, int n, Random rand)
+    {
+        int scale = 1000;
+        List<SizedItem> items = new ArrayList<>();
+        for (int k = 0; k < n; ++k)
+        {
+            int start;
+            int length;
+            if (layout.equals("chain"))
+            {
+                start = k * scale;
+                length = 3 * scale / 2;
+            }
+            else
+            {
+                start = rand.nextInt(n * scale);
+                length = 1 + rand.nextInt(rand.nextInt(20) == 0 ? 30 * scale : 3 * scale);
+            }
+            double cost = costModel.equals("random") ? 1 + rand.nextInt(20) : costModel.equals("equal") ? 1 : 1 + start / scale;
+            items.add(new SizedItem("I" + k, start, start + length, 1 + rand.nextInt(5), cost));
+        }
+        return items;
+    }
+
+    static class CountingSpace extends SizedItemSpace
+    {
+        long splits;
+        long weights;
+
+        CountingSpace(boolean splittable)
+        {
+            super(splittable);
+        }
+
+        @Override
+        public double weight(SizedItem item, Integer sliceStart, Integer sliceEnd)
+        {
+            ++weights;
+            return super.weight(item, sliceStart, sliceEnd);
+        }
+
+        @Override
+        public Integer split(Integer start, Integer end, double ratio)
+        {
+            ++splits;
+            return super.split(start, end, ratio);
+        }
+    }
+
     /// Runs `optimizedSplits` with the given limit in a space that can't be split, so that groups can only end at set
     /// boundaries, validates the result, checks that its cost is as expected, and returns the points where it splits.
     private static List<Integer> verifySplits(SplitProblem problem, double limit, double expectedCost)
@@ -558,9 +760,9 @@ public class OptimizedSplitsTest
 
     private static List<Integer> verifySplits(SplitProblem problem, double limit, boolean splittable, double expectedCost)
     {
-        OptimizedSplits.Split<SizedItem, Integer> solution = solveAndVerify(problem, limit, splittable);
+        OptimizedSplits.Split<Integer> solution = solveAndVerify(problem, limit, splittable);
         List<Integer> splitPoints = new ArrayList<>();
-        for (OptimizedSplits.Split<SizedItem, Integer> group = solution; group != null; group = group.previous)
+        for (OptimizedSplits.Split<Integer> group = solution; group != null; group = group.previous)
             if (group.pointAfter != null)
                 splitPoints.add(group.pointAfter);
         Collections.reverse(splitPoints);
@@ -570,11 +772,11 @@ public class OptimizedSplitsTest
         return splitPoints;
     }
 
-    private static OptimizedSplits.Split<SizedItem, Integer> solveAndVerify(SplitProblem problem, double limit, boolean splittable)
+    private static OptimizedSplits.Split<Integer> solveAndVerify(SplitProblem problem, double limit, boolean splittable)
     {
         try
         {
-            OptimizedSplits.Split<SizedItem, Integer> solution = problem.solve(limit, splittable);
+            OptimizedSplits.Split<Integer> solution = problem.solve(limit, splittable);
             problem.verify(solution, limit, splittable);
             return solution;
         }
@@ -776,7 +978,7 @@ public class OptimizedSplitsTest
             return false;
         }
 
-        OptimizedSplits.Split<SizedItem, Integer> solve(double limit, boolean splittable)
+        OptimizedSplits.Split<Integer> solve(double limit, boolean splittable)
         {
             return OptimizedSplits.optimizedSplits(items,
                                                    splittable ? SizedItemSpace.SPLITTABLE : SizedItemSpace.UNSPLITTABLE,
@@ -788,17 +990,17 @@ public class OptimizedSplitsTest
         /// the space isn't splittable, where each group is within the limit (or, if the space isn't splittable, a
         /// single set), and where the reported weights and accumulated costs match the items in each group and the
         /// items split so far.
-        void verify(OptimizedSplits.Split<SizedItem, Integer> solution, double limit, boolean splittable)
+        void verify(OptimizedSplits.Split<Integer> solution, double limit, boolean splittable)
         {
-            List<OptimizedSplits.Split<SizedItem, Integer>> groups = new ArrayList<>();
-            for (OptimizedSplits.Split<SizedItem, Integer> group = solution; group != null; group = group.previous)
+            List<OptimizedSplits.Split<Integer>> groups = new ArrayList<>();
+            for (OptimizedSplits.Split<Integer> group = solution; group != null; group = group.previous)
                 groups.add(group);
             Collections.reverse(groups);
             assertTrue("No groups returned", !groups.isEmpty());
 
             Set<SizedItem> splitItems = new HashSet<>();
             Integer start = null;
-            for (OptimizedSplits.Split<SizedItem, Integer> group : groups)
+            for (OptimizedSplits.Split<Integer> group : groups)
             {
                 Integer end = group.pointAfter;
                 String name = "group [" + start + ", " + end + ")";
