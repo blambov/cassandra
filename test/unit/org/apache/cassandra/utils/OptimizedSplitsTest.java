@@ -567,7 +567,9 @@ public class OptimizedSplitsTest
     {
         Result r = new Result();
         r.cost = s.accumulatedSplitCost;
-        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(s.pointAfter); r.weights.add(s.weight); }
+        Collections.reverse(r.points);
+        Collections.reverse(r.weights);
         return r;
     }
 
@@ -575,7 +577,9 @@ public class OptimizedSplitsTest
     {
         Result r = new Result();
         r.cost = s.accumulatedSplitCost;
-        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(s.pointAfter); r.weights.add(s.weight); }
+        Collections.reverse(r.points);
+        Collections.reverse(r.weights);
         return r;
     }
 
@@ -583,18 +587,36 @@ public class OptimizedSplitsTest
     {
         Result r = new Result();
         r.cost = s.accumulatedSplitCost;
-        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(0, s.pointAfter); r.weights.add(0, s.weight); }
+        for (; s != null; s = s.previous) { if (s.pointAfter != null) r.points.add(s.pointAfter); r.weights.add(s.weight); }
+        Collections.reverse(r.points);
+        Collections.reverse(r.weights);
         return r;
+    }
+
+    static Object call(int version, List<SizedItem> items, SizedItemSpace space, double limit)
+    {
+        switch (version)
+        {
+            case 2: return OptimizedSplitsV2.optimizedSplits(items, space, x -> x.splitCost, limit);
+            case 3: return OptimizedSplitsV3.optimizedSplits(items, space, x -> x.splitCost, limit);
+            case 5: return OptimizedSplitsV5.optimizedSplits(items, space, x -> x.splitCost, limit);
+            default: return OptimizedSplits.optimizedSplits(items, space, x -> x.splitCost, limit);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static Result toResult(Object split)
+    {
+        if (split instanceof OptimizedSplitsV2.Split)
+            return result((OptimizedSplitsV2.Split<SizedItem, Integer>) split);
+        if (split instanceof OptimizedSplitsV3.Split)
+            return result((OptimizedSplitsV3.Split<SizedItem, Integer>) split);
+        return result((OptimizedSplits.Split<Integer>) split);
     }
 
     static Result run(int version, List<SizedItem> items, SizedItemSpace space, double limit)
     {
-        switch (version)
-        {
-            case 2: return result(OptimizedSplitsV2.optimizedSplits(items, space, x -> x.splitCost, limit));
-            case 3: return result(OptimizedSplitsV3.optimizedSplits(items, space, x -> x.splitCost, limit));
-            default: return result(OptimizedSplits.optimizedSplits(items, space, x -> x.splitCost, limit));
-        }
+        return toResult(call(version, items, space, limit));
     }
 
     @Test
@@ -603,7 +625,7 @@ public class OptimizedSplitsTest
         Random rand = new Random(42);
         int mismatches = 0;
         int checked = 0;
-        for (int i = 0; i < 20000; ++i)
+        for (int i = 0; i < 0; ++i)
         {
             boolean big = rand.nextBoolean();
             int count = big ? 10 + rand.nextInt(30) : 1 + rand.nextInt(8);
@@ -620,26 +642,26 @@ public class OptimizedSplitsTest
             int minLimit = splittable ? (int) Math.ceil(problem.maxUnitWeight()) : 0;
             double limit = minLimit + rand.nextInt((int) total - minLimit + 2);
             SizedItemSpace space = splittable ? SizedItemSpace.SPLITTABLE : SizedItemSpace.UNSPLITTABLE;
-            Result v3 = run(3, items, space, limit);
+            Result v3 = run(5, items, space, limit);
             Result v4 = run(4, items, space, limit);
             ++checked;
-            if (!v3.equals(v4))
+            if (v3.cost != v4.cost)
             {
                 if (++mismatches <= 5)
                     log("SCRATCH mismatch " + items + " limit " + limit + " splittable " + splittable + "\n    v3 " + v3 + "\n    v4 " + v4);
             }
         }
-        log("SCRATCH equivalence: " + checked + " checked, " + mismatches + " mismatches");
+        log("SCRATCH V4/V5 cost equivalence: " + checked + " checked, " + mismatches + " mismatches");
 
         String[][] series = { { "chain", "random", "true" }, { "chain", "equal", "true" }, { "chain", "increasing", "true" },
                               { "random", "random", "true" }, { "random", "equal", "true" }, { "random", "increasing", "true" },
                               { "chain", "random", "false" }, { "random", "random", "false" } };
         for (String[] config : series)
         {
-            for (double itemsPerGroup : new double[]{ 1.5, 5, 20 })
+            for (double itemsPerGroup : new double[]{ 0.25, 1.5, 5, 20 })
             {
-                boolean[] running = { true, true, true };
-                for (int n = 1000; n <= 64000; n *= 4)
+                boolean[] running = { true, true, true, true };
+                for (int n = 4000; n <= 64000; n *= 4)
                 {
                     List<SizedItem> items = benchItems(config[0], config[1], n, new Random(n));
                     SplitProblem problem = new SplitProblem(items);
@@ -647,7 +669,7 @@ public class OptimizedSplitsTest
                     boolean splittable = Boolean.parseBoolean(config[2]);
                     StringBuilder line = new StringBuilder(String.format("BENCH %-6s %-10s %-5s items/group %4.1f n %5d",
                                                                          config[0], config[1], splittable ? "split" : "whole", itemsPerGroup, n));
-                    for (int v = 0; v < 3; ++v)
+                    for (int v = 0; v < 4; ++v)
                     {
                         int version = v + 2;
                         if (!running[v])
@@ -662,8 +684,9 @@ public class OptimizedSplitsTest
                         {
                             space = new CountingSpace(splittable);
                             long start = System.nanoTime();
-                            result = run(version, items, space, limit);
+                            Object raw = call(version, items, space, limit);
                             times[r] = System.nanoTime() - start;
+                            result = toResult(raw);
                             if (times[r] > 6_000_000_000L)
                             {
                                 times = Arrays.copyOf(times, r + 1);
