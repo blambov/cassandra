@@ -25,8 +25,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
@@ -437,33 +439,69 @@ public class Overlaps
         double weight(E item, P pointBefore, P pointAfter);
     }
 
+    public static class SplitResult<E, P>
+    {
+        final P splitPoint;
+        final Set<E> splitSubset;
+        final double actualWeight;
+
+        public SplitResult(P splitPoint, Set<E> splitSubset, double actualWeight)
+        {
+            this.splitPoint = splitPoint;
+            this.splitSubset = splitSubset;
+            this.actualWeight = actualWeight;
+        }
+    }
+
+    public interface Splitter<E, P>
+    {
+        SplitResult split(Set<E> group, P pointBefore, double weight);
+    }
+
     public static class Split<E, P>
     {
         final P pointAfter;
         final double weight;
         final double accumulatedSplitCost;
 
+        final Set<E> alreadySplit;
+        final int groupIndex;
+        final double remainingWeight;
+
         final Split<E, P> previous;
 
-        Split(P pointAfter, double weight, double accumulatedSplitCost, Split<E, P> previous)
+        Split(P pointAfter, double weight, double accumulatedSplitCost, Set<E> alreadySplit, int groupIndex, double remainingWeight, Split<E, P> previous)
         {
             this.pointAfter = pointAfter;
             this.weight = weight;
             this.accumulatedSplitCost = accumulatedSplitCost;
+            this.alreadySplit = alreadySplit;
+            this.groupIndex = groupIndex;
+            this.remainingWeight = remainingWeight;
             this.previous = previous;
         }
     }
 
-    public static <E, P> Split<E, P> optimizedSplits(List<Set<E>> sets,
-                                                     BiFunction<Set<E>, Set<E>, P> pointBetween,
-                                                     Weigher<E, P> weigher,
-                                                     ToDoubleFunction<E> splitCoster,
-                                                     double pickLimit)
+    public static <E, P extends Comparable<P>> Split<E, P> optimizedSplits(List<Set<E>> sets,
+                                                                           BiFunction<Set<E>, Set<E>, P> pointBetween,
+                                                                           Weigher<E, P> weigher,
+                                                                           ToDoubleFunction<E> splitCoster,
+                                                                           double pickLimit)
     {
-        return new OptimizedSplitter<>(sets, pointBetween, weigher, splitCoster, pickLimit).evaluate();
+        return optimizedSplits(sets, pointBetween, weigher, splitCoster, null, pickLimit);
     }
 
-    static class OptimizedSplitter<E, P>
+    public static <E, P extends Comparable<P>> Split<E, P> optimizedSplits(List<Set<E>> sets,
+                                                                           BiFunction<Set<E>, Set<E>, P> pointBetween,
+                                                                           Weigher<E, P> weigher,
+                                                                           ToDoubleFunction<E> splitCoster,
+                                                                           Splitter<E, P> findSplitPointForWeight,
+                                                                           double pickLimit)
+    {
+        return new OptimizedSplitter<>(sets, pointBetween, weigher, splitCoster, findSplitPointForWeight, pickLimit).evaluate();
+    }
+
+    static class OptimizedSplitter<E, P extends Comparable<P>>
     {
         final List<Set<E>> sets;
         final double[] weights;
@@ -471,14 +509,18 @@ public class Overlaps
         final List<Set<E>> toSplitAfter;
         final Weigher<E, P> weigher;
         final ToDoubleFunction<E> splitCoster;
+        final Splitter<E, P> findSplitPointForWeight;
 
         final double pickLimit;
 
-        final List<Split<E, P>> candidates;
+        // null must compare greater
+        final NavigableMap<P, Split<E, P>> candidates = new TreeMap<>((x, y) -> x == null ? y == null ? 0 : 1
+                                                                                          : y == null ? -1 : x.compareTo(y));
 
 
-        OptimizedSplitter(List<Set<E>> sets, BiFunction<Set<E>, Set<E>, P> pointBetween, Weigher<E, P> weigher, ToDoubleFunction<E> splitCoster, double pickLimit)
+        OptimizedSplitter(List<Set<E>> sets, BiFunction<Set<E>, Set<E>, P> pointBetween, Weigher<E, P> weigher, ToDoubleFunction<E> splitCoster, Splitter<E, P> findSplitPointForWeight, double pickLimit)
         {
+            this.findSplitPointForWeight = findSplitPointForWeight;
             this.pickLimit = pickLimit;
             assert sets.size() > 0;
             this.sets = sets;
@@ -487,7 +529,6 @@ public class Overlaps
             pointAfter = new ArrayList<>(sets.size());
             weights = new double[sets.size()];
             toSplitAfter = new ArrayList<>(sets.size());
-            candidates = new ArrayList<>(sets.size() + 1);
             Set<E> set = sets.get(0);
             P pointBefore = null;
             int i;
@@ -499,7 +540,6 @@ public class Overlaps
                 this.toSplitAfter.add(toSplitAfter);
                 P pointAfter = pointBetween.apply(set, next);
                 this.pointAfter.add(pointAfter);
-                candidates.add(null);
                 weights[i] = weight(weigher, set, pointBefore, pointAfter);
                 set = next;
                 pointBefore = pointAfter;
@@ -507,8 +547,6 @@ public class Overlaps
             pointAfter.add(null);
             toSplitAfter.add(Collections.emptySet());
             weights[i] = weight(weigher, set, pointBefore, null);
-            candidates.add(null);
-            candidates.add(null);
         }
 
         private static <E, P> double weight(Weigher<E, P> weigher, Set<E> set, P pointBefore, P pointAfter)
@@ -522,53 +560,89 @@ public class Overlaps
         // This is called on a splitpoint.
         Split<E, P> evaluate()
         {
-            for (int startIndex = 0; startIndex < weights.length; ++startIndex)
+            Split<E, P> prev = null;
+            Set<E> splitsSoFar = Collections.emptySet();
+            int startIndex = 0;
+            double weight = weights[0];
+            while (true)
             {
-                Split<E, P> prev = candidates.get(startIndex);
-                if (prev == null && startIndex > 0)
-                    continue;
-
-                Set<E> splitsSoFar = startIndex > 0 ? this.toSplitAfter.get(startIndex - 1) : Collections.emptySet();
-                double weight = weights[startIndex];
-                Split<E, P> next = nextSplit(startIndex, prev, weight, splitsSoFar);
-                if (weight > pickLimit)
-                {
-                    // this set on its own is bigger than the pick limit. Add it whole and split after.
-                    updateCandidate(startIndex + 1, next);
-                    continue;
-                }
+                Split<E, P> next = nextSplitMaybePartial(startIndex, prev, 0, weight, splitsSoFar);
 
                 int index = startIndex;
-                while (++index < weights.length && next != null)
+                while (++index < weights.length && weight < pickLimit)
                 {
                     Split<E, P> curr = next;
-                    weight += weights[index];
-                    next = weight <= pickLimit ? nextSplit(index, prev, weight, splitsSoFar) : null;
+                    double nextWeight = weight + weights[index];
+                    next = nextSplitMaybePartial(index, prev, weight, nextWeight, splitsSoFar);
                     if (next == null || next.accumulatedSplitCost > curr.accumulatedSplitCost)
-                        updateCandidate(index, curr);
+                        updateCandidate(curr);
                     // else we don't need to evaluate this one as it's always cheaper to take next group
+                    weight = nextWeight;
                 }
 
                 if (next != null)
-                    updateCandidate(index, next);
+                    updateCandidate(next);
+
+                prev = candidates.pollFirstEntry().getValue();
+                if (prev.pointAfter == null)
+                    return prev;
+                splitsSoFar = prev.alreadySplit;
+                startIndex = prev.groupIndex;
+                weight = prev.remainingWeight;
             }
-            return candidates.get(weights.length);
         }
 
-        void updateCandidate(int index, Split<E, P> candidate)
+        void updateCandidate(Split<E, P> candidate)
         {
-            Split<E, P> existing = candidates.get(index);
+            P position = candidate.pointAfter;
+            Split<E, P> existing = candidates.get(position);
             if (existing == null || existing.accumulatedSplitCost > candidate.accumulatedSplitCost)
-                candidates.set(index, candidate);
+                candidates.put(position, candidate);
         }
 
+
+        private Split<E, P> nextSplitMaybePartial(int index, Split<E, P> prev, double startWeight, double endWeight, Set<E> splitsSoFar)
+        {
+            if (endWeight <= pickLimit)
+                return nextSplit(index, prev, endWeight, splitsSoFar);
+            if (findSplitPointForWeight == null)
+                return startWeight == 0 ? nextSplit(index, prev, endWeight, splitsSoFar) : null;
+
+            assert endWeight > startWeight;
+            assert pickLimit > startWeight;
+            Set<E> group = sets.get(index);
+            // Use the point before this group rather than prev's end
+            P pointBeforeGroup = index > 0 ? pointAfter.get(index - 1) : null;
+            P pointAfterPrev = prev != null ? prev.pointAfter : null;
+            P pointBefore = pointBeforeGroup != null ? pointAfterPrev != null ? Comparables.max(pointBeforeGroup, pointAfterPrev)
+                                                                              : pointBeforeGroup
+                                                     : pointAfterPrev;
+            SplitResult<E, P> split = findSplitPointForWeight.split(group, pointBefore, pickLimit - startWeight);
+            if (split == null || split.actualWeight == 0)
+                return null;
+
+            P splitPoint = split.splitPoint;
+            double weight = startWeight + split.actualWeight;
+            assert weight <= pickLimit + 0.001;
+
+            return nextSplit(index, splitPoint, prev, weight, splitsSoFar, split.splitSubset, endWeight - weight);
+        }
 
         private Split<E, P> nextSplit(int index, Split<E, P> prev, double weight, Set<E> splitsSoFar)
         {
-            Set<E> toSplitAfter = this.toSplitAfter.get(index);
-            double cost = toSplitAfter.stream().filter(x -> !splitsSoFar.contains(x)).mapToDouble(splitCoster::applyAsDouble).sum();
-            Split<E, P> next = new Split<>(pointAfter.get(index), weight, cost + (prev != null ? prev.accumulatedSplitCost : 0.0), prev);
-            return next;
+            return nextSplit(index + 1, pointAfter.get(index), prev, weight, splitsSoFar, toSplitAfter.get(index), index + 1 < weights.length ? weights[index + 1] : 0);
+        }
+
+        private Split<E, P> nextSplit(int index, P splitPoint, Split<E, P> prev, double weight, Set<E> splitsSoFar, Set<E> toSplit, double remainingWeight)
+        {
+            double cost = toSplit.stream().filter(x -> !splitsSoFar.contains(x)).mapToDouble(splitCoster::applyAsDouble).sum();
+            return new Split<>(splitPoint,
+                               weight,
+                               cost + (prev != null ? prev.accumulatedSplitCost : 0.0),
+                               toSplit,
+                               index,
+                               remainingWeight,
+                               prev);
         }
     }
 }

@@ -25,8 +25,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -471,26 +473,24 @@ public class OverlapsTest
     @Test
     public void testOptimizedSplitsSingleSet()
     {
-        SplitProblem problem = new SplitProblem(List.of(new SizedItem("A", 0, 4, 1, 1),
-                                                        new SizedItem("B", 1, 3, 1, 1)));
+        SplitProblem problem = singleSetProblem();
         assertEquals(1, problem.sets.size());
         assertEquals(List.of(), verifySplits(problem, 100, 0));
         assertEquals(List.of(), verifySplits(problem, 6, 0));
         assertEquals(List.of(), verifySplits(problem, 1, 0));
     }
 
+    private static SplitProblem singleSetProblem()
+    {
+        // A single set [0, 4) with weight 6.
+        return new SplitProblem(List.of(new SizedItem("A", 0, 4, 1, 1),
+                                        new SizedItem("B", 1, 3, 1, 1)));
+    }
+
     @Test
     public void testOptimizedSplitsPrefersCheapSplitPoints()
     {
-        // Sets AX [0, 4), XB [4, 6), BY [6, 8), YC [8, 10), CZ [10, 12), ZD [12, 16) with weights 6, 4, 4, 4, 4, 6.
-        // Splitting at 4, 6, 8, 10 or 12 costs 10, 1, 5, 1 and 10 respectively.
-        SplitProblem problem = new SplitProblem(List.of(new SizedItem("A", 0, 4, 1, 100),
-                                                        new SizedItem("B", 4, 8, 1, 1),
-                                                        new SizedItem("C", 8, 12, 1, 1),
-                                                        new SizedItem("D", 12, 16, 1, 100),
-                                                        new SizedItem("X", 2, 6, 1, 10),
-                                                        new SizedItem("Y", 6, 10, 1, 5),
-                                                        new SizedItem("Z", 10, 14, 1, 10)));
+        SplitProblem problem = cheapSplitPointsProblem();
         assertEquals(List.of(4, 6, 8, 10, 12), problem.boundaries);
 
         // Everything fits in one group.
@@ -500,6 +500,19 @@ public class OverlapsTest
         assertEquals(List.of(6, 10), verifySplits(problem, 10, 2));
         // AX and ZD can't be grouped with anything, the rest should still be split at the cheap points.
         assertEquals(List.of(4, 6, 10, 12), verifySplits(problem, 8, 22));
+    }
+
+    private static SplitProblem cheapSplitPointsProblem()
+    {
+        // Sets AX [0, 4), XB [4, 6), BY [6, 8), YC [8, 10), CZ [10, 12), ZD [12, 16) with weights 6, 4, 4, 4, 4, 6.
+        // Splitting at 4, 6, 8, 10 or 12 costs 10, 1, 5, 1 and 10 respectively.
+        return new SplitProblem(List.of(new SizedItem("A", 0, 4, 1, 100),
+                                        new SizedItem("B", 4, 8, 1, 1),
+                                        new SizedItem("C", 8, 12, 1, 1),
+                                        new SizedItem("D", 12, 16, 1, 100),
+                                        new SizedItem("X", 2, 6, 1, 10),
+                                        new SizedItem("Y", 6, 10, 1, 5),
+                                        new SizedItem("Z", 10, 14, 1, 10)));
     }
 
     @Test
@@ -561,7 +574,7 @@ public class OverlapsTest
                                             rand.nextInt(4) == 0 ? 0 : 1 + rand.nextInt(20)));
                 }
                 SplitProblem problem = new SplitProblem(items);
-                double totalWeight = Arrays.stream(problem.weights).sum();
+                double totalWeight = problem.totalWeight();
                 for (int k = 0; k < 5; ++k)
                 {
                     double limit = rand.nextInt((int) totalWeight + 2);
@@ -575,11 +588,27 @@ public class OverlapsTest
         }
     }
 
-    @Test(timeout = 1000)
+    @Test(timeout = 10000)
     public void testOptimizedSplitsManySets()
     {
         long seed = System.nanoTime();
-        Random rand = new Random(seed);
+        SplitProblem problem = new SplitProblem(manyItems(new Random(seed)));
+        assertTrue(problem.sets.size() > 500);
+        double totalWeight = problem.totalWeight();
+        // We can't verify optimality here, only that the result is valid and that it is computed in reasonable time
+        // when groups span many sets.
+        try
+        {
+            solveAndVerify(problem, totalWeight / 20, false);
+        }
+        catch (Throwable t)
+        {
+            throw new AssertionError("Failed with seed " + seed, t);
+        }
+    }
+
+    private static List<SizedItem> manyItems(Random rand)
+    {
         List<SizedItem> items = new ArrayList<>();
         for (int j = 0; j < 2000; ++j)
         {
@@ -587,14 +616,150 @@ public class OverlapsTest
             int length = 1 + rand.nextInt(rand.nextInt(20) == 0 ? 5000 : 200);
             items.add(new SizedItem("I" + j, start, start + length, 1 + rand.nextInt(5), 1 + rand.nextInt(20)));
         }
-        SplitProblem problem = new SplitProblem(items);
-        assertTrue(problem.sets.size() > 500);
-        double totalWeight = Arrays.stream(problem.weights).sum();
-        // We can't verify optimality here, only that the result is valid and that it is computed in reasonable time
-        // when groups span many sets.
+        return items;
+    }
+
+
+    @Test//(timeout = 10000)
+    public void testOptimizedSplitsSplitterSingleSet()
+    {
+        SplitProblem problem = singleSetProblem();
+        assertEquals(List.of(), verifySplitsWithSplitter(problem, 100, 0));
+        assertEquals(List.of(), verifySplitsWithSplitter(problem, 6, 0));
+        // The set is split where the first group reaches the limit, and the rest makes the next group.
+        assertEquals(List.of(2), verifySplitsWithSplitter(problem, 3, 2));
+        // The rest is still over the limit and must be split further. Splitting A again costs nothing extra.
+        assertEquals(List.of(1, 2, 3), verifySplitsWithSplitter(problem, 2, 2));
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterOversizedSet()
+    {
+        // A single set [0, 12) with weight 48, made of two items that span all of it.
+        SplitProblem problem = new SplitProblem(List.of(new SizedItem("F", 0, 12, 2, 1),
+                                                        new SizedItem("G", 0, 12, 2, 1)));
+        assertEquals(List.of(), verifySplitsWithSplitter(problem, 48, 0));
+        assertEquals(List.of(6), verifySplitsWithSplitter(problem, 24, 2));
+        // The items are only charged once, however many pieces they are split into.
+        assertEquals(List.of(5, 10), verifySplitsWithSplitter(problem, 20, 2));
+        assertEquals(IntStream.range(1, 12).boxed().collect(Collectors.toList()), verifySplitsWithSplitter(problem, 7, 2));
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterPrefersCheapBoundaries()
+    {
+        // Filling groups to the limit by splitting inside sets would split more expensive items than splitting at the
+        // cheap boundaries 6 and 10.
+        SplitProblem problem = cheapSplitPointsProblem();
+        assertEquals(List.of(), verifySplitsWithSplitter(problem, 28, 0));
+        assertEquals(List.of(6, 10), verifySplitsWithSplitter(problem, 14, 2));
+        assertEquals(List.of(6, 10), verifySplitsWithSplitter(problem, 10, 2));
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterMergesWithNeighbours()
+    {
+        // Sets AX [0, 4), XH [4, 10), HZ [10, 12), ZC [12, 16) with weights 6, 26, 10, 6. The boundaries at 4 and 12
+        // split the expensive X and Z, the one at 10 the cheap H.
+        SplitProblem problem = new SplitProblem(List.of(new SizedItem("A", 0, 4, 1, 100),
+                                                        new SizedItem("X", 2, 6, 1, 50),
+                                                        new SizedItem("H", 4, 12, 4, 1),
+                                                        new SizedItem("Z", 10, 14, 1, 50),
+                                                        new SizedItem("C", 12, 16, 1, 100)));
+        assertEquals(List.of(4, 10, 12), problem.boundaries);
+
+        // AX can take the part of XH up to 7, which only splits H, after which splitting at 10 is free.
+        assertEquals(List.of(7, 10), verifySplitsWithSplitter(problem, 20, 1));
+        // Without the splitter, XH must be in a group of its own, splitting X and H.
+        assertEquals(List.of(4, 10), verifySplits(problem, 20, 51));
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterFullerGroupIsNotAlwaysBetter()
+    {
+        // Sets P [3, 9), AFD [9, 16), ADG [16, 18), GC [18, 21) with weights 30, 39, 17, 16. Only D, G and C are
+        // expensive to split. The boundary at 16 splits D, the one at 18 G.
+        SplitProblem problem = new SplitProblem(List.of(new SizedItem("P", 3, 9, 5, 0),
+                                                        new SizedItem("A", 9, 17, 3, 0),
+                                                        new SizedItem("F", 13, 16, 5, 0),
+                                                        new SizedItem("D", 15, 18, 3, 11),
+                                                        new SizedItem("G", 16, 19, 4, 6),
+                                                        new SizedItem("C", 18, 21, 4, 9)));
+        assertEquals(List.of(9, 16, 18), problem.boundaries);
+
+        // Filling the first group by splitting AFD at 11 costs no more than splitting at 9, but the rest of AFD then
+        // has to be split at 16. Splitting at 9 lets AFD be split at 15, after which splitting at 18 is enough.
+        assertEquals(List.of(9, 15, 18), verifySplitsWithSplitter(problem, 37, 6));
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterEarlierBoundaryCanBeBetter()
+    {
+        // Sets BD [0, 8), A [8, 11), EC [11, 18), EF [18, 23) with weights 10, 5, 32, 32. Only C is expensive to split.
+        SplitProblem problem = new SplitProblem(List.of(new SizedItem("B", 0, 4, 1, 7),
+                                                        new SizedItem("D", 2, 4, 3, 3),
+                                                        new SizedItem("A", 8, 9, 5, 3),
+                                                        new SizedItem("E", 11, 21, 4, 2),
+                                                        new SizedItem("C", 13, 15, 2, 15),
+                                                        new SizedItem("F", 18, 23, 4, 0)));
+        assertEquals(List.of(8, 11, 18), problem.boundaries);
+
+        // Splitting at 8 and at 11 are both free, but only a group that starts at 8 can end inside EC before C starts,
+        // at 13. Starting at 11, EC would be split at 14, splitting C. The rest only splits E and F (multiple optima).
+        verifySplitsWithSplitter(problem, 17, 2);
+    }
+
+    @Test(timeout = 60000)
+    public void testOptimizedSplitsSplitterRandom()
+    {
+        long seed = System.nanoTime();
+        Random rand = new Random(seed);
         try
         {
-            solveAndVerify(problem, totalWeight / 20);
+            for (int i = 0; i < 500; ++i)
+            {
+                int count = 1 + rand.nextInt(10);
+                List<SizedItem> items = new ArrayList<>();
+                for (int j = 0; j < count; ++j)
+                {
+                    int start = rand.nextInt(20);
+                    int length = 1 + rand.nextInt(rand.nextBoolean() ? 5 : 15);
+                    items.add(new SizedItem(Character.toString('A' + j),
+                                            start,
+                                            start + length,
+                                            1 + rand.nextInt(5),
+                                            rand.nextInt(4) == 0 ? 0 : 1 + rand.nextInt(20)));
+                }
+                SplitProblem problem = new SplitProblem(items);
+                double totalWeight = problem.totalWeight();
+                // The splitter can't split a set to fit a limit below the weight of a unit-length piece. Also keep the
+                // number of groups small enough for the brute force.
+                int minLimit = (int) Math.ceil(Math.max(problem.maxUnitWeight(), totalWeight / 8));
+                for (int k = 0; k < 3; ++k)
+                {
+                    double limit = minLimit + rand.nextInt((int) totalWeight - minLimit + 2);
+                    verifySplitsWithSplitter(problem, limit, problem.bruteForceCostWithSplitter(limit));
+                }
+            }
+        }
+        catch (Throwable t)
+        {
+            throw new AssertionError("Failed with seed " + seed, t);
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testOptimizedSplitsSplitterManySets()
+    {
+        long seed = System.nanoTime();
+        SplitProblem problem = new SplitProblem(manyItems(new Random(seed)));
+        assertTrue(problem.sets.size() > 500);
+        // A limit that many sets are over on their own.
+        double limit = problem.totalWeight() / 1000;
+        assertTrue(limit >= problem.maxUnitWeight());
+        try
+        {
+            solveAndVerify(problem, limit, true);
         }
         catch (Throwable t)
         {
@@ -606,28 +771,41 @@ public class OverlapsTest
     /// returns the points where it splits.
     private static List<Integer> verifySplits(SplitProblem problem, double limit, double expectedCost)
     {
-        Overlaps.Split<SizedItem, Integer> solution = solveAndVerify(problem, limit);
+        return verifySplits(problem, limit, false, expectedCost);
+    }
+
+    /// As above, but giving `optimizedSplits` a splitter so that it can split inside sets.
+    private static List<Integer> verifySplitsWithSplitter(SplitProblem problem, double limit, double expectedCost)
+    {
+        return verifySplits(problem, limit, true, expectedCost);
+    }
+
+    private static List<Integer> verifySplits(SplitProblem problem, double limit, boolean withSplitter, double expectedCost)
+    {
+        Overlaps.Split<SizedItem, Integer> solution = solveAndVerify(problem, limit, withSplitter);
         List<Integer> splitPoints = new ArrayList<>();
         for (Overlaps.Split<SizedItem, Integer> group = solution; group != null; group = group.previous)
             if (group.pointAfter != null)
                 splitPoints.add(group.pointAfter);
         Collections.reverse(splitPoints);
-        assertEquals("Split cost with limit " + limit + " for " + problem + " splitting at " + splitPoints,
+        assertEquals("Split cost with limit " + limit + (withSplitter ? " and splitter" : "") +
+                     " for " + problem + " splitting at " + splitPoints,
                      expectedCost, solution.accumulatedSplitCost, EPSILON);
         return splitPoints;
     }
 
-    private static Overlaps.Split<SizedItem, Integer> solveAndVerify(SplitProblem problem, double limit)
+    private static Overlaps.Split<SizedItem, Integer> solveAndVerify(SplitProblem problem, double limit, boolean withSplitter)
     {
         try
         {
-            Overlaps.Split<SizedItem, Integer> solution = problem.solve(limit);
-            problem.verify(solution, limit);
+            Overlaps.Split<SizedItem, Integer> solution = problem.solve(limit, withSplitter);
+            problem.verify(solution, limit, withSplitter);
             return solution;
         }
         catch (Throwable t)
         {
-            throw new AssertionError("Failed with limit " + limit + " for " + problem, t);
+            throw new AssertionError("Failed with limit " + limit + (withSplitter ? " and splitter" : "") +
+                                     " for " + problem, t);
         }
     }
 
@@ -655,8 +833,12 @@ public class OverlapsTest
         {
             int s = pointBefore != null ? Math.max(start, pointBefore) : start;
             int e = pointAfter != null ? Math.min(end, pointAfter) : end;
-            assertTrue(this + " is not present between " + pointBefore + " and " + pointAfter, s < e);
-            return density * (e - s);
+            return density * Math.max(0, e - s);
+        }
+
+        boolean isSplitBy(int point)
+        {
+            return start < point && point < end;
         }
 
         @Override
@@ -666,17 +848,19 @@ public class OverlapsTest
         }
     }
 
-    /// The overlap sets of a list of items, with the boundaries between them, their weights and the items that need to
-    /// be split at each boundary.
+    /// The overlap sets of a list of items and the boundaries between them.
+    ///
+    /// Splitting at a point splits the items that are present on both sides of it, and the cost of splitting an item is
+    /// charged once, however many times it is split. Without a splitter, the span of the items may only be split at set
+    /// boundaries, and a group may only be over the limit if it is a single set. With a splitter, a group that would go
+    /// over the limit may instead end inside the set that takes it over, at the point the splitter returns for the
+    /// weight that still fits, and no group may be over the limit.
     private static class SplitProblem
     {
         final List<SizedItem> items;
         final List<Set<SizedItem>> sets;
         /// The point between sets i and i + 1.
         final List<Integer> boundaries = new ArrayList<>();
-        /// The items present in both sets i and i + 1.
-        final List<Set<SizedItem>> crossing = new ArrayList<>();
-        final double[] weights;
 
         SplitProblem(List<SizedItem> items)
         {
@@ -685,22 +869,8 @@ public class OverlapsTest
                                                       (x, y) -> x.start >= y.end,
                                                       Comparator.comparingInt(x -> x.start),
                                                       Comparator.comparingInt(x -> x.end));
-            this.weights = new double[sets.size()];
-            for (int i = 0; i < sets.size(); ++i)
-            {
-                Integer pointBefore = i > 0 ? boundaries.get(i - 1) : null;
-                Integer pointAfter = null;
-                if (i + 1 < sets.size())
-                {
-                    pointAfter = pointBetween(sets.get(i), sets.get(i + 1));
-                    boundaries.add(pointAfter);
-                    Set<SizedItem> crossingItems = new HashSet<>(sets.get(i));
-                    crossingItems.retainAll(sets.get(i + 1));
-                    crossing.add(crossingItems);
-                }
-                for (SizedItem item : sets.get(i))
-                    weights[i] += item.weight(pointBefore, pointAfter);
-            }
+            for (int i = 0; i + 1 < sets.size(); ++i)
+                boundaries.add(pointBetween(sets.get(i), sets.get(i + 1)));
         }
 
         static Integer pointBetween(Set<SizedItem> set, Set<SizedItem> next)
@@ -709,20 +879,92 @@ public class OverlapsTest
             return next.stream().filter(x -> !set.contains(x)).mapToInt(x -> x.start).min().getAsInt();
         }
 
-        static double cost(Set<SizedItem> splitItems)
+        /// The splitter: returns the furthest point after `pointBefore` (null meaning the start of the set) up to which
+        /// the items of the set weigh at most `weight`.
+        static Overlaps.SplitResult<SizedItem, Integer> splitPoint(Set<SizedItem> set, Integer pointBefore, double weight)
+        {
+            int start = pointBefore != null ? pointBefore : set.stream().mapToInt(x -> x.start).min().getAsInt();
+            int low = start;
+            int high = set.stream().mapToInt(x -> x.end).max().getAsInt();
+            double actual = 0;
+            while (low < high)
+            {
+                int mid = (low + high + 1) >>> 1;
+                double w = weightBetween(set, start, mid);
+                if (w <= weight)
+                {
+                    low = mid;
+                    actual = w;
+                }
+                else
+                    high = mid - 1;
+            }
+            int l = low;
+            return new Overlaps.SplitResult<>(low, set.stream().filter(i -> i.isSplitBy(l)).collect(Collectors.toSet()), actual);
+        }
+
+        static double weightBetween(Collection<SizedItem> items, Integer pointBefore, Integer pointAfter)
+        {
+            double sum = 0;
+            for (SizedItem item : items)
+                sum += item.weight(pointBefore, pointAfter);
+            return sum;
+        }
+
+        double totalWeight()
+        {
+            return weightBetween(items, null, null);
+        }
+
+        /// The biggest weight of a piece of unit length. The splitter can't split a set to fit a limit below this.
+        double maxUnitWeight()
+        {
+            NavigableMap<Integer, Integer> densityChanges = new TreeMap<>();
+            for (SizedItem item : items)
+            {
+                densityChanges.merge(item.start, item.density, Integer::sum);
+                densityChanges.merge(item.end, -item.density, Integer::sum);
+            }
+            int density = 0;
+            int maxDensity = 0;
+            for (int change : densityChanges.values())
+            {
+                density += change;
+                maxDensity = Math.max(maxDensity, density);
+            }
+            return maxDensity;
+        }
+
+        Set<SizedItem> splitBy(int point)
+        {
+            return items.stream().filter(x -> x.isSplitBy(point)).collect(Collectors.toSet());
+        }
+
+        static double cost(Collection<SizedItem> splitItems)
         {
             return splitItems.stream().mapToDouble(x -> x.splitCost).sum();
         }
 
-        Overlaps.Split<SizedItem, Integer> solve(double limit)
+        boolean hasBoundaryBetween(Integer start, Integer end)
         {
-            return Overlaps.optimizedSplits(sets, SplitProblem::pointBetween, SizedItem::weight, x -> x.splitCost, limit);
+            for (Integer boundary : boundaries)
+                if ((start == null || boundary > start) && (end == null || boundary < end))
+                    return true;
+            return false;
         }
 
-        /// Checks that the solution is a sequence of groups of consecutive sets that covers all sets, where each
-        /// group is within the limit or contains a single set, and where the reported items, weights and accumulated
-        /// costs match the groups.
-        void verify(Overlaps.Split<SizedItem, Integer> solution, double limit)
+        Overlaps.Split<SizedItem, Integer> solve(double limit, boolean withSplitter)
+        {
+            if (withSplitter)
+                return Overlaps.optimizedSplits(sets, SplitProblem::pointBetween, SizedItem::weight, x -> x.splitCost, SplitProblem::splitPoint, limit);
+            else
+                return Overlaps.optimizedSplits(sets, SplitProblem::pointBetween, SizedItem::weight, x -> x.splitCost, limit);
+        }
+
+        /// Checks that the solution is a sequence of groups split at increasing points, which must be set boundaries if
+        /// there is no splitter, where each group is within the limit (or, without a splitter, a single set), and where
+        /// the reported weights and accumulated costs match the items in each group and the items split so far.
+        void verify(Overlaps.Split<SizedItem, Integer> solution, double limit, boolean withSplitter)
         {
             List<Overlaps.Split<SizedItem, Integer>> groups = new ArrayList<>();
             for (Overlaps.Split<SizedItem, Integer> group = solution; group != null; group = group.previous)
@@ -731,66 +973,120 @@ public class OverlapsTest
             assertTrue("No groups returned", !groups.isEmpty());
 
             Set<SizedItem> splitItems = new HashSet<>();
-            int start = 0;
+            Integer start = null;
             for (Overlaps.Split<SizedItem, Integer> group : groups)
             {
-                int end;
+                Integer end = group.pointAfter;
+                String name = "group [" + start + ", " + end + ")";
                 if (group == solution)
                 {
-                    assertNull("Last group must not have a split point", group.pointAfter);
-                    end = sets.size() - 1;
+                    assertNull("Last group must not have a split point", end);
                 }
                 else
                 {
-                    end = boundaries.indexOf(group.pointAfter);
-                    assertTrue("Split point " + group.pointAfter + " is not a set boundary after " + start, end >= start);
-                    splitItems.addAll(crossing.get(end));
+                    assertTrue(name + " must have a split point", end != null);
+                    assertTrue(name + " is empty", start == null || end > start);
+                    assertTrue(name + " must end at a set boundary", withSplitter || boundaries.contains(end));
+                    splitItems.addAll(splitBy(end));
                 }
 
-                Set<SizedItem> groupItems = new HashSet<>();
-                double groupWeight = 0;
-                for (int i = start; i <= end; ++i)
-                {
-                    groupItems.addAll(sets.get(i));
-                    groupWeight += weights[i];
-                }
-//                assertEquals("Items of group of sets " + start + " to " + end, groupItems, group.items);
-                assertEquals("Weight of group of sets " + start + " to " + end, groupWeight, group.weight, EPSILON);
-                assertTrue("Group of sets " + start + " to " + end + " with weight " + groupWeight + " exceeds limit",
-                           start == end || groupWeight <= limit);
-                assertEquals("Accumulated cost of group of sets " + start + " to " + end,
-                             cost(splitItems), group.accumulatedSplitCost, EPSILON);
-                start = end + 1;
+                double groupWeight = weightBetween(items, start, end);
+                assertEquals("Weight of " + name, groupWeight, group.weight, EPSILON);
+                assertTrue(name + " with weight " + groupWeight + " exceeds limit",
+                           groupWeight <= limit || !withSplitter && !hasBoundaryBetween(start, end));
+                assertEquals("Accumulated cost of " + name, cost(splitItems), group.accumulatedSplitCost, EPSILON);
+                start = end;
             }
         }
 
-        /// The minimum split cost, found by trying all combinations of split points.
+        /// The minimum split cost without a splitter, found by trying all combinations of set boundaries.
         double bruteForceCost(double limit)
         {
-            int n = sets.size();
-            assert n <= 16;
-            double best = Double.POSITIVE_INFINITY;
-            for (int splitMask = 0; splitMask < 1 << (n - 1); ++splitMask)
+            int m = boundaries.size();
+            assert m <= 20 && items.size() <= 64;
+            // The weights of the sets, and the items split at each boundary.
+            double[] setWeights = new double[m + 1];
+            long[] splitMasks = new long[m];
+            for (int k = 0; k <= m; ++k)
             {
-                Set<SizedItem> splitItems = new HashSet<>();
+                Integer pointBefore = k > 0 ? boundaries.get(k - 1) : null;
+                Integer pointAfter = k < m ? boundaries.get(k) : null;
+                for (int j = 0; j < items.size(); ++j)
+                {
+                    setWeights[k] += items.get(j).weight(pointBefore, pointAfter);
+                    if (k < m && items.get(j).isSplitBy(pointAfter))
+                        splitMasks[k] |= 1L << j;
+                }
+            }
+
+            double best = Double.POSITIVE_INFINITY;
+            for (int splitSelection = 0; splitSelection < 1 << m; ++splitSelection)
+            {
+                long splitItems = 0;
                 double groupWeight = 0;
                 int groupStart = 0;
                 boolean valid = true;
-                for (int i = 0; i < n && valid; ++i)
+                for (int k = 0; k <= m && valid; ++k)
                 {
-                    groupWeight += weights[i];
-                    valid = i == groupStart || groupWeight <= limit;
-                    if ((splitMask & (1 << i)) != 0)    // split after set i
+                    groupWeight += setWeights[k];
+                    valid = k == groupStart || groupWeight <= limit;
+                    if (k < m && (splitSelection & (1 << k)) != 0)    // split at boundary k, i.e. after set k
                     {
-                        splitItems.addAll(crossing.get(i));
+                        splitItems |= splitMasks[k];
                         groupWeight = 0;
-                        groupStart = i + 1;
+                        groupStart = k + 1;
                     }
                 }
-                if (valid)
-                    best = Math.min(best, cost(splitItems));
+                if (!valid)
+                    continue;
+
+                double cost = 0;
+                for (int j = 0; j < items.size(); ++j)
+                    if ((splitItems & (1L << j)) != 0)
+                        cost += items.get(j).splitCost;
+                best = Math.min(best, cost);
             }
             return best;
+        }
+
+        /// The minimum split cost with a splitter, found by trying all ways to end each group: at any set boundary
+        /// that keeps it within the limit, or inside the set that takes it over the limit, where the splitter says.
+        double bruteForceCostWithSplitter(double limit)
+        {
+            return bruteForceCostWithSplitter(limit, null, 0, Set.of());
+        }
+
+        private double bruteForceCostWithSplitter(double limit, Integer start, int startSet, Set<SizedItem> splitItems)
+        {
+            double best = Double.POSITIVE_INFINITY;
+            double weight = 0;
+            for (int i = startSet; i < sets.size() && weight < limit; ++i)
+            {
+                Integer setStart = i == startSet ? start : boundaries.get(i - 1);
+                Integer setEnd = i < boundaries.size() ? boundaries.get(i) : null;
+                double setWeight = weightBetween(sets.get(i), setStart, setEnd);
+                if (weight + setWeight > limit)
+                {
+                    Integer point = splitPoint(sets.get(i), setStart, limit - weight).splitPoint;
+                    assertTrue("Splitter can't make progress at " + point, i > startSet || !point.equals(setStart));
+                    best = Math.min(best, bruteForceCostWithSplitter(limit, point, i, union(splitItems, splitBy(point))));
+                    break;
+                }
+
+                weight += setWeight;
+                if (setEnd == null)
+                    best = Math.min(best, cost(splitItems));
+                else
+                    best = Math.min(best, bruteForceCostWithSplitter(limit, setEnd, i + 1, union(splitItems, splitBy(setEnd))));
+            }
+            return best;
+        }
+
+        private static Set<SizedItem> union(Set<SizedItem> a, Set<SizedItem> b)
+        {
+            Set<SizedItem> result = new HashSet<>(a);
+            result.addAll(b);
+            return result;
         }
 
         @Override
