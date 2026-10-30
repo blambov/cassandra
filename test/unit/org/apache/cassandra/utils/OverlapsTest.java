@@ -558,7 +558,7 @@ public class OverlapsTest
         Random rand = new Random(seed);
         try
         {
-            for (int i = 0; i < 1000; ++i)
+            for (int i = 0; i < 10000; ++i)
             {
                 // Limit the number of items so that the number of sets is small enough to brute-force.
                 int count = 1 + rand.nextInt(13);

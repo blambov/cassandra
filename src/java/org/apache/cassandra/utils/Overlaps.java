@@ -564,17 +564,19 @@ public class Overlaps
             Set<E> splitsSoFar = Collections.emptySet();
             int startIndex = 0;
             double weight = weights[0];
+            P pointBefore = null;
             while (true)
             {
-                Split<E, P> next = nextSplitMaybePartial(startIndex, prev, 0, weight, splitsSoFar);
+                Split<E, P> next = nextSplitMaybePartial(startIndex, pointBefore, prev, 0, weight, splitsSoFar);
 
                 int index = startIndex;
                 while (++index < weights.length && weight < pickLimit)
                 {
                     Split<E, P> curr = next;
                     double nextWeight = weight + weights[index];
-                    next = nextSplitMaybePartial(index, prev, weight, nextWeight, splitsSoFar);
-                    if (next == null || next.accumulatedSplitCost > curr.accumulatedSplitCost)
+                    pointBefore = curr.pointAfter;
+                    next = nextSplitMaybePartial(index, pointBefore, prev, weight, nextWeight, splitsSoFar);
+                    if (findSplitPointForWeight != null || next == null || next.accumulatedSplitCost > curr.accumulatedSplitCost)
                         updateCandidate(curr);
                     // else we don't need to evaluate this one as it's always cheaper to take next group
                     weight = nextWeight;
@@ -589,6 +591,7 @@ public class Overlaps
                 splitsSoFar = prev.alreadySplit;
                 startIndex = prev.groupIndex;
                 weight = prev.remainingWeight;
+                pointBefore = prev.pointAfter;
             }
         }
 
@@ -601,7 +604,7 @@ public class Overlaps
         }
 
 
-        private Split<E, P> nextSplitMaybePartial(int index, Split<E, P> prev, double startWeight, double endWeight, Set<E> splitsSoFar)
+        private Split<E, P> nextSplitMaybePartial(int index, P pointBefore, Split<E, P> prev, double startWeight, double endWeight, Set<E> splitsSoFar)
         {
             if (endWeight <= pickLimit)
                 return nextSplit(index, prev, endWeight, splitsSoFar);
@@ -611,12 +614,6 @@ public class Overlaps
             assert endWeight > startWeight;
             assert pickLimit > startWeight;
             Set<E> group = sets.get(index);
-            // Use the point before this group rather than prev's end
-            P pointBeforeGroup = index > 0 ? pointAfter.get(index - 1) : null;
-            P pointAfterPrev = prev != null ? prev.pointAfter : null;
-            P pointBefore = pointBeforeGroup != null ? pointAfterPrev != null ? Comparables.max(pointBeforeGroup, pointAfterPrev)
-                                                                              : pointBeforeGroup
-                                                     : pointAfterPrev;
             SplitResult<E, P> split = findSplitPointForWeight.split(group, pointBefore, pickLimit - startWeight);
             if (split == null || split.actualWeight == 0)
                 return null;
