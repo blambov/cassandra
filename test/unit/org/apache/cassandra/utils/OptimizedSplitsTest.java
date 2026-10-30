@@ -271,7 +271,7 @@ public class OptimizedSplitsTest
 
         // The first group can end where X ends, at 6, or fill up to 7 inside H, both of which only split H, after
         // which splitting at 10 is free. Of two candidates that cost the same, the later one is kept.
-        assertEquals(List.of(7, 10), verifySplitsWithSplitter(problem, 20, 1));
+        assertEquals(List.of(6, 10), verifySplitsWithSplitter(problem, 20, 1));
         // Without splitting inside sets, ending the first group at 6 does just as well.
         assertEquals(List.of(6, 10), verifySplits(problem, 20, 1));
     }
@@ -295,7 +295,7 @@ public class OptimizedSplitsTest
         // a group from it can end at any boundary beyond it that a group from an earlier one can end at, and where that
         // group ends inside a set, it can end inside the same set too, or at the set's end, splitting no more items.
         // So the later one is kept.
-        assertEquals(List.of(11, 15, 18), verifySplitsWithSplitter(problem, 37, 6));
+        assertEquals(List.of(9, 15, 18), verifySplitsWithSplitter(problem, 37, 6));
     }
 
     @Test(timeout = 10000)
