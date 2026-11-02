@@ -40,8 +40,9 @@ import org.apache.cassandra.utils.OptimizedSplits;
 /// anticompact, i.e. rewrite, the ones that cross the boundaries of the range. Repairing a range in segments thus also
 /// rewrites every sstable that crosses a boundary between segments. This chooses the boundaries with [OptimizedSplits],
 /// using the unrepaired sstables as items, their size spread uniformly over their token range as weight, and their
-/// size as the cost of splitting them. Sstables that cross the boundaries of the range are anticompacted anyway, so
-/// splitting them again costs nothing.
+/// size as the cost of splitting them, and of the choices that anticompact the least, it takes the one with the fewest
+/// segments. Sstables that cross the boundaries of the range are anticompacted anyway, so splitting them again costs
+/// nothing.
 ///
 /// Limitations of this proof of concept:
 /// - It only knows the sstables of the local node, which other replicas' sstables may not match.
@@ -70,7 +71,7 @@ public class RepairSegmentSelector
     }
 
     /// Choose the segments of the given range for the unrepaired sstables of the given tables.
-    public static Segments select(Collection<ColumnFamilyStore> tables, Range<Token> range, double maxSegmentSize)
+    public static Segments selectForTables(Collection<ColumnFamilyStore> tables, Range<Token> range, double maxSegmentSize)
     {
         List<SSTableReader> sstables = new ArrayList<>();
         for (ColumnFamilyStore table : tables)
@@ -80,7 +81,7 @@ public class RepairSegmentSelector
 
     /// Choose the segments of the given range for the given sstables, of which only the unrepaired ones matter. Each
     /// segment will have at most `maxSegmentSize` bytes of their data, unless the token space can't be split finely
-    /// enough.
+    /// enough, and of the segmentations that need the least anticompaction, this is one with the fewest segments.
     public static Segments select(Collection<SSTableReader> sstables, Range<Token> range, double maxSegmentSize)
     {
         if (range.isTrulyWrapAround())

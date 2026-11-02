@@ -138,68 +138,6 @@ public class RepairSegmentSelectorTest
         }
     }
 
-
-    @Test
-    public void scratchDemo() throws Exception
-    {
-        ColumnFamilyStore cfs = MockSchema.newCFS();
-        long r = 1L << 40;
-        Range<Token> range = range(0, r);
-
-        // UCS-like: four flushes covering everything, and levels of 8, 32 and 128 aligned shards of 128 MB each
-        List<SSTableReader> ucs = new ArrayList<>();
-        for (int i = 0; i < 4; ++i)
-            ucs.add(sstable(cfs, 1, r, 64));
-        for (int shards : new int[]{ 8, 32, 128 })
-            for (int j = 0; j < shards; ++j)
-                ucs.add(sstable(cfs, r / shards * j + 1, r / shards * (j + 1), 128));
-        demo("UCS-like", ucs, range, new double[]{ 1024, 2048, 4096, 8192 });
-
-        // LCS-like: four 32 MB flushes covering everything, and levels of 10, 100 and 1000 sstables of 160 MB each,
-        // with unrelated boundaries
-        Random rand = new Random(1);
-        List<SSTableReader> lcs = new ArrayList<>();
-        for (int i = 0; i < 4; ++i)
-            lcs.add(sstable(cfs, 1, r, 32));
-        for (int count : new int[]{ 10, 100, 1000 })
-        {
-            long[] cuts = new long[count + 1];
-            cuts[count] = r;
-            for (int j = 1; j < count; ++j)
-                cuts[j] = 1 + (long) (rand.nextDouble() * (r - 2));
-            java.util.Arrays.sort(cuts);
-            for (int j = 0; j < count; ++j)
-                lcs.add(sstable(cfs, cuts[j] + 1, cuts[j + 1], 160));
-        }
-        demo("LCS-like", lcs, range, new double[]{ 1024, 4096, 16384, 65536 });
-    }
-
-    static void demo(String name, List<SSTableReader> sstables, Range<Token> range, double[] limits) throws Exception
-    {
-        double total = sizeIn(sstables, range);
-        for (double limit : limits)
-        {
-            for (int warmup = 0; warmup < 5; ++warmup)
-                RepairSegmentSelector.select(sstables, range, limit);
-            long start = System.nanoTime();
-            RepairSegmentSelector.Segments segments = RepairSegmentSelector.select(sstables, range, limit);
-            double ms = (System.nanoTime() - start) / 1e6;
-            double max = segments.sizes.stream().mapToDouble(x -> x).max().getAsDouble();
-            List<Range<Token>> uniform = uniformSegments(range, segments.ranges.size());
-            double uniformMax = uniform.stream().mapToDouble(segment -> sizeIn(sstables, segment)).max().getAsDouble();
-            int feasible = segments.ranges.size();
-            while (uniformSegments(range, feasible).stream().anyMatch(segment -> sizeIn(sstables, segment) > limit))
-                ++feasible;
-            String line = String.format("DEMO %-8s %5d sstables %7.0f MB limit %6.0f MB | optimized %4d segments max %6.0f MB anticompaction %7.0f MB in %6.2f ms" +
-                                        " | uniform %4d segments max %6.0f MB anticompaction %7.0f MB | uniform within limit %4d segments anticompaction %7.0f MB",
-                                        name, sstables.size(), total, limit, segments.ranges.size(), max, segments.anticompactionSize, ms,
-                                        uniform.size(), uniformMax, RepairSegmentSelector.anticompactionSize(sstables, uniform),
-                                        feasible, RepairSegmentSelector.anticompactionSize(sstables, uniformSegments(range, feasible)));
-            java.nio.file.Files.writeString(java.nio.file.Path.of("/tmp/claude-1000/-home-blambov-git-cassandra5/6462ccbb-f40e-4926-aac8-78efd1db82c0/scratchpad/demo.txt"),
-                                            line + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-        }
-    }
-
     /// Choose the segments, and check that they cover the range in order, are within the limit, and that their sizes and
     /// anticompaction size match what an independent count gives.
     static RepairSegmentSelector.Segments verify(List<SSTableReader> sstables, Range<Token> range, double limit)
