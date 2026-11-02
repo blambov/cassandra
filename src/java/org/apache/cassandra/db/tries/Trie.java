@@ -329,6 +329,11 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return dir -> new ContentMappingCursor.Plain<>(mapper, cursor(dir));
     }
 
+    default Trie<T> patternMatched(String pattern)
+    {
+        return dir -> PatternCursor.create(cursor(dir), pattern);
+    }
+
     static <T> Trie<T> empty(ByteComparable.Version byteComparableVersion)
     {
         return dir -> new Cursor.Empty<>(dir, byteComparableVersion);
