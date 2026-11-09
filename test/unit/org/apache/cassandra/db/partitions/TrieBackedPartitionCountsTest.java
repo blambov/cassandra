@@ -17,6 +17,7 @@
 package org.apache.cassandra.db.partitions;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 import com.google.common.collect.Iterators;
@@ -53,10 +54,9 @@ import static org.junit.Assert.fail;
 
 /// Tests the row counts, tombstone counts and static rows of [TrieBackedPartition]s.
 ///
-/// A static row may hold only a deletion, e.g. of a whole non-frozen collection. Such a row has no live data, so
-/// [TrieMemtable] does not count it in `rowCountIncludingStatic`, and [TrieBackedPartition#rowCount] must not subtract
-/// it. The row counts of trie-backed partitions are not precise (see [TrieBackedPartition#rowCount]), so the tests
-/// check that they stay between the number of rows with live data and the number of all non-static rows.
+/// Trie-backed partitions count only the rows with live data (see [TrieBackedPartition#rowCount]), however they are
+/// built. A static row may hold only a deletion, e.g. of a whole non-frozen collection. Such a row is not counted in
+/// `rowCountIncludingStatic`, so [TrieBackedPartition#rowCount] must not subtract it.
 ///
 /// Each test checks the memtable partition and the partitions built from its content by the other construction paths.
 public class TrieBackedPartitionCountsTest extends CQLTester
@@ -127,10 +127,24 @@ public class TrieBackedPartitionCountsTest extends CQLTester
         createTable(TABLE);
         execute("INSERT INTO %s (k, c, v) VALUES (0, 1, 10)");
         execute("INSERT INTO %s (k, c, v) VALUES (0, 2, 20)");
-        // A row that only holds a deletion. Not all construction paths count it.
+        // A row that only holds a deletion is not counted.
         execute("DELETE s FROM %s WHERE k = 0 AND c = 3");
 
         assertPartition(0, 2, 3, StaticRow.NONE);
+    }
+
+    @Test
+    public void testDeletedRows() throws Throwable
+    {
+        createTable(TABLE);
+        execute("INSERT INTO %s (k, c, v) VALUES (0, 1, 10)");
+        execute("DELETE FROM %s WHERE k = 0 AND c = 2");
+        execute("INSERT INTO %s (k, c, v) VALUES (0, 3, 30) USING TIMESTAMP 10");
+        execute("DELETE FROM %s USING TIMESTAMP 20 WHERE k = 0 AND c = 3");
+        // A row with a deleted cell holds a cell, and is counted like a row with live data
+        execute("DELETE v FROM %s WHERE k = 0 AND c = 4");
+
+        assertPartition(0, 2, 4, StaticRow.NONE);
     }
 
     @Test
@@ -258,6 +272,19 @@ public class TrieBackedPartitionCountsTest extends CQLTester
                   TriePartitionUpdate.singleRowUpdate(metadata, partition.partitionKey(), partition.staticRow()),
                   0, 0, staticRow);
 
+        // Each row with live data counts as one row on its own.
+        int singleRowCounts = 0;
+        for (Iterator<Row> rows = partition.rowIterator(); rows.hasNext(); )
+        {
+            Row row = rows.next();
+            TriePartitionUpdate update = TriePartitionUpdate.singleRowUpdate(metadata, partition.partitionKey(), row);
+            if (update.rowCount() < 0 || update.rowCount() > 1 || update.hasRows() != (update.rowCount() > 0))
+                failures.add("TriePartitionUpdate.singleRowUpdate of " + row.toString(metadata) + ": rowCount " + update.rowCount() + ", hasRows " + update.hasRows());
+            singleRowCounts += update.rowCount();
+        }
+        if (singleRowCounts != liveRows)
+            failures.add("TriePartitionUpdate.singleRowUpdate of each row: rowCounts add up to " + singleRowCounts + ", expected " + liveRows);
+
         if (!failures.isEmpty())
             fail(String.join("\n", failures));
     }
@@ -279,13 +306,8 @@ public class TrieBackedPartitionCountsTest extends CQLTester
         String message = source + ": ";
         assertEquals(message + "rows", allRows, Iterators.size(partition.rowIterator()));
 
-        int rowCount = partition.rowCount();
-        assertTrue(message + "rowCount " + rowCount + " must include the " + liveRows + " rows with live data", rowCount >= liveRows);
-        assertTrue(message + "rowCount " + rowCount + " must not exceed the number of rows " + allRows, rowCount <= allRows);
-        if (liveRows > 0)
-            assertTrue(message + "hasRows", partition.hasRows());
-        if (allRows == 0)
-            assertFalse(message + "hasRows", partition.hasRows());
+        assertEquals(message + "rowCount", liveRows, partition.rowCount());
+        assertEquals(message + "hasRows", liveRows > 0, partition.hasRows());
         assertFalse(message + "isEmpty", partition.isEmpty());
 
         ColumnMetadata st = partition.metadata().getColumn(ByteBufferUtil.bytes("st"));
