@@ -160,8 +160,11 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
             columns = new RegularAndStaticColumns(Columns.NONE, Columns.from(row.columns()));
 
         putInTrie(makeNoConflictMutator(trie), metadata, metadata.comparator, row);
+        // Only count a static row if it has live data, i.e. content at its root. The partition constructor uses the
+        // same check to decide whether to exclude the static row from the row count.
+        int rowCountIncludingStatic = row.isStatic() && trie.get(STATIC_CLUSTERING_PATH) == null ? 0 : 1;
 
-        return new TriePartitionUpdate(metadata, key, columns, stats, 1, row.deletion().isLive() ? 0 : 1, row.dataSize(), trie);
+        return new TriePartitionUpdate(metadata, key, columns, stats, rowCountIncludingStatic, row.deletion().isLive() ? 0 : 1, row.dataSize(), trie);
     }
 
     /** @see PartitionUpdate.Factory#fromIterator(UnfilteredRowIterator)  */

@@ -780,21 +780,31 @@ public class TrieBackedPartition implements Partition
 
         public ContentBuilder addStatic(Row staticRow)
         {
-            if (!staticRow.isEmpty())
-                return addRow(staticRow);
-            else
+            if (staticRow.isEmpty())
                 return this;
+
+            putRow(staticRow);
+            // Only count the static row if it has live data, i.e. content at its root. The partition constructor
+            // uses the same check to decide whether to exclude the static row from the row count.
+            if (trie.get(STATIC_CLUSTERING_PATH) != null)
+                ++rowCountIncludingStatic;
+            return this;
         }
 
         public ContentBuilder addRow(Row row)
         {
-            putInTrie(mutator, metadata, comparator, row);
+            putRow(row);
             ++rowCountIncludingStatic;
+            return this;
+        }
+
+        private void putRow(Row row)
+        {
+            putInTrie(mutator, metadata, comparator, row);
             if (collectDataSize)
                 dataSize += row.dataSize();
             if (!row.deletion().isLive())
                 ++tombstoneCount;
-            return this;
         }
 
         public ContentBuilder addRangeTombstoneMarker(RangeTombstoneMarker unfiltered)

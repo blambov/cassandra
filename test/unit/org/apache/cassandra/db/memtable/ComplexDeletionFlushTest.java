@@ -175,6 +175,21 @@ public class ComplexDeletionFlushTest extends CQLTester
     }
 
     @Test
+    public void testStaticCollectionWithoutRows() throws Throwable
+    {
+        createTable(withMemtable("CREATE TABLE %s (k int, c int, v int, st set<text> static, PRIMARY KEY (k, c))"));
+        disableCompaction();
+        execute("UPDATE %s SET st = {'a', 'b'} WHERE k = 1");
+        flushAndCheckSSTables(1);
+
+        // the partition in the new memtable holds only the deletion in its static row
+        execute("DELETE st FROM %s WHERE k = 1");
+        assertEmpty(execute("SELECT * FROM %s WHERE k = 1"));
+        flushAndCheckSSTables(2);
+        assertEmpty(execute("SELECT * FROM %s WHERE k = 1"));
+    }
+
+    @Test
     public void testStaticCollectionSameMemtable() throws Throwable
     {
         createTable(withMemtable("CREATE TABLE %s (k int, c int, v int, st set<text> static, PRIMARY KEY (k, c))"));
