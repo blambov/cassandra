@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.google.common.base.Predicates;
@@ -455,7 +456,7 @@ public class TriePartitionUpdate extends TrieBackedPartition implements Partitio
         // Don't count if it's not a boundary, or if it does not introduce a new deletion
         // (row level marker under covering deletion).
         TrieTombstoneMarker.Covering left = update.leftDeletion();
-        if (right == null || right == left)
+        if (right == null || Objects.equals(right, left))
             return false;
 
         // Note that we will overcount boundaries under a covering deletion (we count once
