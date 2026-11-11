@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.nio.ByteBuffer;
+
 import org.agrona.DirectBuffer;
 
 /// Matches the keys of a trie against a [TriePattern] while the trie is walked, one byte at a time.
@@ -85,4 +87,8 @@ public abstract class PatternMatcher
     /// Returns a new matcher for the same pattern, whose state at depth 0 is this matcher's state at the given depth,
     /// to match the keys of a branch whose path leads to that depth.
     public abstract PatternMatcher tail(int depth);
+
+    /// Whether the given value matches the pattern, starting from this matcher's root state. This neither uses nor
+    /// changes the state history, so it can be called concurrently on a matcher that is not used to walk a trie.
+    public abstract boolean matches(ByteBuffer value);
 }

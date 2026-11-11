@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.agrona.DirectBuffer;
@@ -43,6 +44,8 @@ final class PatternMatcherLong extends PatternMatcher
     final long matchBit;
     final boolean hasTrailingStar;
 
+    // The state at depth 0
+    final long[] rootState;
     // The state at each depth of the current path, and its flags (see PatternMatcher.flags)
     long[][] states;
     int[] stateFlags;
@@ -91,6 +94,7 @@ final class PatternMatcherLong extends PatternMatcher
         long[] state = new long[numLongs];
         // Entering a loop position also enters the next one, as the loop can be skipped.
         state[0] = 1 | (isLoop[0] & 1) << 1;
+        rootState = state.clone();
         states[0] = state;
         stateFlags[0] = computeFlags(state);
     }
@@ -105,6 +109,7 @@ final class PatternMatcherLong extends PatternMatcher
         patternMatch = source.patternMatch;
         matchBit = source.matchBit;
         hasTrailingStar = source.hasTrailingStar;
+        this.rootState = rootState.clone();
         states = new long[32][];
         stateFlags = new int[32];
         states[0] = rootState;
@@ -243,5 +248,35 @@ final class PatternMatcherLong extends PatternMatcher
     public PatternMatcher tail(int depth)
     {
         return new PatternMatcherLong(this, states[depth].clone());
+    }
+
+    @Override
+    public boolean matches(ByteBuffer value)
+    {
+        long[] state = rootState.clone();
+        long[] next = new long[numLongs];
+        for (int pos = value.position(); pos < value.limit(); ++pos)
+        {
+            if (hasTrailingStar && (state[numLongs - 1] & matchBit) != 0)
+                return true; // a trailing star matches anything that follows
+            // as in descend
+            long[] byteMatch = patternMatch[value.get(pos) & 0xFF];
+            long carry = 0;
+            long sum = 0;
+            for (int i = 0; i < numLongs; ++i)
+            {
+                long match = state[i] & byteMatch[i];
+                long matchShifted = match << 1 | carry;
+                long nextIsLoop = matchShifted & isLoop[i];
+                sum |= next[i] = match & isLoop[i] | matchShifted | nextIsLoop << 1;
+                carry = (match | nextIsLoop) >>> 63;
+            }
+            if (sum == 0)
+                return false;
+            long[] swap = state;
+            state = next;
+            next = swap;
+        }
+        return (state[numLongs - 1] & matchBit) != 0;
     }
 }

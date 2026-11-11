@@ -54,6 +54,10 @@ public final class TriePattern
     /// The elements of the normalized pattern.
     final int[] elements;
 
+    /// The matcher used by [#matches], created on first use. It is never used to walk a trie, so its state history is
+    /// not used and it can be shared by concurrent calls.
+    private volatile PatternMatcher valueMatcher;
+
     private TriePattern(int[] elements)
     {
         this.elements = elements;
@@ -86,6 +90,27 @@ public final class TriePattern
     int length()
     {
         return elements.length;
+    }
+
+    /// Whether the given value matches the pattern. Thread-safe.
+    public boolean matches(ByteBuffer value)
+    {
+        PatternMatcher matcher = valueMatcher;
+        if (matcher == null)
+            valueMatcher = matcher = PatternMatcher.create(this);
+        return matcher.matches(value);
+    }
+
+    /// Returns the literal bytes at the start of the pattern, which every matching key starts with.
+    public byte[] literalPrefix()
+    {
+        int length = 0;
+        while (length < elements.length && isLiteral(elements[length]))
+            ++length;
+        byte[] prefix = new byte[length];
+        for (int i = 0; i < length; ++i)
+            prefix[i] = (byte) elements[i];
+        return prefix;
     }
 
     static boolean isLiteral(int element)

@@ -16,7 +16,6 @@
 package org.apache.cassandra.index.sai.memory;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -27,6 +26,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.LikePatterns;
+import org.apache.cassandra.cql3.LikeReference;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.cql3.statements.schema.IndexTarget;
 import org.apache.cassandra.db.Clustering;
@@ -49,7 +49,6 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.MockSchema;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -58,10 +57,10 @@ import static org.junit.Assert.assertTrue;
 /**
  * Memtable-level tests for the LIKE pattern matching of the memtable index, which selects the matching terms while
  * walking its terms trie with the pattern ({@link Expression#getTriePattern}). Mirrors the disk-level
- * {@code AutomatonIntersectionTest} property-based comparison against a brute-force reference, which runs the
- * pattern's Lucene automaton (used by the on-disk index and by post-filtering) over every indexed value.
+ * {@code TermsReaderPatternTest} property-based comparison against a brute-force reference, which evaluates the
+ * pattern on every indexed value with {@link LikeReference}.
  */
-public class TrieMemoryIndexAutomatonTest
+public class TrieMemoryIndexPatternTest
 {
     private static final String KEYSPACE = "test_keyspace";
     private static final String TABLE = "test_table";
@@ -92,6 +91,9 @@ public class TrieMemoryIndexAutomatonTest
                                             // escapes, and characters that are wildcards in other syntaxes
                                             "a\\_c", "a\\%b", "a\\\\c", "%\\_%", "a*c", "a?c", "a*%", "%?%" })
             assertMatchesBruteForce(index, rows, Operator.LIKE_MATCHES, pattern);
+
+        for (String prefix : new String[]{ "ab", "a", "a%", "a_", "é", "nomatch" })
+            assertMatchesBruteForce(index, rows, Operator.LIKE_PREFIX, prefix);
 
         for (String suffix : new String[]{ "ab", "b", "a%b", "a_c", "é", "nomatch" })
             assertMatchesBruteForce(index, rows, Operator.LIKE_SUFFIX, suffix);
@@ -158,15 +160,14 @@ public class TrieMemoryIndexAutomatonTest
 
     private void assertMatchesBruteForce(TrieMemoryIndex index, Map<Integer, String> rows, Operator operator, String value)
     {
-        CompiledAutomaton automaton = LikePatterns.forPatternOperator(operator, UTF8Type.instance.decompose(value), null);
         TreeSet<Integer> expected = new TreeSet<>();
         for (Map.Entry<Integer, String> row : rows.entrySet())
-            if (LikePatterns.accepts(automaton, row.getValue().getBytes(StandardCharsets.UTF_8)))
+            if (LikeReference.matches(operator, value, row.getValue()))
                 expected.add(row.getKey());
 
         // make sure the patterns with wildcards go through the pattern matching path
         if (operator != Operator.LIKE_MATCHES || LikePatterns.hasWildcard(UTF8Type.instance.decompose(value)))
-            assertEquals(Expression.Op.AUTOMATON, expression(operator, value).getOp());
+            assertEquals(Expression.Op.PATTERN, expression(operator, value).getOp());
 
         assertEquals("index and brute-force results differ for " + operator + " '" + value + "'",
                      expected,
@@ -290,7 +291,11 @@ public class TrieMemoryIndexAutomatonTest
         switch (random.nextInt(6))
         {
             case 0:
-                return Pair.create(Operator.LIKE_MATCHES, LikePatterns.escape(seed.substring(0, seed.offsetByCodePoints(0, toCp))) + '%');
+            {
+                String prefix = seed.substring(0, seed.offsetByCodePoints(0, toCp));
+                return random.nextBoolean() ? Pair.create(Operator.LIKE_MATCHES, LikePatterns.escape(prefix) + '%')
+                                            : Pair.create(Operator.LIKE_PREFIX, prefix);
+            }
             case 1:
                 return Pair.create(Operator.LIKE_MATCHES, '%' + LikePatterns.escape(substring) + '%');
             case 2:

@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1197,6 +1198,12 @@ public class PatternCursorTest
 
         // Literals are never wildcards.
         assertArrayEquals(new int[]{ '*', '?', '_', '%' }, TriePattern.builder().literal("*?_%").build().elements);
+
+        // The literal prefix ends with the first wildcard.
+        assertArrayEquals("ab".getBytes(StandardCharsets.UTF_8), TriePattern.glob("ab?c*").literalPrefix());
+        assertArrayEquals("abc".getBytes(StandardCharsets.UTF_8), TriePattern.glob("abc").literalPrefix());
+        assertArrayEquals(new byte[0], TriePattern.glob("*abc").literalPrefix());
+        assertArrayEquals("é".getBytes(StandardCharsets.UTF_8), TriePattern.builder().literal("é").anyChar().build().literalPrefix());
         assertArrayEquals(new int[]{ 0xC3, 0xA9 }, TriePattern.builder().literal("é").build().elements);
     }
 
@@ -1379,6 +1386,23 @@ public class PatternCursorTest
                                                int algo, List<String> keys, Random rand)
     {
         Trie<String> matched = patternMatched(source, pattern, algo);
+
+        // matching single values, as post-filtering does
+        PatternMatcher matcher = algo == 0 ? PatternMatcher.create(pattern) : new PatternMatcherLong(pattern);
+        for (String key : keys)
+        {
+            byte[] bytes = key.getBytes(StandardCharsets.UTF_8);
+            assertEquals(msg + " matches " + key, reference.test(bytes), matcher.matches(ByteBuffer.wrap(bytes)));
+            if (algo == 0)
+                assertEquals(msg + " pattern matches " + key, reference.test(bytes), pattern.matches(ByteBuffer.wrap(bytes)));
+        }
+        byte[] literalPrefix = pattern.literalPrefix();
+        for (String key : keys)
+        {
+            byte[] bytes = key.getBytes(StandardCharsets.UTF_8);
+            if (reference.test(bytes))
+                assertEquals(msg + " literal prefix of " + key, 0, Arrays.compare(bytes, 0, Math.min(bytes.length, literalPrefix.length), literalPrefix, 0, literalPrefix.length));
+        }
 
         for (Direction dir : Direction.values())
         {

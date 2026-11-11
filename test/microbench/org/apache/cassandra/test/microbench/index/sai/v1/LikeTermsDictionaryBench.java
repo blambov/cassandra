@@ -30,7 +30,7 @@ import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.index.sai.disk.v1.trie.PatternTermsDictionaryReader;
 import org.apache.cassandra.index.sai.disk.v1.trie.TrieTermsDictionaryReader;
-import org.apache.cassandra.index.sai.utils.AutomatonQueries;
+import org.apache.cassandra.index.sai.utils.PrefixRange;
 import org.apache.cassandra.io.tries.IncrementalTrieWriter;
 import org.apache.cassandra.io.util.ChannelProxy;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -39,7 +39,6 @@ import org.apache.cassandra.io.util.Rebufferer;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -57,8 +56,8 @@ import org.openjdk.jmh.annotations.Warmup;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /// Compares two ways of finding the terms of an on-disk SAI terms dictionary that match a `LIKE` pattern:
-///   - `Automaton`: scan the range of the terms that start with the common prefix of the pattern's automaton, and keep
-///     the ones the automaton accepts (the earlier implementation of the on-disk `LIKE` search);
+///   - `FilterRange`: scan the range of the terms that start with the literal prefix of the pattern, and keep the ones
+///     that match it (the earlier implementation of the on-disk `LIKE` search did this with a Lucene automaton);
 ///   - `TriePattern`: walk the terms trie with the pattern, skipping the branches that cannot match
 ///     ([PatternTermsDictionaryReader]).
 ///
@@ -66,8 +65,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 /// finding the terms and their postings offsets, without I/O. Reading and merging the postings, which is the same for
 /// both, is not included.
 ///
-/// Patterns are given as `OPERATOR:value`, where the operator is `SUFFIX`, `CONTAINS` or `MATCHES` (a generic `LIKE`
-/// pattern, with `%` and `_` wildcards).
+/// Patterns are given as `OPERATOR:value`, where the operator is `PREFIX`, `SUFFIX`, `CONTAINS` or `MATCHES` (a
+/// generic `LIKE` pattern, with `%` and `_` wildcards).
 ///
 /// Run with `ant microbench -Dbenchmark.name=LikeTermsDictionaryBench`.
 public class LikeTermsDictionaryBench
@@ -92,7 +91,7 @@ public class LikeTermsDictionaryBench
                  "CONTAINS:/data/",                 // %/data/%
                  "CONTAINS:café",                   // %café%, multi-byte literal
                  "MATCHES:%/data/%.log",
-                 "MATCHES:alpha/beta/%",            // literal prefix (LIKE_PREFIX in CQL, the pattern path here)
+                 "PREFIX:alpha/beta/",              // alpha/beta/%
                  "MATCHES:alpha/%/report____.csv",  // literal prefix, single-character wildcards
                  "MATCHES:%/__/%",                  // two-character directory names (only multi-byte ones exist)
                  "MATCHES:%a%e%i%o%u%" })           // many wildcards
@@ -123,7 +122,7 @@ public class LikeTermsDictionaryBench
     {
         @Param({ "SUFFIX:xy",          // %xy
                  "CONTAINS:abc",       // %abc%
-                 "MATCHES:ab%",        // literal prefix (LIKE_PREFIX in CQL, the pattern path here)
+                 "PREFIX:ab",          // ab%
                  "MATCHES:_a%",
                  "MATCHES:a%b%c",
                  "MATCHES:%a_b_c%" })
@@ -157,14 +156,13 @@ public class LikeTermsDictionaryBench
         @Param({ "100000", "1000000" })
         int numberOfTerms;
 
-        @Param({ "Automaton", "TriePattern" })
+        @Param({ "FilterRange", "TriePattern" })
         String implementation;
 
         ByteBuffer trieData;
         long root;
 
-        CompiledAutomaton automaton;
-        byte[] commonPrefix;
+        byte[] literalPrefix;
         TriePattern triePattern;
 
         abstract String pattern();
@@ -191,15 +189,14 @@ public class LikeTermsDictionaryBench
             String[] parts = pattern().split(":", 2);
             Operator operator = Operator.valueOf("LIKE_" + parts[0]);
             ByteBuffer value = ByteBuffer.wrap(parts[1].getBytes(UTF_8));
-            automaton = LikePatterns.forPatternOperator(operator, value, null);
-            commonPrefix = AutomatonQueries.commonPrefixBytes(automaton);
-            triePattern = LikePatterns.triePatternForPatternOperator(operator, value, null);
+            triePattern = LikePatterns.forPatternOperator(operator, value, null);
+            literalPrefix = triePattern.literalPrefix();
 
-            long[] byAutomaton = automatonSearch();
+            long[] byRange = rangeSearch();
             long[] byPattern = patternSearch();
-            if (!Arrays.equals(byAutomaton, byPattern))
+            if (!Arrays.equals(byRange, byPattern))
                 throw new AssertionError("Pattern " + pattern() + " matched " + byPattern[0] + " terms with the trie pattern, but "
-                                         + byAutomaton[0] + " with the automaton");
+                                         + byRange[0] + " filtering the range");
             System.out.format("Pattern %s matches %,d of %,d terms (trie of %,d bytes)\n",
                               pattern(), byPattern[0], numberOfTerms, trieData.remaining());
         }
@@ -207,15 +204,15 @@ public class LikeTermsDictionaryBench
         @Benchmark
         public long select()
         {
-            long[] result = implementation.equals("Automaton") ? automatonSearch() : patternSearch();
+            long[] result = implementation.equals("FilterRange") ? rangeSearch() : patternSearch();
             return result[1];
         }
 
         /// Returns the number of matching terms and the sum of their postings offsets.
-        long[] automatonSearch()
+        long[] rangeSearch()
         {
-            ByteComparable lower = commonPrefix.length == 0 ? null : ByteComparable.preencoded(VERSION, commonPrefix);
-            byte[] upperBytes = AutomatonQueries.prefixUpperBound(commonPrefix);
+            ByteComparable lower = literalPrefix.length == 0 ? null : ByteComparable.preencoded(VERSION, literalPrefix);
+            byte[] upperBytes = PrefixRange.upperBound(literalPrefix);
             ByteComparable upper = upperBytes == null ? null : ByteComparable.preencoded(VERSION, upperBytes);
             long count = 0;
             long sum = 0;
@@ -224,7 +221,7 @@ public class LikeTermsDictionaryBench
                 while (reader.hasNext())
                 {
                     Pair<ByteComparable, Long> entry = reader.next();
-                    if (LikePatterns.accepts(automaton, ByteSourceInverse.readBytes(entry.left.asComparableBytes(VERSION))))
+                    if (triePattern.matches(ByteBuffer.wrap(ByteSourceInverse.readBytes(entry.left.asComparableBytes(VERSION)))))
                     {
                         ++count;
                         sum += entry.right;

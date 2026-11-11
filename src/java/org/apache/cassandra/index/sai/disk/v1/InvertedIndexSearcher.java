@@ -163,25 +163,11 @@ public class InvertedIndexSearcher extends IndexSearcher
             var upper = exp.getEncodedUpperBoundByteComparable(version);
             return reader.rangeMatch(filterRangeResults ? exp : null, lower, upper, listener, context);
         }
-        else if (exp.getOp() == Expression.Op.PREFIX)
+        else if (exp.getOp() == Expression.Op.PATTERN)
         {
-            QueryEventListener.TrieIndexEventListener listener = MulticastQueryEventListeners.of(context, perColumnEventListener);
-            // A prefix query is a bounded scan over the trie: [enc(prefix), nextOf(enc(prefix))), computed on the
-            // unterminated byte-comparable. Prefix queries are only supported on non-composite literal indexes,
-            // whose terms are stored as their raw, order-preserving bytes at every index version (only composite
-            // terms are stored in a non-order-preserving encoding before DB, which is what filterRangeResults is
-            // about), so the scan bounds delimit exactly the terms starting with the prefix, except that the end
-            // bound of the trie scan is inclusive: the term exactly equal to nextOf(enc(prefix)), if any, is the only
-            // possible over-match, and is excluded at the reader level instead of post-filtering every matched term.
-            var lower = version.onDiskFormat().encodeForTrie(exp.lower.value.encoded, indexContext.getValidator());
-            var upper = exp.getPrefixUpperBoundByteComparable(version);
-            return reader.rangeMatchExcludingUpperBoundTerm(lower, upper, listener, context);
-        }
-        else if (exp.getOp() == Expression.Op.AUTOMATON)
-        {
-            // Pattern matching (non-prefix LIKE variants): walk the segment's terms dictionary with the expression's
-            // pattern and union the posting lists of the matching terms. Only supported on non-composite literal
-            // indexes (guarded by IndexContext#supports at the CQL layer).
+            // Pattern matching (LIKE): walk the segment's terms dictionary with the expression's pattern and union the
+            // posting lists of the matching terms. Only supported on non-composite literal indexes (guarded by
+            // IndexContext#supports at the CQL layer).
             return searchPatternPostings(exp.getTriePattern(), context);
         }
         throw new IllegalArgumentException(indexContext.logMessage("Unsupported expression: " + exp));
@@ -229,8 +215,7 @@ public class InvertedIndexSearcher extends IndexSearcher
         {
             // A LIKE restriction on the ordering column only scans the terms it can match; otherwise the whole terms
             // dictionary is scanned, and the ordered rows are post-filtered by the query.
-            boolean patternFilter = slice != null
-                                    && (slice.getOp() == Expression.Op.PREFIX || slice.getOp() == Expression.Op.AUTOMATON);
+            boolean patternFilter = slice != null && slice.getOp() == Expression.Op.PATTERN;
             var terms = patternFilter
                         ? reader.patternTerms(slice, orderer.isAscending())
                         : reader.allTerms(orderer.isAscending());

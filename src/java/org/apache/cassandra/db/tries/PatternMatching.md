@@ -37,7 +37,7 @@ A `TriePattern` is a sequence of elements, each of which matches
 
 A key matches if all of it matches the pattern. Literal bytes are never interpreted as wildcards, so a pattern can
 contain any byte; parsing a syntax with escapes is up to the creator of the pattern. `TriePattern.glob` parses glob
-patterns without escapes, and `LikePatterns.triePatternForPatternOperator` translates `LIKE` patterns, with their `%`
+patterns without escapes, and `LikePatterns.forPatternOperator` translates `LIKE` patterns, with their `%`
 and `_` wildcards and `\` escapes.
 
 ## Matching a key with a set of positions
@@ -153,6 +153,17 @@ follows the depth of the stack:
 
 SAI uses it through `PatternTermsDictionaryReader` to serve `LIKE` queries from the on-disk terms dictionaries, as
 `Trie.patternMatched` does for the memtable index.
+
+## Matching single values
+
+`TriePattern.matches` checks a single value with the same state machine: it starts from the initial state and reads
+the value's bytes in turn, stopping early when the state becomes empty or a trailing any-string wildcard is reached. It
+does not use the matcher's state history, so one pattern can check values concurrently. `Operator.LIKE_MATCHES` uses
+it to filter rows without an index, and SAI uses it to post-filter the rows it reads.
+
+`TriePattern.literalPrefix` returns the bytes of the leading literal elements, which every matching key starts with.
+SAI uses the range of terms with that prefix to estimate how many rows a pattern selects and to skip the sstable
+indexes whose terms cannot match.
 
 ## Representing the state
 

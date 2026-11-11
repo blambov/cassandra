@@ -20,7 +20,6 @@ package org.apache.cassandra.test.microbench.index.sai.memory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -36,6 +35,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UUIDType;
+import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.index.TargetParser;
@@ -52,7 +52,6 @@ import org.apache.cassandra.schema.MockSchema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.TimeUUID;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -67,15 +66,11 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
-/// Measures `LIKE` searches on a memtable string index ([TrieMemoryIndex#search]), for the pattern operators served by
-/// pattern matching (suffix, contains and generic patterns). Each operation searches the index and iterates all the
-/// matching rows.
+/// Measures `LIKE` searches on a memtable string index ([TrieMemoryIndex#search]), which walk the terms trie with the
+/// pattern. Each operation searches the index and iterates all the matching rows.
 ///
-/// To compare with another implementation of the memtable index, run the benchmark with that implementation's
-/// classes ahead of the jar on the classpath; the setup prints which one is in use.
-///
-/// Patterns are given as `OPERATOR:value`, where the operator is `SUFFIX`, `CONTAINS` or `MATCHES` (a generic `LIKE`
-/// pattern, with `%` and `_` wildcards).
+/// Patterns are given as `OPERATOR:value`, where the operator is `PREFIX`, `SUFFIX`, `CONTAINS` or `MATCHES` (a
+/// generic `LIKE` pattern, with `%` and `_` wildcards).
 ///
 /// Run with `ant microbench -Dbenchmark.name=LikeTrieMemoryIndexBench`.
 public class LikeTrieMemoryIndexBench
@@ -100,7 +95,7 @@ public class LikeTrieMemoryIndexBench
                  "CONTAINS:/data/",                 // %/data/%
                  "CONTAINS:café",                   // %café%, multi-byte literal
                  "MATCHES:%/data/%.log",
-                 "MATCHES:alpha/beta/%",            // literal prefix (LIKE_PREFIX in CQL, the pattern path here)
+                 "PREFIX:alpha/beta/",              // alpha/beta/%
                  "MATCHES:alpha/%/report____.csv",  // literal prefix, single-character wildcards
                  "MATCHES:%/__/%",                  // two-character directory names (only multi-byte ones exist)
                  "MATCHES:%a%e%i%o%u%" })           // many wildcards
@@ -131,7 +126,7 @@ public class LikeTrieMemoryIndexBench
     {
         @Param({ "SUFFIX:xy",          // %xy
                  "CONTAINS:abc",       // %abc%
-                 "MATCHES:ab%",        // literal prefix (LIKE_PREFIX in CQL, the pattern path here)
+                 "PREFIX:ab",          // ab%
                  "MATCHES:_a%",
                  "MATCHES:a%b%c",
                  "MATCHES:%a_b_c%" })
@@ -198,23 +193,19 @@ public class LikeTrieMemoryIndexBench
             Operator operator = Operator.valueOf("LIKE_" + parts[0]);
             ByteBuffer value = UTF8Type.instance.decompose(parts[1]);
             expression = new Expression(context).add(operator, value);
-            if (expression.getOp() != Expression.Op.AUTOMATON)
+            if (expression.getOp() != Expression.Op.PATTERN)
                 throw new IllegalStateException("Pattern " + pattern() + " is not served by pattern matching: " + expression);
 
-            // Check the result against a brute-force evaluation of the pattern's automaton over all terms.
-            CompiledAutomaton automaton = LikePatterns.forPatternOperator(operator, value, null);
+            // Check the result against a brute-force evaluation of the pattern over all terms.
+            TriePattern triePattern = LikePatterns.forPatternOperator(operator, value, null);
             int expected = 0;
             for (ByteBuffer term : terms)
-                if (LikePatterns.accepts(automaton, term))
+                if (triePattern.matches(term))
                     ++expected;
             int actual = search();
             if (actual != expected)
                 throw new AssertionError("Pattern " + pattern() + " matched " + actual + " rows, expected " + expected);
-
-            boolean automatonImplementation = Arrays.stream(TrieMemoryIndex.class.getMethods())
-                                                    .anyMatch(m -> m.getName().equals("automatonMatch"));
-            System.out.format("%s implementation: pattern %s matches %,d of %,d rows\n",
-                              automatonImplementation ? "Automaton" : "TriePattern", pattern(), expected, numberOfTerms);
+            System.out.format("Pattern %s matches %,d of %,d rows\n", pattern(), expected, numberOfTerms);
         }
 
         @Benchmark

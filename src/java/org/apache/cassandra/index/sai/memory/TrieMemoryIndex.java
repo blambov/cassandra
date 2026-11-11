@@ -65,7 +65,7 @@ import org.apache.cassandra.index.sai.iterators.KeyRangeIterator;
 import org.apache.cassandra.index.sai.disk.v6.TermsDistribution;
 import org.apache.cassandra.index.sai.plan.Expression;
 import org.apache.cassandra.index.sai.plan.Orderer;
-import org.apache.cassandra.index.sai.utils.AutomatonQueries;
+import org.apache.cassandra.index.sai.utils.PrefixRange;
 import org.apache.cassandra.index.sai.utils.PrimaryKey;
 import org.apache.cassandra.index.sai.utils.PrimaryKeyWithByteComparable;
 import org.apache.cassandra.index.sai.utils.PrimaryKeyWithSortKey;
@@ -74,7 +74,6 @@ import org.apache.cassandra.index.sai.utils.TypeUtil;
 import org.apache.cassandra.utils.AbstractGuavaIterator;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.BinaryHeap;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
@@ -332,8 +331,7 @@ public class TrieMemoryIndex extends MemoryIndex
             case CONTAINS_VALUE:
                 return exactMatch(expression, keyRange);
             case RANGE:
-            case PREFIX:
-            case AUTOMATON: // the subtrie of the terms matching the pattern
+            case PATTERN: // the subtrie of the terms matching the pattern
                 return rangeMatch(expression, keyRange);
             default:
                 throw new IllegalArgumentException("Unsupported expression: " + expression);
@@ -718,21 +716,7 @@ public class TrieMemoryIndex extends MemoryIndex
     }
 
     /**
-     * The subtrie of the terms starting with the given raw term bytes, {@code [prefix, nextOf(prefix))}, computed on
-     * the unterminated byte-comparable (the whole trie for an empty prefix). This is only valid for non-composite
-     * literal types, for which encodeForTrie preserves the raw byte order of the terms.
-     */
-    private Trie<PrimaryKeys> prefixSubtrie(byte[] prefix)
-    {
-        if (prefix.length == 0)
-            return data;
-        byte[] upperBytes = AutomatonQueries.prefixUpperBound(prefix);
-        ByteComparable upperBound = upperBytes == null ? null : asByteComparable(ByteBuffer.wrap(upperBytes));
-        return data.slice(asByteComparable(ByteBuffer.wrap(prefix)), true, upperBound, false);
-    }
-
-    /**
-     * The subtrie of the terms matching the LIKE pattern of an {@link Expression.Op#AUTOMATON} expression. The pattern
+     * The subtrie of the terms matching the LIKE pattern of an {@link Expression.Op#PATTERN} expression. The pattern
      * is matched while walking the trie, and the branches that cannot match are skipped (e.g. the ones that don't
      * start with the pattern's literal prefix). This is only correct for indexes over non-composite literal types,
      * whose terms are stored in the trie as their raw unterminated bytes (see {@code OnDiskFormat#encodeForTrie}), so
@@ -790,10 +774,8 @@ public class TrieMemoryIndex extends MemoryIndex
                     return Math.max(0, Memtable.estimateRowCount(memtable) - estimateNumRowsMatchingExact(expression));
             case RANGE:
                 return estimateNumRowsMatchingRange(expression);
-            case PREFIX:
-                return estimateNumRowsMatchingPrefix(expression);
-            case AUTOMATON:
-                return estimateNumRowsMatchingAutomaton(expression);
+            case PATTERN:
+                return estimateNumRowsMatchingPattern(expression);
             default:
                 throw new IllegalArgumentException("Unsupported expression: " + expression);
         }
@@ -816,36 +798,30 @@ public class TrieMemoryIndex extends MemoryIndex
         return estimateNumRowsInTermRange(queryLower, lowerExclusive, queryUpper, upperExclusive);
     }
 
-    private long estimateNumRowsMatchingPrefix(Expression expression)
-    {
-        return estimateNumRowsMatchingPrefix(ByteBufferUtil.getArray(expression.lower.value.encoded));
-    }
-
     /**
      * Estimates the number of rows whose term starts with the given raw term bytes, the rows of the term range
      * {@code [prefix, nextOf(prefix))}.
      */
     private long estimateNumRowsMatchingPrefix(byte[] prefix)
     {
-        byte[] upperBytes = AutomatonQueries.prefixUpperBound(prefix);
+        byte[] upperBytes = PrefixRange.upperBound(prefix);
         ByteComparable lower = prefix.length == 0 ? null : asByteComparable(ByteBuffer.wrap(prefix));
         ByteComparable upper = upperBytes == null ? null : asByteComparable(ByteBuffer.wrap(upperBytes));
         return estimateNumRowsInTermRange(lower, false, upper, true);
     }
 
     /**
-     * Conservatively estimates the number of rows matching an automaton pattern expression: when the automaton
-     * has a non-empty common byte prefix, all matching terms live in {@code [prefix, nextOf(prefix))} and the
-     * estimate is that of the range, like for a prefix expression; without a common prefix the
-     * automaton may match terms anywhere in the dictionary, so the whole index size is returned as a (very)
-     * conservative upper bound.
+     * Conservatively estimates the number of rows matching a pattern expression: all the matching terms start with
+     * the literal prefix of the pattern, so when it isn't empty the estimate is that of the rows of the terms in
+     * {@code [prefix, nextOf(prefix))}; without a literal prefix the pattern may match terms anywhere in the
+     * dictionary, so the whole index size is returned as a (very) conservative upper bound.
      */
-    private long estimateNumRowsMatchingAutomaton(Expression expression)
+    private long estimateNumRowsMatchingPattern(Expression expression)
     {
-        byte[] commonPrefix = expression.getAutomatonCommonPrefix();
-        if (commonPrefix.length == 0)
+        byte[] prefix = expression.getPatternLiteralPrefix();
+        if (prefix.length == 0)
             return indexedRows;
-        return estimateNumRowsMatchingPrefix(commonPrefix);
+        return estimateNumRowsMatchingPrefix(prefix);
     }
 
     /**
@@ -975,11 +951,8 @@ public class TrieMemoryIndex extends MemoryIndex
         if (expression == null)
             return data;
 
-        // The bounds of pattern expressions are the pattern itself, not a term range: slice by the range of terms
-        // starting with a prefix, or select the terms matching a LIKE pattern.
-        if (expression.getOp() == Expression.Op.PREFIX)
-            return prefixSubtrie(ByteBufferUtil.getArray(expression.lower.value.encoded));
-        if (expression.getOp() == Expression.Op.AUTOMATON)
+        // The bounds of pattern expressions are the pattern itself, not a term range: select the terms matching it.
+        if (expression.getOp() == Expression.Op.PATTERN)
             return patternSubtrie(expression);
 
         ByteComparable lowerBound, upperBound;

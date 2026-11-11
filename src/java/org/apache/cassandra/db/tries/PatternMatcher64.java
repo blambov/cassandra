@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.agrona.DirectBuffer;
@@ -38,6 +39,8 @@ final class PatternMatcher64 extends PatternMatcher
     // from the point it is reached
     final long matchBit;
 
+    // The state at depth 0
+    final long rootState;
     // The state at each depth of the current path
     long[] states;
 
@@ -77,7 +80,8 @@ final class PatternMatcher64 extends PatternMatcher
         this.matchBit = matchBit;
         states = new long[32];
         // Entering a loop position also enters the next one, as the loop can be skipped.
-        states[0] = 1 | (isLoop & 1) << 1;
+        rootState = 1 | (isLoop & 1) << 1;
+        states[0] = rootState;
     }
 
     private PatternMatcher64(PatternMatcher64 source, long rootState)
@@ -88,6 +92,7 @@ final class PatternMatcher64 extends PatternMatcher
         isStar = source.isStar;
         patternMatch = source.patternMatch;
         matchBit = source.matchBit;
+        this.rootState = rootState;
         states = new long[32];
         states[0] = rootState;
     }
@@ -190,5 +195,20 @@ final class PatternMatcher64 extends PatternMatcher
     public PatternMatcher tail(int depth)
     {
         return new PatternMatcher64(this, states[depth]);
+    }
+
+    @Override
+    public boolean matches(ByteBuffer value)
+    {
+        long state = rootState;
+        for (int i = value.position(); i < value.limit(); ++i)
+        {
+            if ((state & isStar & matchBit) != 0)
+                return true; // a trailing star matches anything that follows
+            state = next(state, value.get(i) & 0xFF);
+            if (state == 0)
+                return false;
+        }
+        return (state & matchBit) != 0;
     }
 }
