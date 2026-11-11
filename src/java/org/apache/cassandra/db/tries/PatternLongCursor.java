@@ -121,7 +121,8 @@ class PatternLongCursor<T> implements Cursor<T>
         this.numLongs = source.numLongs;
         this.matchBit = source.matchBit;
         this.statesHistory = new long[32][];
-        long[] state = source.statesHistory[Cursor.depth(source.encodedPosition())];
+        // Copy, because the source will reuse its state array when it moves to another node at that depth.
+        long[] state = source.statesHistory[Cursor.depth(source.encodedPosition())].clone();
         this.statesHistory[0] = state;
         this.isMatch = (state[numLongs - 1] & matchBit) != 0;
     }

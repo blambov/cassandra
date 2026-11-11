@@ -18,17 +18,26 @@
 
 package org.apache.cassandra.db.tries;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
+import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
+import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
 import static org.junit.Assert.assertEquals;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.*;
@@ -923,5 +932,428 @@ public class PatternCursorTest
                     throw new RuntimeException(e);
                 }
             });
+    }
+
+    /// Implementation choices for `Trie.patternMatched(pattern, algoChoice)`: 0 picks [Pattern64Cursor] when the
+    /// pattern fits in a long and [PatternCursor] otherwise, 1 forces [PatternLongCursor], 2 forces [PatternCursor].
+    private static final int[] ALGO_CHOICES = { 0, 1, 2 };
+
+    private static final long SEED = Long.getLong("test.pattern.seed", System.nanoTime());
+
+    @Test
+    public void testImplementationSelection()
+    {
+        Trie<String> trie = Trie.empty(VERSION);
+        String p63 = "a".repeat(63);
+        String p64 = "a".repeat(64);
+        String p64Star = "a".repeat(63) + "*";
+
+        assertImplementation(Pattern64Cursor.class, trie, "abc", 0);
+        assertImplementation(PatternLongCursor.class, trie, "abc", 1);
+        assertImplementation(PatternCursor.class, trie, "abc", 2);
+
+        assertImplementation(Pattern64Cursor.class, trie, p63, 0);
+        assertImplementation(PatternCursor.class, trie, p64, 0);
+        assertImplementation(PatternLongCursor.class, trie, p64, 1);
+        assertImplementation(PatternCursor.class, trie, p64, 2);
+
+        // A trailing star does not need a state bit of its own, so 64 positions still fit.
+        assertImplementation(Pattern64Cursor.class, trie, p64Star, 0);
+        assertImplementation(PatternLongCursor.class, trie, p64Star, 1);
+        assertImplementation(PatternCursor.class, trie, p64Star, 2);
+
+        // Selection is done on the simplified pattern.
+        assertImplementation(Pattern64Cursor.class, trie, "a".repeat(62) + "***", 0);
+    }
+
+    private static void assertImplementation(Class<?> expected, Trie<String> trie, String pattern, int algoChoice)
+    {
+        assertEquals(pattern + " [algo=" + algoChoice + "]",
+                     expected,
+                     trie.patternMatched(pattern, algoChoice).makeCursor(Direction.FORWARD).getClass());
+    }
+
+    /// Patterns of 33 to 63 bytes with a star exactly 32 positions before a literal last byte. The trailing star check
+    /// must look at the last position of the pattern and not at one that aliases it in 32-bit arithmetic.
+    @Test
+    public void testStarAliasingLastPosition() throws TrieSpaceExhaustedException
+    {
+        for (int length = 33; length < 64; ++length)
+        {
+            int starPosition = length - 33;
+            String head = "x".repeat(starPosition);
+            String middle = "y".repeat(length - starPosition - 2);
+            String pattern = head + "*" + middle + "z";
+            assertEquals(length, pattern.length());
+
+            String exact = head + middle + "z";
+            String withGap = head + "w" + middle + "z";
+            String missingLast = head + middle;
+            String belowMissingLast = missingLast + "q";
+            Trie<String> trie = createTestTrie(exact, withGap, missingLast, belowMissingLast);
+            checkPatternMatch(pattern, ImmutableList.of(exact, withGap), trie, pattern);
+        }
+    }
+
+    /// Multi-byte UTF-8 characters put bytes >= 0x80 on the trie transitions and in the pattern.
+    @Test
+    public void testNonAsciiLiterals() throws TrieSpaceExhaustedException
+    {
+        String cafeAcute = "café";
+        String cafeEuro = "caf€";
+        String naive = "naïve";
+        String uber = "über";
+        String euro = "€uro";
+        Trie<String> trie = createTestTrie(cafeAcute, "cafe", cafeEuro, naive, uber, "uber", euro);
+
+        checkPatternMatch("exact", ImmutableList.of(cafeAcute), trie, cafeAcute);
+        checkPatternMatch("suffix", ImmutableList.of(cafeAcute), trie, "*é");
+        checkPatternMatch("prefix", ImmutableList.of("cafe", cafeAcute, cafeEuro), trie, "caf*");
+        checkPatternMatch("infix", ImmutableList.of(naive), trie, "*ï*");
+        checkPatternMatch("leading", ImmutableList.of(euro), trie, "€*");
+        checkPatternMatch("anywhere", ImmutableList.of(cafeEuro, euro), trie, "*€*");
+        checkPatternMatch("non-ascii prefix", ImmutableList.of(uber), trie, "ü*r");
+    }
+
+    @Test
+    public void testTailTrie() throws TrieSpaceExhaustedException
+    {
+        Trie<String> trie = createTestTrie("ab", "abxb", "abxc", "ac", "acb", "b");
+        for (int algo : ALGO_CHOICES)
+        {
+            String msg = "a*b [algo=" + algo + "] tail ";
+            Trie<String> matched = trie.patternMatched("a*b", algo);
+            checkValues(msg + "a", ImmutableList.of("ab", "abxb", "acb"), matched.tailTrie(directComparable("a")));
+            checkValues(msg + "ab", ImmutableList.of("ab", "abxb"), matched.tailTrie(directComparable("ab")));
+            checkValues(msg + "abx", ImmutableList.of("abxb"), matched.tailTrie(directComparable("abx")));
+            checkValues(msg + "acb", ImmutableList.of("acb"), matched.tailTrie(directComparable("acb")));
+
+            msg = "ab* [algo=" + algo + "] tail ";
+            matched = trie.patternMatched("ab*", algo);
+            checkValues(msg + "a", ImmutableList.of("ab", "abxb", "abxc"), matched.tailTrie(directComparable("a")));
+            checkValues(msg + "ab", ImmutableList.of("ab", "abxb", "abxc"), matched.tailTrie(directComparable("ab")));
+            checkValues(msg + "abx", ImmutableList.of("abxb", "abxc"), matched.tailTrie(directComparable("abx")));
+        }
+    }
+
+    /// Tail tries are collected during an iteration and only examined after the iteration has moved on. They must not
+    /// share mutable state with the cursor that produced them.
+    @Test
+    public void testTailTriesAreIndependentOfSource() throws TrieSpaceExhaustedException
+    {
+        Trie<String> trie = createTestTrie("ab", "abxb", "abxc", "ac", "acb", "b");
+        for (int algo : ALGO_CHOICES)
+        {
+            String msg = "a*b [algo=" + algo + "]";
+            List<Map.Entry<ByteComparable.Preencoded, Trie<String>>> tails =
+                Iterables.toList(trie.patternMatched("a*b", algo).tailTries(Direction.FORWARD, x -> true));
+            assertEquals(msg, ImmutableList.of("ab", "acb"), tails.stream()
+                                                                .map(e -> decode(e.getKey()))
+                                                                .collect(Collectors.toList()));
+            checkValues(msg + " tail ab", ImmutableList.of("ab", "abxb"), tails.get(0).getValue());
+            checkValues(msg + " tail acb", ImmutableList.of("acb"), tails.get(1).getValue());
+        }
+    }
+
+    /// Checks that the trie lists the given values in forward direction and the reverse of the list in reverse.
+    /// Only valid for ordered tries.
+    private static void checkValues(String msg, List<String> expectedForward, Trie<String> trie)
+    {
+        List<String> expectedReverse = Lists.reverse(expectedForward);
+        assertEquals(msg + " forward", expectedForward, trie == null ? ImmutableList.of() : toList(trie, Direction.FORWARD));
+        assertEquals(msg + " reverse", expectedReverse, trie == null ? ImmutableList.of() : toList(trie, Direction.REVERSE));
+    }
+
+    // Randomized tests comparing all implementations against a simple glob matcher, over different kinds of source
+    // tries and using all the ways a pattern-matched trie can be walked (values, entries, advance/advanceMultiple,
+    // slices, tailTrie, tailTries).
+
+    @Test
+    public void testRandomShortPatterns() throws TrieSpaceExhaustedException
+    {
+        Random rand = new Random(SEED);
+        for (int i = 0; i < 300; ++i)
+            checkRandomCase(rand, "seed " + SEED + " short case " + i, "abc", 0, 10);
+    }
+
+    @Test
+    public void testRandomLongPatterns() throws TrieSpaceExhaustedException
+    {
+        Random rand = new Random(SEED + 1);
+        for (int i = 0; i < 150; ++i)
+            checkRandomCase(rand, "seed " + SEED + " long case " + i, "ab", 25, 140);
+    }
+
+    private void checkRandomCase(Random rand, String context, String alphabet, int minPatternLength, int maxPatternLength)
+    throws TrieSpaceExhaustedException
+    {
+        String pattern = randomPattern(rand, alphabet, minPatternLength, maxPatternLength);
+        List<String> keys = randomKeys(rand, pattern, alphabet);
+        for (Map.Entry<String, Trie<String>> source : randomSources(rand, keys).entrySet())
+            for (int algo : ALGO_CHOICES)
+                verifyAgainstReference(context + " " + source.getKey() + " pattern " + pattern + " [algo=" + algo + "]",
+                                       source.getValue(), pattern, algo, keys, rand);
+    }
+
+    private static void verifyAgainstReference(String msg, Trie<String> source, String pattern, int algo, List<String> keys, Random rand)
+    {
+        byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
+        Trie<String> matched = source.patternMatched(pattern, algo);
+
+        for (Direction dir : Direction.values())
+        {
+            List<String> expected = matching(source.values(dir), patternBytes);
+            assertEquals(msg + " values " + dir, expected, toList(matched, dir));
+            assertEquals(msg + " entries " + dir, expected, entryKeys(matched, dir));
+            assertEquals(msg + " walk " + dir, expected, walk(matched.cursor(dir), rand));
+        }
+
+        for (int i = 0; i < 3; ++i)
+        {
+            String a = randomProbe(rand, keys);
+            String b = randomProbe(rand, keys);
+            if (a.compareTo(b) > 0)
+            {
+                String t = a;
+                a = b;
+                b = t;
+            }
+            ByteComparable left = rand.nextInt(6) == 0 ? null : directComparable(a);
+            ByteComparable right = rand.nextInt(6) == 0 ? null : directComparable(b);
+            boolean includeLeft = rand.nextBoolean() || a.equals(b);
+            boolean includeRight = rand.nextBoolean() || a.equals(b);
+            String sliceMsg = msg + " slice " + (includeLeft ? '[' : '(') + (left == null ? "null" : a) + ", "
+                              + (right == null ? "null" : b) + (includeRight ? ']' : ')');
+            Trie<String> sourceSlice = source.slice(left, includeLeft, right, includeRight);
+            for (Direction dir : Direction.values())
+            {
+                List<String> expected = matching(sourceSlice.values(dir), patternBytes);
+                assertEquals(sliceMsg + " matched then sliced " + dir,
+                             expected, toList(matched.slice(left, includeLeft, right, includeRight), dir));
+                assertEquals(sliceMsg + " sliced then matched " + dir,
+                             expected, toList(sourceSlice.patternMatched(pattern, algo), dir));
+            }
+        }
+
+        for (int i = 0; i < 3; ++i)
+        {
+            String prefix = randomProbe(rand, keys);
+            Trie<String> sourceTail = source.tailTrie(directComparable(prefix));
+            Trie<String> matchedTail = matched.tailTrie(directComparable(prefix));
+            for (Direction dir : Direction.values())
+            {
+                List<String> expected = sourceTail == null ? ImmutableList.of() : matching(sourceTail.values(dir), patternBytes);
+                List<String> actual = matchedTail == null ? ImmutableList.of() : toList(matchedTail, dir);
+                assertEquals(msg + " tailTrie " + prefix + " " + dir, expected, actual);
+            }
+        }
+
+        // Collect all tails before examining any, so that the iteration has moved on when they are walked.
+        List<Map.Entry<ByteComparable.Preencoded, Trie<String>>> tails =
+            Iterables.toList(matched.tailTries(Direction.FORWARD, x -> true));
+        // tailTries skips the branch of each returned tail, so only matches without a matching prefix are listed.
+        List<String> expectedTailKeys = new ArrayList<>();
+        for (String s : matching(source.values(Direction.FORWARD), patternBytes))
+            if (expectedTailKeys.isEmpty() || !s.startsWith(expectedTailKeys.get(expectedTailKeys.size() - 1)))
+                expectedTailKeys.add(s);
+        assertEquals(msg + " tailTries keys",
+                     expectedTailKeys,
+                     tails.stream().map(e -> decode(e.getKey())).collect(Collectors.toList()));
+        for (Map.Entry<ByteComparable.Preencoded, Trie<String>> tail : tails)
+        {
+            Trie<String> sourceTail = source.tailTrie(tail.getKey());
+            for (Direction dir : Direction.values())
+                assertEquals(msg + " tailTries " + decode(tail.getKey()) + " " + dir,
+                             matching(sourceTail.values(dir), patternBytes),
+                             toList(tail.getValue(), dir));
+        }
+    }
+
+    /// Byte-level glob match: '?' matches any one byte, '*' any sequence of bytes.
+    static boolean globMatches(byte[] pattern, byte[] key)
+    {
+        int p = 0;
+        int k = 0;
+        int starP = -1;
+        int starK = -1;
+        while (k < key.length)
+        {
+            if (p < pattern.length && pattern[p] == '*')
+            {
+                starP = p++;
+                starK = k;
+            }
+            else if (p < pattern.length && (pattern[p] == '?' || pattern[p] == key[k]))
+            {
+                ++p;
+                ++k;
+            }
+            else if (starP >= 0)
+            {
+                // Let the last star absorb one more byte and retry.
+                p = starP + 1;
+                k = ++starK;
+            }
+            else
+                return false;
+        }
+        while (p < pattern.length && pattern[p] == '*')
+            ++p;
+        return p == pattern.length;
+    }
+
+    private static List<String> matching(Iterable<String> values, byte[] pattern)
+    {
+        List<String> result = new ArrayList<>();
+        for (String v : values)
+            if (globMatches(pattern, v.getBytes(StandardCharsets.UTF_8)))
+                result.add(v);
+        return result;
+    }
+
+    private static String decode(ByteComparable.Preencoded key)
+    {
+        return new String(key.asByteComparableArray(VERSION), StandardCharsets.UTF_8);
+    }
+
+    /// Lists the keys of the trie's entries, checking that each value is its own key.
+    private static List<String> entryKeys(Trie<String> trie, Direction dir)
+    {
+        List<String> result = new ArrayList<>();
+        for (Map.Entry<ByteComparable.Preencoded, String> e : trie.entrySet(dir))
+        {
+            String key = decode(e.getKey());
+            assertEquals("Entry value does not match its key", key, e.getValue());
+            result.add(key);
+        }
+        return result;
+    }
+
+    /// Lists the content of the cursor, walking with a random mix of `advance` and `advanceMultiple`.
+    private static List<String> walk(Cursor<String> cursor, Random rand)
+    {
+        List<String> result = new ArrayList<>();
+        for (long pos = cursor.encodedPosition(); !Cursor.isExhausted(pos); pos = rand.nextBoolean() ? cursor.advance()
+                                                                                                    : cursor.advanceMultiple(null))
+        {
+            String content = Cursor.content(cursor, pos);
+            if (content != null)
+                result.add(content);
+        }
+        return result;
+    }
+
+    private static String randomString(Random rand, String alphabet, int minLength, int maxLength)
+    {
+        int length = minLength + rand.nextInt(maxLength - minLength + 1);
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; ++i)
+            sb.append(alphabet.charAt(rand.nextInt(alphabet.length())));
+        return sb.toString();
+    }
+
+    private static String randomPattern(Random rand, String alphabet, int minLength, int maxLength)
+    {
+        int length = minLength + rand.nextInt(maxLength - minLength + 1);
+        // Vary the wildcard density between patterns.
+        double starChance = rand.nextInt(3) * 0.1;
+        double questionChance = rand.nextInt(3) * 0.1;
+        StringBuilder sb = new StringBuilder(length + 2);
+        if (rand.nextInt(4) == 0)
+            sb.append('*');
+        for (int i = 0; i < length; ++i)
+        {
+            double r = rand.nextDouble();
+            if (r < starChance)
+                sb.append('*');
+            else if (r < starChance + questionChance)
+                sb.append('?');
+            else
+                sb.append(alphabet.charAt(rand.nextInt(alphabet.length())));
+        }
+        if (rand.nextInt(4) == 0)
+            sb.append('*');
+        return sb.toString();
+    }
+
+    /// Generates keys that are a mix of matches of the pattern, near misses (one edit away, prefixes, extensions) and
+    /// random strings.
+    private static List<String> randomKeys(Random rand, String pattern, String alphabet)
+    {
+        List<String> keys = new ArrayList<>();
+        int count = 10 + rand.nextInt(20);
+        for (int i = 0; i < count; ++i)
+        {
+            StringBuilder key = new StringBuilder();
+            for (char c : pattern.toCharArray())
+            {
+                if (c == '*')
+                    key.append(randomString(rand, alphabet, 0, 3));
+                else if (c == '?')
+                    key.append(alphabet.charAt(rand.nextInt(alphabet.length())));
+                else
+                    key.append(c);
+            }
+
+            int pos = rand.nextInt(key.length() + 1);
+            char c = alphabet.charAt(rand.nextInt(alphabet.length()));
+            switch (rand.nextInt(6))
+            {
+                case 0:
+                    if (pos < key.length())
+                        key.setCharAt(pos, c);
+                    break;
+                case 1:
+                    key.insert(pos, c);
+                    break;
+                case 2:
+                    if (pos < key.length())
+                        key.deleteCharAt(pos);
+                    break;
+                case 3:
+                    key.setLength(pos);
+                    break;
+                case 4:
+                    key.append(randomString(rand, alphabet, 1, 3));
+                    break;
+                default:
+                    break;
+            }
+            keys.add(key.toString());
+        }
+        for (int i = 0; i < 5; ++i)
+            keys.add(randomString(rand, alphabet, 0, pattern.length() + 3));
+        if (rand.nextInt(4) == 0)
+            keys.add("");
+        return keys;
+    }
+
+    /// A random prefix of one of the keys, possibly extended by one character.
+    private static String randomProbe(Random rand, List<String> keys)
+    {
+        String key = keys.get(rand.nextInt(keys.size()));
+        String probe = key.substring(0, rand.nextInt(key.length() + 1));
+        return rand.nextInt(4) == 0 ? probe + "ab~".charAt(rand.nextInt(3)) : probe;
+    }
+
+    private static Map<String, Trie<String>> randomSources(Random rand, List<String> keys) throws TrieSpaceExhaustedException
+    {
+        Map<String, Trie<String>> sources = new LinkedHashMap<>();
+        String[] array = keys.toArray(new String[0]);
+        sources.put("ordered", TrieUtil.directOrderedTrie(array));
+        sources.put("unordered", TrieUtil.directTrie(array));
+
+        InMemoryTrie<String> left = InMemoryTrie.shortLivedOrdered(VERSION);
+        InMemoryTrie<String> right = InMemoryTrie.shortLivedOrdered(VERSION);
+        for (String key : keys)
+        {
+            int where = rand.nextInt(3); // left, right or both
+            if (where != 1)
+                left.putRecursive(directComparable(key), key, (ex, n) -> n);
+            if (where != 0)
+                right.putRecursive(directComparable(key), key, (ex, n) -> n);
+        }
+        sources.put("merged", left.mergeWith(right, (a, b) -> a));
+        return sources;
     }
 }

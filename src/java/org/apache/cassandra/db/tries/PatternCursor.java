@@ -68,7 +68,7 @@ class PatternCursor<T> implements Cursor<T>
         byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
         if (algoChoice == 1)
             return PatternLongCursor.create(wrapped, patternBytes);
-        if (algoChoice != 2 && patternBytes.length < 64 || patternBytes.length == 64 && patternBytes[63] == '*')
+        if (algoChoice != 2 && (patternBytes.length < 64 || patternBytes.length == 64 && patternBytes[63] == '*'))
             return Pattern64Cursor.create(wrapped, patternBytes);
 
         BitSet isWildcard = new BitSet(patternBytes.length);
@@ -116,7 +116,8 @@ class PatternCursor<T> implements Cursor<T>
         hasTrailingStar = source.hasTrailingStar;
         matchPosition = source.matchPosition;
         statesHistory = new BitSet[32];
-        BitSet state = source.statesHistory[Cursor.depth(source.encodedPosition())];
+        // Copy, because the source will reuse its state object when it moves to another node at that depth.
+        BitSet state = (BitSet) source.statesHistory[Cursor.depth(source.encodedPosition())].clone();
         statesHistory[0] = state;
         isMatch = state.get(matchPosition);
     }

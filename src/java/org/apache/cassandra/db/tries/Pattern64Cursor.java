@@ -86,7 +86,7 @@ class Pattern64Cursor<T> implements Cursor<T>
 
     private static boolean get(long mask, int index)
     {
-        return (mask & (1 << index)) != 0;
+        return (mask & (1L << index)) != 0;
     }
 
     private Pattern64Cursor(Pattern64Cursor<T> source,
@@ -130,12 +130,14 @@ class Pattern64Cursor<T> implements Cursor<T>
                 return encodedPosition;
 
             trailingStarMatchDepth = Integer.MAX_VALUE;
-            long next = 1;
+            long next;
             if (depth > 0)
             {
                 long prev = statesHistory[depth - 1];
                 next = setNextState(Cursor.incomingTransition(encodedPosition), prev);
             }
+            else
+                next = statesHistory[0]; // root return path, keep the initial (or inherited for tails) state
             if (depth >= statesHistory.length)
                 statesHistory = Arrays.copyOf(statesHistory, statesHistory.length * 2);
             statesHistory[depth] = next;
