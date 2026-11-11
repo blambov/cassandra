@@ -24,7 +24,6 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 class Pattern64Cursor<T> implements Cursor<T>
 {
-    // TODO: Use skipTo on source when the state doesn't contain a wildcard position
     // TODO: javadoc/comments
 
 
@@ -131,9 +130,10 @@ class Pattern64Cursor<T> implements Cursor<T>
 
             trailingStarMatchDepth = Integer.MAX_VALUE;
             long next;
+            long prev = 0;
             if (depth > 0)
             {
-                long prev = statesHistory[depth - 1];
+                prev = statesHistory[depth - 1];
                 next = setNextState(Cursor.incomingTransition(encodedPosition), prev);
             }
             else
@@ -150,7 +150,17 @@ class Pattern64Cursor<T> implements Cursor<T>
                 return isMatch ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
             }
 
-            encodedPosition = wrapped.skipTo(Cursor.positionForSkippingBranch(encodedPosition));
+            // We won't end up here very often (only if there's no previous star). If we do, skip to a byte that is
+            // allowed by the pattern.
+            int nextByte = Cursor.incomingTransition(encodedPosition);
+            Direction direction = direction();
+            do
+            {
+                nextByte += direction.increase;
+            }
+            while (direction.inLoop(nextByte, 0, 255) && (patternMatch[nextByte] & prev) == 0);
+
+            encodedPosition = wrapped.skipTo(Cursor.encodeWithOverflow(depth, nextByte, direction));
         }
     }
 
