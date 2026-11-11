@@ -30,6 +30,7 @@ import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import com.googlecode.concurrenttrees.common.Iterables;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.tries.Direction;
 import org.apache.cassandra.db.tries.InMemoryTrie;
 import org.apache.cassandra.db.tries.PatternMatcher;
@@ -49,7 +50,7 @@ import static org.junit.Assert.assertEquals;
  */
 public class PatternValueIteratorTest extends AbstractTrieTestBase
 {
-    private static final long SEED = Long.getLong("test.pattern.seed", System.nanoTime());
+    private static final long SEED = CassandraRelevantProperties.TEST_RANDOM_SEED.getLong(System.nanoTime());
 
     /** Characters whose UTF-8 encodings have 1, 2, 3 and 4 bytes, including the glob wildcard characters. */
     private static final String[] ALPHABET = { "a", "b", "*", "?", "é", "€", "😀" };

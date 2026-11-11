@@ -956,7 +956,7 @@ public class PatternCursorTest
         }
     }
 
-    private static final long SEED = Long.getLong("test.pattern.seed", System.nanoTime());
+    private static final long SEED = CassandraRelevantProperties.TEST_RANDOM_SEED.getLong(System.nanoTime());
 
     @Test
     public void testImplementationSelection()
