@@ -112,7 +112,7 @@ final class PatternMatcherLong extends PatternMatcher
     }
 
     @Override
-    public boolean descend(int depth, int transition)
+    public int descend(int depth, int transition)
     {
         // positions that accept the byte (wildcards included, all encoded in patternMatch):
         // - set the same bit if the position is a loop
@@ -137,8 +137,8 @@ final class PatternMatcherLong extends PatternMatcher
             carry = (match | nextIsLoop) >>> 63;
         }
         // Compute the flags while the words are at hand, so that flags() doesn't need to go over them again.
-        stateFlags[depth] = matchFlags(next) | (stars != 0 ? HAS_ANY_STRING : 0) | (wildcards != 0 ? HAS_WILDCARD : 0);
-        return sum != 0;
+        int flags = stateFlags[depth] = matchFlags(next) | (stars != 0 ? HAS_ANY_STRING : 0) | (wildcards != 0 ? HAS_WILDCARD : 0);
+        return sum != 0 ? flags : EMPTY;
     }
 
     private long[] stateAt(int depth)

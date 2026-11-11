@@ -21,6 +21,7 @@ package org.apache.cassandra.db.tries;
 import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
+import static org.apache.cassandra.db.tries.PatternMatcher.EMPTY;
 import static org.apache.cassandra.db.tries.PatternMatcher.HAS_ANY_STRING;
 import static org.apache.cassandra.db.tries.PatternMatcher.HAS_WILDCARD;
 import static org.apache.cassandra.db.tries.PatternMatcher.MATCH;
@@ -88,9 +89,10 @@ class PatternCursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
             trailingStarMatchDepth = Integer.MAX_VALUE;
             curDepth = depth;
             // At depth 0 (the root on the return path) keep the initial (or inherited for tails) state.
-            if (depth == 0 || matcher.descend(depth, Cursor.incomingTransition(encodedPosition)))
+            int flags = depth == 0 ? matcher.flags(0) : matcher.descend(depth, Cursor.incomingTransition(encodedPosition));
+            if (flags != EMPTY)
             {
-                int flags = this.flags = matcher.flags(depth);
+                this.flags = flags;
                 if ((flags & MATCHES_ALL_EXTENSIONS) != 0)
                     trailingStarMatchDepth = depth;
                 return (flags & MATCH) != 0 ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;

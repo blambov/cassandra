@@ -24,21 +24,22 @@ import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.automaton.Operations;
 
 /**
- * Helpers for intersecting the Lucene {@link CompiledAutomaton}s of the CQL {@code LIKE} patterns (compiled by
- * {@link LikePatterns}) with the SAI on-disk terms dictionaries (see {@code TermsReader#intersect}). The memtable
- * index matches the same patterns with a {@link org.apache.cassandra.db.tries.TriePattern} instead (see
- * {@link LikePatterns#triePatternForPatternOperator}), and only uses the common prefix for its estimates.
+ * Helpers for the Lucene {@link CompiledAutomaton}s of the CQL {@code LIKE} patterns (compiled by
+ * {@link LikePatterns}). The SAI terms dictionaries (memtable and on-disk) find the terms matching the non-prefix
+ * {@code LIKE} variants with a {@link org.apache.cassandra.db.tries.TriePattern} instead (see
+ * {@link LikePatterns#triePatternForPatternOperator}); the automata are used for post-filtering, and their common
+ * prefix ({@link #commonPrefixBytes}) bounds the range of terms a pattern can match, which serves estimates and the
+ * selection of the sstable indexes to search.
  * <p>
  * The automata are UTF-8 byte automata (see {@link LikePatterns}). Non-composite literal SAI terms are stored in
  * the trie dictionaries as their raw, unterminated UTF-8 bytes at every index version (see
  * {@code OnDiskFormat#encodeForTrie}), so the automata can be run directly over the stored term bytes, and the
  * terms are iterated by the dictionaries in exactly the unsigned-byte order the automaton bounds assume.
  * <p>
- * The CQL surface riding this engine consists of the non-prefix {@code LIKE} variants
+ * The CQL surface concerned consists of the non-prefix {@code LIKE} variants
  * ({@link org.apache.cassandra.cql3.Operator#LIKE_SUFFIX}, {@link org.apache.cassandra.cql3.Operator#LIKE_CONTAINS},
  * {@link org.apache.cassandra.cql3.Operator#LIKE_MATCHES}); see {@link LikePatterns#forPatternOperator}.
- * ({@code LIKE '<term>%'} keeps its dedicated bounded range scan.) The intersections scan the terms starting with
- * the common prefix of the automaton ({@link #commonPrefixBytes}), filtered by the automaton.
+ * ({@code LIKE '<term>%'} keeps its dedicated bounded range scan.)
  */
 public final class AutomatonQueries
 {

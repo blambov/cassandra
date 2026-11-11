@@ -136,7 +136,23 @@ history.
 A tail cursor (`Cursor.tailCursor`) continues matching the pattern from the state of the node it starts at: the
 matcher's `tail(depth)` creates a new matcher whose initial state is the state at that depth.
 
-The matcher does not depend on cursors, so that it can be used to walk other trie representations in the same way.
+## Matching an on-disk trie
+
+The matcher does not depend on cursors, and `org.apache.cassandra.io.tries.PatternValueIterator` uses it in the same
+way to list the payloaded nodes of an on-disk trie whose keys match a pattern, in forward or reverse order. It walks
+the nodes with a stack of positions, each with the index of the child being visited, and the matcher's state history
+follows the depth of the stack:
+- A child is only entered if the state for its transition byte is not empty. When a child is rejected, the walk
+  continues from the child that holds the next byte the parent's state can accept, found with the node's `search`
+  instead of examining each child in turn.
+- When the state of a node is a single literal position, the only child to visit is found with `search`.
+- Below the point where a trailing any-string wildcard matches, the state is not tracked and every payload is
+  listed.
+- In forward order the payload of a node is listed when the walk descends to it, and in reverse order when it ascends
+  from it, after its children.
+
+SAI uses it through `PatternTermsDictionaryReader` to serve `LIKE` queries from the on-disk terms dictionaries, as
+`Trie.patternMatched` does for the memtable index.
 
 ## Representing the state
 
@@ -163,8 +179,9 @@ When the pattern ends in an any-string wildcard, its position is used as the end
 of the pattern matches anything. The state at that point holds the any-string bit, from which the matcher can tell that
 every extension of the path matches (the `MATCHES_ALL_EXTENSIONS` flag).
 
-The cursor asks the matcher for the flags of each state once (whether it is a match, matches all extensions, or
-contains an any-string or other wildcards), and the bytes of chains received through `advanceMultiple` are processed in
-a single call, so that the matcher's state can stay in a local variable while they are processed.
+`descend` returns the flags of the new state (whether it is a match, matches all extensions, or contains an any-string
+or other wildcards), which the walks keep for the current node instead of querying the state again. The bytes of chains
+received through `advanceMultiple` are processed in a single call, so that the matcher's state can stay in a local
+variable while they are processed.
 
 `PatternMatcher.create` chooses `PatternMatcher64` when the pattern fits, as it is the faster of the two.

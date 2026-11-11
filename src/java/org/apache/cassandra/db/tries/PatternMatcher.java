@@ -43,6 +43,8 @@ public abstract class PatternMatcher
     public static final int HAS_ANY_STRING = 4;
     /// The state contains a position that is not a literal byte.
     public static final int HAS_WILDCARD = 8;
+    /// Returned by [#descend] instead of flags when the state is empty.
+    public static final int EMPTY = -1;
 
     /// The elements of the pattern, see [TriePattern].
     final int[] elements;
@@ -61,8 +63,9 @@ public abstract class PatternMatcher
     /// Sets the state at the given depth to the state reached by following the given byte from the state at the
     /// previous depth.
     ///
-    /// @return false if the state is empty, i.e. no key that starts with the current path can match.
-    public abstract boolean descend(int depth, int transition);
+    /// @return the flags of the new state (see [#flags]), or [#EMPTY] if it is empty, i.e. no key that starts with the
+    ///         current path can match.
+    public abstract int descend(int depth, int transition);
 
     /// Follows the given bytes from the state at `depth - 1`, setting the states at `depth` to `depth + count - 1`.
     public abstract void descend(int depth, DirectBuffer bytes, int pos, int count);

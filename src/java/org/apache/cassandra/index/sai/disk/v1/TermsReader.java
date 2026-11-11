@@ -32,8 +32,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.cql3.LikePatterns;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.index.sai.IndexContext;
 import org.apache.cassandra.index.sai.QueryContext;
 import org.apache.cassandra.index.sai.disk.PostingList;
@@ -44,7 +44,9 @@ import org.apache.cassandra.index.sai.disk.io.IndexInput;
 import org.apache.cassandra.index.sai.disk.v1.postings.MergePostingList;
 import org.apache.cassandra.index.sai.disk.v1.postings.PostingsReader;
 import org.apache.cassandra.index.sai.disk.v1.postings.ScanningPostingsReader;
+import org.apache.cassandra.index.sai.disk.v1.trie.PatternTermsDictionaryReader;
 import org.apache.cassandra.index.sai.disk.v1.trie.ReverseTrieTermsDictionaryReader;
+import org.apache.cassandra.index.sai.disk.v1.trie.TermsDictionaryIterator;
 import org.apache.cassandra.index.sai.disk.v1.trie.TrieTermsDictionaryReader;
 import org.apache.cassandra.index.sai.metrics.QueryEventListener;
 import org.apache.cassandra.index.sai.plan.Expression;
@@ -61,7 +63,6 @@ import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 
 import static org.apache.cassandra.index.sai.utils.SAICodecUtils.validate;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -150,27 +151,22 @@ public class TermsReader implements Closeable
     }
 
     /**
-     * Iterates, in the given order, the terms of an ordering scan restricted by the given prefix or automaton pattern
-     * expression ({@code LIKE} on the ordering column): the terms starting with the prefix, or the terms accepted by
-     * the automaton, which all start with its common prefix. Only the range of terms starting with that prefix is
-     * read. Only valid for non-composite literal indexes, whose terms are stored as their raw bytes.
+     * Iterates, in the given order, the terms of an ordering scan restricted by the given prefix or pattern expression
+     * ({@code LIKE} on the ordering column): the terms starting with the prefix, of which only the range of terms
+     * starting with it is read, or the terms matching the pattern, which are found by walking the terms trie with the
+     * pattern (see {@link PatternTermsDictionaryReader}). Only valid for non-composite literal indexes, whose terms are
+     * stored as their raw bytes.
      */
     public TermsIterator patternTerms(Expression filter, boolean ascending)
     {
-        byte[] prefix;
-        CompiledAutomaton automaton;
         if (filter.getOp() == Expression.Op.PREFIX)
         {
-            prefix = ByteBufferUtil.getArray(filter.lower.value.encoded);
-            automaton = null;
+            byte[] prefix = ByteBufferUtil.getArray(filter.lower.value.encoded);
+            return ascending ? new TermsScanner(prefix) : new ReverseTermsScanner(prefix);
         }
-        else
-        {
-            assert filter.getOp() == Expression.Op.AUTOMATON : "Not a pattern expression: " + filter;
-            prefix = filter.getAutomatonCommonPrefix();
-            automaton = filter.getAutomaton();
-        }
-        return ascending ? new TermsScanner(prefix, automaton) : new ReverseTermsScanner(prefix, automaton);
+
+        assert filter.getOp() == Expression.Op.AUTOMATON : "Not a pattern expression: " + filter;
+        return new PatternTermsScanner(filter.getTriePattern(), ascending);
     }
 
     public PostingList exactMatch(ByteComparable term, QueryEventListener.TrieIndexEventListener perQueryEventListener, QueryContext context)
@@ -204,51 +200,26 @@ public class TermsReader implements Closeable
     }
 
     /**
-     * Intersects the terms dictionary with a byte-level automaton (the non-prefix LIKE matching engine, see
-     * {@link AutomatonQueries}) and returns the union of the posting lists of all accepted terms.
+     * Returns the union of the posting lists of all the terms that match the given pattern (the non-prefix LIKE
+     * variants, see {@link org.apache.cassandra.cql3.LikePatterns#triePatternForPatternOperator}).
      * <p>
-     * This is only correct for indexes over non-composite literal types: those store the raw, unterminated term
-     * bytes in the trie at every index version (see {@code OnDiskFormat#encodeForTrie}), so the automaton can be run
-     * directly over the stored bytes. Callers are responsible for that guard.
-     * <p>
-     * The terms accepted by the automaton all start with its common prefix, so the intersection is a range query
-     * over {@code [commonPrefix, nextOf(commonPrefix))} keeping the terms the automaton accepts. The scan visits
-     * every term of that range: past a {@code %} wildcard, every term starting with the literal prefix of the
-     * pattern may match. Only patterns with a {@code _} wildcard could skip terms by seeking.
+     * The terms trie is walked with the pattern, which skips the branches that cannot contain a match (see
+     * {@link PatternTermsDictionaryReader}). This is only correct for indexes over non-composite literal types: those
+     * store the raw, unterminated term bytes in the trie at every index version (see
+     * {@code OnDiskFormat#encodeForTrie}), so the pattern can be matched directly against the stored bytes. Callers are
+     * responsible for that guard.
      *
-     * @param automaton the compiled byte-level automaton to intersect with the dictionary
+     * @param pattern the pattern to match
      * @param perQueryEventListener the event listener
      * @param context the query context
      * @return the union of the posting lists of all matching terms, possibly {@link PostingList#EMPTY}
      */
-    @VisibleForTesting
-    public PostingList intersect(CompiledAutomaton automaton,
-                                 QueryEventListener.TrieIndexEventListener perQueryEventListener,
-                                 QueryContext context)
-    {
-        return intersect(automaton, AutomatonQueries.commonPrefixBytes(automaton), perQueryEventListener, context);
-    }
-
-    /**
-     * Same as {@link #intersect(CompiledAutomaton, QueryEventListener.TrieIndexEventListener, QueryContext)}, with
-     * the automaton's common byte prefix ({@link AutomatonQueries#commonPrefixBytes}) computed by the caller, so
-     * that it isn't recomputed for every segment a query intersects (see {@code Expression#getAutomatonCommonPrefix()}).
-     */
-    public PostingList intersect(CompiledAutomaton automaton,
-                                 byte[] commonPrefix,
-                                 QueryEventListener.TrieIndexEventListener perQueryEventListener,
-                                 QueryContext context)
+    public PostingList patternMatch(TriePattern pattern,
+                                    QueryEventListener.TrieIndexEventListener perQueryEventListener,
+                                    QueryContext context)
     {
         perQueryEventListener.onSegmentHit();
-        ByteComparable lower = commonPrefix.length == 0
-                               ? null
-                               : ByteComparable.preencoded(termDictionaryFileEncodingVersion, commonPrefix);
-        // the end bound of the scan is inclusive, but the automaton rejects nextOf(commonPrefix)
-        byte[] upperBytes = AutomatonQueries.prefixUpperBound(commonPrefix);
-        ByteComparable upper = upperBytes == null
-                               ? null
-                               : ByteComparable.preencoded(termDictionaryFileEncodingVersion, upperBytes);
-        return new RangeQuery(term -> LikePatterns.accepts(automaton, term), lower, upper, false, perQueryEventListener, context).execute();
+        return new PatternQuery(pattern, perQueryEventListener, context).execute();
     }
 
     @VisibleForTesting
@@ -364,18 +335,26 @@ public class TermsReader implements Closeable
             this.excludeExactUpperTerm = excludeExactUpperTerm;
         }
 
-        public PostingList execute()
+        /**
+         * Opens the reader of the terms of the query.
+         */
+        protected TermsDictionaryIterator openReader()
         {
             // Note: we always pass true for include start because we use the ByteComparable terminator above
             // to selectively determine when we have a match on the first/last term. This is probably part of the API
             // that could change, but it's been there for a bit, so we'll leave it for now.
-            try (TrieTermsDictionaryReader reader = new TrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
-                                                                                  termDictionaryRoot,
-                                                                                  lower,
-                                                                                  upper,
-                                                                                  true,
-                                                                                  termFilter != null,
-                                                                                  termDictionaryFileEncodingVersion))
+            return new TrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
+                                                 termDictionaryRoot,
+                                                 lower,
+                                                 upper,
+                                                 true,
+                                                 termFilter != null,
+                                                 termDictionaryFileEncodingVersion);
+        }
+
+        public PostingList execute()
+        {
+            try (TermsDictionaryIterator reader = openReader())
             {
                 if (!reader.hasNext())
                     return PostingList.EMPTY;
@@ -427,7 +406,7 @@ public class TermsReader implements Closeable
          *        exactly matching an end-exclusive upper bound), or {@link TrieTermsDictionaryReader#NOT_FOUND}
          * @return the posting lists for the terms matching the query.
          */
-        private PostingList readAndMergePostings(TrieTermsDictionaryReader reader, long excludedPostingsOffset) throws IOException
+        private PostingList readAndMergePostings(TermsDictionaryIterator reader, long excludedPostingsOffset) throws IOException
         {
             assert reader.hasNext();
             ArrayList<PostingList> postingLists = new ArrayList<>();
@@ -499,6 +478,31 @@ public class TermsReader implements Closeable
                                       readFrequencies(),
                                       listener.postingListEventListener(),
                                       PostingsReader.InputCloser.NOOP);
+        }
+    }
+
+    /**
+     * Reads the posting lists of the terms that match a pattern, see {@link #patternMatch}.
+     */
+    private class PatternQuery extends RangeQuery
+    {
+        private final TriePattern pattern;
+
+        PatternQuery(TriePattern pattern, QueryEventListener.TrieIndexEventListener listener, QueryContext context)
+        {
+            super(null, null, null, false, listener, context);
+            this.pattern = pattern;
+        }
+
+        @Override
+        protected TermsDictionaryIterator openReader()
+        {
+            return new PatternTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
+                                                    termDictionaryRoot,
+                                                    pattern,
+                                                    true,
+                                                    false,
+                                                    termDictionaryFileEncodingVersion);
         }
     }
 
@@ -601,7 +605,7 @@ public class TermsReader implements Closeable
     }
 
     /**
-     * Iterates the terms in ascending order: all of them, or only those of an ordering scan restricted by a pattern
+     * Iterates the terms in ascending order: all of them, or only those of an ordering scan restricted by a prefix
      * (see {@link #patternTerms}).
      */
     private class TermsScanner extends AbstractTermsScanner<TrieTermsDictionaryReader>
@@ -624,7 +628,7 @@ public class TermsReader implements Closeable
             }
         }
 
-        private TermsScanner(byte[] prefix, @Nullable CompiledAutomaton automaton)
+        private TermsScanner(byte[] prefix)
         {
             super(new TrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
                                                 termDictionaryRoot,
@@ -633,7 +637,7 @@ public class TermsReader implements Closeable
                                                 true,
                                                 true,
                                                 termDictionaryFileEncodingVersion),
-                  patternFilter(prefix, automaton));
+                  prefixFilter(prefix));
             // reading them would move the reader, and only the full scans of segment merging need them
             this.minTerm = null;
             this.maxTerm = null;
@@ -657,7 +661,7 @@ public class TermsReader implements Closeable
     }
 
     /**
-     * Iterates the terms in descending order: all of them, or only those of an ordering scan restricted by a pattern
+     * Iterates the terms in descending order: all of them, or only those of an ordering scan restricted by a prefix
      * (see {@link #patternTerms}).
      */
     private class ReverseTermsScanner extends AbstractTermsScanner<ReverseTrieTermsDictionaryReader>
@@ -667,20 +671,37 @@ public class TermsReader implements Closeable
             super(new ReverseTrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL), termDictionaryRoot), null);
         }
 
-        private ReverseTermsScanner(byte[] prefix, @Nullable CompiledAutomaton automaton)
+        private ReverseTermsScanner(byte[] prefix)
         {
             super(new ReverseTrieTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
                                                        termDictionaryRoot,
                                                        bound(prefix),
                                                        prefixUpperBound(prefix),
                                                        termDictionaryFileEncodingVersion),
-                  patternFilter(prefix, automaton));
+                  prefixFilter(prefix));
+        }
+    }
+
+    /**
+     * Iterates the terms that match a pattern, in ascending or descending order (see {@link #patternTerms}).
+     */
+    private class PatternTermsScanner extends AbstractTermsScanner<PatternTermsDictionaryReader>
+    {
+        private PatternTermsScanner(TriePattern pattern, boolean ascending)
+        {
+            super(new PatternTermsDictionaryReader(termDictionaryFile.instantiateRebufferer(null, ReadPattern.SEQUENTIAL),
+                                                   termDictionaryRoot,
+                                                   pattern,
+                                                   ascending,
+                                                   true,
+                                                   termDictionaryFileEncodingVersion),
+                  null);
         }
     }
 
     /**
      * The upper bound of the terms starting with the prefix, {@code nextOf(prefix)}: the readers include it, so
-     * {@link #patternFilter} skips it.
+     * {@link #prefixFilter} skips it.
      */
     @Nullable
     private ByteComparable prefixUpperBound(byte[] prefix)
@@ -695,11 +716,11 @@ public class TermsReader implements Closeable
     }
 
     /**
-     * Accepts the terms starting with the prefix, which the automaton, if any, accepts.
+     * Accepts the terms starting with the prefix.
      */
-    private static Predicate<byte[]> patternFilter(byte[] prefix, @Nullable CompiledAutomaton automaton)
+    private static Predicate<byte[]> prefixFilter(byte[] prefix)
     {
-        return term -> startsWith(term, prefix) && (automaton == null || LikePatterns.accepts(automaton, term));
+        return term -> startsWith(term, prefix);
     }
 
     private static boolean startsWith(byte[] term, byte[] prefix)

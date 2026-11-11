@@ -103,13 +103,13 @@ final class PatternMatcher64 extends PatternMatcher
     }
 
     @Override
-    public boolean descend(int depth, int transition)
+    public int descend(int depth, int transition)
     {
         long next = next(states[depth - 1], transition);
         if (depth >= states.length)
             states = Arrays.copyOf(states, states.length * 2);
         states[depth] = next;
-        return next != 0;
+        return next != 0 ? flags(next) : EMPTY;
     }
 
     @Override
@@ -127,7 +127,11 @@ final class PatternMatcher64 extends PatternMatcher
     @Override
     public int flags(int depth)
     {
-        long state = states[depth];
+        return flags(states[depth]);
+    }
+
+    private int flags(long state)
+    {
         int flags = 0;
         if ((state & matchBit) != 0)
             flags |= MATCH;

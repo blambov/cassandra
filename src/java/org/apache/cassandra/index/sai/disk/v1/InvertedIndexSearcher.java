@@ -40,6 +40,7 @@ import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.FeatureNeedsIndexRebuildException;
@@ -73,7 +74,6 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 
 import static org.apache.cassandra.index.sai.disk.PostingList.END_OF_STREAM;
 import static org.apache.cassandra.index.sai.disk.v1.SegmentMetadata.INVALID_TOTAL_TERM_COUNT;
@@ -179,28 +179,27 @@ public class InvertedIndexSearcher extends IndexSearcher
         }
         else if (exp.getOp() == Expression.Op.AUTOMATON)
         {
-            // Automaton-served pattern matching (non-prefix LIKE variants): intersect the segment's terms
-            // dictionary with the expression's compiled automaton and union the posting lists of the accepted
-            // terms. Only supported on non-composite literal indexes (guarded by IndexContext#supports at the
-            // CQL layer).
-            return searchAutomatonPostings(exp.getAutomaton(), exp.getAutomatonCommonPrefix(), context);
+            // Pattern matching (non-prefix LIKE variants): walk the segment's terms dictionary with the expression's
+            // pattern and union the posting lists of the matching terms. Only supported on non-composite literal
+            // indexes (guarded by IndexContext#supports at the CQL layer).
+            return searchPatternPostings(exp.getTriePattern(), context);
         }
         throw new IllegalArgumentException(indexContext.logMessage("Unsupported expression: " + exp));
     }
 
     /**
-     * Returns the union of the posting lists of all terms in this segment matching the automaton (consistent with
+     * Returns the union of the posting lists of all terms in this segment matching the pattern (consistent with
      * what {@code searchPosting} returns for {@code Expression.Op.RANGE}).
      */
-    private PostingList searchAutomatonPostings(CompiledAutomaton automaton, byte[] commonPrefix, QueryContext context)
+    private PostingList searchPatternPostings(TriePattern pattern, QueryContext context)
     {
-        // Automaton intersection runs directly over the stored term bytes, which only line up with the raw value
+        // The pattern is matched directly against the stored term bytes, which only line up with the raw value
         // bytes for non-composite literal types (see OnDiskFormat#encodeForTrie).
         if (!indexContext.isLiteral() || TypeUtil.isComposite(indexContext.getValidator()))
-            throw new IllegalStateException(indexContext.logMessage("Automaton matching is only supported on non-composite literal indexes"));
+            throw new IllegalStateException(indexContext.logMessage("Pattern matching is only supported on non-composite literal indexes"));
 
         QueryEventListener.TrieIndexEventListener listener = MulticastQueryEventListeners.of(context, perColumnEventListener);
-        return reader.intersect(automaton, commonPrefix, listener, context);
+        return reader.patternMatch(pattern, listener, context);
     }
 
     private Cell<?> readColumn(SSTableReader sstable, PrimaryKey primaryKey)
