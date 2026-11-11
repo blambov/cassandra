@@ -25,8 +25,9 @@ import org.apache.lucene.util.automaton.Operations;
 
 /**
  * Helpers for intersecting the Lucene {@link CompiledAutomaton}s of the CQL {@code LIKE} patterns (compiled by
- * {@link LikePatterns}) with the SAI terms dictionaries (see {@code TermsReader#intersect} and
- * {@code TrieMemoryIndex#automatonMatch}).
+ * {@link LikePatterns}) with the SAI on-disk terms dictionaries (see {@code TermsReader#intersect}). The memtable
+ * index matches the same patterns with a {@link org.apache.cassandra.db.tries.TriePattern} instead (see
+ * {@link LikePatterns#triePatternForPatternOperator}), and only uses the common prefix for its estimates.
  * <p>
  * The automata are UTF-8 byte automata (see {@link LikePatterns}). Non-composite literal SAI terms are stored in
  * the trie dictionaries as their raw, unterminated UTF-8 bytes at every index version (see

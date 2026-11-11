@@ -47,7 +47,6 @@ import org.slf4j.LoggerFactory;
 
 import io.github.jbellis.jvector.util.RamUsageEstimator;
 import io.netty.util.concurrent.FastThreadLocal;
-import org.apache.cassandra.cql3.LikePatterns;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -81,7 +80,6 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSourceInverse;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
 
 public class TrieMemoryIndex extends MemoryIndex
 {
@@ -335,10 +333,8 @@ public class TrieMemoryIndex extends MemoryIndex
                 return exactMatch(expression, keyRange);
             case RANGE:
             case PREFIX:
+            case AUTOMATON: // the subtrie of the terms matching the pattern
                 return rangeMatch(expression, keyRange);
-            case AUTOMATON:
-                // the terms starting with the automaton's common prefix, filtered by the automaton
-                return automatonMatch(expression.getAutomaton(), getSubtrie(expression), keyRange);
             default:
                 throw new IllegalArgumentException("Unsupported expression: " + expression);
         }
@@ -383,19 +379,7 @@ public class TrieMemoryIndex extends MemoryIndex
 
         Trie<PrimaryKeys> subtrie = getSubtrie(filter);
         var iter = subtrie.entrySet(orderer.isAscending() ? Direction.FORWARD : Direction.REVERSE).iterator();
-        if (filter != null && filter.getOp() == Expression.Op.AUTOMATON)
-            iter = acceptedEntries(iter, filter.getAutomaton());
         return new AllTermsIterator(iter);
-    }
-
-    /**
-     * Filters trie entries by an automaton. Only valid for non-composite literal types, whose trie keys are the
-     * raw (already analyzed) term bytes.
-     */
-    private static Iterator<Map.Entry<ByteComparable.Preencoded, PrimaryKeys>> acceptedEntries(Iterator<Map.Entry<ByteComparable.Preencoded, PrimaryKeys>> entries,
-                                                                                               CompiledAutomaton automaton)
-    {
-        return Iterators.filter(entries, entry -> LikePatterns.accepts(automaton, ByteSourceInverse.readBytes(entry.getKey().getPreencodedBytes())));
     }
 
     private ByteComparable asByteComparable(ByteBuffer input)
@@ -748,35 +732,18 @@ public class TrieMemoryIndex extends MemoryIndex
     }
 
     /**
-     * Returns the primary keys of all terms accepted by the given byte-level automaton (the non-prefix LIKE matching
-     * engine, see {@link AutomatonQueries}). The accepted terms all start with the automaton's common prefix, so only
-     * the subtrie of the terms starting with it is scanned.
+     * The subtrie of the terms matching the LIKE pattern of an {@link Expression.Op#AUTOMATON} expression. The pattern
+     * is matched while walking the trie, and the branches that cannot match are skipped (e.g. the ones that don't
+     * start with the pattern's literal prefix). This is only correct for indexes over non-composite literal types,
+     * whose terms are stored in the trie as their raw unterminated bytes (see {@code OnDiskFormat#encodeForTrie}), so
+     * a byte-level pattern can be matched directly against them.
      */
-    @VisibleForTesting
-    public KeyRangeIterator automatonMatch(CompiledAutomaton automaton, AbstractBounds<PartitionPosition> keyRange)
-    {
-        return automatonMatch(automaton, prefixSubtrie(AutomatonQueries.commonPrefixBytes(automaton)), keyRange);
-    }
-
-    /**
-     * Returns the primary keys of the terms of the given subtrie accepted by the automaton. This is only correct for
-     * indexes over non-composite literal types, whose terms are stored in the trie as their raw unterminated bytes
-     * (see {@code OnDiskFormat#encodeForTrie}), so a byte-level automaton can be run directly over them.
-     */
-    private KeyRangeIterator automatonMatch(CompiledAutomaton automaton, Trie<PrimaryKeys> subtrie, AbstractBounds<PartitionPosition> keyRange)
+    private Trie<PrimaryKeys> patternSubtrie(Expression expression)
     {
         if (!TypeUtil.isLiteral(indexContext.getValidator()) || TypeUtil.isComposite(indexContext.getValidator()))
-            throw new IllegalStateException("Automaton matching is only supported on non-composite literal indexes");
+            throw new IllegalStateException("Pattern matching is only supported on non-composite literal indexes");
 
-        var capacity = Math.max(MINIMUM_QUEUE_SIZE, lastQueueSize.get());
-        var mergingIteratorBuilder = MergingKeyRangeIterator.builder(keyBounds, indexContext.keyFactory(), capacity);
-        lastQueueSize.set(mergingIteratorBuilder.size());
-
-        acceptedEntries(subtrie.entrySet().iterator(), automaton).forEachRemaining(entry -> mergingIteratorBuilder.add(entry.getValue()));
-
-        return mergingIteratorBuilder.isEmpty()
-               ? KeyRangeIterator.empty()
-               : new FilteringKeyRangeIterator(mergingIteratorBuilder.build(), keyRange);
+        return data.patternMatched(expression.getTriePattern());
     }
 
     private KeyRangeIterator iterateSubtrie(Trie<PrimaryKeys> subtrie, Expression expression, AbstractBounds<PartitionPosition> keyRange)
@@ -1009,12 +976,11 @@ public class TrieMemoryIndex extends MemoryIndex
             return data;
 
         // The bounds of pattern expressions are the pattern itself, not a term range: slice by the range of terms
-        // they can match instead. For automaton patterns this is the range of the terms starting with the
-        // automaton's common prefix, a superset of the matching terms (filtered by the callers that need to).
+        // starting with a prefix, or select the terms matching a LIKE pattern.
         if (expression.getOp() == Expression.Op.PREFIX)
             return prefixSubtrie(ByteBufferUtil.getArray(expression.lower.value.encoded));
         if (expression.getOp() == Expression.Op.AUTOMATON)
-            return prefixSubtrie(expression.getAutomatonCommonPrefix());
+            return patternSubtrie(expression);
 
         ByteComparable lowerBound, upperBound;
         boolean lowerInclusive, upperInclusive;

@@ -28,6 +28,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.exceptions.InvalidPatternException;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.lucene.util.BytesRef;
@@ -406,6 +407,74 @@ public final class LikePatterns
         // with an equivalent value.
         COMPILE_CACHE.put(new CacheKey(operator, ByteBufferUtil.clone(value)), automaton);
         return automaton;
+    }
+
+    /**
+     * Returns the {@link TriePattern} for a pattern-matching operator and its restriction value, with the same
+     * semantics as the automaton of {@link #forPatternOperator}. Trie patterns select the matching keys of a trie whose
+     * keys are the raw value bytes while walking it (see {@link org.apache.cassandra.db.tries.Trie#patternMatched}).
+     * They are cheap to build and are not cached.
+     *
+     * @param operator the pattern operator
+     * @param value the restriction value, as stored in the {@code RowFilter} expression
+     * @param column the restricted column name, only used in error messages; {@code null} if unknown
+     * @throws InvalidPatternException if the pattern is syntactically invalid
+     */
+    public static TriePattern triePatternForPatternOperator(Operator operator, ByteBuffer value, Object column)
+    {
+        switch (operator)
+        {
+            case LIKE_SUFFIX:
+                return TriePattern.builder().anyString().literal(value).build();
+            case LIKE_CONTAINS:
+                return TriePattern.builder().anyString().literal(value).anyString().build();
+            case LIKE_MATCHES:
+                try
+                {
+                    return triePattern(value);
+                }
+                catch (IllegalArgumentException e)
+                {
+                    throw new InvalidPatternException(operator, column, String.valueOf(e.getMessage()));
+                }
+            default:
+                throw new AssertionError("Not a pattern operator: " + operator);
+        }
+    }
+
+    /**
+     * Builds the {@link TriePattern} of a CQL {@code LIKE} pattern in internal form (see {@link #ESCAPE}), matching
+     * the same values as {@link #patternAutomaton}: {@code %} matches any string, and {@code _} any single Unicode
+     * character, whatever the length of its UTF-8 encoding.
+     *
+     * @param pattern the LIKE pattern, with {@code %} and {@code _} wildcards and {@link #ESCAPE} escapes
+     * @throws IllegalArgumentException if the pattern ends with a lone escape, or escapes another character
+     */
+    @VisibleForTesting
+    public static TriePattern triePattern(ByteBuffer pattern)
+    {
+        TriePattern.Builder builder = TriePattern.builder();
+        // '%', '_' and the escape are single bytes in UTF-8 (and ASCII), never part of a multibyte character
+        for (int i = pattern.position(); i < pattern.limit(); i++)
+        {
+            byte b = pattern.get(i);
+            if (b == ESCAPE)
+            {
+                if (++i == pattern.limit())
+                    throw new IllegalArgumentException("LIKE pattern ends with an escape: " + utf8(pattern));
+                byte escaped = pattern.get(i);
+                if (escaped != '%' && escaped != '_' && escaped != ESCAPE)
+                    throw new IllegalArgumentException("LIKE pattern escapes a character other than '%', '_' or '\\': " + utf8(pattern));
+                builder.literal(escaped);
+            }
+            else if (b == '%')
+                builder.anyString();
+            else if (b == '_')
+                builder.anyChar();
+            else
+                builder.literal(b);
+        }
+        return builder.build();
     }
 
     private static CompiledAutomaton buildForPatternOperator(Operator operator, ByteBuffer value)

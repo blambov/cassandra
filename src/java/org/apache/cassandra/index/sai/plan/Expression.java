@@ -43,6 +43,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.Redaction;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.FloatType;
+import org.apache.cassandra.db.tries.TriePattern;
 import org.apache.cassandra.index.sai.IndexContext;
 import org.apache.cassandra.index.sai.analyzer.AbstractAnalyzer;
 import org.apache.cassandra.index.sai.disk.format.Version;
@@ -182,6 +183,12 @@ public class Expression
      * {@link #getAutomatonCommonPrefix()}) so that it isn't recomputed for every segment, memtable shard and estimate.
      */
     private volatile byte[] automatonCommonPrefix;
+
+    /**
+     * The lazily built trie pattern of an {@link Op#AUTOMATON} expression, used by the memtable index to match the
+     * pattern while walking its terms trie (see {@link #getTriePattern()}). Thread safety as for {@link #automaton}.
+     */
+    private volatile TriePattern triePattern;
 
     private float boundedAnnEuclideanDistanceThreshold = 0;
     private float searchRadiusMeters = 0;
@@ -492,6 +499,22 @@ public class Expression
         if (prefix == null)
             automatonCommonPrefix = prefix = AutomatonQueries.commonPrefixBytes(getAutomaton());
         return prefix;
+    }
+
+    /**
+     * For {@link Op#AUTOMATON} expressions, returns the {@link TriePattern} of the pattern carried by this expression
+     * (see {@link LikePatterns#triePatternForPatternOperator}), building it on first use. It matches the same terms as
+     * {@link #getAutomaton()}.
+     *
+     * @throws org.apache.cassandra.exceptions.InvalidPatternException if the pattern is invalid
+     */
+    public TriePattern getTriePattern()
+    {
+        assert operation == Op.AUTOMATON : "Trie pattern requested for operation " + operation;
+        TriePattern pattern = triePattern;
+        if (pattern == null)
+            triePattern = pattern = LikePatterns.triePatternForPatternOperator(patternOperator, lower.value.raw, context.getColumnName());
+        return pattern;
     }
 
     // This call encodes the byte buffer into a ByteComparable object based on the version of the index, the validator,
