@@ -42,6 +42,7 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 
     TransitionsReceiver chainedReceiver;
     int curDepth;
+    int trailingStarMatchDepth = Integer.MAX_VALUE;
 
     public static <T> Pattern64Cursor<T> create(Cursor<T> wrapped, byte[] patternBytes)
     {
@@ -77,7 +78,10 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
         this.wrapped = wrapped;
         this.isStar = isStar;
         this.patternMatch = patternMatch;
-        matchBit = 1L << pattern.length;
+        long matchBit = 1L << pattern.length;
+        if ((isStar & matchBit >>> 1) != 0)
+            matchBit >>>= 1; // we can end early on trailing stars
+        this.matchBit = matchBit;
         statesHistory = new long[32];
         long state = 1 | (isStar & 1) << 1;
         statesHistory[0] = state;
@@ -126,15 +130,13 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 
     private long advanceTo(long encodedPosition)
     {
-        if ((currentState & isStar & matchBit) != 0)
-            return encodedPosition;
-
         while (true)
         {
             int depth = curDepth = Cursor.depth(encodedPosition);
-            if (depth < 0)
+            if (depth > trailingStarMatchDepth || depth < 0)
                 return encodedPosition;
 
+            trailingStarMatchDepth = Integer.MAX_VALUE;
             long next;
             long prev = 0;
             if (depth > 0)
@@ -148,6 +150,8 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
             if (next != 0)
             {
                 setMatchFields(next);
+                if ((next & isStar & matchBit) != 0)
+                    trailingStarMatchDepth = depth;
                 return isMatch ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
             }
 
@@ -183,9 +187,14 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
-        // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple.
         if ((currentState & isStar) != 0)
         {
+            // we don't need to track anything after a trailing star, only check if we have left the branch
+            if ((currentState & isStar & matchBit) != 0)
+                return advanceTo(wrapped.advanceMultiple(receiver));
+
+            // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple,
+            // updating our state for each character.
             chainedReceiver = receiver;
             return advanceTo(wrapped.advanceMultiple(this));
         }
