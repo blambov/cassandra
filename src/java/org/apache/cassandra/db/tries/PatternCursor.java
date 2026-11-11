@@ -29,7 +29,6 @@ class PatternCursor<T> implements Cursor<T>
     // TODO: Handle UTF8 multi-byte characters
     // TODO: Escaping and SQL % and _ wildcards
     // TODO: Use skipTo on source when the state doesn't contain a wildcard position
-    // TODO: long[] specialization for patterns of length 64 or less
     // TODO: javadoc/comments
 
 
@@ -49,7 +48,12 @@ class PatternCursor<T> implements Cursor<T>
     int trailingStarMatchDepth = Integer.MAX_VALUE;
     boolean isMatch;
 
-    public static <T> PatternCursor<T> create(Cursor<T> wrapped, String pattern)
+    public static <T> Cursor<T> create(Cursor<T> wrapped, String pattern)
+    {
+        return create(wrapped, pattern, 0);
+    }
+
+    public static <T> Cursor<T> create(Cursor<T> wrapped, String pattern, int algoChoice)
     {
         // We can do some trivial optimizations (move ? before *, collapse multiple stars)
         String simplified = pattern;
@@ -62,6 +66,11 @@ class PatternCursor<T> implements Cursor<T>
 
         // POC without escaping
         byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
+        if (algoChoice == 1)
+            return PatternLongCursor.create(wrapped, patternBytes);
+        if (algoChoice != 2 && patternBytes.length < 64 || patternBytes.length == 64 && patternBytes[63] == '*')
+            return Pattern64Cursor.create(wrapped, patternBytes);
+
         BitSet isWildcard = new BitSet(patternBytes.length);
         BitSet isStar = new BitSet(patternBytes.length);
         for (int i = 0; i < patternBytes.length; ++i)
@@ -192,6 +201,8 @@ class PatternCursor<T> implements Cursor<T>
     private void setNextState(int b, BitSet next, BitSet current)
     {
         next.clear();
+        // next = current & isStar | (current & isWildcard | (current << 1) & isStar | current & compare(b, pattern) << 1)
+
         for (int i = current.previousSetBit(matchPosition); i >= 0; i = current.previousSetBit(i - 1))
         {
             if (isWildcard.get(i))

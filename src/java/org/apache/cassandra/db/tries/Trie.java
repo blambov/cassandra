@@ -334,6 +334,11 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return dir -> PatternCursor.create(cursor(dir), pattern);
     }
 
+    default Trie<T> patternMatched(String pattern, int algoChoice)
+    {
+        return dir -> PatternCursor.create(cursor(dir), pattern, algoChoice);
+    }
+
     static <T> Trie<T> empty(ByteComparable.Version byteComparableVersion)
     {
         return dir -> new Cursor.Empty<>(dir, byteComparableVersion);
