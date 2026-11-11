@@ -210,7 +210,8 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
         if ((currentState & isWildcard) == 0)
             return advanceToPatternByte();
 
-        // If the loop above did not reach a star, just advance.
+        // Only ? wildcards in the state (no star yet): advance one step, so that we go back to skipping by pattern
+        // byte as soon as the next pattern position is a literal.
         if ((currentState & isStar) == 0)
             return advanceTo(wrapped.advance());
 
@@ -227,7 +228,9 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     private long advanceToPatternByte()
     {
         int patternPos = Long.numberOfTrailingZeros(currentState);
-        if (patternPos >= pattern.length)
+        // Don't descend if the pattern is fully matched, or if we are on the return path (in reverse direction ordered
+        // tries present prefix content after the node's children, which have already been visited).
+        if (patternPos >= pattern.length || Cursor.isOnReturnPath(wrapped.encodedPosition()))
             return advanceTo(wrapped.advance());
         Direction direction = direction();
         int nextByte = pattern[patternPos] & 0xFF;

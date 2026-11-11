@@ -39,6 +39,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.*;
 
@@ -1051,6 +1052,77 @@ public class PatternCursorTest
                                                                 .collect(Collectors.toList()));
             checkValues(msg + " tail ab", ImmutableList.of("ab", "abxb"), tails.get(0).getValue());
             checkValues(msg + " tail acb", ImmutableList.of("acb"), tails.get(1).getValue());
+        }
+    }
+
+    /// In reverse direction, ordered tries present the content of prefixes on the return path, after the node's
+    /// children. A cursor that skips to the next pattern byte must not try to descend from such a position.
+    @Test
+    public void testNoDescentFromReturnPath() throws TrieSpaceExhaustedException
+    {
+        List<String> keys = ImmutableList.of("", "a", "ab", "abc", "abcd", "abd", "b", "bc");
+        Trie<String> source = createTestTrie(keys.toArray(new String[0]));
+        Trie<String> strict = dir -> new NoDescentFromReturnPathCursor<>(source.cursor(dir));
+        for (String pattern : new String[] { "", "a", "ab", "abc", "abcd", "a?c", "b", "bc", "ab*" })
+            for (int algo : ALGO_CHOICES)
+                checkValues(pattern + " [algo=" + algo + "]",
+                            matching(keys, pattern.getBytes(StandardCharsets.UTF_8)),
+                            strict.patternMatched(pattern, algo));
+    }
+
+    /// Delegating cursor that fails if it is asked to descend from a position on the return path.
+    private static class NoDescentFromReturnPathCursor<T> implements Cursor<T>
+    {
+        final Cursor<T> source;
+
+        NoDescentFromReturnPathCursor(Cursor<T> source)
+        {
+            this.source = source;
+        }
+
+        @Override
+        public long encodedPosition()
+        {
+            return source.encodedPosition();
+        }
+
+        @Override
+        public T content()
+        {
+            return source.content();
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return source.byteComparableVersion();
+        }
+
+        @Override
+        public long advance()
+        {
+            return source.advance();
+        }
+
+        @Override
+        public long advanceMultiple(TransitionsReceiver receiver)
+        {
+            return source.advanceMultiple(receiver);
+        }
+
+        @Override
+        public long skipTo(long skipPosition)
+        {
+            long position = source.encodedPosition();
+            assertFalse("Descent to " + Cursor.toString(skipPosition) + " requested from return path position " + Cursor.toString(position),
+                        Cursor.isOnReturnPath(position) && Cursor.depth(skipPosition) > Cursor.depth(position));
+            return source.skipTo(skipPosition);
+        }
+
+        @Override
+        public Cursor<T> tailCursor(Direction direction)
+        {
+            return new NoDescentFromReturnPathCursor<>(source.tailCursor(direction));
         }
     }
 
