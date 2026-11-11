@@ -29,10 +29,13 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 
 
     final Cursor<T> wrapped;
+    final long isWildcard;
     // Whether the wildcard is a * (% in SQL like syntax)
     final long isStar;
     // Which positions are a match for the given byte (taking wildcards into account)
     final long[] patternMatch;
+    // pattern copy (for skipping on no match)
+    final byte[] pattern;
 
     final long matchBit;
 
@@ -67,17 +70,20 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
         }
         for (int i = 0; i < 256; ++i)
             patternMatch[i] |= isWildcard;
-        return new Pattern64Cursor<>(wrapped, patternBytes, isStar, patternMatch);
+        return new Pattern64Cursor<>(wrapped, patternBytes, isStar, isWildcard, patternMatch);
     }
 
     private Pattern64Cursor(Cursor<T> wrapped,
                             byte[] pattern,
                             long isStar,
+                            long isWildcard,
                             long[] patternMatch)
     {
         this.wrapped = wrapped;
+        this.isWildcard = isWildcard;
         this.isStar = isStar;
         this.patternMatch = patternMatch;
+        this.pattern = pattern;
         long matchBit = 1L << pattern.length;
         if ((isStar & matchBit >>> 1) != 0)
             matchBit >>>= 1; // we can end early on trailing stars
@@ -101,7 +107,9 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     {
         this.wrapped = wrappedTail;
         this.isStar = source.isStar;
+        this.isWildcard = source.isWildcard;
         this.patternMatch = source.patternMatch;
+        this.pattern = source.pattern;
         matchBit = source.matchBit;
         statesHistory = new long[32];
         long state = source.statesHistory[Cursor.depth(source.encodedPosition())];
@@ -155,18 +163,25 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
                 return isMatch ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
             }
 
-            // We won't end up here very often (only if there's no star match). If we do, skip to a byte that is
-            // allowed by the pattern.
-            int nextByte = Cursor.incomingTransition(encodedPosition);
-            Direction direction = direction();
-            do
-            {
-                nextByte += direction.increase;
-            }
-            while (direction.inLoop(nextByte, 0, 255) && (patternMatch[nextByte] & prev) == 0);
-
-            encodedPosition = wrapped.skipTo(Cursor.encodeWithOverflow(depth, nextByte, direction));
+            // We won't end up here very often (only if there's no star in the path so far). If we do, skip to the next
+            // byte of the pattern (note that this can't be a wildcard, otherwise we wouldn't reach this path).
+            encodedPosition = wrapped.skipTo(nextPatternPosition(encodedPosition, prev, depth));
         }
+    }
+
+    private long nextPatternPosition(long encodedPosition, long prev, int depth)
+    {
+        int patternPos = Long.numberOfTrailingZeros(prev);
+        Direction direction = direction();
+        if (patternPos < pattern.length)
+        {
+            int nextByte = pattern[patternPos] & 0xFF;
+            long nextPosition = Cursor.encode(depth, nextByte, direction);
+            if (Cursor.compare(nextPosition, encodedPosition) > 0) // can't be 0
+                return nextPosition;
+        }
+
+        return Cursor.encodeWithOverflow(depth, direction.select(256, -1), direction);
     }
 
     private long advanceWith(long prev, int transition, int depth)
@@ -181,25 +196,43 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     @Override
     public long advance()
     {
-        return advanceTo(wrapped.advance());
+        // if we have never seen a star, and the current position is not a wildcard, use the next pattern byte
+        if ((currentState & isWildcard) == 0)
+            return advanceToPatternByte();
+        else
+            return advanceTo(wrapped.advance());
     }
 
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
-        if ((currentState & isStar) != 0)
-        {
-            // we don't need to track anything after a trailing star, only check if we have left the branch
-            if ((currentState & isStar & matchBit) != 0)
-                return advanceTo(wrapped.advanceMultiple(receiver));
+        // if we have never seen a star, and the current position is not a wildcard, use the next pattern byte
+        if ((currentState & isWildcard) == 0)
+            return advanceToPatternByte();
 
-            // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple,
-            // updating our state for each character.
-            chainedReceiver = receiver;
-            return advanceTo(wrapped.advanceMultiple(this));
-        }
-        else
+        // If the loop above did not reach a star, just advance.
+        if ((currentState & isStar) == 0)
             return advanceTo(wrapped.advance());
+
+        // we don't need to track anything after a trailing star, only check if we have left the branch
+        if ((currentState & isStar & matchBit) != 0)
+            return advanceTo(wrapped.advanceMultiple(receiver));
+
+        // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple,
+        // updating our state for each character.
+        chainedReceiver = receiver;
+        return advanceTo(wrapped.advanceMultiple(this));
+    }
+
+    private long advanceToPatternByte()
+    {
+        int patternPos = Long.numberOfTrailingZeros(currentState);
+        if (patternPos >= pattern.length)
+            return advanceTo(wrapped.advance());
+        Direction direction = direction();
+        int nextByte = pattern[patternPos] & 0xFF;
+        long skipPosition = Cursor.encode(++curDepth, nextByte, direction);
+        return advanceTo(wrapped.skipTo(skipPosition));
     }
 
     @Override
