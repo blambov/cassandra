@@ -68,11 +68,11 @@ public class PatternCursorTest
 
     private void checkPatternMatch(String message, List<String> expected, Trie<String> trie, String pattern)
     {
-        // Test all three algorithm choices
-        for (int algoChoice = 0; algoChoice < 3; algoChoice++)
+        // Test all matcher choices
+        for (int algoChoice : ALGO_CHOICES)
         {
             String algoMessage = message + " [algo=" + algoChoice + "]";
-            Trie<String> matched = trie.patternMatched(pattern, algoChoice);
+            Trie<String> matched = patternMatched(trie, pattern, algoChoice);
             List<String> forwardResult = toList(matched, Direction.FORWARD);
             List<String> reverseResult = toList(matched, Direction.REVERSE);
             List<String> expectedForward = expected.stream()
@@ -517,11 +517,11 @@ public class PatternCursorTest
                                    org.apache.cassandra.utils.bytecomparable.ByteComparable left,
                                    org.apache.cassandra.utils.bytecomparable.ByteComparable right)
     {
-        // Test all three algorithm choices
-        for (int algoChoice = 1; algoChoice <= 3; algoChoice++)
+        // Test all matcher choices
+        for (int algoChoice : ALGO_CHOICES)
         {
             String algoMessage = message + " [algo=" + algoChoice + "]";
-            Trie<String> matched = trie.patternMatched(pattern, algoChoice);
+            Trie<String> matched = patternMatched(trie, pattern, algoChoice);
             // Use slice with inclusive left, exclusive right to match subtrie semantics
             Trie<String> sliced = matched.slice(left, true, right, false);
 
@@ -547,7 +547,7 @@ public class PatternCursorTest
 
         Trie<String> trie = createTestTrie(base64, match64_1, match64_2, noMatch64);
 
-        // Pattern exactly 64 bytes - tests boundary of Pattern64Cursor
+        // Pattern exactly 64 bytes - tests boundary of PatternMatcher64
         String pattern64 = "a".repeat(63) + "?";
         checkPatternMatch("64 bytes exact",
                           ImmutableList.of(base64, match64_1, match64_2),
@@ -563,7 +563,7 @@ public class PatternCursorTest
     @Test
     public void testPattern65BytesAndOver() throws TrieSpaceExhaustedException
     {
-        // Create strings over 64 bytes - forces use of PatternLongCursor
+        // Create strings over 64 bytes - forces use of PatternMatcherLong
         String base64 = "a".repeat(64);
         String base65 = "a".repeat(65);
         String match65_1 = "a".repeat(64) + "b";
@@ -573,7 +573,7 @@ public class PatternCursorTest
 
         Trie<String> trie = createTestTrie(base64, base65, match65_1, match65_2, match70, noMatch);
 
-        // Pattern 65 bytes - first byte in second long (only PatternLongCursor and PatternCursor support this)
+        // Pattern 65 bytes - first byte in second long (only PatternMatcherLong supports this)
         String pattern65 = "a".repeat(64) + "?";
         checkPatternMatch("65 bytes pattern", ImmutableList.of(base65, match65_1, match65_2), trie, pattern65);
 
@@ -605,7 +605,7 @@ public class PatternCursorTest
     @Test
     public void testPatternCarryLogic() throws TrieSpaceExhaustedException
     {
-        // Test the carry logic in PatternLongCursor.setNextState
+        // Test the carry logic in PatternMatcherLong.descend
         // Carry happens when a match at position 63 needs to set bit 64 (in next long)
 
         String match63 = "a".repeat(63);
@@ -795,23 +795,18 @@ public class PatternCursorTest
             )
             .checkAssert((pattern, testStrings) -> {
                 try {
-                    // Convert pattern to regex for Java Pattern matching
-                    String regex = pattern.replace("?", ".").replace("*", ".*");
-                    java.util.regex.Pattern javaPattern = java.util.regex.Pattern.compile("^" + regex + "$");
-
                     // Create trie with test strings
                     Trie<String> trie = createTestTrie(testStrings.toArray(new String[0]));
 
-                    // Get expected matches using Java Pattern
-                    List<String> expected = testStrings.stream()
-                                                      .filter(s -> javaPattern.matcher(s).matches())
-                                                      .sorted()
-                                                      .collect(Collectors.toList());
+                    // Get expected matches by checking every key of the trie (in its order, without duplicates) with
+                    // the byte-level glob matcher. (A regular expression does not work here: the random patterns
+                    // contain regex syntax, and '?' matches one byte, not one character.)
+                    List<String> expected = matching(trie.values(Direction.FORWARD), pattern.getBytes(StandardCharsets.UTF_8));
 
-                    // Test all three algorithms
-                    for (int algoChoice = 1; algoChoice <= 3; algoChoice++)
+                    // Test all matcher choices
+                    for (int algoChoice : ALGO_CHOICES)
                     {
-                        Trie<String> matched = trie.patternMatched(pattern, algoChoice);
+                        Trie<String> matched = patternMatched(trie, pattern, algoChoice);
                         List<String> actual = toList(matched, Direction.FORWARD);
 
                         assertEquals("Pattern: " + pattern + " [algo=" + algoChoice + "]",
@@ -864,8 +859,8 @@ public class PatternCursorTest
                                                       .distinct()
                                                       .collect(Collectors.toList());
 
-                    // Test algorithm 1 (PatternLongCursor) for long patterns
-                    Trie<String> matched = trie.patternMatched(pattern, 1);
+                    // Test the long[] matcher for long patterns
+                    Trie<String> matched = patternMatched(trie, pattern, 1);
                     List<String> actual = toList(matched, Direction.FORWARD);
 
                     assertEquals("Pattern length: " + patternLength + " [algo=1]",
@@ -924,9 +919,9 @@ public class PatternCursorTest
                                                       .collect(Collectors.toList());
 
                     // Test appropriate algorithm based on pattern length
-                    for (int algoChoice = 0; algoChoice < 3; ++algoChoice)
+                    for (int algoChoice : ALGO_CHOICES)
                     {
-                        Trie<String> matched = trie.patternMatched(pattern, algoChoice);
+                        Trie<String> matched = patternMatched(trie, pattern, algoChoice);
                         List<String> actual = toList(matched, Direction.FORWARD);
                         assertEquals("Pattern: " + pattern + " [algo=" + algoChoice + "]",
                                      expected, actual);
@@ -937,9 +932,28 @@ public class PatternCursorTest
             });
     }
 
-    /// Implementation choices for `Trie.patternMatched(pattern, algoChoice)`: 0 picks [Pattern64Cursor] when the
-    /// pattern fits in a long and [PatternCursor] otherwise, 1 forces [PatternLongCursor], 2 forces [PatternCursor].
-    private static final int[] ALGO_CHOICES = { 0, 1, 2 };
+    /// Matcher choices for [#patternMatched(Trie, TriePattern, int)]: 0 uses [Trie#patternMatched], which picks
+    /// [PatternMatcher64] for patterns of up to 63 positions and [PatternMatcherLong] otherwise, and 1 forces
+    /// [PatternMatcherLong], so that it is also tested with short patterns.
+    private static final int[] ALGO_CHOICES = { 0, 1 };
+
+    static <T> Trie<T> patternMatched(Trie<T> trie, String pattern, int algoChoice)
+    {
+        return patternMatched(trie, TriePattern.glob(pattern), algoChoice);
+    }
+
+    static <T> Trie<T> patternMatched(Trie<T> trie, TriePattern pattern, int algoChoice)
+    {
+        switch (algoChoice)
+        {
+            case 0:
+                return trie.patternMatched(pattern);
+            case 1:
+                return dir -> new PatternCursor<>(trie.cursor(dir), new PatternMatcherLong(pattern));
+            default:
+                throw new AssertionError();
+        }
+    }
 
     private static final long SEED = Long.getLong("test.pattern.seed", System.nanoTime());
 
@@ -951,28 +965,29 @@ public class PatternCursorTest
         String p64 = "a".repeat(64);
         String p64Star = "a".repeat(63) + "*";
 
-        assertImplementation(Pattern64Cursor.class, trie, "abc", 0);
-        assertImplementation(PatternLongCursor.class, trie, "abc", 1);
-        assertImplementation(PatternCursor.class, trie, "abc", 2);
+        assertImplementation(PatternMatcher64.class, trie, "abc", 0);
+        assertImplementation(PatternMatcherLong.class, trie, "abc", 1);
 
-        assertImplementation(Pattern64Cursor.class, trie, p63, 0);
-        assertImplementation(PatternCursor.class, trie, p64, 0);
-        assertImplementation(PatternLongCursor.class, trie, p64, 1);
-        assertImplementation(PatternCursor.class, trie, p64, 2);
+        assertImplementation(PatternMatcher64.class, trie, p63, 0);
+        assertImplementation(PatternMatcherLong.class, trie, p64, 0);
+        assertImplementation(PatternMatcherLong.class, trie, p64Star, 0);
 
-        assertImplementation(PatternCursor.class, trie, p64Star, 0);
-        assertImplementation(PatternLongCursor.class, trie, p64Star, 1);
-        assertImplementation(PatternCursor.class, trie, p64Star, 2);
-
-        // Selection is done on the simplified pattern.
-        assertImplementation(Pattern64Cursor.class, trie, "a".repeat(62) + "***", 0);
+        // Selection is done on the normalized pattern.
+        assertImplementation(PatternMatcher64.class, trie, "a".repeat(62) + "***", 0);
+        // A single-character wildcard takes two positions.
+        assertImplementation(PatternMatcherLong.class, trie, TriePattern.builder().literal("a".repeat(62)).anyChar().build(), 0);
     }
 
     private static void assertImplementation(Class<?> expected, Trie<String> trie, String pattern, int algoChoice)
     {
+        assertImplementation(expected, trie, TriePattern.glob(pattern), algoChoice);
+    }
+
+    private static void assertImplementation(Class<?> expected, Trie<String> trie, TriePattern pattern, int algoChoice)
+    {
         assertEquals(pattern + " [algo=" + algoChoice + "]",
                      expected,
-                     trie.patternMatched(pattern, algoChoice).makeCursor(Direction.FORWARD).getClass());
+                     ((PatternCursor<?>) patternMatched(trie, pattern, algoChoice).makeCursor(Direction.FORWARD)).matcher.getClass());
     }
 
     /// Patterns of 33 to 63 bytes with a star exactly 32 positions before a literal last byte. The trailing star check
@@ -1024,14 +1039,14 @@ public class PatternCursorTest
         for (int algo : ALGO_CHOICES)
         {
             String msg = "a*b [algo=" + algo + "] tail ";
-            Trie<String> matched = trie.patternMatched("a*b", algo);
+            Trie<String> matched = patternMatched(trie, "a*b", algo);
             checkValues(msg + "a", ImmutableList.of("ab", "abxb", "acb"), matched.tailTrie(directComparable("a")));
             checkValues(msg + "ab", ImmutableList.of("ab", "abxb"), matched.tailTrie(directComparable("ab")));
             checkValues(msg + "abx", ImmutableList.of("abxb"), matched.tailTrie(directComparable("abx")));
             checkValues(msg + "acb", ImmutableList.of("acb"), matched.tailTrie(directComparable("acb")));
 
             msg = "ab* [algo=" + algo + "] tail ";
-            matched = trie.patternMatched("ab*", algo);
+            matched = patternMatched(trie, "ab*", algo);
             checkValues(msg + "a", ImmutableList.of("ab", "abxb", "abxc"), matched.tailTrie(directComparable("a")));
             checkValues(msg + "ab", ImmutableList.of("ab", "abxb", "abxc"), matched.tailTrie(directComparable("ab")));
             checkValues(msg + "abx", ImmutableList.of("abxb", "abxc"), matched.tailTrie(directComparable("abx")));
@@ -1048,7 +1063,7 @@ public class PatternCursorTest
         {
             String msg = "a*b [algo=" + algo + "]";
             List<Map.Entry<ByteComparable.Preencoded, Trie<String>>> tails =
-                Iterables.toList(trie.patternMatched("a*b", algo).tailTries(Direction.FORWARD, x -> true));
+                Iterables.toList(patternMatched(trie, "a*b", algo).tailTries(Direction.FORWARD, x -> true));
             assertEquals(msg, ImmutableList.of("ab", "acb"), tails.stream()
                                                                 .map(e -> decode(e.getKey()))
                                                                 .collect(Collectors.toList()));
@@ -1069,7 +1084,7 @@ public class PatternCursorTest
             for (int algo : ALGO_CHOICES)
                 checkValues(pattern + " [algo=" + algo + "]",
                             matching(keys, pattern.getBytes(StandardCharsets.UTF_8)),
-                            strict.patternMatched(pattern, algo));
+                            patternMatched(strict, pattern, algo));
     }
 
     /// Delegating cursor that fails if it is asked to descend from a position on the return path.
@@ -1363,7 +1378,7 @@ public class PatternCursorTest
     private static void verifyAgainstReference(String msg, Trie<String> source, TriePattern pattern, Predicate<byte[]> reference,
                                                int algo, List<String> keys, Random rand)
     {
-        Trie<String> matched = source.patternMatched(pattern, algo);
+        Trie<String> matched = patternMatched(source, pattern, algo);
 
         for (Direction dir : Direction.values())
         {
@@ -1396,7 +1411,7 @@ public class PatternCursorTest
                 assertEquals(sliceMsg + " matched then sliced " + dir,
                              expected, toList(matched.slice(left, includeLeft, right, includeRight), dir));
                 assertEquals(sliceMsg + " sliced then matched " + dir,
-                             expected, toList(sourceSlice.patternMatched(pattern, algo), dir));
+                             expected, toList(patternMatched(sourceSlice, pattern, algo), dir));
             }
         }
 

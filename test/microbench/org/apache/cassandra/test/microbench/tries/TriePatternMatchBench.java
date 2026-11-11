@@ -41,20 +41,21 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
-/// Compares the implementations of [Trie#patternMatched]:
-///   - `Pattern64Cursor`: the state is a single long, for patterns of up to 64 bytes;
-///   - `PatternLongCursor`: the state is a `long[]`, updated with shifts and masks;
-///   - `PatternCursor`: the state is a `BitSet`, updated one active position at a time;
-///   - `FilterAll`: baseline that walks the whole trie and glob-matches every key.
+/// Measures [Trie#patternMatched], against a baseline (`FilterAll`) that walks the whole trie and glob-matches every
+/// key.
 ///
 /// The trie holds file-system-like paths (e.g. `alpha/data/node/report1234.csv`) built from a small vocabulary with a
 /// skewed distribution, so that keys share prefixes like a real directory tree. Each operation lists all matches of
 /// the pattern and returns their count.
 ///
-/// `Pattern64Cursor` cannot take patterns longer than 64 bytes, so these are benchmarked separately in
-/// [LongPatternsBench] (the JMH runner in the build stops on the first failing combination).
-///
 /// Run with `ant microbench -Dbenchmark.name=TriePatternMatchBench`.
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MICROSECONDS)
+@Warmup(iterations = 3, time = 1)
+@Measurement(iterations = 5, time = 1)
+@Fork(value = 1, jvmArgsAppend = { "-Xmx2G", "-Xms2G" })
+@Threads(1)
+@State(Scope.Benchmark)
 public class TriePatternMatchBench
 {
     static final ByteComparable.Version VERSION = ByteComparable.Version.OSS50;
@@ -68,147 +69,83 @@ public class TriePatternMatchBench
 
     static final String[] EXTENSIONS = { ".txt", ".log", ".json", ".db", ".bin", ".csv", "" };
 
-    /// Patterns supported by all implementations.
-    public static class ShortPatternsBench extends AbstractBench
+    @Param({ "alpha/beta/*",                                // prefix, branches outside it are skipped
+             "*.json",                                      // suffix, whole trie walked with few active states
+             "*/data/*.log",                                // stars around a literal segment
+             "alpha/*/report????.csv",                      // prefix, star and single-byte wildcards
+             "*a*e*i*o*u*",                                 // many stars, many active states
+             "*/????/*/????/*/????/*/????/*/????/*.txt",    // 40 positions, many active states
+             "????/data/*",                                 // no star before the literals, skipped by byte
+             "alpha/????/node/*",
+             "????/????/????/data????.log",                 // no star at all
+             "??????????????????????????????????????????????????????????????????????*",                // 71 positions
+             "*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*.txt" })  // 75 positions
+    String pattern;
+
+    @Param({ "PatternMatched", "FilterAll" })
+    String implementation;
+
+    @Param({ "1000", "100000" })
+    int count;
+
+    @Param({ "FORWARD" })
+    Direction direction;
+
+    Trie<byte[]> trie;
+    Trie<byte[]> matched;
+    byte[] patternBytes;
+
+    @Setup(Level.Trial)
+    public void setup() throws TrieSpaceExhaustedException
     {
-        @Param({ "alpha/beta/*",                                // prefix, branches outside it are skipped
-                 "*.json",                                      // suffix, whole trie walked with few active states
-                 "*/data/*.log",                                // stars around a literal segment
-                 "alpha/*/report????.csv",                      // prefix, star and single-character wildcards
-                 "*a*e*i*o*u*",                                 // many stars, many active states
-                 "*/????/*/????/*/????/*/????/*/????/*.txt" })  // 40 bytes, many active states
-        String pattern;
-
-        @Param({ "Pattern64Cursor", "PatternLongCursor", "PatternCursor", "FilterAll" })
-        String implementation;
-
-        @Override
-        String pattern()
+        InMemoryTrie<byte[]> trie = InMemoryTrie.shortLived(VERSION);
+        Random rand = new Random(1);
+        for (int i = 0; i < count; ++i)
         {
-            return pattern;
+            byte[] key = randomPath(rand).getBytes(StandardCharsets.UTF_8);
+            trie.putRecursive(ByteComparable.preencoded(VERSION, key), key, (existing, update) -> update);
+        }
+        this.trie = trie;
+
+        patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
+        switch (implementation)
+        {
+            case "PatternMatched":
+                matched = trie.patternMatched(pattern);
+                break;
+            case "FilterAll":
+                matched = null;
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown implementation " + implementation);
         }
 
-        @Override
-        String implementation()
-        {
-            return implementation;
-        }
+        int expected = filterAll();
+        int actual = matches();
+        if (actual != expected)
+            throw new AssertionError("Pattern " + pattern + " matched " + actual + " keys, expected " + expected);
+        System.out.format("Pattern %s matches %,d of %,d keys\n", pattern, expected, count);
     }
 
-    /// Patterns longer than 64 bytes, which `Pattern64Cursor` cannot handle.
-    public static class LongPatternsBench extends AbstractBench
+    @Benchmark
+    public int matches()
     {
-        @Param({ "??????????????????????????????????????????????????????????????????????*",                // 70 x ?, then *
-                 "*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*/????/*.txt" })  // 75 bytes
-        String pattern;
+        if (matched == null)
+            return filterAll();
 
-        @Param({ "PatternLongCursor", "PatternCursor", "FilterAll" })
-        String implementation;
-
-        @Override
-        String pattern()
-        {
-            return pattern;
-        }
-
-        @Override
-        String implementation()
-        {
-            return implementation;
-        }
+        int matches = 0;
+        for (byte[] ignored : matched.values(direction))
+            ++matches;
+        return matches;
     }
 
-    @BenchmarkMode(Mode.AverageTime)
-    @OutputTimeUnit(TimeUnit.MICROSECONDS)
-    @Warmup(iterations = 3, time = 1)
-    @Measurement(iterations = 5, time = 1)
-    @Fork(value = 1, jvmArgsAppend = { "-Xmx2G", "-Xms2G" })
-    @Threads(1)
-    @State(Scope.Benchmark)
-    public static abstract class AbstractBench
+    int filterAll()
     {
-        @Param({ "1000", "100000" })
-        int count;
-
-        @Param({ "FORWARD" })
-        Direction direction;
-
-        Trie<byte[]> trie;
-        Trie<byte[]> matched;
-        byte[] patternBytes;
-
-        abstract String pattern();
-
-        abstract String implementation();
-
-        @Setup(Level.Trial)
-        public void setup() throws TrieSpaceExhaustedException
-        {
-            InMemoryTrie<byte[]> trie = InMemoryTrie.shortLived(VERSION);
-            Random rand = new Random(1);
-            for (int i = 0; i < count; ++i)
-            {
-                byte[] key = randomPath(rand).getBytes(StandardCharsets.UTF_8);
-                trie.putRecursive(ByteComparable.preencoded(VERSION, key), key, (existing, update) -> update);
-            }
-            this.trie = trie;
-
-            String pattern = pattern();
-            patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
-            switch (implementation())
-            {
-                case "Pattern64Cursor":
-                    matched = trie.patternMatched(pattern, 0);
-                    break;
-                case "PatternLongCursor":
-                    matched = trie.patternMatched(pattern, 1);
-                    break;
-                case "PatternCursor":
-                    matched = trie.patternMatched(pattern, 2);
-                    break;
-                case "FilterAll":
-                    matched = null;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unknown implementation " + implementation());
-            }
-
-            if (matched != null)
-            {
-                // Make sure we are measuring the requested implementation.
-                Object cursor = matched.makeCursor(direction); // Cursor is not public, only look at its class
-                String used = cursor.getClass().getSimpleName();
-                if (!used.equals(implementation()))
-                    throw new IllegalStateException("Pattern " + pattern + " uses " + used + " instead of " + implementation());
-            }
-
-            int expected = filterAll();
-            int actual = matches();
-            if (actual != expected)
-                throw new AssertionError("Pattern " + pattern + " matched " + actual + " keys, expected " + expected);
-            System.out.format("Pattern %s matches %,d of %,d keys\n", pattern, expected, count);
-        }
-
-        @Benchmark
-        public int matches()
-        {
-            if (matched == null)
-                return filterAll();
-
-            int matches = 0;
-            for (byte[] ignored : matched.values(direction))
+        int matches = 0;
+        for (byte[] key : trie.values(direction))
+            if (globMatches(patternBytes, key))
                 ++matches;
-            return matches;
-        }
-
-        int filterAll()
-        {
-            int matches = 0;
-            for (byte[] key : trie.values(direction))
-                if (globMatches(patternBytes, key))
-                    ++matches;
-            return matches;
-        }
+        return matches;
     }
 
     static String randomPath(Random rand)

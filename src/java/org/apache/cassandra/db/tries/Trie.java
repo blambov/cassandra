@@ -336,21 +336,11 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return patternMatched(TriePattern.glob(pattern));
     }
 
-    default Trie<T> patternMatched(String pattern, int algoChoice)
-    {
-        return patternMatched(TriePattern.glob(pattern), algoChoice);
-    }
-
     /// Returns a view of this trie that only presents the content whose keys match the given pattern. Branches that
-    /// cannot match are skipped without being walked.
+    /// cannot match are skipped without being walked. See `PatternMatching.md` for a description of the algorithm.
     default Trie<T> patternMatched(TriePattern pattern)
     {
         return dir -> PatternCursor.create(cursor(dir), pattern);
-    }
-
-    default Trie<T> patternMatched(TriePattern pattern, int algoChoice)
-    {
-        return dir -> PatternCursor.create(cursor(dir), pattern, algoChoice);
     }
 
     static <T> Trie<T> empty(ByteComparable.Version byteComparableVersion)

@@ -18,84 +18,57 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.Arrays;
-import java.util.BitSet;
-
+import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-class PatternCursor<T> implements Cursor<T>
+import static org.apache.cassandra.db.tries.PatternMatcher.HAS_ANY_STRING;
+import static org.apache.cassandra.db.tries.PatternMatcher.HAS_WILDCARD;
+import static org.apache.cassandra.db.tries.PatternMatcher.MATCH;
+import static org.apache.cassandra.db.tries.PatternMatcher.MATCHES_ALL_EXTENSIONS;
+
+/// A cursor that presents the content of the source cursor whose keys match a [TriePattern], see
+/// [Trie#patternMatched(TriePattern)]. The matching is done by a [PatternMatcher] while the source is walked, which lets
+/// the cursor skip the branches of the source that cannot match. See `PatternMatching.md` for details.
+class PatternCursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 {
-    // TODO: Use skipTo on source when the state doesn't contain a wildcard position
-    // TODO: javadoc/comments
-
-
     final Cursor<T> wrapped;
-    // The pattern elements, see TriePattern.
-    final int[] elements;
+    final PatternMatcher matcher;
 
-    final int matchPosition;
-    final boolean hasTrailingStar;
+    // The depth of the current matcher state. Normally the depth of the current position, but positions below the
+    // point where a trailing star matched (see trailingStarMatchDepth) don't track the state.
+    int curDepth;
+    // The flags of the current matcher state, see PatternMatcher.flags
+    int flags;
 
-    BitSet[] statesHistory;
-
+    // When a trailing star is matched, everything below that depth matches and the state is not tracked.
     int trailingStarMatchDepth = Integer.MAX_VALUE;
-    boolean isMatch;
 
-    public static <T> Cursor<T> create(Cursor<T> wrapped, TriePattern pattern)
+    // The receiver given to advanceMultiple, to which we pass the bytes after processing them.
+    TransitionsReceiver chainedReceiver;
+
+    static <T> Cursor<T> create(Cursor<T> wrapped, TriePattern pattern)
     {
-        return create(wrapped, pattern, 0);
+        return new PatternCursor<>(wrapped, PatternMatcher.create(pattern));
     }
 
-    public static <T> Cursor<T> create(Cursor<T> wrapped, TriePattern pattern, int algoChoice)
-    {
-        if (algoChoice == 1)
-            return PatternLongCursor.create(wrapped, pattern);
-        if (algoChoice != 2 && pattern.length() < 64)
-            return Pattern64Cursor.create(wrapped, pattern);
-
-        return new PatternCursor<>(wrapped, pattern.elements);
-    }
-
-    private PatternCursor(Cursor<T> wrapped, int[] elements)
+    PatternCursor(Cursor<T> wrapped, PatternMatcher matcher)
     {
         this.wrapped = wrapped;
-        this.elements = elements;
-        hasTrailingStar = elements.length > 0 && elements[elements.length - 1] == TriePattern.ANY_STRING;
-        matchPosition = hasTrailingStar ? elements.length - 1 : elements.length;
-        statesHistory = new BitSet[32];
-        BitSet state = new BitSet(elements.length);
-        state.set(0);
-        // Entering a loop position also enters the next one, as the loop can be skipped.
-        if (elements.length > 0 && TriePattern.isLoop(elements[0]))
-            state.set(1);
-        statesHistory[0] = state;
-        isMatch = state.get(matchPosition);
-    }
-
-    private PatternCursor(PatternCursor<T> source,
-                          Cursor<T> wrappedTail)
-    {
-        this.wrapped = wrappedTail;
-        this.elements = source.elements;
-        hasTrailingStar = source.hasTrailingStar;
-        matchPosition = source.matchPosition;
-        statesHistory = new BitSet[32];
-        // Copy, because the source will reuse its state object when it moves to another node at that depth.
-        BitSet state = (BitSet) source.statesHistory[Cursor.depth(source.encodedPosition())].clone();
-        statesHistory[0] = state;
-        isMatch = state.get(matchPosition);
+        this.matcher = matcher;
+        curDepth = 0;
+        flags = matcher.flags(0);
     }
 
     @Override
     public long encodedPosition()
     {
-        return isMatch ? wrapped.encodedPosition() : wrapped.encodedPosition() & ~MAY_HAVE_CONTENT_BIT;
+        return (flags & MATCH) != 0 ? wrapped.encodedPosition() : wrapped.encodedPosition() & ~MAY_HAVE_CONTENT_BIT;
     }
 
     @Override
     public T content()
     {
-        return isMatch ? wrapped.content() : null;
+        return (flags & MATCH) != 0 ? wrapped.content() : null;
     }
 
     @Override
@@ -113,38 +86,66 @@ class PatternCursor<T> implements Cursor<T>
                 return encodedPosition;
 
             trailingStarMatchDepth = Integer.MAX_VALUE;
-            BitSet next = stateAt(depth);
-            if (depth > 0)
+            curDepth = depth;
+            // At depth 0 (the root on the return path) keep the initial (or inherited for tails) state.
+            if (depth == 0 || matcher.descend(depth, Cursor.incomingTransition(encodedPosition)))
             {
-                BitSet prev = statesHistory[depth - 1];
-                setNextState(Cursor.incomingTransition(encodedPosition), next, prev);
-            }
-
-            if (!next.isEmpty())
-            {
-                isMatch = next.get(matchPosition);
-                if (isMatch && hasTrailingStar)
+                int flags = this.flags = matcher.flags(depth);
+                if ((flags & MATCHES_ALL_EXTENSIONS) != 0)
                     trailingStarMatchDepth = depth;
-                return isMatch ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
+                return (flags & MATCH) != 0 ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
             }
 
-            encodedPosition = wrapped.skipTo(Cursor.positionForSkippingBranch(encodedPosition));
+            // No key in this branch can match. We won't end up here very often (only if there's no star in the path
+            // so far). If we do, skip to the next byte that the pattern can accept.
+            Direction direction = direction();
+            int nextByte = matcher.nextAcceptedByte(depth - 1, Cursor.incomingTransition(encodedPosition), direction);
+            encodedPosition = wrapped.skipTo(Cursor.encodeWithOverflow(depth, nextByte, direction));
         }
     }
 
     @Override
     public long advance()
     {
-        return advanceTo(wrapped.advance());
+        // if we have never seen a star, and the current position is not a wildcard, use the next pattern byte
+        if ((flags & HAS_WILDCARD) == 0)
+            return advanceToPatternByte();
+        else
+            return advanceTo(wrapped.advance());
     }
 
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
-        if (isMatch && hasTrailingStar)
-            return advanceTo(wrapped.advanceMultiple(receiver));
-        else
+        int flags = this.flags;
+        // if we have never seen a star, and the current position is not a wildcard, use the next pattern byte
+        if ((flags & HAS_WILDCARD) == 0)
+            return advanceToPatternByte();
+
+        // Only fixed-length wildcards (any byte or character) in the state, no star yet: advance one step, so that we
+        // go back to skipping by pattern byte as soon as the next pattern position is a literal.
+        if ((flags & HAS_ANY_STRING) == 0)
             return advanceTo(wrapped.advance());
+
+        // we don't need to track anything after a trailing star, only check if we have left the branch
+        if ((flags & MATCHES_ALL_EXTENSIONS) != 0)
+            return advanceTo(wrapped.advanceMultiple(receiver));
+
+        // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple,
+        // updating our state for each character.
+        chainedReceiver = receiver;
+        return advanceTo(wrapped.advanceMultiple(this));
+    }
+
+    private long advanceToPatternByte()
+    {
+        int nextByte = matcher.singleLiteral(curDepth);
+        // Don't descend if no single byte can follow (the pattern is fully matched, or more than one position is
+        // active, possible after a single-character wildcard), or if we are on the return path (in reverse direction
+        // ordered tries present prefix content after the node's children, which have already been visited).
+        if (nextByte < 0 || Cursor.isOnReturnPath(wrapped.encodedPosition()))
+            return advanceTo(wrapped.advance());
+        return advanceTo(wrapped.skipTo(Cursor.encode(curDepth + 1, nextByte, direction())));
     }
 
     @Override
@@ -153,48 +154,28 @@ class PatternCursor<T> implements Cursor<T>
         return advanceTo(wrapped.skipTo(skipPosition));
     }
 
-    private BitSet stateAt(int depth)
-    {
-        if (depth >= statesHistory.length)
-            statesHistory = Arrays.copyOf(statesHistory, statesHistory.length * 2);
-        BitSet s = statesHistory[depth];
-        if (s == null)
-            statesHistory[depth] = s = new BitSet(matchPosition + 1);
-        return s;
-    }
-
-    private void setNextState(int b, BitSet next, BitSet current)
-    {
-        next.clear();
-        // For each position that accepts the byte: set the same position if it is a loop, set the next position, and
-        // if that is a loop, also the one after it (the loop can be skipped; loops are never adjacent).
-
-        for (int i = current.previousSetBit(matchPosition); i >= 0; i = current.previousSetBit(i - 1))
-        {
-            if (i >= elements.length)
-                continue; // the match position, nothing follows it
-            int element = elements[i];
-            if (!TriePattern.accepts(element, b))
-                continue;
-
-            next.set(i + 1);
-            if (TriePattern.isLoop(element))
-            {
-                next.set(i);
-                // A star accepts everything that any earlier position can, there's no need to process them.
-                if (element == TriePattern.ANY_STRING)
-                    return;
-            }
-            else if (i + 1 < elements.length && TriePattern.isLoop(elements[i + 1]))
-                next.set(i + 2);
-        }
-    }
-
     @Override
     public Cursor<T> tailCursor(Direction direction)
     {
-        if (isMatch && hasTrailingStar)
+        if ((flags & MATCHES_ALL_EXTENSIONS) != 0)
             return wrapped.tailCursor(direction);
-        return new PatternCursor(this, wrapped.tailCursor(direction));
+        return new PatternCursor<>(wrapped.tailCursor(direction), matcher.tail(curDepth));
+    }
+
+    @Override
+    public void addPathByte(int nextByte)
+    {
+        matcher.descend(++curDepth, nextByte);
+        if (chainedReceiver != null)
+            chainedReceiver.addPathByte(nextByte);
+    }
+
+    @Override
+    public void addPathBytes(DirectBuffer buffer, int pos, int count)
+    {
+        matcher.descend(curDepth + 1, buffer, pos, count);
+        curDepth += count;
+        if (chainedReceiver != null)
+            chainedReceiver.addPathBytes(buffer, pos, count);
     }
 }
