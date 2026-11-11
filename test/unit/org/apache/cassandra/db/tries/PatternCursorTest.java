@@ -957,8 +957,7 @@ public class PatternCursorTest
         assertImplementation(PatternLongCursor.class, trie, p64, 1);
         assertImplementation(PatternCursor.class, trie, p64, 2);
 
-        // A trailing star does not need a state bit of its own, so 64 positions still fit.
-        assertImplementation(Pattern64Cursor.class, trie, p64Star, 0);
+        assertImplementation(PatternCursor.class, trie, p64Star, 0);
         assertImplementation(PatternLongCursor.class, trie, p64Star, 1);
         assertImplementation(PatternCursor.class, trie, p64Star, 2);
 

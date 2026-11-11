@@ -20,9 +20,10 @@ package org.apache.cassandra.db.tries;
 
 import java.util.Arrays;
 
+import org.agrona.DirectBuffer;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-class Pattern64Cursor<T> implements Cursor<T>
+class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 {
     // TODO: javadoc/comments
 
@@ -34,16 +35,17 @@ class Pattern64Cursor<T> implements Cursor<T>
     final long[] patternMatch;
 
     final long matchBit;
-    final boolean hasTrailingStar;
 
     long[] statesHistory;
+    long currentState;
     boolean isMatch;
 
-    int trailingStarMatchDepth = Integer.MAX_VALUE;
+    TransitionsReceiver chainedReceiver;
+    int curDepth;
 
     public static <T> Pattern64Cursor<T> create(Cursor<T> wrapped, byte[] patternBytes)
     {
-        assert patternBytes.length < 64 || patternBytes.length == 64 && patternBytes[63] == '*';
+        assert patternBytes.length < 64;
         long isWildcard = 0;
         long isStar = 0;
         long[] patternMatch = new long[256];
@@ -75,17 +77,19 @@ class Pattern64Cursor<T> implements Cursor<T>
         this.wrapped = wrapped;
         this.isStar = isStar;
         this.patternMatch = patternMatch;
-        hasTrailingStar = pattern.length > 0 && get(isStar, pattern.length - 1);
-        matchBit = 1L << (hasTrailingStar ? pattern.length - 1 : pattern.length);
+        matchBit = 1L << pattern.length;
         statesHistory = new long[32];
         long state = 1 | (isStar & 1) << 1;
         statesHistory[0] = state;
-        isMatch = (state & matchBit) != 0;
+        curDepth = 0;
+        setMatchFields(state);
     }
 
-    private static boolean get(long mask, int index)
+    private void setMatchFields(long state)
     {
-        return (mask & (1L << index)) != 0;
+        assert state != 0;
+        currentState = state;
+        isMatch = (state & matchBit) != 0;
     }
 
     private Pattern64Cursor(Pattern64Cursor<T> source,
@@ -94,12 +98,12 @@ class Pattern64Cursor<T> implements Cursor<T>
         this.wrapped = wrappedTail;
         this.isStar = source.isStar;
         this.patternMatch = source.patternMatch;
-        hasTrailingStar = source.hasTrailingStar;
         matchBit = source.matchBit;
         statesHistory = new long[32];
         long state = source.statesHistory[Cursor.depth(source.encodedPosition())];
         statesHistory[0] = state;
-        isMatch = (state & matchBit) != 0;
+        curDepth = 0;
+        setMatchFields(state);
     }
 
     @Override
@@ -122,35 +126,32 @@ class Pattern64Cursor<T> implements Cursor<T>
 
     private long advanceTo(long encodedPosition)
     {
+        if ((currentState & isStar & matchBit) != 0)
+            return encodedPosition;
+
         while (true)
         {
-            int depth = Cursor.depth(encodedPosition);
-            if (depth > trailingStarMatchDepth || depth < 0)
+            int depth = curDepth = Cursor.depth(encodedPosition);
+            if (depth < 0)
                 return encodedPosition;
 
-            trailingStarMatchDepth = Integer.MAX_VALUE;
             long next;
             long prev = 0;
             if (depth > 0)
             {
                 prev = statesHistory[depth - 1];
-                next = setNextState(Cursor.incomingTransition(encodedPosition), prev);
+                next = advanceWith(prev, Cursor.incomingTransition(encodedPosition), depth);
             }
             else
                 next = statesHistory[0]; // root return path, keep the initial (or inherited for tails) state
-            if (depth >= statesHistory.length)
-                statesHistory = Arrays.copyOf(statesHistory, statesHistory.length * 2);
-            statesHistory[depth] = next;
 
             if (next != 0)
             {
-                isMatch = (next & matchBit) != 0;
-                if (isMatch && hasTrailingStar)
-                    trailingStarMatchDepth = depth;
+                setMatchFields(next);
                 return isMatch ? encodedPosition : encodedPosition & ~MAY_HAVE_CONTENT_BIT;
             }
 
-            // We won't end up here very often (only if there's no previous star). If we do, skip to a byte that is
+            // We won't end up here very often (only if there's no star match). If we do, skip to a byte that is
             // allowed by the pattern.
             int nextByte = Cursor.incomingTransition(encodedPosition);
             Direction direction = direction();
@@ -164,6 +165,15 @@ class Pattern64Cursor<T> implements Cursor<T>
         }
     }
 
+    private long advanceWith(long prev, int transition, int depth)
+    {
+        long next = setNextState(transition, prev);
+        if (depth >= statesHistory.length)
+            statesHistory = Arrays.copyOf(statesHistory, statesHistory.length * 2);
+        statesHistory[depth] = next;
+        return next;
+    }
+
     @Override
     public long advance()
     {
@@ -173,8 +183,12 @@ class Pattern64Cursor<T> implements Cursor<T>
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
-        if (isMatch && hasTrailingStar)
-            return advanceTo(wrapped.advanceMultiple(receiver));
+        // If there is a star in our state, we have to walk the full trie, so take advantage of advanceMultiple.
+        if ((currentState & isStar) != 0)
+        {
+            chainedReceiver = receiver;
+            return advanceTo(wrapped.advanceMultiple(this));
+        }
         else
             return advanceTo(wrapped.advance());
     }
@@ -197,8 +211,25 @@ class Pattern64Cursor<T> implements Cursor<T>
     @Override
     public Cursor<T> tailCursor(Direction direction)
     {
-        if (isMatch && hasTrailingStar)
+        if ((currentState & isStar & matchBit) != 0)
             return wrapped.tailCursor(direction);
         return new Pattern64Cursor(this, wrapped.tailCursor(direction));
+    }
+
+    @Override
+    public void addPathByte(int nextByte)
+    {
+        currentState = advanceWith(currentState, nextByte, ++curDepth);
+        if (chainedReceiver != null)
+            chainedReceiver.addPathByte(nextByte);
+    }
+
+    @Override
+    public void addPathBytes(DirectBuffer buffer, int pos, int count)
+    {
+        for (int i = 0; i < count; ++i)
+            currentState = advanceWith(currentState, buffer.getByte(pos + i) & 0xFF, ++curDepth);
+        if (chainedReceiver != null)
+            chainedReceiver.addPathBytes(buffer, pos, count);
     }
 }

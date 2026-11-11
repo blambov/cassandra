@@ -68,7 +68,7 @@ class PatternCursor<T> implements Cursor<T>
         byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
         if (algoChoice == 1)
             return PatternLongCursor.create(wrapped, patternBytes);
-        if (algoChoice != 2 && (patternBytes.length < 64 || patternBytes.length == 64 && patternBytes[63] == '*'))
+        if (algoChoice != 2 && patternBytes.length < 64)
             return Pattern64Cursor.create(wrapped, patternBytes);
 
         BitSet isWildcard = new BitSet(patternBytes.length);
