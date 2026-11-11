@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.BitSet;
 
@@ -26,19 +25,13 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 class PatternCursor<T> implements Cursor<T>
 {
-    // TODO: Handle UTF8 multi-byte characters
-    // TODO: Escaping and SQL % and _ wildcards
     // TODO: Use skipTo on source when the state doesn't contain a wildcard position
     // TODO: javadoc/comments
 
 
     final Cursor<T> wrapped;
-    // The pattern bytes, unescaped. Ignored for wildcard positions.
-    final byte[] pattern;
-    // Whether we have a wildcard at this position (*/% or ?/_)
-    final BitSet isWildcard;
-    // Whether the wildcard is a * (% in SQL like syntax)
-    final BitSet isStar;
+    // The pattern elements, see TriePattern.
+    final int[] elements;
 
     final int matchPosition;
     final boolean hasTrailingStar;
@@ -48,59 +41,32 @@ class PatternCursor<T> implements Cursor<T>
     int trailingStarMatchDepth = Integer.MAX_VALUE;
     boolean isMatch;
 
-    public static <T> Cursor<T> create(Cursor<T> wrapped, String pattern)
+    public static <T> Cursor<T> create(Cursor<T> wrapped, TriePattern pattern)
     {
         return create(wrapped, pattern, 0);
     }
 
-    public static <T> Cursor<T> create(Cursor<T> wrapped, String pattern, int algoChoice)
+    public static <T> Cursor<T> create(Cursor<T> wrapped, TriePattern pattern, int algoChoice)
     {
-        // We can do some trivial optimizations (move ? before *, collapse multiple stars)
-        String simplified = pattern;
-        do
-        {
-            pattern = simplified;
-            simplified = pattern.replaceAll("\\*+(\\?*)", "$1*");
-        }
-        while (!simplified.equals(pattern));
-
-        // POC without escaping
-        byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
         if (algoChoice == 1)
-            return PatternLongCursor.create(wrapped, patternBytes);
-        if (algoChoice != 2 && patternBytes.length < 64)
-            return Pattern64Cursor.create(wrapped, patternBytes);
+            return PatternLongCursor.create(wrapped, pattern);
+        if (algoChoice != 2 && pattern.length() < 64)
+            return Pattern64Cursor.create(wrapped, pattern);
 
-        BitSet isWildcard = new BitSet(patternBytes.length);
-        BitSet isStar = new BitSet(patternBytes.length);
-        for (int i = 0; i < patternBytes.length; ++i)
-        {
-            if (patternBytes[i] == '*')
-            {
-                isStar.set(i);
-                isWildcard.set(i);
-            }
-            else if (patternBytes[i] == '?')
-                isWildcard.set(i);
-        }
-        return new PatternCursor<>(wrapped, patternBytes, isWildcard, isStar);
+        return new PatternCursor<>(wrapped, pattern.elements);
     }
 
-    private PatternCursor(Cursor<T> wrapped,
-                          byte[] pattern,
-                          BitSet isWildcard,
-                          BitSet isStar)
+    private PatternCursor(Cursor<T> wrapped, int[] elements)
     {
         this.wrapped = wrapped;
-        this.pattern = pattern;
-        this.isWildcard = isWildcard;
-        this.isStar = isStar;
-        hasTrailingStar = pattern.length > 0 && isStar.get(pattern.length - 1);
-        matchPosition = hasTrailingStar ? pattern.length - 1 : pattern.length;
+        this.elements = elements;
+        hasTrailingStar = elements.length > 0 && elements[elements.length - 1] == TriePattern.ANY_STRING;
+        matchPosition = hasTrailingStar ? elements.length - 1 : elements.length;
         statesHistory = new BitSet[32];
-        BitSet state = new BitSet(pattern.length);
+        BitSet state = new BitSet(elements.length);
         state.set(0);
-        if (isStar.get(0))
+        // Entering a loop position also enters the next one, as the loop can be skipped.
+        if (elements.length > 0 && TriePattern.isLoop(elements[0]))
             state.set(1);
         statesHistory[0] = state;
         isMatch = state.get(matchPosition);
@@ -110,9 +76,7 @@ class PatternCursor<T> implements Cursor<T>
                           Cursor<T> wrappedTail)
     {
         this.wrapped = wrappedTail;
-        this.pattern = source.pattern;
-        this.isWildcard = source.isWildcard;
-        this.isStar = source.isStar;
+        this.elements = source.elements;
         hasTrailingStar = source.hasTrailingStar;
         matchPosition = source.matchPosition;
         statesHistory = new BitSet[32];
@@ -202,28 +166,27 @@ class PatternCursor<T> implements Cursor<T>
     private void setNextState(int b, BitSet next, BitSet current)
     {
         next.clear();
-        // next = current & isStar | (current & isWildcard | (current << 1) & isStar | current & compare(b, pattern) << 1)
+        // For each position that accepts the byte: set the same position if it is a loop, set the next position, and
+        // if that is a loop, also the one after it (the loop can be skipped; loops are never adjacent).
 
         for (int i = current.previousSetBit(matchPosition); i >= 0; i = current.previousSetBit(i - 1))
         {
-            if (isWildcard.get(i))
+            if (i >= elements.length)
+                continue; // the match position, nothing follows it
+            int element = elements[i];
+            if (!TriePattern.accepts(element, b))
+                continue;
+
+            next.set(i + 1);
+            if (TriePattern.isLoop(element))
             {
-                next.set(i + 1);
-                if (isStar.get(i))
-                {
-                    next.set(i);
-                    // There's no need to process anything further as all previous structure has already been matched.
+                next.set(i);
+                // A star accepts everything that any earlier position can, there's no need to process them.
+                if (element == TriePattern.ANY_STRING)
                     return;
-                }
-                else if (isStar.get(i + 1))
-                    next.set(i + 2);
             }
-            else if (i < pattern.length && (pattern[i] & 0xFF) == b)
-            {
-                next.set(i + 1);
-                if (isStar.get(i + 1))
-                    next.set(i + 2);
-            }
+            else if (i + 1 < elements.length && TriePattern.isLoop(elements[i + 1]))
+                next.set(i + 2);
         }
     }
 

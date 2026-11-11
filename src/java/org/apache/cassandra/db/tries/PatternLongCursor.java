@@ -31,8 +31,8 @@ class PatternLongCursor<T> implements Cursor<T>
 
     final Cursor<T> wrapped;
     final int numLongs;
-    // Whether the wildcard is a * (% in SQL like syntax)
-    final long[] isStar;
+    // Positions that can be repeated (any-string wildcards and UTF-8 continuation loops)
+    final long[] isLoop;
     // Which positions are a match for the given byte (taking wildcards into account)
     final long[][] patternMatch;
 
@@ -44,69 +44,57 @@ class PatternLongCursor<T> implements Cursor<T>
 
     int trailingStarMatchDepth = Integer.MAX_VALUE;
 
-    public static <T> PatternLongCursor<T> create(Cursor<T> wrapped, byte[] patternBytes)
+    public static <T> PatternLongCursor<T> create(Cursor<T> wrapped, TriePattern pattern)
     {
-        int length = patternBytes.length;
-        boolean hasTrailingStar = length > 0 && patternBytes[length - 1] == '*';
+        int[] elements = pattern.elements;
+        int length = elements.length;
+        boolean hasTrailingStar = length > 0 && elements[length - 1] == TriePattern.ANY_STRING;
         if (hasTrailingStar)
             --length;
-        int numBytes = Integer.divideUnsigned(length, 64) + 1;
-        long[] isWildcard = new long[numBytes];
-        long[] isStar = new long[numBytes];
+        int numLongs = Integer.divideUnsigned(length, 64) + 1;
+        long[] isLoop = new long[numLongs];
         long[][] patternMatch = new long[256][];
-        long bit = 1;
-        int pos = 0;
-        for (int i = 0; i < patternBytes.length; ++i)
+        for (int i = 0; i < elements.length; ++i)
         {
-            int patternByte = patternBytes[i] & 0xFF;
-            if (patternByte == '*')
+            int element = elements[i];
+            int pos = i >>> 6;
+            long bit = 1L << (i & 63);
+            if (TriePattern.isLoop(element))
+                isLoop[pos] |= bit;
+            for (int b = 0; b < 256; ++b)
             {
-                isStar[pos] |= bit;
-                isWildcard[pos] |= bit;
-            }
-            else if (patternByte == '?')
-                isWildcard[pos] |= bit;
-            else
-            {
-                long[] patternEntry = patternMatch[patternByte];
-                if (patternEntry == null)
-                    patternMatch[patternByte] = patternEntry = new long[numBytes];
-                patternEntry[pos] |= bit;
-            }
-
-            bit <<= 1;
-            if (bit == 0)
-            {
-                ++pos;
-                bit = 1;
+                if (TriePattern.accepts(element, b))
+                {
+                    long[] patternEntry = patternMatch[b];
+                    if (patternEntry == null)
+                        patternMatch[b] = patternEntry = new long[numLongs];
+                    patternEntry[pos] |= bit;
+                }
             }
         }
-        for (int i = 0; i < 256; ++i)
-        {
-            long[] patternEntry = patternMatch[i];
-            if (patternEntry == null)
-                patternMatch[i] = isWildcard;
-            else for (int j = 0; j < numBytes; ++j)
-                patternEntry[j] |= isWildcard[j];
-        }
-        return new PatternLongCursor<>(wrapped, length, hasTrailingStar, isStar, patternMatch);
+        long[] noMatch = new long[numLongs];
+        for (int b = 0; b < 256; ++b)
+            if (patternMatch[b] == null)
+                patternMatch[b] = noMatch;
+        return new PatternLongCursor<>(wrapped, length, hasTrailingStar, isLoop, patternMatch);
     }
 
     private PatternLongCursor(Cursor<T> wrapped,
                             int length,
                             boolean hasTrailingStar,
-                            long[] isStar,
+                            long[] isLoop,
                             long[][] patternMatch)
     {
         this.wrapped = wrapped;
-        this.isStar = isStar;
+        this.isLoop = isLoop;
         this.patternMatch = patternMatch;
         this.hasTrailingStar = hasTrailingStar;
-        this.numLongs = isStar.length;
+        this.numLongs = isLoop.length;
         matchBit = 1L << (length % 64); // bit position in the last long
         statesHistory = new long[32][];
         statesHistory[0] = new long[numLongs];
-        long state = 1 | (isStar[0] & 1) << 1;
+        // Entering a loop position also enters the next one, as the loop can be skipped.
+        long state = 1 | (isLoop[0] & 1) << 1;
         statesHistory[0][0] = state;
         isMatch = (statesHistory[0][numLongs - 1] & matchBit) != 0;
     }
@@ -115,7 +103,7 @@ class PatternLongCursor<T> implements Cursor<T>
                             Cursor<T> wrappedTail)
     {
         this.wrapped = wrappedTail;
-        this.isStar = source.isStar;
+        this.isLoop = source.isLoop;
         this.patternMatch = source.patternMatch;
         this.hasTrailingStar = source.hasTrailingStar;
         this.numLongs = source.numLongs;
@@ -208,9 +196,10 @@ class PatternLongCursor<T> implements Cursor<T>
 
     private boolean setNextState(int b, long[] next, long[] current)
     {
-        // set same bit if isStar
-        // set next bit if isWildcard or byte is a match (both encoded in patternMatch)
-        // if next bit gets set, also set one after next if next char is a star
+        // positions that accept the byte (wildcards included, all encoded in patternMatch):
+        // - set the same bit if the position is a loop
+        // - set the next bit
+        // - if the next bit is a loop, also set the one after it (the loop can be skipped)
         long carry = 0;
         long sum = 0;
         long[] byteMatch = patternMatch[b];
@@ -218,9 +207,9 @@ class PatternLongCursor<T> implements Cursor<T>
         {
             long match = current[i] & byteMatch[i];
             long matchShifted = match << 1 | carry;
-            long nextIsStar = matchShifted & isStar[i]; // matchShifted also has the effect of nextIsStar, but this is okay because we don't have double stars
-            sum |= next[i] = current[i] & isStar[i] | matchShifted | nextIsStar << 1;
-            carry = (match | nextIsStar) >>> 63;
+            long nextIsLoop = matchShifted & isLoop[i]; // matchShifted also has the effect of nextIsLoop, but this is okay because loops are never adjacent
+            sum |= next[i] = match & isLoop[i] | matchShifted | nextIsLoop << 1;
+            carry = (match | nextIsLoop) >>> 63;
         }
         return sum != 0;
     }

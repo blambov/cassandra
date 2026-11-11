@@ -329,12 +329,26 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return dir -> new ContentMappingCursor.Plain<>(mapper, cursor(dir));
     }
 
+    /// Returns a view of this trie that only presents the content whose keys match the given glob pattern, where `*`
+    /// matches any sequence of bytes and `?` matches any single byte (see [TriePattern#glob]).
     default Trie<T> patternMatched(String pattern)
+    {
+        return patternMatched(TriePattern.glob(pattern));
+    }
+
+    default Trie<T> patternMatched(String pattern, int algoChoice)
+    {
+        return patternMatched(TriePattern.glob(pattern), algoChoice);
+    }
+
+    /// Returns a view of this trie that only presents the content whose keys match the given pattern. Branches that
+    /// cannot match are skipped without being walked.
+    default Trie<T> patternMatched(TriePattern pattern)
     {
         return dir -> PatternCursor.create(cursor(dir), pattern);
     }
 
-    default Trie<T> patternMatched(String pattern, int algoChoice)
+    default Trie<T> patternMatched(TriePattern pattern, int algoChoice)
     {
         return dir -> PatternCursor.create(cursor(dir), pattern, algoChoice);
     }

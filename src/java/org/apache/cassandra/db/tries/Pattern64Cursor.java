@@ -29,13 +29,16 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 
 
     final Cursor<T> wrapped;
+    // Positions that are not a literal byte
     final long isWildcard;
-    // Whether the wildcard is a * (% in SQL like syntax)
+    // Positions that can be repeated (any-string wildcards and UTF-8 continuation loops)
+    final long isLoop;
+    // Positions that are any-string wildcards (* in glob, % in SQL like syntax)
     final long isStar;
     // Which positions are a match for the given byte (taking wildcards into account)
     final long[] patternMatch;
-    // pattern copy (for skipping on no match)
-    final byte[] pattern;
+    // pattern elements (for skipping to the next literal byte)
+    final int[] elements;
 
     final long matchBit;
 
@@ -47,49 +50,55 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     int curDepth;
     int trailingStarMatchDepth = Integer.MAX_VALUE;
 
-    public static <T> Pattern64Cursor<T> create(Cursor<T> wrapped, byte[] patternBytes)
+    public static <T> Pattern64Cursor<T> create(Cursor<T> wrapped, TriePattern pattern)
     {
-        assert patternBytes.length < 64;
+        int[] elements = pattern.elements;
+        assert elements.length < 64;
         long isWildcard = 0;
+        long isLoop = 0;
         long isStar = 0;
         long[] patternMatch = new long[256];
         long bit = 1;
-        for (int i = 0; i < patternBytes.length; ++i)
+        for (int element : elements)
         {
-            int patternByte = patternBytes[i] & 0xFF;
-            if (patternByte == '*')
-            {
-                isStar |= bit;
-                isWildcard |= bit;
-            }
-            else if (patternByte == '?')
-                isWildcard |= bit;
+            if (TriePattern.isLiteral(element))
+                patternMatch[element] |= bit;
             else
-                patternMatch[patternByte] |= bit;
+            {
+                isWildcard |= bit;
+                if (TriePattern.isLoop(element))
+                    isLoop |= bit;
+                if (element == TriePattern.ANY_STRING)
+                    isStar |= bit;
+                for (int b = 0; b < 256; ++b)
+                    if (TriePattern.accepts(element, b))
+                        patternMatch[b] |= bit;
+            }
             bit <<= 1;
         }
-        for (int i = 0; i < 256; ++i)
-            patternMatch[i] |= isWildcard;
-        return new Pattern64Cursor<>(wrapped, patternBytes, isStar, isWildcard, patternMatch);
+        return new Pattern64Cursor<>(wrapped, elements, isStar, isLoop, isWildcard, patternMatch);
     }
 
     private Pattern64Cursor(Cursor<T> wrapped,
-                            byte[] pattern,
+                            int[] elements,
                             long isStar,
+                            long isLoop,
                             long isWildcard,
                             long[] patternMatch)
     {
         this.wrapped = wrapped;
         this.isWildcard = isWildcard;
+        this.isLoop = isLoop;
         this.isStar = isStar;
         this.patternMatch = patternMatch;
-        this.pattern = pattern;
-        long matchBit = 1L << pattern.length;
+        this.elements = elements;
+        long matchBit = 1L << elements.length;
         if ((isStar & matchBit >>> 1) != 0)
             matchBit >>>= 1; // we can end early on trailing stars
         this.matchBit = matchBit;
         statesHistory = new long[32];
-        long state = 1 | (isStar & 1) << 1;
+        // Entering a loop position also enters the next one, as the loop can be skipped.
+        long state = 1 | (isLoop & 1) << 1;
         statesHistory[0] = state;
         curDepth = 0;
         setMatchFields(state);
@@ -107,9 +116,10 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     {
         this.wrapped = wrappedTail;
         this.isStar = source.isStar;
+        this.isLoop = source.isLoop;
         this.isWildcard = source.isWildcard;
         this.patternMatch = source.patternMatch;
-        this.pattern = source.pattern;
+        this.elements = source.elements;
         matchBit = source.matchBit;
         statesHistory = new long[32];
         long state = source.statesHistory[Cursor.depth(source.encodedPosition())];
@@ -164,24 +174,42 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
             }
 
             // We won't end up here very often (only if there's no star in the path so far). If we do, skip to the next
-            // byte of the pattern (note that this can't be a wildcard, otherwise we wouldn't reach this path).
+            // byte that the pattern can accept.
             encodedPosition = wrapped.skipTo(nextPatternPosition(encodedPosition, prev, depth));
         }
     }
 
     private long nextPatternPosition(long encodedPosition, long prev, int depth)
     {
-        int patternPos = Long.numberOfTrailingZeros(prev);
         Direction direction = direction();
-        if (patternPos < pattern.length)
+        int currentByte = Cursor.incomingTransition(encodedPosition);
+        int nextByte = direction.select(256, -1);
+        if ((prev & isWildcard) == 0)
         {
-            int nextByte = pattern[patternPos] & 0xFF;
-            long nextPosition = Cursor.encode(depth, nextByte, direction);
-            if (Cursor.compare(nextPosition, encodedPosition) > 0) // can't be 0
-                return nextPosition;
+            // Only literal positions are active (usually just one): the next candidate is the closest of their bytes.
+            for (long bits = prev; bits != 0; bits &= bits - 1)
+            {
+                int patternPos = Long.numberOfTrailingZeros(bits);
+                if (patternPos >= elements.length)
+                    continue; // match position, nothing can follow it
+                int b = elements[patternPos];
+                if (direction.lt(currentByte, b) && direction.lt(b, nextByte))
+                    nextByte = b;
+            }
+        }
+        else
+        {
+            // A byte class of a single-character wildcard is active (any-byte and any-string wildcards accept
+            // everything, so they can't be). Look for the next byte any of the active positions accepts.
+            nextByte = currentByte;
+            do
+            {
+                nextByte += direction.increase;
+            }
+            while (direction.inLoop(nextByte, 0, 255) && (patternMatch[nextByte] & prev) == 0);
         }
 
-        return Cursor.encodeWithOverflow(depth, direction.select(256, -1), direction);
+        return Cursor.encodeWithOverflow(depth, nextByte, direction);
     }
 
     private long advanceWith(long prev, int transition, int depth)
@@ -210,8 +238,8 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
         if ((currentState & isWildcard) == 0)
             return advanceToPatternByte();
 
-        // Only ? wildcards in the state (no star yet): advance one step, so that we go back to skipping by pattern
-        // byte as soon as the next pattern position is a literal.
+        // Only fixed-length wildcards (any byte or character) in the state, no star yet: advance one step, so that we
+        // go back to skipping by pattern byte as soon as the next pattern position is a literal.
         if ((currentState & isStar) == 0)
             return advanceTo(wrapped.advance());
 
@@ -228,12 +256,15 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
     private long advanceToPatternByte()
     {
         int patternPos = Long.numberOfTrailingZeros(currentState);
-        // Don't descend if the pattern is fully matched, or if we are on the return path (in reverse direction ordered
-        // tries present prefix content after the node's children, which have already been visited).
-        if (patternPos >= pattern.length || Cursor.isOnReturnPath(wrapped.encodedPosition()))
+        // Don't descend if the pattern is fully matched, if more than one position is active (possible after a
+        // single-character wildcard), or if we are on the return path (in reverse direction ordered tries present
+        // prefix content after the node's children, which have already been visited).
+        if (patternPos >= elements.length
+            || (currentState & (currentState - 1)) != 0
+            || Cursor.isOnReturnPath(wrapped.encodedPosition()))
             return advanceTo(wrapped.advance());
         Direction direction = direction();
-        int nextByte = pattern[patternPos] & 0xFF;
+        int nextByte = elements[patternPos];
         long skipPosition = Cursor.encode(++curDepth, nextByte, direction);
         return advanceTo(wrapped.skipTo(skipPosition));
     }
@@ -246,11 +277,12 @@ class Pattern64Cursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
 
     private long setNextState(int b, long current)
     {
-        // set same bit if isStar
-        // set next bit if isWildcard or byte is a match (both encoded in patternMatch)
-        // if next bit gets set, also set one after next if next char is a star
+        // positions that accept the byte (wildcards included, all encoded in patternMatch):
+        // - set the same bit if the position is a loop
+        // - set the next bit
+        // - if the next bit is a loop, also set the one after it (the loop can be skipped; loops are never adjacent)
         long match = current & patternMatch[b];
-        return current & isStar | (match | (match << 1 & isStar)) << 1;
+        return match & isLoop | (match | (match << 1 & isLoop)) << 1;
     }
 
     @Override

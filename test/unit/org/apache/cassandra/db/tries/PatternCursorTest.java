@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableList;
@@ -38,6 +39,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.quicktheories.QuickTheory.qt;
@@ -1155,25 +1157,217 @@ public class PatternCursorTest
             checkRandomCase(rand, "seed " + SEED + " long case " + i, "ab", 25, 140);
     }
 
+    @Test
+    public void testTriePatternNormalization()
+    {
+        // Runs of stars collapse, and any-byte wildcards move before them.
+        assertEquals(TriePattern.glob("?*"), TriePattern.glob("*?"));
+        assertEquals(TriePattern.glob("a*"), TriePattern.glob("a**"));
+        assertEquals(TriePattern.glob("a??*b"), TriePattern.glob("a*?*?b"));
+
+        // A character is a start byte and a loop of continuation bytes, which a following star makes unnecessary.
+        // Characters don't move before stars: after an any-byte wildcard `*_` and `_*` are different.
+        assertArrayEquals(new int[]{ 'a', TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, 'b' },
+                          TriePattern.builder().literal("a").anyChar().literal("b").build().elements);
+        assertArrayEquals(new int[]{ TriePattern.ANY_STRING, TriePattern.CHAR_START, TriePattern.ANY_STRING,
+                                     TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION },
+                          TriePattern.builder().anyString().anyChar().anyString().anyString().anyChar().build().elements);
+        assertArrayEquals(new int[]{ TriePattern.ANY_BYTE, TriePattern.ANY_STRING, TriePattern.CHAR_START, TriePattern.ANY_STRING },
+                          TriePattern.builder().anyString().anyByte().anyChar().anyString().build().elements);
+        // After a character, the next element must not accept its continuation bytes.
+        assertArrayEquals(new int[]{ TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, TriePattern.CHAR_START },
+                          TriePattern.builder().anyChar().anyByte().build().elements);
+        assertArrayEquals(new int[]{ TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, TriePattern.NONE },
+                          TriePattern.builder().anyChar().literal((byte) 0xA9).build().elements);
+
+        // Literals are never wildcards.
+        assertArrayEquals(new int[]{ '*', '?', '_', '%' }, TriePattern.builder().literal("*?_%").build().elements);
+        assertArrayEquals(new int[]{ 0xC3, 0xA9 }, TriePattern.builder().literal("é").build().elements);
+    }
+
+    /// Patterns with any-character wildcards over UTF-8 keys whose characters have all encoding lengths: the wildcard
+    /// must match a whole character, and literal `*` and `?` must only match themselves. The reference matcher takes
+    /// the length of each character from the UTF-8 encoding of its first byte.
+    @Test
+    public void testRandomUtf8Patterns() throws TrieSpaceExhaustedException
+    {
+        String[] alphabet = { "a", "b", "*", "?", "é", "€", "😀" }; // 1, 1, 1, 1, 2, 3 and 4 bytes
+        Random rand = new Random(SEED + 2);
+        for (int i = 0; i < 200; ++i)
+        {
+            // Long patterns of multi-byte characters need more than 64 positions and are served by the long cursors.
+            int length = rand.nextInt(4) == 0 ? 20 + rand.nextInt(20) : rand.nextInt(8);
+            TriePattern.Builder builder = TriePattern.builder();
+            List<Integer> tokens = new ArrayList<>(); // the pattern for the reference matcher
+            List<List<String>> keyParts = new ArrayList<>(); // choices of key text for each pattern element
+            for (int j = 0; j < length; ++j)
+            {
+                int r = rand.nextInt(20);
+                if (r < 3)
+                {
+                    builder.anyString();
+                    tokens.add(REF_ANY_STRING);
+                    keyParts.add(null);
+                }
+                else if (r < 7)
+                {
+                    builder.anyChar();
+                    tokens.add(REF_ANY_CHAR);
+                    keyParts.add(Arrays.asList(alphabet));
+                }
+                else if (r < 8)
+                {
+                    builder.anyByte();
+                    tokens.add(REF_ANY_BYTE);
+                    keyParts.add(ImmutableList.of("a", "*")); // a single byte, to keep the key valid UTF-8
+                }
+                else
+                {
+                    String literal = alphabet[rand.nextInt(alphabet.length)];
+                    builder.literal(literal);
+                    for (byte b : literal.getBytes(StandardCharsets.UTF_8))
+                        tokens.add(b & 0xFF);
+                    keyParts.add(ImmutableList.of(literal));
+                }
+            }
+            TriePattern pattern = builder.build();
+            List<String> keys = randomUtf8Keys(rand, keyParts, alphabet);
+
+            String context = "seed " + SEED + " UTF-8 case " + i + " pattern " + pattern;
+            for (Map.Entry<String, Trie<String>> source : randomSources(rand, keys).entrySet())
+                for (int algo : ALGO_CHOICES)
+                    verifyAgainstReference(context + " " + source.getKey() + " [algo=" + algo + "]",
+                                           source.getValue(), pattern, key -> referenceMatches(tokens, key),
+                                           algo, keys, rand);
+        }
+    }
+
+    // Tokens of the reference matcher; values 0-255 are literal bytes.
+    private static final int REF_ANY_BYTE = -1;
+    private static final int REF_ANY_STRING = -2;
+    private static final int REF_ANY_CHAR = -3;
+
+    /// Reference matcher of the tokens against the whole key, by dynamic programming over (token, key position).
+    private static boolean referenceMatches(List<Integer> tokens, byte[] key)
+    {
+        int t = tokens.size();
+        int k = key.length;
+        // matches[i][j]: whether tokens from i match the key bytes from j
+        boolean[][] matches = new boolean[t + 1][k + 1];
+        matches[t][k] = true;
+        for (int i = t - 1; i >= 0; --i)
+        {
+            int token = tokens.get(i);
+            for (int j = k; j >= 0; --j)
+            {
+                switch (token)
+                {
+                    case REF_ANY_STRING:
+                        matches[i][j] = matches[i + 1][j] || j < k && matches[i][j + 1];
+                        break;
+                    case REF_ANY_BYTE:
+                        matches[i][j] = j < k && matches[i + 1][j + 1];
+                        break;
+                    case REF_ANY_CHAR:
+                    {
+                        int length = j < k ? utf8Length(key, j) : -1;
+                        matches[i][j] = length > 0 && matches[i + 1][j + length];
+                        break;
+                    }
+                    default:
+                        matches[i][j] = j < k && (key[j] & 0xFF) == token && matches[i + 1][j + 1];
+                }
+            }
+        }
+        return matches[0][0];
+    }
+
+    /// The length of the UTF-8 character starting at the given position, or -1 if there isn't a valid one.
+    private static int utf8Length(byte[] key, int pos)
+    {
+        int lead = key[pos] & 0xFF;
+        int length = lead < 0x80 ? 1 : lead < 0xC0 ? -1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : lead < 0xF8 ? 4 : -1;
+        if (length < 0 || pos + length > key.length)
+            return -1;
+        for (int i = 1; i < length; ++i)
+            if ((key[pos + i] & 0xC0) != 0x80)
+                return -1;
+        return length;
+    }
+
+    /// Keys made of the characters of the given alphabet: mostly instances of the pattern (`null` parts are filled by
+    /// random strings) with a random edit, and some random strings.
+    private static List<String> randomUtf8Keys(Random rand, List<List<String>> parts, String[] alphabet)
+    {
+        List<String> keys = new ArrayList<>();
+        int count = 10 + rand.nextInt(20);
+        for (int i = 0; i < count; ++i)
+        {
+            List<String> chars = new ArrayList<>();
+            for (List<String> part : parts)
+            {
+                if (part == null)
+                    for (int j = rand.nextInt(4); j > 0; --j)
+                        chars.add(alphabet[rand.nextInt(alphabet.length)]);
+                else
+                    chars.add(part.get(rand.nextInt(part.size())));
+            }
+
+            int pos = rand.nextInt(chars.size() + 1);
+            String c = alphabet[rand.nextInt(alphabet.length)];
+            switch (rand.nextInt(5))
+            {
+                case 0:
+                    if (pos < chars.size())
+                        chars.set(pos, c);
+                    break;
+                case 1:
+                    chars.add(pos, c);
+                    break;
+                case 2:
+                    if (pos < chars.size())
+                        chars.remove(pos);
+                    break;
+                case 3:
+                    chars.subList(pos, chars.size()).clear();
+                    break;
+                default:
+                    break;
+            }
+            keys.add(String.join("", chars));
+        }
+        for (int i = 0; i < 5; ++i)
+        {
+            StringBuilder key = new StringBuilder();
+            for (int j = rand.nextInt(parts.size() + 3); j > 0; --j)
+                key.append(alphabet[rand.nextInt(alphabet.length)]);
+            keys.add(key.toString());
+        }
+        return keys;
+    }
+
     private void checkRandomCase(Random rand, String context, String alphabet, int minPatternLength, int maxPatternLength)
     throws TrieSpaceExhaustedException
     {
         String pattern = randomPattern(rand, alphabet, minPatternLength, maxPatternLength);
+        byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
         List<String> keys = randomKeys(rand, pattern, alphabet);
         for (Map.Entry<String, Trie<String>> source : randomSources(rand, keys).entrySet())
             for (int algo : ALGO_CHOICES)
                 verifyAgainstReference(context + " " + source.getKey() + " pattern " + pattern + " [algo=" + algo + "]",
-                                       source.getValue(), pattern, algo, keys, rand);
+                                       source.getValue(), TriePattern.glob(pattern), key -> globMatches(patternBytes, key),
+                                       algo, keys, rand);
     }
 
-    private static void verifyAgainstReference(String msg, Trie<String> source, String pattern, int algo, List<String> keys, Random rand)
+    /// Checks all the ways of walking the pattern-matched trie against the given reference matcher of key bytes.
+    private static void verifyAgainstReference(String msg, Trie<String> source, TriePattern pattern, Predicate<byte[]> reference,
+                                               int algo, List<String> keys, Random rand)
     {
-        byte[] patternBytes = pattern.getBytes(StandardCharsets.UTF_8);
         Trie<String> matched = source.patternMatched(pattern, algo);
 
         for (Direction dir : Direction.values())
         {
-            List<String> expected = matching(source.values(dir), patternBytes);
+            List<String> expected = matching(source.values(dir), reference);
             assertEquals(msg + " values " + dir, expected, toList(matched, dir));
             assertEquals(msg + " entries " + dir, expected, entryKeys(matched, dir));
             assertEquals(msg + " walk " + dir, expected, walk(matched.cursor(dir), rand));
@@ -1183,7 +1377,7 @@ public class PatternCursorTest
         {
             String a = randomProbe(rand, keys);
             String b = randomProbe(rand, keys);
-            if (a.compareTo(b) > 0)
+            if (Arrays.compareUnsigned(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8)) > 0)
             {
                 String t = a;
                 a = b;
@@ -1198,7 +1392,7 @@ public class PatternCursorTest
             Trie<String> sourceSlice = source.slice(left, includeLeft, right, includeRight);
             for (Direction dir : Direction.values())
             {
-                List<String> expected = matching(sourceSlice.values(dir), patternBytes);
+                List<String> expected = matching(sourceSlice.values(dir), reference);
                 assertEquals(sliceMsg + " matched then sliced " + dir,
                              expected, toList(matched.slice(left, includeLeft, right, includeRight), dir));
                 assertEquals(sliceMsg + " sliced then matched " + dir,
@@ -1213,7 +1407,7 @@ public class PatternCursorTest
             Trie<String> matchedTail = matched.tailTrie(directComparable(prefix));
             for (Direction dir : Direction.values())
             {
-                List<String> expected = sourceTail == null ? ImmutableList.of() : matching(sourceTail.values(dir), patternBytes);
+                List<String> expected = sourceTail == null ? ImmutableList.of() : matching(sourceTail.values(dir), reference);
                 List<String> actual = matchedTail == null ? ImmutableList.of() : toList(matchedTail, dir);
                 assertEquals(msg + " tailTrie " + prefix + " " + dir, expected, actual);
             }
@@ -1224,7 +1418,7 @@ public class PatternCursorTest
             Iterables.toList(matched.tailTries(Direction.FORWARD, x -> true));
         // tailTries skips the branch of each returned tail, so only matches without a matching prefix are listed.
         List<String> expectedTailKeys = new ArrayList<>();
-        for (String s : matching(source.values(Direction.FORWARD), patternBytes))
+        for (String s : matching(source.values(Direction.FORWARD), reference))
             if (expectedTailKeys.isEmpty() || !s.startsWith(expectedTailKeys.get(expectedTailKeys.size() - 1)))
                 expectedTailKeys.add(s);
         assertEquals(msg + " tailTries keys",
@@ -1235,7 +1429,7 @@ public class PatternCursorTest
             Trie<String> sourceTail = source.tailTrie(tail.getKey());
             for (Direction dir : Direction.values())
                 assertEquals(msg + " tailTries " + decode(tail.getKey()) + " " + dir,
-                             matching(sourceTail.values(dir), patternBytes),
+                             matching(sourceTail.values(dir), reference),
                              toList(tail.getValue(), dir));
         }
     }
@@ -1275,9 +1469,14 @@ public class PatternCursorTest
 
     private static List<String> matching(Iterable<String> values, byte[] pattern)
     {
+        return matching(values, key -> globMatches(pattern, key));
+    }
+
+    private static List<String> matching(Iterable<String> values, Predicate<byte[]> matcher)
+    {
         List<String> result = new ArrayList<>();
         for (String v : values)
-            if (globMatches(pattern, v.getBytes(StandardCharsets.UTF_8)))
+            if (matcher.test(v.getBytes(StandardCharsets.UTF_8)))
                 result.add(v);
         return result;
     }
@@ -1399,11 +1598,11 @@ public class PatternCursorTest
         return keys;
     }
 
-    /// A random prefix of one of the keys, possibly extended by one character.
+    /// A random prefix of one of the keys (whole characters only), possibly extended by one character.
     private static String randomProbe(Random rand, List<String> keys)
     {
         String key = keys.get(rand.nextInt(keys.size()));
-        String probe = key.substring(0, rand.nextInt(key.length() + 1));
+        String probe = key.substring(0, key.offsetByCodePoints(0, rand.nextInt(key.codePointCount(0, key.length()) + 1)));
         return rand.nextInt(4) == 0 ? probe + "ab~".charAt(rand.nextInt(3)) : probe;
     }
 
