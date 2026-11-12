@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.TreeSet;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -599,6 +600,36 @@ public class LikePatternQueryTest extends SAITester
                              "SELECT pk FROM %s WHERE v LIKE '%%a'");
         assertInvalidMessage("is only supported on properly indexed columns",
                              "SELECT pk FROM %s WHERE v LIKE '%%a' ALLOW FILTERING");
+    }
+
+    /**
+     * The index of an sstable keeps listing a row under the value the row had when the sstable was written. When the
+     * row is overwritten with a value that doesn't match, the index still returns its key, and the replica drops the
+     * row when it checks the row's current value against the pattern. The queries are also run locally, because
+     * through the coordinator replica filtering protection would check the rows again.
+     */
+    @Test
+    public void testOverwrittenValues()
+    {
+        createTableWithIndex();
+        execute("INSERT INTO %s (pk, v) VALUES (?, ?)", 1, "abc");
+        execute("INSERT INTO %s (pk, v) VALUES (?, ?)", 2, "abd");
+        flush();
+        execute("INSERT INTO %s (pk, v) VALUES (?, ?)", 1, "xyz");
+
+        // sstable and memtable, then two sstables
+        for (int i = 0; i < 2; i++)
+        {
+            for (boolean local : new boolean[]{ false, true })
+            {
+                Function<String, UntypedResultSet> query = local ? this::executeInternal : this::execute;
+                assertRows(query.apply("SELECT pk FROM %s WHERE v LIKE 'ab%%'"), row(2));
+                assertRows(query.apply("SELECT pk FROM %s WHERE v LIKE '%%c'"));
+                assertRows(query.apply("SELECT pk FROM %s WHERE v LIKE '%%b%%'"), row(2));
+                assertRows(query.apply("SELECT pk FROM %s WHERE v LIKE '%%y%%'"), row(1));
+            }
+            flush();
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------

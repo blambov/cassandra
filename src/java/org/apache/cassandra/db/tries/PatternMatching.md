@@ -97,9 +97,12 @@ character (see below).
 As a result two loops are never adjacent, so skipping a loop never lands on another loop: adding `j + 1` for a loop at
 `j` never has to be repeated.
 
-Any-character wildcards are not moved before any-string ones like any-byte wildcards are. After an any-byte wildcard,
-which can take part of a character, the position may be in the middle of a character, and there `*_` and `_*` match
-different keys.
+Any-character wildcards are not moved before any-string ones like any-byte wildcards are. On a character boundary,
+`*_` and `_*` match the same keys (one or more characters). However, after an any-byte wildcard, or after a literal
+byte that is part of a character, the position may be inside a character, and there they differ: `?*_` matches `éa`
+(`?` takes the first byte of `é` and `*` the second) but `?_*` does not. The builder does not track where the
+character boundaries are, so it keeps the order. In `LIKE` patterns, which have no any-byte wildcards and whose
+literals are whole characters, the two orders always match the same keys.
 
 The continuation loop of a character must take all of the character's continuation bytes, otherwise the element after
 it could take some of them and the any-character wildcard would match part of a character. The builder makes sure that
@@ -159,7 +162,10 @@ SAI uses it through `PatternTermsDictionaryReader` to serve `LIKE` queries from 
 `TriePattern.matches` checks a single value with the same state machine: it starts from the initial state and reads
 the value's bytes in turn, stopping early when the state becomes empty or a trailing any-string wildcard is reached. It
 does not use the matcher's state history, so one pattern can check values concurrently. `Operator.LIKE_MATCHES` uses
-it to filter rows without an index, and SAI uses it to post-filter the rows it reads.
+it when rows are filtered with a `RowFilter` (e.g. by the coordinator's replica filtering protection). SAI uses it to
+check every row it reads, as it does for all its restrictions: an index can return rows whose current value no longer
+matches (the index of an sstable keeps listing a row under the value it had in that sstable), and the query planner
+can choose to check a restriction on the rows instead of using its index.
 
 `TriePattern.literalPrefix` returns the bytes of the leading literal elements, which every matching key starts with.
 SAI uses the range of terms with that prefix to estimate how many rows a pattern selects and to skip the sstable
@@ -167,9 +173,31 @@ indexes whose terms cannot match.
 
 ## Representing the state
 
-The set of positions is a bit set, and the transitions above can be computed for all positions at once with bitwise
-operations (the "shift-and" algorithm). For each byte `b`, `patternMatch[b]` is the set of positions whose element
-accepts `b`, and `isLoop` is the set of loop positions. Then
+The set of positions is a bit set in which bit `i` stands for position `i`, so shifting the set left by one moves
+every position past its element. The transitions above can then be computed for all positions at once with a few
+bitwise operations (the "shift-and" algorithm), using two masks prepared from the pattern:
+- `isLoop`, the set of loop positions, and
+- `patternMatch`, a table with an entry for each of the 256 byte values, where `patternMatch[b]` is the set of
+  positions whose element accepts `b`.
+
+`patternMatch` is filled by going over the elements and setting bit `i` in the entry of every byte that element `i`
+accepts (see the table of elements above):
+- a literal `b` sets its bit in `patternMatch[b]` only;
+- any byte and any string set their bit in all 256 entries;
+- a character start sets its bit in the entries of `0x00`-`0x7F` and `0xC0`-`0xFF`, and a continuation loop in the
+  entries of `0x80`-`0xBF`;
+- `none` sets its bit in no entry.
+
+For `a*b`, the pattern of the example above, this gives (bits written from position 3, the end, down to position 0):
+
+| mask                                | bits   | positions               |
+|-------------------------------------|--------|-------------------------|
+| `patternMatch['a']`                 | `0011` | `0` (`a`) and `1` (`*`) |
+| `patternMatch['b']`                 | `0110` | `1` (`*`) and `2` (`b`) |
+| `patternMatch[x]` for any other `x` | `0010` | `1` (`*`)               |
+| `isLoop`                            | `0010` | `1` (`*`)               |
+
+A byte `b` is read with
 
 ```
 match = state & patternMatch[b]
@@ -177,18 +205,51 @@ next  = match & isLoop | (match | (match << 1) & isLoop) << 1
 ```
 
 where
+- `match` is the set of positions in the state whose element accepts `b`,
 - `match & isLoop` keeps the loops that accept `b`,
 - `match << 1` advances every position that accepts `b`,
 - `(match << 1) & isLoop` finds the loops that were just entered, which are shifted once more to skip them.
 
-Two implementations differ in how they store the set:
-- `PatternMatcher64` uses a single `long`, which serves patterns of up to 63 positions (bit `n` is the end).
-- `PatternMatcherLong` uses an array of `long`s for longer patterns, carrying the top bit of each word into the next
-  word when shifting.
+Reading the key `axb` with `a*b` again:
 
-When the pattern ends in an any-string wildcard, its position is used as the end position: reaching it means the rest
-of the pattern matches anything. The state at that point holds the any-string bit, from which the matcher can tell that
-every extension of the path matches (the `MATCHES_ALL_EXTENSIONS` flag).
+| byte | `match` | `next` | state       |
+|------|---------|--------|-------------|
+|      |         | `0001` | `{0}`       |
+| `a`  | `0001`  | `0110` | `{1, 2}`    |
+| `x`  | `0010`  | `0110` | `{1, 2}`    |
+| `b`  | `0110`  | `1110` | `{1, 2, 3}` |
+
+The operations do not know what the elements are; all of that is in the table, whose construction gives the matching
+these properties:
+- Literals and classes of bytes are treated alike: they only differ in how many entries have their bit. Reading a byte
+  costs the same whatever wildcards the pattern has.
+- Several positions can accept the same byte, as `*` and `b` do for `b`, and they all advance at once. This is how the
+  state follows all the ways the key can be matched.
+- The end position has no element, so its bit is in no entry, and reading any byte after it is reached clears it
+  (reading `y` after `axb` gives `0110`). The end is only in the final state if the key ends where the pattern does.
+- A loop stays in the state only for the bytes the loop accepts. For example, a continuation loop is left at the first
+  byte that is not a continuation byte, which the element after the loop must then take.
+- If no position in the state accepts the byte, `match` and the next state are empty, which is how a walk finds out
+  that no key in a branch can match. Many entries are zero: for a pattern of literals, all but the entries of its
+  bytes.
+- An any-string bit is in every entry and in `isLoop`, so once an any-string position is reached, it stays in the
+  state whatever bytes follow. When the pattern ends in an any-string wildcard, the matchers use its position as the
+  end position: a key that reaches it matches, and so does every extension of the key (the `MATCHES_ALL_EXTENSIONS`
+  flag). The end position after it is not used.
+- The initial state is `{0}`, plus position `1` if element `0` is a loop, which is skipped like any loop that is
+  entered.
+
+The table also gives the bytes that can follow a path: `b` can if `patternMatch[b] & state` is not empty. When the
+state has a wildcard position, `nextAcceptedByte` uses this to find the next byte the walk has to visit; when it only
+has literal positions, it looks at their bytes instead.
+
+Two implementations differ in how they store the set:
+- `PatternMatcher64` uses a single `long`, which serves patterns of up to 63 positions (bit `n` is the end). Its table
+  is 256 `long`s.
+- `PatternMatcherLong` uses an array of `long`s for longer patterns, carrying the top bit of each word into the next
+  word when shifting. Its table has an array of `long`s for each byte, and the bytes that no element accepts share one
+  array of zeros. As a trailing any-string wildcard is the end position, a pattern of 64 positions that ends in one
+  still fits in a single word.
 
 `descend` returns the flags of the new state (whether it is a match, matches all extensions, or contains an any-string
 or other wildcards), which the walks keep for the current node instead of querying the state again. The bytes of chains
