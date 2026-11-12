@@ -265,7 +265,8 @@ public final class LikePatterns
      * cached.
      *
      * @param pattern the LIKE pattern, with {@code %} and {@code _} wildcards and {@link #ESCAPE} escapes
-     * @throws IllegalArgumentException if the pattern ends with a lone escape, or escapes another character
+     * @throws IllegalArgumentException if the pattern ends with a lone escape, escapes another character, or is not
+     *         valid UTF-8
      */
     @VisibleForTesting
     public static TriePattern triePattern(ByteBuffer pattern)

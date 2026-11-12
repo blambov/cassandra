@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -40,6 +41,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.apache.cassandra.db.tries.TrieUtil.directComparable;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -548,7 +550,7 @@ public class PatternCursorTest
 
         Trie<String> trie = createTestTrie(base64, match64_1, match64_2, noMatch64);
 
-        // Pattern exactly 64 bytes - tests boundary of PatternMatcher64
+        // Pattern of 64 characters; the single-character wildcard takes positions 63 and 64
         String pattern64 = "a".repeat(63) + "?";
         checkPatternMatch("64 bytes exact",
                           ImmutableList.of(base64, match64_1, match64_2),
@@ -800,8 +802,8 @@ public class PatternCursorTest
                     Trie<String> trie = createTestTrie(testStrings.toArray(new String[0]));
 
                     // Get expected matches by checking every key of the trie (in its order, without duplicates) with
-                    // the byte-level glob matcher. (A regular expression does not work here: the random patterns
-                    // contain regex syntax, and '?' matches one byte, not one character.)
+                    // the reference glob matcher. (A regular expression does not work here: the random patterns
+                    // contain regex syntax.)
                     List<String> expected = matching(trie.values(Direction.FORWARD), pattern.getBytes(StandardCharsets.UTF_8));
 
                     // Test all matcher choices
@@ -1176,35 +1178,85 @@ public class PatternCursorTest
     @Test
     public void testTriePatternNormalization()
     {
-        // Runs of stars collapse, and any-byte wildcards move before them.
+        // Runs of stars collapse, and single-character wildcards move before them.
         assertEquals(TriePattern.glob("?*"), TriePattern.glob("*?"));
         assertEquals(TriePattern.glob("a*"), TriePattern.glob("a**"));
         assertEquals(TriePattern.glob("a??*b"), TriePattern.glob("a*?*?b"));
 
         // A character is a start byte and a loop of continuation bytes, which a following star makes unnecessary.
-        // Characters don't move before stars: after an any-byte wildcard `*_` and `_*` are different.
         assertArrayEquals(new int[]{ 'a', TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, 'b' },
-                          TriePattern.builder().literal("a").anyChar().literal("b").build().elements);
-        assertArrayEquals(new int[]{ TriePattern.ANY_STRING, TriePattern.CHAR_START, TriePattern.ANY_STRING,
-                                     TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION },
-                          TriePattern.builder().anyString().anyChar().anyString().anyString().anyChar().build().elements);
-        assertArrayEquals(new int[]{ TriePattern.ANY_BYTE, TriePattern.ANY_STRING, TriePattern.CHAR_START, TriePattern.ANY_STRING },
-                          TriePattern.builder().anyString().anyByte().anyChar().anyString().build().elements);
-        // After a character, the next element must not accept its continuation bytes.
-        assertArrayEquals(new int[]{ TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, TriePattern.CHAR_START },
-                          TriePattern.builder().anyChar().anyByte().build().elements);
-        assertArrayEquals(new int[]{ TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, TriePattern.NONE },
-                          TriePattern.builder().anyChar().literal((byte) 0xA9).build().elements);
+                          TriePattern.glob("a?b").elements);
+        assertArrayEquals(new int[]{ 'a', TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION },
+                          TriePattern.glob("a?").elements);
+        assertArrayEquals(new int[]{ TriePattern.CHAR_START, TriePattern.CHAR_CONTINUATION, TriePattern.CHAR_START,
+                                     TriePattern.ANY_STRING, 'a' },
+                          TriePattern.glob("*?**?a").elements);
 
         // Literals are never wildcards.
         assertArrayEquals(new int[]{ '*', '?', '_', '%' }, TriePattern.builder().literal("*?_%").build().elements);
+        assertEquals("a?\\x3f*\\x2aé", TriePattern.builder().literal("a").anyChar().literal("?").anyString().literal("*é").build().toString());
 
         // The literal prefix ends with the first wildcard.
         assertArrayEquals("ab".getBytes(StandardCharsets.UTF_8), TriePattern.glob("ab?c*").literalPrefix());
         assertArrayEquals("abc".getBytes(StandardCharsets.UTF_8), TriePattern.glob("abc").literalPrefix());
         assertArrayEquals(new byte[0], TriePattern.glob("*abc").literalPrefix());
-        assertArrayEquals("é".getBytes(StandardCharsets.UTF_8), TriePattern.builder().literal("é").anyChar().build().literalPrefix());
+        assertArrayEquals("é".getBytes(StandardCharsets.UTF_8), TriePattern.glob("é?").literalPrefix());
         assertArrayEquals(new int[]{ 0xC3, 0xA9 }, TriePattern.builder().literal("é").build().elements);
+    }
+
+    /// The literals of a pattern must be valid UTF-8, which puts the wildcards on character boundaries.
+    @Test
+    public void testInvalidUtf8Rejected()
+    {
+        // complete characters, also when added byte by byte
+        TriePattern.builder().literal((byte) 0xC3).literal((byte) 0xA9).anyChar().build();
+        TriePattern.builder().anyString().literal(new byte[]{ (byte) 0xF0, (byte) 0x9F, (byte) 0x98, (byte) 0x80 }).build();
+
+        assertInvalidUtf8(TriePattern.builder().literal((byte) 0xC3)); // incomplete character
+        assertInvalidUtf8(TriePattern.builder().literal((byte) 0xC3).anyString()); // incomplete before a wildcard
+        assertInvalidUtf8(TriePattern.builder().literal((byte) 0xC3).anyChar().literal((byte) 0xA9)); // split by a wildcard
+        assertInvalidUtf8(TriePattern.builder().anyChar().literal((byte) 0xA9)); // continuation byte after a wildcard
+        assertInvalidUtf8(TriePattern.builder().literal((byte) 0xFF)); // never valid
+        assertInvalidUtf8(TriePattern.builder().literal(new byte[]{ (byte) 0xC0, (byte) 0x80 })); // overlong encoding
+        assertInvalidUtf8(TriePattern.builder().literal(new byte[]{ (byte) 0xED, (byte) 0xA0, (byte) 0x80 })); // surrogate
+    }
+
+    private static void assertInvalidUtf8(TriePattern.Builder builder)
+    {
+        assertThatThrownBy(builder::build).isInstanceOf(IllegalArgumentException.class)
+                                          .hasMessageContaining("not valid UTF-8");
+    }
+
+    /// Single-character wildcards take two positions, a start byte and a loop of continuation bytes (one when followed
+    /// by a star). Puts them at all offsets around the word boundaries of the matchers' states, over keys whose
+    /// characters have all encoding lengths, so that the loops are entered and left across the boundaries.
+    @Test
+    public void testCharacterWildcardsAtWordBoundaries() throws TrieSpaceExhaustedException
+    {
+        String[] chars = { "a", "é", "€", "😀" }; // 1, 2, 3 and 4 bytes
+        for (int offset : IntStream.concat(IntStream.range(58, 70), IntStream.range(122, 134)).toArray())
+        {
+            String head = "a".repeat(offset);
+            List<String> keys = new ArrayList<>();
+            keys.add(head);
+            keys.add(head + "b");
+            for (String c : chars)
+            {
+                keys.add(head + c);
+                keys.add(head + c + "b");
+                for (String d : chars)
+                {
+                    keys.add(head + c + d);
+                    keys.add(head + c + d + "b");
+                }
+            }
+            Trie<String> trie = createTestTrie(keys.toArray(new String[0]));
+            for (String tail : new String[]{ "?", "??", "?b", "??b", "?*", "?*b", "*?b" })
+            {
+                String pattern = head + tail;
+                checkPatternMatch(offset + " " + tail, matching(keys, pattern.getBytes(StandardCharsets.UTF_8)), trie, pattern);
+            }
+        }
     }
 
     /// Patterns with any-character wildcards over UTF-8 keys whose characters have all encoding lengths: the wildcard
@@ -1237,12 +1289,6 @@ public class PatternCursorTest
                     tokens.add(REF_ANY_CHAR);
                     keyParts.add(Arrays.asList(alphabet));
                 }
-                else if (r < 8)
-                {
-                    builder.anyByte();
-                    tokens.add(REF_ANY_BYTE);
-                    keyParts.add(ImmutableList.of("a", "*")); // a single byte, to keep the key valid UTF-8
-                }
                 else
                 {
                     String literal = alphabet[rand.nextInt(alphabet.length)];
@@ -1265,9 +1311,8 @@ public class PatternCursorTest
     }
 
     // Tokens of the reference matcher; values 0-255 are literal bytes.
-    private static final int REF_ANY_BYTE = -1;
-    private static final int REF_ANY_STRING = -2;
-    private static final int REF_ANY_CHAR = -3;
+    private static final int REF_ANY_STRING = -1;
+    private static final int REF_ANY_CHAR = -2;
 
     /// Reference matcher of the tokens against the whole key, by dynamic programming over (token, key position).
     private static boolean referenceMatches(List<Integer> tokens, byte[] key)
@@ -1286,9 +1331,6 @@ public class PatternCursorTest
                 {
                     case REF_ANY_STRING:
                         matches[i][j] = matches[i + 1][j] || j < k && matches[i][j + 1];
-                        break;
-                    case REF_ANY_BYTE:
-                        matches[i][j] = j < k && matches[i + 1][j + 1];
                         break;
                     case REF_ANY_CHAR:
                     {
@@ -1473,9 +1515,12 @@ public class PatternCursorTest
         }
     }
 
-    /// Byte-level glob match: '?' matches any one byte, '*' any sequence of bytes.
-    static boolean globMatches(byte[] pattern, byte[] key)
+    /// Reference glob match of UTF-8 encoded patterns and keys, on their characters: '?' matches any one character,
+    /// '*' any sequence of characters.
+    static boolean globMatches(byte[] patternBytes, byte[] keyBytes)
     {
+        int[] pattern = new String(patternBytes, StandardCharsets.UTF_8).codePoints().toArray();
+        int[] key = new String(keyBytes, StandardCharsets.UTF_8).codePoints().toArray();
         int p = 0;
         int k = 0;
         int starP = -1;
@@ -1494,7 +1539,7 @@ public class PatternCursorTest
             }
             else if (starP >= 0)
             {
-                // Let the last star absorb one more byte and retry.
+                // Let the last star absorb one more character and retry.
                 p = starP + 1;
                 k = ++starK;
             }

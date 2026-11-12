@@ -124,8 +124,8 @@ class PatternCursor<T> implements Cursor<T>, Cursor.TransitionsReceiver
         if ((flags & HAS_WILDCARD) == 0)
             return advanceToPatternByte();
 
-        // Only fixed-length wildcards (any byte or character) in the state, no star yet: advance one step, so that we
-        // go back to skipping by pattern byte as soon as the next pattern position is a literal.
+        // Only single-character wildcards in the state, no star: advance one step, so that we go back to skipping by
+        // pattern byte as soon as the next pattern position is a literal.
         if ((flags & HAS_ANY_STRING) == 0)
             return advanceTo(wrapped.advance());
 

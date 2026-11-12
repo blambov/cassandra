@@ -42,7 +42,7 @@ import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
 /// Measures [Trie#patternMatched], against a baseline (`FilterAll`) that walks the whole trie and glob-matches every
-/// key.
+/// key. In the patterns, `*` matches any sequence of characters and `?` any single character.
 ///
 /// The trie holds file-system-like paths (e.g. `alpha/data/node/report1234.csv`) built from a small vocabulary with a
 /// skewed distribution, so that keys share prefixes like a real directory tree. Each operation lists all matches of
@@ -72,7 +72,7 @@ public class TriePatternMatchBench
     @Param({ "alpha/beta/*",                                // prefix, branches outside it are skipped
              "*.json",                                      // suffix, whole trie walked with few active states
              "*/data/*.log",                                // stars around a literal segment
-             "alpha/*/report????.csv",                      // prefix, star and single-byte wildcards
+             "alpha/*/report????.csv",                      // prefix, star and single-character wildcards
              "*a*e*i*o*u*",                                 // many stars, many active states
              "*/????/*/????/*/????/*/????/*/????/*.txt",    // 40 positions, many active states
              "????/data/*",                                 // no star before the literals, skipped by byte
@@ -167,7 +167,7 @@ public class TriePatternMatchBench
         return (int) (d * d * n);
     }
 
-    /// Byte-level glob match: '?' matches any one byte, '*' any sequence of bytes.
+    /// Glob match of UTF-8 bytes: '?' matches any one character, '*' any sequence of characters.
     static boolean globMatches(byte[] pattern, byte[] key)
     {
         int p = 0;
@@ -181,7 +181,12 @@ public class TriePatternMatchBench
                 starP = p++;
                 starK = k;
             }
-            else if (p < pattern.length && (pattern[p] == '?' || pattern[p] == key[k]))
+            else if (p < pattern.length && pattern[p] == '?')
+            {
+                ++p;
+                k = nextCharacter(key, k);
+            }
+            else if (p < pattern.length && pattern[p] == key[k])
             {
                 ++p;
                 ++k;
@@ -189,7 +194,7 @@ public class TriePatternMatchBench
             else if (starP >= 0)
             {
                 p = starP + 1;
-                k = ++starK;
+                k = starK = nextCharacter(key, starK);
             }
             else
                 return false;
@@ -197,5 +202,16 @@ public class TriePatternMatchBench
         while (p < pattern.length && pattern[p] == '*')
             ++p;
         return p == pattern.length;
+    }
+
+    /// The position after the UTF-8 character at the given position.
+    static int nextCharacter(byte[] key, int k)
+    {
+        do
+        {
+            ++k;
+        }
+        while (k < key.length && (key[k] & 0xC0) == 0x80);
+        return k;
     }
 }

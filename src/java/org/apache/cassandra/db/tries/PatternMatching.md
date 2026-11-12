@@ -19,26 +19,26 @@
 # Pattern matching on tries
 
 `Trie.patternMatched(TriePattern)` returns a view of a trie that only presents the content whose keys match a pattern.
-It is used to serve SQL `LIKE` queries from the terms dictionaries of storage-attached indexes, whose keys are the raw
-bytes of the indexed values.
+It is used to serve SQL `LIKE` queries from the terms dictionaries of storage-attached indexes, whose keys are the
+UTF-8 encoded bytes of the indexed `text` and `ascii` values.
 
 The obvious way to do this is to walk the whole trie and check every key against the pattern. The approach described
 here matches the pattern while the trie is walked, one byte at a time, which lets the walk skip every branch that cannot
 contain a match. For example, matching `alpha/*/report????.csv` only visits the branch starting with `alpha/`, and below
-it only the branches that can still be followed by `report`, four bytes and `.csv`.
+it only the branches that can still be followed by `report`, four characters and `.csv`.
 
 ## Patterns
 
 A `TriePattern` is a sequence of elements, each of which matches
-- a literal byte,
-- any single byte (`?` in glob syntax),
-- any single UTF-8 encoded character (`_` in `LIKE` syntax), or
-- any sequence of bytes, including the empty one (`*` in glob syntax, `%` in `LIKE` syntax).
+- a literal character,
+- any single character (`?` in glob syntax, `_` in `LIKE` syntax), or
+- any sequence of characters, including the empty one (`*` in glob syntax, `%` in `LIKE` syntax).
 
-A key matches if all of it matches the pattern. Literal bytes are never interpreted as wildcards, so a pattern can
-contain any byte; parsing a syntax with escapes is up to the creator of the pattern. `TriePattern.glob` parses glob
-patterns without escapes, and `LikePatterns.forPatternOperator` translates `LIKE` patterns, with their `%`
-and `_` wildcards and `\` escapes.
+A key matches if all of it matches the pattern. Patterns and keys are UTF-8 encoded: the builder rejects literals that
+are not valid UTF-8, and the matchers rely on the keys being valid UTF-8, without checking it. Literals are never
+interpreted as wildcards; parsing a syntax with escapes is up to the creator of the pattern. `TriePattern.glob` parses
+glob patterns without escapes, and `LikePatterns.forPatternOperator` translates `LIKE` patterns, with their `%` and `_`
+wildcards and `\` escapes.
 
 ## Matching a key with a set of positions
 
@@ -74,41 +74,33 @@ The elements are classes of bytes, some of which are loops:
 | Element             | Accepts                                       | Loop |
 |---------------------|-----------------------------------------------|------|
 | literal `b`         | `b`                                           | no   |
-| any byte            | all bytes                                     | no   |
 | any string          | all bytes                                     | yes  |
 | character start     | `0x00`-`0x7F` and `0xC0`-`0xFF`               | no   |
 | continuation bytes  | `0x80`-`0xBF`                                 | yes  |
-| none                | no byte                                       | no   |
 
-A UTF-8 character is one byte that is not a continuation byte followed by its continuation bytes, so the any-character
-wildcard is expanded to a character start followed by a continuation loop. In valid UTF-8 this matches exactly one
-character, whatever the length of its encoding, provided that the loop takes all the continuation bytes of the
-character (see below).
+A literal character is the sequence of literal bytes of its encoding. A UTF-8 character is one byte that is not a
+continuation byte followed by its continuation bytes, so the any-character wildcard is expanded to a character start
+followed by a continuation loop. This matches exactly one character, whatever the length of its encoding, provided that
+the loop takes all the continuation bytes of the character (see below).
 
 ### Normalization
 
-`TriePattern.Builder` normalizes the pattern so that the matchers can rely on a few properties:
-- Runs of any-string wildcards are collapsed, and any-byte wildcards are moved before them (`*?` becomes `?*`, which
-  matches the same keys). An any-string wildcard is therefore always followed by a literal, a character start, or the
-  end of the pattern.
+As the literals are valid UTF-8, the wildcards are on character boundaries: each one follows whole characters, and is
+followed by the start of a character or the end of the key. `TriePattern.Builder` normalizes the pattern so that the
+matchers can rely on a few properties:
+- Runs of any-string wildcards are collapsed, and any-character wildcards are moved before them: `*?` becomes `?*`, as
+  both match one or more characters. An any-string wildcard is therefore always followed by a literal or the end of
+  the pattern.
 - A character that is followed by an any-string does not need its continuation loop, as the any-string takes the
   continuation bytes.
 
 As a result two loops are never adjacent, so skipping a loop never lands on another loop: adding `j + 1` for a loop at
 `j` never has to be repeated.
 
-Any-character wildcards are not moved before any-string ones like any-byte wildcards are. On a character boundary,
-`*_` and `_*` match the same keys (one or more characters). However, after an any-byte wildcard, or after a literal
-byte that is part of a character, the position may be inside a character, and there they differ: `?*_` matches `éa`
-(`?` takes the first byte of `é` and `*` the second) but `?_*` does not. The builder does not track where the
-character boundaries are, so it keeps the order. In `LIKE` patterns, which have no any-byte wildcards and whose
-literals are whole characters, the two orders always match the same keys.
-
 The continuation loop of a character must take all of the character's continuation bytes, otherwise the element after
-it could take some of them and the any-character wildcard would match part of a character. The builder makes sure that
-the element after a continuation loop never accepts continuation bytes: an any-byte becomes a character start (a single
-byte that is not a continuation byte) and a literal continuation byte becomes the `none` element (as nothing valid can
-follow).
+it could take some of them and the any-character wildcard would match part of a character. It does, because the
+element after the loop is a literal that starts a character, another character start or the end of the pattern, none
+of which accepts a continuation byte.
 
 ## Matching a trie
 
@@ -183,10 +175,9 @@ bitwise operations (the "shift-and" algorithm), using two masks prepared from th
 `patternMatch` is filled by going over the elements and setting bit `i` in the entry of every byte that element `i`
 accepts (see the table of elements above):
 - a literal `b` sets its bit in `patternMatch[b]` only;
-- any byte and any string set their bit in all 256 entries;
+- an any-string sets its bit in all 256 entries;
 - a character start sets its bit in the entries of `0x00`-`0x7F` and `0xC0`-`0xFF`, and a continuation loop in the
-  entries of `0x80`-`0xBF`;
-- `none` sets its bit in no entry.
+  entries of `0x80`-`0xBF`.
 
 For `a*b`, the pattern of the example above, this gives (bits written from position 3, the end, down to position 0):
 

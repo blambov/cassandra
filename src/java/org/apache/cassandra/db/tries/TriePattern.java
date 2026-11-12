@@ -19,37 +19,38 @@
 package org.apache.cassandra.db.tries;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-/// A byte-level pattern that selects keys of a trie, see [Trie#patternMatched(TriePattern)].
+import org.apache.cassandra.utils.Hex;
+
+/// A pattern that selects the keys of a trie, see [Trie#patternMatched(TriePattern)].
 ///
 /// A pattern is a sequence of elements, each of which matches
-///   - a literal byte,
-///   - any single byte ([Builder#anyByte], `?` in [#glob] syntax),
-///   - any single UTF-8 encoded character ([Builder#anyChar], `_` in SQL `LIKE` syntax), or
-///   - any sequence of bytes, including the empty one ([Builder#anyString], `*` in [#glob] syntax and `%` in SQL
+///   - a literal character,
+///   - any single character ([Builder#anyChar], `?` in [#glob] syntax and `_` in SQL `LIKE` syntax), or
+///   - any sequence of characters, including the empty one ([Builder#anyString], `*` in [#glob] syntax and `%` in SQL
 ///     `LIKE` syntax).
 ///
-/// A key is selected if all of it matches the pattern. [Builder#anyChar] relies on the keys being valid UTF-8.
+/// A key is selected if all of it matches the pattern. Patterns and keys are UTF-8 encoded: the builder rejects literals
+/// that are not valid UTF-8, and the keys must be valid UTF-8 (which is not checked; matching other keys gives
+/// unspecified results).
 ///
 /// Internally, the pattern is a sequence of positions, each accepting a class of bytes, some of which (the loops) can
-/// be repeated any number of times, including zero. A UTF-8 character is matched as one byte that is not a
-/// continuation byte, followed by a loop of continuation bytes (`0x80`-`0xBF`); in valid UTF-8 this is exactly one
-/// character. The pattern is normalized so that no two loops are adjacent, which the matching cursors rely on.
+/// be repeated any number of times, including zero. A character is matched as one byte that is not a continuation
+/// byte, followed by a loop of continuation bytes (`0x80`-`0xBF`). The pattern is normalized so that no two loops are
+/// adjacent, which the matchers rely on. See `PatternMatching.md` for details.
 public final class TriePattern
 {
     // Element codes. Values 0-255 are literal bytes.
-    /// Any single byte.
-    static final int ANY_BYTE = 0x100;
     /// Any sequence of bytes (a loop accepting all bytes).
-    static final int ANY_STRING = 0x101;
+    static final int ANY_STRING = 0x100;
     /// The first byte of a UTF-8 character, i.e. any byte that is not a continuation byte.
-    static final int CHAR_START = 0x102;
+    static final int CHAR_START = 0x101;
     /// Any number of UTF-8 continuation bytes (a loop accepting `0x80`-`0xBF`).
-    static final int CHAR_CONTINUATION = 0x103;
-    /// No byte; a pattern containing this element matches nothing.
-    static final int NONE = 0x104;
+    static final int CHAR_CONTINUATION = 0x102;
 
     /// The elements of the normalized pattern.
     final int[] elements;
@@ -63,8 +64,8 @@ public final class TriePattern
         this.elements = elements;
     }
 
-    /// Creates a pattern from glob syntax, where `*` matches any sequence of bytes and `?` matches any single byte.
-    /// All other characters are matched literally, using their UTF-8 encoding. There is no way to escape `*` or `?`.
+    /// Creates a pattern from glob syntax, where `*` matches any sequence of characters and `?` matches any single
+    /// character. All other characters are matched literally. There is no way to escape `*` or `?`.
     public static TriePattern glob(String pattern)
     {
         Builder builder = builder();
@@ -74,7 +75,7 @@ public final class TriePattern
             if (b == '*')
                 builder.anyString();
             else if (b == '?')
-                builder.anyByte();
+                builder.anyChar();
             else
                 builder.literal(b);
         }
@@ -92,7 +93,7 @@ public final class TriePattern
         return elements.length;
     }
 
-    /// Whether the given value matches the pattern. Thread-safe.
+    /// Whether the given value, which must be valid UTF-8, matches the pattern. Thread-safe.
     public boolean matches(ByteBuffer value)
     {
         PatternMatcher matcher = valueMatcher;
@@ -129,7 +130,6 @@ public final class TriePattern
     {
         switch (element)
         {
-            case ANY_BYTE:
             case ANY_STRING:
                 return true;
             case CHAR_START:
@@ -137,7 +137,7 @@ public final class TriePattern
             case CHAR_CONTINUATION:
                 return isContinuation(b);
             default:
-                return element == b; // never true for NONE
+                return element == b;
         }
     }
 
@@ -158,35 +158,40 @@ public final class TriePattern
         return Arrays.hashCode(elements);
     }
 
-    /// Returns a glob-like representation of the pattern, with `_` standing for a UTF-8 character and non-printable
-    /// or wildcard-like literal bytes shown as `\xNN`.
+    /// Returns the pattern in glob syntax, with literal `*`, `?`, `\` and control characters shown as `\xNN`.
     @Override
     public String toString()
     {
         StringBuilder sb = new StringBuilder();
-        for (int element : elements)
+        for (int i = 0; i < elements.length; )
         {
-            switch (element)
+            switch (elements[i])
             {
-                case ANY_BYTE:
-                    sb.append('?');
-                    break;
                 case ANY_STRING:
                     sb.append('*');
+                    ++i;
                     break;
                 case CHAR_START:
-                    sb.append('_');
+                    sb.append('?');
+                    ++i;
                     break;
                 case CHAR_CONTINUATION:
-                    break;
-                case NONE:
-                    sb.append("[]");
+                    ++i;
                     break;
                 default:
-                    if (element >= 0x20 && element < 0x7F && element != '*' && element != '?' && element != '_' && element != '\\')
-                        sb.append((char) element);
-                    else
-                        sb.append(String.format("\\x%02x", element));
+                    // a run of literals, which is valid UTF-8
+                    int start = i;
+                    while (i < elements.length && isLiteral(elements[i]))
+                        ++i;
+                    byte[] bytes = new byte[i - start];
+                    for (int j = start; j < i; ++j)
+                        bytes[j - start] = (byte) elements[j];
+                    new String(bytes, StandardCharsets.UTF_8).codePoints().forEach(c -> {
+                        if (c == '*' || c == '?' || c == '\\' || c < 0x20 || c == 0x7F)
+                            sb.append(String.format("\\x%02x", c));
+                        else
+                            sb.appendCodePoint(c);
+                    });
             }
         }
         return sb.toString();
@@ -213,7 +218,7 @@ public final class TriePattern
             return this;
         }
 
-        /// Adds a literal byte.
+        /// Adds a literal byte. The literal bytes between the wildcards must form valid UTF-8, see [#build].
         public Builder literal(byte b)
         {
             return add(b & 0xFF);
@@ -241,29 +246,28 @@ public final class TriePattern
             return literal(s.getBytes(StandardCharsets.UTF_8));
         }
 
-        /// Adds a wildcard matching any single byte.
-        public Builder anyByte()
-        {
-            return add(ANY_BYTE);
-        }
-
-        /// Adds a wildcard matching any single UTF-8 encoded character.
+        /// Adds a wildcard matching any single character.
         public Builder anyChar()
         {
             return add(ANY_CHAR);
         }
 
-        /// Adds a wildcard matching any sequence of bytes, including the empty one.
+        /// Adds a wildcard matching any sequence of characters, including the empty one.
         public Builder anyString()
         {
             return add(ANY_STRING);
         }
 
+        /// Builds the pattern.
+        ///
+        /// @throws IllegalArgumentException if the literals between two wildcards, or before the first or after the
+        ///         last one, are not valid UTF-8. The wildcards are then always on character boundaries.
         public TriePattern build()
         {
-            // Normalize: collapse runs of any-string wildcards, and move any-byte wildcards before them (i.e. `*?`
-            // becomes `?*`, which matches the same keys). Any-character wildcards can't be moved the same way: after an
-            // any-byte wildcard the position may be inside a character, where `*_` and `_*` match different keys.
+            checkLiteralsAreUtf8();
+
+            // Normalize: collapse runs of any-string wildcards, and move any-character wildcards before them, i.e. `*?`
+            // becomes `?*`. As both are on character boundaries, both orders match one or more characters.
             int[] normalized = new int[size];
             int count = 0;
             boolean anyStringPending = false;
@@ -272,7 +276,7 @@ public final class TriePattern
                 int token = tokens[i];
                 if (token == ANY_STRING)
                     anyStringPending = true;
-                else if (token == ANY_BYTE)
+                else if (token == ANY_CHAR)
                     normalized[count++] = token;
                 else
                 {
@@ -285,37 +289,53 @@ public final class TriePattern
             if (anyStringPending)
                 normalized[count++] = ANY_STRING;
 
-            // Expand characters into a start byte and a loop of continuation bytes. If the character is followed by
-            // an any-string, the latter will match the continuation bytes, and having two adjacent loops is not
-            // permitted. An any-string can't be followed by a loop, as it is followed by a start byte or a literal.
+            // Expand characters into a start byte and a loop of continuation bytes. The loop takes all the
+            // continuation bytes of the character, as the next element (the start of a literal character, another
+            // character or the end) cannot take any. A character followed by an any-string has no loop: the
+            // any-string takes the continuation bytes, and two loops must not be adjacent. An any-string is only
+            // followed by a literal or the end, so it is never followed by a loop either.
             int[] elements = new int[count * 2];
             int length = 0;
             for (int i = 0; i < count; ++i)
             {
                 int token = normalized[i];
                 if (token != ANY_CHAR)
-                {
                     elements[length++] = token;
-                    continue;
-                }
-
-                elements[length++] = CHAR_START;
-                if (i + 1 < count && normalized[i + 1] == ANY_STRING)
-                    continue;
-                elements[length++] = CHAR_CONTINUATION;
-                // The continuation loop must take all the continuation bytes of the character, so the next element
-                // must not accept any: an any-byte becomes a single non-continuation byte, and a continuation literal
-                // can never match.
-                if (i + 1 < count)
+                else
                 {
-                    int next = normalized[i + 1];
-                    if (next == ANY_BYTE)
-                        normalized[i + 1] = CHAR_START;
-                    else if (isLiteral(next) && isContinuation(next))
-                        normalized[i + 1] = NONE;
+                    elements[length++] = CHAR_START;
+                    if (i + 1 == count || normalized[i + 1] != ANY_STRING)
+                        elements[length++] = CHAR_CONTINUATION;
                 }
             }
             return new TriePattern(Arrays.copyOf(elements, length));
+        }
+
+        private void checkLiteralsAreUtf8()
+        {
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+            int start = 0;
+            for (int i = 0; i <= size; ++i)
+            {
+                if (i < size && isLiteral(tokens[i]))
+                    continue;
+
+                if (i > start)
+                {
+                    byte[] literal = new byte[i - start];
+                    for (int j = start; j < i; ++j)
+                        literal[j - start] = (byte) tokens[j];
+                    try
+                    {
+                        decoder.decode(ByteBuffer.wrap(literal));
+                    }
+                    catch (CharacterCodingException e)
+                    {
+                        throw new IllegalArgumentException("Pattern literal is not valid UTF-8: 0x" + Hex.bytesToHex(literal));
+                    }
+                }
+                start = i + 1;
+            }
         }
     }
 }

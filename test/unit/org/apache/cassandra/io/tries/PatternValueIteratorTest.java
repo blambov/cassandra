@@ -98,15 +98,11 @@ public class PatternValueIteratorTest extends AbstractTrieTestBase
         for (int i = 0; i < 3000; ++i)
             keys.add(randomPath(rand));
 
+        // '?' takes whole UTF-8 characters, e.g. the two of 東京
         for (String glob : new String[]{ "*", "alpha/*", "*.json", "*/data/*.log", "alpha/*/report????.txt",
                                          "*a*e*i*o*u*", "????/data/*", "alpha/????/node/*", "????/????/????/data????.log",
-                                         "*/??/*", "*1", "*1?3*", "alpha/beta/report", "nomatch*", "" })
+                                         "*/??/*", "*1", "*1?3*", "alpha/beta/report", "nomatch*", "", "caf?/*", "?????/*" })
             check("glob " + glob, keys, TriePattern.glob(glob));
-
-        // single-character wildcards, which take whole UTF-8 characters
-        check("*/__/*", keys, TriePattern.builder().anyString().literal("/").anyChar().anyChar().literal("/").anyString().build());
-        check("caf_/*", keys, TriePattern.builder().literal("caf").anyChar().literal("/").anyString().build());
-        check("_____/*", keys, TriePattern.builder().anyChar().anyChar().anyChar().anyChar().anyChar().literal("/").anyString().build());
     }
 
     @Test
@@ -159,8 +155,6 @@ public class PatternValueIteratorTest extends AbstractTrieTestBase
                 tokens.add("anyString");
             else if (r < 7)
                 tokens.add("anyChar");
-            else if (r < 8)
-                tokens.add("anyByte");
             else
                 tokens.add(new StringBuilder(ALPHABET[rand.nextInt(ALPHABET.length)])); // a literal
         }
@@ -176,10 +170,8 @@ public class PatternValueIteratorTest extends AbstractTrieTestBase
                 builder.literal(token.toString());
             else if (token.equals("anyString"))
                 builder.anyString();
-            else if (token.equals("anyChar"))
-                builder.anyChar();
             else
-                builder.anyByte();
+                builder.anyChar();
         }
         return builder.build();
     }
@@ -199,10 +191,8 @@ public class PatternValueIteratorTest extends AbstractTrieTestBase
                 else if (token.equals("anyString"))
                     for (int j = rand.nextInt(4); j > 0; --j)
                         chars.add(ALPHABET[rand.nextInt(ALPHABET.length)]);
-                else if (token.equals("anyChar"))
-                    chars.add(ALPHABET[rand.nextInt(ALPHABET.length)]);
                 else
-                    chars.add(rand.nextBoolean() ? "a" : "*"); // a single byte, to keep the key valid UTF-8
+                    chars.add(ALPHABET[rand.nextInt(ALPHABET.length)]);
             }
 
             int pos = rand.nextInt(chars.size() + 1);
