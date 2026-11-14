@@ -889,15 +889,31 @@ enum OnDiskReadNodeType
         LEAF, LEAF, LEAF, LEAF, LEAF, LEAF, LEAF, LEAF,
         CHAIN, CHAIN, CHAIN, CHAIN, CHAIN, CHAIN, CHAIN, CHAIN,
         SPARSE, SPARSE, SPARSE, SPARSE, SPARSE, SPARSE, SPARSE, SPARSE,
-        SPARSE, SPARSE, SPARSE, SPARSE, BITMAP, DENSE, PREFIX, null // code 31 (11111xxx) is reserved
+        SPARSE, SPARSE, SPARSE, SPARSE, BITMAP, DENSE, PREFIX, null // code 31 (11111bbb) is a relay, see below
     };
 
-    /// Selects the appropriate OnDiskReadNodeType based on the node code. Code `11111xxx` is reserved.
+    /// Selects the appropriate OnDiskReadNodeType based on the node code.
+    ///
+    /// Code `11111bbb` is a relay, which is not among the types here because it is never the node a cursor is on:
+    /// it only redirects to a node placed elsewhere, and [OnDiskCursor] follows it wherever it reads a node code from
+    /// the file (see [OnDiskCursor#followRelays]). No relay code should thus ever reach this method.
     static OnDiskReadNodeType selectNodeImpl(int nodeCode)
     {
         OnDiskReadNodeType impl = IMPLEMENTATIONS[nodeCode >> 3];
         if (impl == null)
-            throw OnDiskCursor.corrupt("reserved node code " + nodeCode);
+            throw OnDiskCursor.corrupt("unresolved relay node code " + nodeCode);
         return impl;
+    }
+
+    /// Whether the given node code is that of a relay, a pointer to a node placed elsewhere.
+    static boolean isRelay(int nodeCode)
+    {
+        return nodeCode >= OnDiskWriteNodeType.RELAY.bits;
+    }
+
+    /// The number of bytes in the pointer of a relay with the given node code.
+    static int relayPointerBytes(int nodeCode)
+    {
+        return (nodeCode & 0b111) + 1;
     }
 }

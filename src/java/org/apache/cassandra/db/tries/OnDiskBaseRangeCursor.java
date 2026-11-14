@@ -208,8 +208,9 @@ abstract class OnDiskBaseRangeCursor<S extends RangeState<S>> extends OnDiskCurs
             long node = type.getFirstChild(reader, direction, code, postCodePos);
             if (node <= 0)
                 throw corrupt("node at " + postCodePos + " has neither content nor children");
+            node = reader.followRelays(node);
             postCodePos = node - 1;
-            code = reader.readByteBefore(node);
+            code = reader.resolvedNodeCode;
         }
     }
 

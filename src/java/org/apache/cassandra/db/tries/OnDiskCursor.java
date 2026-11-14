@@ -215,12 +215,19 @@ public class OnDiskCursor<T> implements Cursor<T>
     /// alone does not identify where a tail taken here must start -- the code carries how much of the chain is left.
     /// Both are left alone by [#descendPostPrefix], which moves the implementation on to the node a prefix points to
     /// while the cursor stays on the prefix.
+    ///
+    /// This is never a relay: relays are followed before a node is entered (see [#followRelays]), so that the code
+    /// here is always the one that describes the node's content and children.
     long currentFullNodePostCodePos;   // for tails
     int currentFullNodeCode;
 
+    /// The code of the node last looked up with [#followRelays].
+    int resolvedNodeCode;
+
     long descendInto(long encodedPosition, long nodePos)
     {
-        return descendInto(encodedPosition, nodePos - 1, readByteBefore(nodePos));
+        nodePos = followRelays(nodePos);
+        return descendInto(encodedPosition, nodePos - 1, resolvedNodeCode);
     }
 
     long descendInto(long encodedPosition, long postCodePos, int nodeCode)
@@ -241,7 +248,8 @@ public class OnDiskCursor<T> implements Cursor<T>
     void descendPostPrefix(long nodePos)
     {
         // leave content and encodedPosition unchanged
-        this.nodeCode = readByteBefore(nodePos);
+        nodePos = followRelays(nodePos);
+        this.nodeCode = resolvedNodeCode;
         this.postCodePos = nodePos - 1;
         this.currentImpl = OnDiskReadNodeType.selectNodeImpl(nodeCode);
         this.currentImpl.load(this); // may modify currentEncodedPosition
@@ -526,6 +534,45 @@ public class OnDiskCursor<T> implements Cursor<T>
         while (bytes-- > 0)
             l = (l << 8) | readByteBefore(pos--);
         return l;
+    }
+
+    /// Read the code of the node at the given position, following relays: if the node is a relay, move on to the
+    /// node it stands for and read the code there instead, until a node of another type is reached. Returns the
+    /// position of that node, and leaves its code in [#resolvedNodeCode].
+    ///
+    /// A relay (code `11111bbb`) is an epsilon transition: it holds nothing but a pointer to a node placed elsewhere.
+    /// A page-aware writer places one where a node is expected to be found but could not be put, i.e. immediately
+    /// before a node whose first child was written somewhere else (see [OnDiskNodeWriterPageAware]). Everything that
+    /// reads a node code from the file does it through this method, so that the rest of the reader never sees a relay.
+    ///
+    /// The target of a relay is always before the relay, so this always terminates.
+    long followRelays(long nodePos)
+    {
+        int nodeCode = readByteBefore(nodePos);
+        while (OnDiskReadNodeType.isRelay(nodeCode))
+        {
+            nodePos = relayTarget(nodePos, nodeCode);
+            nodeCode = readByteBefore(nodePos);
+        }
+        resolvedNodeCode = nodeCode;
+        return nodePos;
+    }
+
+    /// The position of the node that the relay at `nodePos`, whose code is `nodeCode`, stands for. A relay gives it
+    /// as the distance from its own start to that node, in `bbb + 1` bytes.
+    long relayTarget(long nodePos, int nodeCode)
+    {
+        int bytes = OnDiskReadNodeType.relayPointerBytes(nodeCode);
+        long postCodePos = nodePos - 1;
+        // The bytes being read can be corrupt (see readContentLength); do not let a bad pointer turn into an
+        // arbitrary position to seek to. An eight-byte delta can read back negative.
+        if (postCodePos < bytes)
+            throw corrupt("relay at position " + nodePos + " has no room for its pointer");
+        long delta = readSizedInt(postCodePos, bytes);
+        long target = postCodePos - bytes - delta;
+        if (delta < 0 || target <= 0)
+            throw corrupt("relay at position " + nodePos + " points outside the data");
+        return target;
     }
 
     /// Read one byte positioned immediately before `filePos`.

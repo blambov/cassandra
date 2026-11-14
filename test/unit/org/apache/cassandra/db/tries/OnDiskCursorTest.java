@@ -160,26 +160,6 @@ public class OnDiskCursorTest
         }
     }
 
-    /// Code `11111xxx` is reserved. A reader that meets it must fail as on corruption, not dereference nothing.
-    @Test
-    public void testReservedNodeCodeIsRejected() throws IOException
-    {
-        try (DataOutputBuffer out = new DataOutputBuffer())
-        {
-            out.write(new byte[8]);
-            out.writeByte(0b11111000);
-            ByteBuffer buffer = out.asNewBuffer();
-            assertThrows(UncheckedIOException.class,
-                         () -> new OnDiskCursor<Void>((rdr, length) -> null,
-                                                      new ByteBufferRebufferer(buffer),
-                                                      VERSION,
-                                                      Direction.FORWARD,
-                                                      true,
-                                                      false,
-                                                      buffer.limit()));
-        }
-    }
-
     /// A child pointer must point before its parent. A dense node with eight-byte pointers can hold any delta, including
     /// one that makes the node its own child; following it would walk the same node forever.
     @Test(timeout = 60_000)
