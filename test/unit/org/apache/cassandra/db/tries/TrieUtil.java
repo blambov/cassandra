@@ -1095,6 +1095,55 @@ public class TrieUtil
         }
     }
 
+    /// A smaller set of writer kinds for the heavier tests: the immediate writer, and the page-aware one with the
+    /// pages of a file and with ones small enough for every test trie to span several.
+    public static final List<OnDiskWriterKind> MAIN_ON_DISK_WRITER_KINDS = List.of(IMMEDIATE, pageAware(4096), pageAware(64));
+
+    /// The writer kinds as the parameters of a parameterized test.
+    public static List<Object[]> asParameters(List<OnDiskWriterKind> kinds)
+    {
+        return kinds.stream().map(kind -> new Object[]{ kind }).collect(Collectors.toList());
+    }
+
+    /// Puts what was written to the given output in a new temporary file.
+    public static File toFile(DataOutputBuffer out) throws IOException
+    {
+        File file = new File(java.io.File.createTempFile("ondisk", ".trie"));
+        java.nio.file.Files.write(file.toPath(), out.toByteArray());
+        return file;
+    }
+
+    /// Serializes the trie with the given kind of writer and returns a trie that reads it back from a file. The file
+    /// holds what the writer produced for the kind's output, whatever the size of its pages.
+    public static <T> FileTries.Plain<T> onDiskFileRoundtrip(Trie<T> trie, boolean isOrdered, OnDiskTrieWriter.DataSerializer<T> serializer, OnDiskCursor.DataDeserializer<T> deserializer, OnDiskWriterKind kind)
+    {
+        try
+        {
+            DataOutputBuffer out = kind.newOutput();
+            OnDiskTrieWriter.write(trie, isOrdered, serializer, out, kind.nodeWriterType);
+            return FileTries.open(toFile(out), deserializer, isOrdered);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /// Serializes the range trie with the given kind of writer and returns a trie that reads it back from a file.
+    public static <S extends RangeState<S>> FileTries.Range<S> onDiskFileRoundtrip(RangeTrie<S> trie, OnDiskTrieWriter.DataSerializer<S> serializer, OnDiskCursor.DataDeserializer<S> deserializer, OnDiskWriterKind kind)
+    {
+        try
+        {
+            DataOutputBuffer out = kind.newOutput();
+            OnDiskTrieWriter.write(trie, true, serializer, out, kind.nodeWriterType);
+            return FileTries.openRange(toFile(out), deserializer);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static FileTries.Plain<Integer> onDiskRoundtripIntegers(Trie<Integer> trie, boolean isOrdered)
     {
         return onDiskRoundtrip(trie, isOrdered, INTEGER_SERDE, INTEGER_SERDE);
