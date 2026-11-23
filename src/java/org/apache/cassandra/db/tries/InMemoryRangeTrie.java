@@ -70,6 +70,13 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
         return new InMemoryRangeCursor<>(this, direction, root);
     }
 
+    /// Range tries can have boundaries that apply after a branch.
+    @Override
+    protected boolean allowsContentAfterBranch()
+    {
+        return true;
+    }
+
     protected long emptySizeOnHeap()
     {
         return bufferManager.bufferType() == BufferType.ON_HEAP ? EMPTY_SIZE_ON_HEAP : EMPTY_SIZE_OFF_HEAP;

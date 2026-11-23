@@ -616,6 +616,11 @@ enum OnDiskReadNodeType
                     currentPos = loadUnordered(state, currentPos);
                     break;
                 case ORDERED:
+                    if (!hasDescent || hasAscent)
+                        throw OnDiskCursor.corrupt("ordered prefix node " + nodeCode + " with invalid flags descent " + hasDescent + " ascent " + hasAscent);
+                    // A plain ordered node is a range one with content on the descent side only.
+                    // fall through
+                case RANGE:
                     if (state.swapContentSides)
                         currentPos = loadSwapped(state, currentPos, hasDescent, hasAscent, hasChild);
                     else
@@ -641,6 +646,11 @@ enum OnDiskReadNodeType
                         throw OnDiskCursor.corrupt("unordered prefix node with invalid flags descent " + hasDescent + " ascent " + hasAscent);
                     break;
                 case ORDERED:
+                    if (!hasDescent || hasAscent)
+                        throw OnDiskCursor.corrupt("ordered prefix node with invalid flags descent " + hasDescent + " ascent " + hasAscent);
+                    // A plain ordered node is a range one with content on the descent side only.
+                    // fall through
+                case RANGE:
                     if (hasAscent && hasDescent)
                         return false;
 
@@ -786,7 +796,7 @@ enum OnDiskReadNodeType
             boolean hasDescent = (nodeCode & OnDiskWriteNodeType.PREFIX_HAS_DESCENT_CONTENT) != 0;
             boolean hasChild = (nodeCode & OnDiskWriteNodeType.PREFIX_HAS_CHILD) != 0;
             // An alternate-branch pointer in the ascent slot is not content and must never be handed back as such.
-            boolean hasAscent = state.contentStyle == OnDiskCursor.ContentStyle.ORDERED
+            boolean hasAscent = state.contentStyle == OnDiskCursor.ContentStyle.RANGE
                                 && (nodeCode & OnDiskWriteNodeType.PREFIX_HAS_ASCENT_CONTENT) != 0;
             long pos = postCodePos;
             if (direction.isForward())
