@@ -769,7 +769,10 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
 
     protected int createContentNode(int contentId, int child, boolean isSafeChain) throws TrieSpaceExhaustedException
     {
-        return createPrefixNode(contentId, NONE, child, isSafeChain);
+        if (!shouldPresentAfterBranch(contentId))
+            return createPrefixNode(contentId, NONE, child, isSafeChain);
+        else
+            return createPrefixNode(NONE, contentId, child, isSafeChain);
     }
 
     protected int createPrefixNode(int contentId, int alternateBranch, int child, boolean isSafeChain) throws TrieSpaceExhaustedException
