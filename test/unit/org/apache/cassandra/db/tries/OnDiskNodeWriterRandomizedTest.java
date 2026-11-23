@@ -1453,16 +1453,8 @@ public class OnDiskNodeWriterRandomizedTest
                     assertTrue("A cursor over a file is expected to hold a buffer", BufferPools.forNetworking().usedSizeInBytes() > buffersInUse);
                 }
 
-                // TrieUtil.assertTriesEqual does not close the cursors it makes; do the same walks with ones that are.
-                for (Direction direction : Direction.values())
-                {
-                    try (Walk<String> walk = Walk.over(readImmediate, readPageAware, testCase.source, direction))
-                    {
-                        walk.start();
-                        while (!Cursor.isExhausted(walk.position))
-                            walk.advance();
-                    }
-                }
+                TrieUtil.assertTriesEqual(testCase.source, readPageAware);
+                TrieUtil.assertTriesEqual(readImmediate, readPageAware);
 
                 try (DataOutputBuffer out = new DataOutputBuffer())
                 {
