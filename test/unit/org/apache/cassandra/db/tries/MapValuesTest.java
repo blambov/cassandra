@@ -102,7 +102,7 @@ public class MapValuesTest
             for (KeyValue kv : keyValues)
             {
                 Integer value = kv.integer;
-                trie.putSingleton(kv.key, value, (existing, update) -> update, true);
+                trie.putSingleton(kv.key, value, (existing, update) -> update);
                 content.put(kv.key, value);
             }
         }
@@ -127,7 +127,7 @@ public class MapValuesTest
             for (KeyValue kv : keyValues)
             {
                 ByteBuffer value = kv.value;
-                trie.putSingleton(kv.key, value, (existing, update) -> update, true);
+                trie.putSingleton(kv.key, value, (existing, update) -> update);
                 content.put(kv.key, value);
             }
         }
