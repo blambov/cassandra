@@ -141,7 +141,7 @@ public class OnDiskNodeWriterPageAwareTest
     {
         try
         {
-            trie.putRecursive(key(key), value, (x, y) -> y);
+            trie.putSingleton(key(key), value, (x, y) -> y);
         }
         catch (TrieSpaceExhaustedException e)
         {
@@ -2334,7 +2334,7 @@ public class OnDiskNodeWriterPageAwareTest
         InMemoryRangeTrie<TestRangeState> branch = InMemoryRangeTrie.shortLived(VERSION);
         try
         {
-            branch.putRecursive(ByteComparable.EMPTY,
+            branch.putSingleton(ByteComparable.EMPTY,
                                 new TestRangeState(key(repeat('D', pageSize + 3)), false, -1, 1),
                                 new TestRangeState(ByteComparable.EMPTY, true, 1, -1),
                                 (existing, update) -> update);

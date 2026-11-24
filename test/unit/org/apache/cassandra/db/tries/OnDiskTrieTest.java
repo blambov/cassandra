@@ -219,7 +219,7 @@ public class OnDiskTrieTest
         String[] keys = { "a", "ab", "abc", "abd", "b", "bb", "bbc" };
         InMemoryTrie<String> inMemTrie = isOrdered ? InMemoryTrie.shortLivedOrdered(VERSION) : InMemoryTrie.shortLived(VERSION);
         for (String key : keys)
-            inMemTrie.putRecursive(TrieUtil.directComparable(key), key, (x, y) -> y);
+            inMemTrie.putSingleton(TrieUtil.directComparable(key), key, (x, y) -> y);
 
         try (FileTries.Plain<String> trie = TrieUtil.onDiskFileRoundtrip(inMemTrie, isOrdered, TrieUtil.STRING_SERDE, TrieUtil.STRING_SERDE, kind))
         {
@@ -287,7 +287,7 @@ public class OnDiskTrieTest
             for (int i = 0; i < count; ++i)
             {
                 String key = randomKey(rand, 1 + rand.nextInt(4));
-                inMemTrie.putRecursive(TrieUtil.directComparable(key), key, (x, y) -> y);
+                inMemTrie.putSingleton(TrieUtil.directComparable(key), key, (x, y) -> y);
             }
 
             try (FileTries.Plain<String> trie = TrieUtil.onDiskFileRoundtrip(inMemTrie, isOrdered, TrieUtil.STRING_SERDE, TrieUtil.STRING_SERDE, kind))
@@ -382,7 +382,7 @@ public class OnDiskTrieTest
                 int length = 1 + rand.nextInt(6);
                 for (int j = 0; j < length; ++j)
                     key.append((char) (rand.nextInt(4) == 0 ? rand.nextInt(256) : 'a' + rand.nextInt(4)));
-                source.putRecursive(TrieUtil.directComparable(key.toString()), key.toString(), (x, y) -> y);
+                source.putSingleton(TrieUtil.directComparable(key.toString()), key.toString(), (x, y) -> y);
             }
 
             byte[] bytes;
@@ -428,7 +428,7 @@ public class OnDiskTrieTest
     {
         InMemoryTrie<String> source = isOrdered ? InMemoryTrie.shortLivedOrdered(VERSION) : InMemoryTrie.shortLived(VERSION);
         for (String key : new String[]{ "a", "ab", "abc", "abd", "b", "bb", "bbc", "c" })
-            source.putRecursive(TrieUtil.directComparable(key), key, (x, y) -> y);
+            source.putSingleton(TrieUtil.directComparable(key), key, (x, y) -> y);
         File file = OnDiskTrieWriter.write(source, isOrdered, TrieUtil.STRING_SERDE, new File(java.io.File.createTempFile("release", ".trie")), kind.nodeWriterType);
 
         ChannelProxy channel = new ChannelProxy(file);
@@ -515,7 +515,7 @@ public class OnDiskTrieTest
             String testKey = test;
             ByteComparable.Preencoded e = mapping.apply(testKey);
             System.out.println("Adding " + asString(e) + ": " + test);
-            inMemTrie.putRecursive(e, test, (x, y) -> y);
+            inMemTrie.putSingleton(e, test, (x, y) -> y);
         }
 
         try (FileTries.Plain<String> trie = TrieUtil.onDiskFileRoundtrip(inMemTrie, isOrdered, TrieUtil.STRING_SERDE, TrieUtil.STRING_SERDE, kind))

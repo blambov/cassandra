@@ -2140,7 +2140,7 @@ public class OnDiskRelayTest
         {
             InMemoryTrie<Integer> expected = ordered ? InMemoryTrie.shortLivedOrdered(VERSION) : InMemoryTrie.shortLived(VERSION);
             for (int i = 0; i < keysAndValues.length; i += 2)
-                expected.putRecursive(TrieUtil.directComparable((String) keysAndValues[i]),
+                expected.putSingleton(TrieUtil.directComparable((String) keysAndValues[i]),
                                       (Integer) keysAndValues[i + 1],
                                       (existing, update) -> update);
 

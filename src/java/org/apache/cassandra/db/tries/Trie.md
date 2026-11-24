@@ -298,7 +298,7 @@ converting it to one of the stored plain tries is an error. An example is the me
 (`DeletionAwareTrie.mergedTrie`), which presents the deletion boundaries that apply after a branch on its return path.
 `InMemoryTrie` and `InMemoryDeletionAwareTrie` throw an `IllegalArgumentException` when the walk of a trie given to
 `apply` reaches a position on the return path. As the check is made during the walk, the
-trie may then hold part of what precedes that position. `putRecursive` throws the same, before changing anything, if
+trie may then hold part of what precedes that position. `putSingleton` throws the same, before changing anything, if
 asked to place content after a branch in anything other than a range trie. `OnDiskTrieWriter` is told which kind of
 trie it writes with a content style (`UNORDERED` and `ORDERED` for plain tries, `RANGE` for range tries), throws the
 same for content a plain trie of that style cannot have, and the on-disk readers reject such content as corrupt.

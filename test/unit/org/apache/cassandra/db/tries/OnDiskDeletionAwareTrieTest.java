@@ -234,7 +234,7 @@ public class OnDiskDeletionAwareTrieTest
             for (String key : new String[]{ "a", "ab", "ac" })
             {
                 LivePoint point = live(key, 1);
-                plain.putRecursive(point.position, point, (x, y) -> y);
+                plain.putSingleton(point.position, point, (x, y) -> y);
             }
             DeletionAwareTrie<LivePoint, DeletionMarker> wrapped = DeletionAwareTrie.wrap(plain);
             try (DataOutputBuffer out = kind.newOutput())
@@ -548,7 +548,7 @@ public class OnDiskDeletionAwareTrieTest
         {
             LivePoint point = live(key, rand.nextInt(100));
             points.add(point);
-            plain.putRecursive(TrieUtil.comparable(key), point, (x, y) -> y);
+            plain.putSingleton(TrieUtil.comparable(key), point, (x, y) -> y);
         }
 
         File deletionAwareFile = new File(java.io.File.createTempFile("deletionawarelive", ".trie"));

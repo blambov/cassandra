@@ -677,7 +677,7 @@ public class OnDiskCursorTest
             StringBuilder key = new StringBuilder();
             for (int j = 0; j < 6; ++j)
                 key.append((char) ('a' + rand.nextInt(26)));
-            trie.putRecursive(TrieUtil.directComparable(key.toString()), key.toString(), (x, y) -> y);
+            trie.putSingleton(TrieUtil.directComparable(key.toString()), key.toString(), (x, y) -> y);
         }
         try (DataOutputBuffer out = new DataOutputBuffer())
         {
@@ -705,8 +705,8 @@ public class OnDiskCursorTest
     public void testClosedCursorDoesNotKeepItsBuffer() throws IOException, ReflectiveOperationException, TrieSpaceExhaustedException
     {
         InMemoryTrie<String> trie = InMemoryTrie.shortLived(VERSION);
-        trie.putRecursive(TrieUtil.directComparable("a"), "a", (x, y) -> y);
-        trie.putRecursive(TrieUtil.directComparable("b"), "b", (x, y) -> y);
+        trie.putSingleton(TrieUtil.directComparable("a"), "a", (x, y) -> y);
+        trie.putSingleton(TrieUtil.directComparable("b"), "b", (x, y) -> y);
         try (DataOutputBuffer out = new DataOutputBuffer())
         {
             OnDiskTrieWriter.write(trie, false, TrieUtil.STRING_SERDE, out);
@@ -739,8 +739,8 @@ public class OnDiskCursorTest
     public void testExhaustedCursorReportsTheExhaustedPosition() throws IOException, TrieSpaceExhaustedException
     {
         InMemoryTrie<String> plain = InMemoryTrie.shortLived(VERSION);
-        plain.putRecursive(TrieUtil.directComparable("abc"), "one", (x, y) -> y);
-        plain.putRecursive(TrieUtil.directComparable("abd"), "two", (x, y) -> y);
+        plain.putSingleton(TrieUtil.directComparable("abc"), "one", (x, y) -> y);
+        plain.putSingleton(TrieUtil.directComparable("abd"), "two", (x, y) -> y);
 
         try (FileTries.Plain<String> read = TrieUtil.onDiskRoundtripStrings(plain, false))
         {

@@ -1599,7 +1599,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     /// @param transformer A function applied to the potentially pre-existing value for the given key, and the new
     /// value (of a potentially different type), returning the final value that will stay in the memtable trie. Applied
     /// even if there's no pre-existing value in the memtable trie.
-    public abstract <R> void putRecursive(ByteComparable key, R value, final UpsertTransformer<T, R> transformer)
+    public abstract <R> void putSingleton(ByteComparable key, R value, final UpsertTransformer<T, R> transformer)
     throws TrieSpaceExhaustedException;
 
 
@@ -1619,7 +1619,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     /// @param transformer A function applied to the potentially pre-existing value for the given key, and the new
     /// value (of a potentially different type), returning the final value that will stay in the memtable trie. Applied
     /// even if there's no pre-existing value in the memtable trie.
-    <R> void putRecursive(ApplyState<T> state, ByteComparable key, R contentBeforeBranch, R contentAfterBranch, final UpsertTransformer<T, R> transformer)
+    <R> void putSingleton(ApplyState<T> state, ByteComparable key, R contentBeforeBranch, R contentAfterBranch, final UpsertTransformer<T, R> transformer)
     throws TrieSpaceExhaustedException
     {
         if (contentAfterBranch != null && !allowsContentAfterBranch())
@@ -1627,7 +1627,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
 
         try
         {
-            putRecursive(state, key.asComparableBytes(byteComparableVersion), contentBeforeBranch, contentAfterBranch, transformer);
+            putSingleton(state, key.asComparableBytes(byteComparableVersion), contentBeforeBranch, contentAfterBranch, transformer);
             completeMutation();
         }
         catch (Throwable t)
@@ -1637,7 +1637,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
         }
     }
 
-    private <R> void putRecursive(ApplyState<T> state, ByteSource key, R contentBeforeBranch, R contentAfterBranch, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
+    private <R> void putSingleton(ApplyState<T> state, ByteSource key, R contentBeforeBranch, R contentAfterBranch, final UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException
     {
         int node = root;
         // descend along the key
@@ -1681,7 +1681,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     /// Applies the given content to the node at the end of the key, and returns the node to attach in its place.
     ///
     /// The same code serves all kinds of tries: plain ones never have content after a branch (which
-    /// [#putRecursive(ApplyState, ByteComparable, Object, Object, UpsertTransformer)] checks), and in deletion-aware
+    /// [#putSingleton(ApplyState, ByteComparable, Object, Object, UpsertTransformer)] checks), and in deletion-aware
     /// tries the alternate slot of a prefix node holds a deletion branch, which is left alone when there is no content
     /// for that slot.
     private <R> int applyContent(int node, R contentBeforeBranch, R contentAfterBranch, UpsertTransformer<T, R> transformer) throws TrieSpaceExhaustedException

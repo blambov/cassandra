@@ -76,7 +76,7 @@ public class OnDiskTrieWriterTest
     {
         InMemoryTrie<Integer> trie = isOrdered ? InMemoryTrie.shortLivedOrdered(VERSION) : InMemoryTrie.shortLived(VERSION);
         for (int i = 0; i < keysAndValues.length; i += 2)
-            trie.putRecursive(key((String) keysAndValues[i]), (Integer) keysAndValues[i + 1], (x, y) -> y);
+            trie.putSingleton(key((String) keysAndValues[i]), (Integer) keysAndValues[i + 1], (x, y) -> y);
         return trie;
     }
 
@@ -190,7 +190,7 @@ public class OnDiskTrieWriterTest
         StringBuilder expected = new StringBuilder();
         for (int i = 1; i < 256; ++i)
         {
-            trie.putRecursive(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), 0, (x, y) -> y);
+            trie.putSingleton(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), 0, (x, y) -> y);
             expected.append("00 ");     // the leaves, each an empty leaf code
         }
         for (int i = 254; i >= 0; --i)
@@ -453,7 +453,7 @@ public class OnDiskTrieWriterTest
         // The 239 children written after key 0xff are 238 * 273 + 561 = 65535 bytes; key 0x10 is written last.
         InMemoryTrie<byte[]> trie = InMemoryTrie.shortLived(VERSION);
         for (int b = 0x10; b <= 0xff; ++b)
-            trie.putRecursive(ByteComparable.preencoded(VERSION, new byte[]{ (byte) b }),
+            trie.putSingleton(ByteComparable.preencoded(VERSION, new byte[]{ (byte) b }),
                               new byte[b == 0x10 ? 558 : 270], (x, y) -> y);
 
         try (DataOutputBuffer out = new DataOutputBuffer())
@@ -485,7 +485,7 @@ public class OnDiskTrieWriterTest
         // The 255 children written after key 0xff are 254 * 257 + 256 = 65534 bytes; key 0x00 is written last.
         InMemoryTrie<byte[]> trie = InMemoryTrie.shortLived(VERSION);
         for (int b = 0x00; b <= 0xff; ++b)
-            trie.putRecursive(ByteComparable.preencoded(VERSION, new byte[]{ (byte) b }),
+            trie.putSingleton(ByteComparable.preencoded(VERSION, new byte[]{ (byte) b }),
                               new byte[b == 0x00 ? 253 : 254], (x, y) -> y);
 
         try (DataOutputBuffer out = new DataOutputBuffer())
@@ -560,7 +560,7 @@ public class OnDiskTrieWriterTest
             int pointerBytes = valueSize == 0 ? 1 : 2;
             InMemoryTrie<Integer> trie = InMemoryTrie.shortLived(VERSION);
             for (int i = 0; i < 256; ++i)
-                trie.putRecursive(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), valueSize, (x, y) -> y);
+                trie.putSingleton(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), valueSize, (x, y) -> y);
 
             byte[] bytes = writeSized(trie);    // which also walks the result in both directions
             assertEquals(256 * childSize + 255 * pointerBytes + 32 + 1, bytes.length);
@@ -597,7 +597,7 @@ public class OnDiskTrieWriterTest
     {
         InMemoryTrie<Integer> trie = InMemoryTrie.shortLived(VERSION);
         for (int i = 0; i < sizes.length; ++i)
-            trie.putRecursive(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), sizes[i], (x, y) -> y);
+            trie.putSingleton(ByteComparable.preencoded(VERSION, new byte[]{ (byte) i }), sizes[i], (x, y) -> y);
         try (DataOutputBuffer out = new DataOutputBuffer())
         {
             OnDiskTrieWriter.write(trie, false, SIZED_SERIALIZER, out);
@@ -667,9 +667,9 @@ public class OnDiskTrieWriterTest
     public void testPlainWriteRejectsContentAfterBranch() throws Exception
     {
         InMemoryRangeTrie<TestRangeState> range = InMemoryRangeTrie.shortLived(VERSION);
-        range.putRecursive(key("a"), new TestRangeState(key("a"), false, -1, 1), false, (x, y) -> y);
-        range.putRecursive(key("ab"), new TestRangeState(key("ab"), false, 1, 2), false, (x, y) -> y);
-        range.putRecursive(key("a"), new TestRangeState(key("a"), true, 2, -1), true, (x, y) -> y);
+        range.putSingleton(key("a"), new TestRangeState(key("a"), false, -1, 1), false, (x, y) -> y);
+        range.putSingleton(key("ab"), new TestRangeState(key("ab"), false, 1, 2), false, (x, y) -> y);
+        range.putSingleton(key("a"), new TestRangeState(key("a"), true, 2, -1), true, (x, y) -> y);
         Trie<TestRangeState> rangeAsPlain = range::cursor;
         Trie<String> merged = InMemoryTrieReturnPathRejectionTest.mergedViewWithDeletionAfterBranch();
 

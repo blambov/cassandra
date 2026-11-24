@@ -36,7 +36,7 @@ public class RootReturnPathWalkTest
     {
         InMemoryTrie<String> trie = InMemoryTrie.shortLivedOrdered(VERSION);
         for (String key : keys)
-            trie.putRecursive(ByteComparable.preencoded(VERSION, key.getBytes(StandardCharsets.UTF_8)), key, (x, y) -> y);
+            trie.putSingleton(ByteComparable.preencoded(VERSION, key.getBytes(StandardCharsets.UTF_8)), key, (x, y) -> y);
         return trie;
     }
 

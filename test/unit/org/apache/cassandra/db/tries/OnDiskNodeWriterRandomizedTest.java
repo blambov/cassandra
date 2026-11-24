@@ -578,7 +578,7 @@ public class OnDiskNodeWriterRandomizedTest
             // Plain tries, ordered or not, only have content before the branch of its key in forward walks; the other
             // content slot of the on-disk nodes is exercised by the range tries.
             for (Map.Entry<byte[], Integer> entry : keys.payloadSizes.entrySet())
-                trie.putRecursive(comparable(entry.getKey()),
+                trie.putSingleton(comparable(entry.getKey()),
                                   new String(payload(index++, entry.getValue()), StandardCharsets.US_ASCII),
                                   (existing, update) -> update);
         }
@@ -662,7 +662,7 @@ public class OnDiskNodeWriterRandomizedTest
                 // way to control the size of the payload. The rest of the state takes at least three bytes.
                 ByteComparable padding = comparable(payload(i, Math.max(0, point.payloadSize - 3)));
                 TestRangeState state = new TestRangeState(padding, point.afterBranch, active, next);
-                trie.putRecursive(comparable(point.key), state, point.afterBranch, (existing, update) -> update);
+                trie.putSingleton(comparable(point.key), state, point.afterBranch, (existing, update) -> update);
                 active = next;
                 ++markers;
             }
@@ -1487,8 +1487,8 @@ public class OnDiskNodeWriterRandomizedTest
     public void testSkipToReturnPathPosition() throws Exception
     {
         InMemoryTrie<String> trie = InMemoryTrie.shortLivedOrdered(VERSION);
-        trie.putRecursive(comparable(new byte[]{ 'a' }), "a", (existing, update) -> update);
-        trie.putRecursive(comparable(new byte[]{ 'a', 'b' }), "ab", (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'a' }), "a", (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'a', 'b' }), "ab", (existing, update) -> update);
 
         for (TrieUtil.OnDiskWriterKind kind : kinds())
         {
@@ -1530,8 +1530,8 @@ public class OnDiskNodeWriterRandomizedTest
     public void testPositionAfterExhaustion() throws Exception
     {
         InMemoryTrie<String> trie = InMemoryTrie.shortLived(VERSION);
-        trie.putRecursive(comparable(new byte[]{ 'a' }), "a", (existing, update) -> update);
-        trie.putRecursive(comparable(new byte[]{ 'b' }), "b", (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'a' }), "a", (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'b' }), "b", (existing, update) -> update);
 
         OnDiskTrie<String> read = TrieUtil.onDiskRoundtrip(trie, false, STRING_SERDE, STRING_SERDE, TrieUtil.IMMEDIATE);
         {
@@ -1593,10 +1593,10 @@ public class OnDiskNodeWriterRandomizedTest
     {
         ByteComparable b = comparable(new byte[]{ 'b' });
         InMemoryRangeTrie<TestRangeState> trie = InMemoryRangeTrie.shortLived(VERSION);
-        trie.putRecursive(comparable(new byte[]{ 'a' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 1), false, (existing, update) -> update);
-        trie.putRecursive(b, new TestRangeState(ByteComparable.EMPTY, false, 1, -1), false, (existing, update) -> update);
-        trie.putRecursive(comparable(new byte[]{ 'b', 'c' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 2), false, (existing, update) -> update);
-        trie.putRecursive(comparable(new byte[]{ 'b', 'd' }), new TestRangeState(ByteComparable.EMPTY, false, 2, -1), false, (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'a' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 1), false, (existing, update) -> update);
+        trie.putSingleton(b, new TestRangeState(ByteComparable.EMPTY, false, 1, -1), false, (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'b', 'c' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 2), false, (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'b', 'd' }), new TestRangeState(ByteComparable.EMPTY, false, 2, -1), false, (existing, update) -> update);
 
         OnDiskRangeTrie<TestRangeState> read = TrieUtil.onDiskRoundtrip(trie, RANGE_SERDE, RANGE_SERDE, TrieUtil.IMMEDIATE);
         {
@@ -1632,8 +1632,8 @@ public class OnDiskNodeWriterRandomizedTest
     {
         ByteComparable a = comparable(new byte[]{ 'a' });
         InMemoryRangeTrie<TestRangeState> trie = InMemoryRangeTrie.shortLived(VERSION);
-        trie.putRecursive(comparable(new byte[]{ 'a', 'b' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 1), false, (existing, update) -> update);
-        trie.putRecursive(a, new TestRangeState(ByteComparable.EMPTY, true, 1, -1), true, (existing, update) -> update);
+        trie.putSingleton(comparable(new byte[]{ 'a', 'b' }), new TestRangeState(ByteComparable.EMPTY, false, -1, 1), false, (existing, update) -> update);
+        trie.putSingleton(a, new TestRangeState(ByteComparable.EMPTY, true, 1, -1), true, (existing, update) -> update);
 
         // What a walk gives is right.
         try (RangeCursor<TestRangeState> cursor = trie.cursor(Direction.FORWARD))
