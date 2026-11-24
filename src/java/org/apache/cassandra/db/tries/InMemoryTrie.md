@@ -531,13 +531,13 @@ trie is built to support this by making sure that any modification of a node is 
 concurrently.
 
 The main method for mutating a `InMemoryTrie` is `apply`, which merges the structure of another `Trie` in. 
-`InMemoryTrie` also provides simpler recursive method of modification, `putRecursive`, which creates a single 
+`InMemoryTrie` also provides a simpler method of modification, `putRecursive`, which creates a single 
 `key -> value` mapping in the trie. We will describe the mutation process starting with a `putRecursive` example.
 
 ### Adding a new key -> value mapping using `putRecursive`
 
-Suppose we want to insert the value `traverse` into the trie described in the previous paragraph. The recursive
-insertion process walks the trie to find corresponding existing nodes for the ones in the path to be inserted.
+Suppose we want to insert the value `traverse` into the trie described in the previous paragraph. The insertion
+process walks the trie to find corresponding existing nodes for the ones in the path to be inserted, remembering them.
 When it has to leave the existing trie, because it has no entries for the path, the process continues using `NONE` as
 the trie node.
 
@@ -545,8 +545,8 @@ the trie node.
 
 When it reaches the end of the path, it needs to attach the value. Unless this is a prefix of an existing entry, the 
 matching trie node will either be `NONE` or a leaf node. Here it's `NONE`, so we create a item in the
-content array, `contentArray[3]`, put the value in it, and thus form the leaf node `~3` (`0xFFFFFFFC`). The recursive
-process returns this to the previous step.
+content array, `contentArray[3]`, put the value in it, and thus form the leaf node `~3` (`0xFFFFFFFC`). The process
+then walks back up the remembered path, passing this to the previous step.
 
 The previous step must attach a child with the transition `e` to the node `NONE`. Since this is a new node, we do this
 by creating a new `Chain` node at address `0x0BB` mapping `e` to `~3` and return that. For the node above, we again
@@ -855,7 +855,7 @@ As an example, consider the process of adding `trees` to our sample trie:
 When descending at `tree` we set `existingPreContentNode = ~1`, `existingPostContentNode = NONE` and `contentIndex = 1`.
 Ascending back to add the child `~3`, we add a child to `NONE` and get `updatedPostContentNode = 0x0BB`. To then apply
 the existing content, we create the embedded prefix node `updatedPreContentNode = 0x0BF` with `contentIndex = 1` and
-pass that on to the recursion.
+pass that on to the step above.
 
 ### Deletion
 
@@ -863,22 +863,22 @@ Deletion of data in `InMemoryTrie`s is achieved by returning `null` for the valu
 with existing content (both `apply` and `putSingleton` take an `UpsertTransformer` that is applied to the combination
 of existing and update value; this transformer can choose to return `null`).
 
-This automatically results in `NONE` value for the content id. On the way up the recursive application chain, we
+This automatically results in `NONE` value for the content id. On the way back up the path, we
 recognize `NONE` for the child pointer and apply this as removal of the child. Depending on the type of node, this may
 be achieved by dropping the node (`Chain`), by putting the `NONE` value as the child pointer, or by duplicating a node
 to switch its type or remove a child. This may in turn result in an empty node, which returns `NONE` as the child
-pointer, continuing the removal upwards in the recursive chain.
+pointer, continuing the removal upwards.
 
 The example below shows the deletion of "tractor" from one of the modified tries above.
 
 ![graph](InMemoryTrie.md.d1.svg)
 
-The associated value is set to `null`, resulting in `NONE` being returned from the recursive application, which removes
+The associated value is set to `null`, resulting in `NONE` being passed up to the step above, which removes
 the only child of node `0x01B`, resulting in an empty node i.e. `NONE`. This propagates up until the sparse node
 `0x0DE`, where one child remains after the removal. Since sparse nodes cannot have only one child, this node is freed,
 and a chain node is created for the remaining `v` transition -- this child node is placed within the child chain cell,
-which has room for further transitions. The pointer to this chain node is passed back up the recursive application
-chain, and the parent node is updated to point to it.
+which has room for further transitions. The pointer to this chain node is passed back up the path, and the parent
+node is updated to point to it.
 
 #### Deleting a child pointer
 
