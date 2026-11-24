@@ -68,8 +68,7 @@ public class InMemoryTrieReturnPathRejectionTest
         live.putRecursive(key("mx"), "mx", (existing, update) -> update);
 
         InMemoryRangeTrie<TestRangeState> deletion = InMemoryRangeTrie.shortLived(VERSION);
-        deletion.putRecursive(ByteComparable.EMPTY, new TestRangeState(ByteComparable.EMPTY, false, -1, 1), false, (existing, update) -> update);
-        deletion.putRecursive(ByteComparable.EMPTY, new TestRangeState(ByteComparable.EMPTY, true, 1, -1), true, (existing, update) -> update);
+        deletion.putRecursive(ByteComparable.EMPTY, new TestRangeState(ByteComparable.EMPTY, false, -1, 1), new TestRangeState(ByteComparable.EMPTY, true, 1, -1), (existing, update) -> update);
 
         InMemoryDeletionAwareTrie<String, TestRangeState> trie = InMemoryDeletionAwareTrie.shortLived(VERSION);
         InMemoryDeletionAwareTrie<String, TestRangeState>.Mutator<String, TestRangeState> mutator = mutator(trie);

@@ -2334,8 +2334,10 @@ public class OnDiskNodeWriterPageAwareTest
         InMemoryRangeTrie<TestRangeState> branch = InMemoryRangeTrie.shortLived(VERSION);
         try
         {
-            branch.putRecursive(ByteComparable.EMPTY, new TestRangeState(key(repeat('D', pageSize + 3)), false, -1, 1), false, (existing, update) -> update);
-            branch.putRecursive(ByteComparable.EMPTY, new TestRangeState(ByteComparable.EMPTY, true, 1, -1), true, (existing, update) -> update);
+            branch.putRecursive(ByteComparable.EMPTY,
+                                new TestRangeState(key(repeat('D', pageSize + 3)), false, -1, 1),
+                                new TestRangeState(ByteComparable.EMPTY, true, 1, -1),
+                                (existing, update) -> update);
         }
         catch (TrieSpaceExhaustedException e)
         {
