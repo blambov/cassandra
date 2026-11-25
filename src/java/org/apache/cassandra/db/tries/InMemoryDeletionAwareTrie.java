@@ -331,12 +331,13 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
                 RangeCursor<E> incomingAlternateBranch = DeletionAwareCursor.deletionBranchCursor(mutationCursor, position);
                 if (incomingAlternateBranch != null || existingAlternateBranch != NONE)
                 {
-                    int updatedAlternateBranch = applyDeletionBranch(existingAlternateBranch, incomingAlternateBranch);
+                    int updatedAlternateBranch = hoistAndApplyDeletionBranch(existingAlternateBranch, incomingAlternateBranch);
 
                     // Ascend and apply alternate branch.
                     state.alternateBranchToAttach = updatedAlternateBranch;
                     if (state.currentDepth == 0)
                         break; // to be attached to root by complete()
+
                     state.attachAndMoveToParentState(forcedCopyDepth);
                     position = mutationCursor.encodedPosition();
                 }
@@ -352,17 +353,31 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             return this;
         }
 
-        private int applyDeletionBranch(int existingAlternateBranch, RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
+        private int hoistAndApplyDeletionBranch(int existingAlternateBranch, RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
         {
-            int updatedAlternateBranch = existingAlternateBranch;
-            RangeCursor<D> ourDeletionBranch;
             if (!deletionsAtFixedPoints && existingAlternateBranch == NONE && state.existingFullNode() != NONE)
             {
                 // Move any covered deletion branches up to this depth so that we can correctly merge the
                 // incoming deletions.
-                updatedAlternateBranch = hoistOurDeletionBranches();
+                int hoistedAlternateBranch = hoistOurDeletionBranches();
+                int updatedAlternateBranch = applyDeletionBranch(hoistedAlternateBranch, incomingAlternateBranch);
+
+                // Make sure hoisting is done as a single operation without temporarily losing deletion branches
+                // if a prefix updates the child and alternate links separately.
+                // Applied after applyDeletionBranch when the descendants have been processed to only affect the
+                // attachment.
+                if (hoistedAlternateBranch != NONE)
+                    forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
+                return updatedAlternateBranch;
             }
-            ourDeletionBranch = ((InMemoryDeletionAwareTrie<T, D>) state.trie()).makeRangeCursor(Direction.FORWARD, updatedAlternateBranch);
+            else
+                return applyDeletionBranch(existingAlternateBranch, incomingAlternateBranch);
+        }
+
+        private int applyDeletionBranch(int hoistedAlternateBranch, RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
+        {
+            int updatedAlternateBranch = hoistedAlternateBranch;
+            RangeCursor<D> ourDeletionBranch = ((InMemoryDeletionAwareTrie<T, D>) state.trie()).makeRangeCursor(Direction.FORWARD, updatedAlternateBranch);
 
             if (!deletionsAtFixedPoints && incomingAlternateBranch == null)
             {
@@ -445,8 +460,9 @@ extends InMemoryBaseTrie<T> implements DeletionAwareTrie<T, D>
             // the existing deletion branch mappings can be removed.
             // The process must be atomic to make sure readers can't lose a deletion branch that has already been added,
             // thus we force all modifications to `state` to be done with force-copying, which will also result in
-            // copying the leading node if anything was modified, ensuring the original is still available regardless
-            // how the caller sets their force-copy depth.
+            // copying the leading node's child if anything was modified. The leading node itself is changed when the
+            // hoisted branch is attached to it, which must also copy it (see `hoistedDeletionBranches`): changing it
+            // in place would make it point to the new child while its deletion branch is not yet set.
             InMemoryRangeTrie.ApplyState<D> deletionState = deletionMutator.state;
             deletionState.start(NONE);
             final int initialDepth = state.currentDepth;
