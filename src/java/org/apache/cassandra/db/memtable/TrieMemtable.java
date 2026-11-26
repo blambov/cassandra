@@ -55,6 +55,7 @@ import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.partitions.AbstractUnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.partitions.PartitionUpdateTrieView;
 import org.apache.cassandra.db.partitions.TrieBackedPartition;
 import org.apache.cassandra.db.partitions.TriePartitionUpdate;
 import org.apache.cassandra.db.partitions.TriePartitionUpdater;
@@ -67,6 +68,7 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.tries.BasicDeletionAwareTrie;
 import org.apache.cassandra.db.tries.ContentManagerPojo;
 import org.apache.cassandra.db.tries.ContentSerializer;
 import org.apache.cassandra.db.tries.DeletionAwareTrie;
@@ -296,17 +298,19 @@ public class TrieMemtable extends AbstractShardedMemtable
     /// memtable. An update's trie keys each column by its index among the columns of the metadata it was built or read
     /// with, and a schema change since then can number them differently; the update is then rebuilt with this
     /// memtable's numbering, which leaves out the columns dropped since. Done before the shard takes its lock.
-    private TriePartitionUpdate keyedAsThisMemtable(PartitionUpdate update)
+    ///
+    /// An update that is not a trie update has no trie yet. If it has this memtable's column lists it is returned as
+    /// it is, to be merged through its trie view ([PartitionUpdateTrieView]); otherwise it is converted first.
+    private PartitionUpdate keyedAsThisMemtable(PartitionUpdate update)
     {
-        TriePartitionUpdate trieUpdate = TriePartitionUpdate.asTrieUpdate(update);
-        RegularAndStaticColumns columns = trieUpdate.metadata().regularAndStaticColumns();
+        RegularAndStaticColumns columns = update.metadata().regularAndStaticColumns();
         RegularAndStaticColumns ownColumns = actualMetadata.regularAndStaticColumns();
         // A schema change switches this memtable, as it gives the table a new comparator (see
         // AbstractAllocatorMemtable.shouldSwitch), so an update made with the table's metadata normally has this
         // memtable's column lists. One made with older metadata whose lists are equal has other instances, which the
         // memtable remembers (equalColumns), as more updates made with the same metadata are likely to come.
         if (columns == ownColumns || columns == equalColumns)
-            return trieUpdate;
+            return update;
         // The lists are also equal when a column has been dropped and added again in the same place, and an update made
         // before the drop is then not rebuilt to leave out its data of the column not newer than the drop, as the
         // deserializer does (mayHoldDroppedData): reads and flushes leave that data out, as they take the dropped
@@ -314,8 +318,10 @@ public class TrieMemtable extends AbstractShardedMemtable
         if (columns.equals(ownColumns))
         {
             equalColumns = columns;
-            return trieUpdate;
+            return update;
         }
+
+        TriePartitionUpdate trieUpdate = TriePartitionUpdate.asTrieUpdate(update);
 
         // A schema change publishes the table's new metadata before it switches this memtable, and the switch can be
         // lost to a concurrent one that created the next memtable with the old metadata (ColumnFamilyStore's
@@ -872,8 +878,9 @@ public class TrieMemtable extends AbstractShardedMemtable
 
         public long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
         {
-            // If the update is not TriePartitionUpdate, convert it to one before taking the lock.
-            DeletionAwareTrie<Object, TrieTombstoneMarker> mergableTrie = TriePartitionUpdate.asMergableTrie(update);
+            // An update that is not a TriePartitionUpdate is presented by a view that generates the trie's content
+            // as the mutation walks it.
+            BasicDeletionAwareTrie<Object, TrieTombstoneMarker> mergableTrie = PartitionUpdateTrieView.mergableTrie(update);
 
             boolean locked = writeLock.tryLock();
             if (locked)
@@ -982,7 +989,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     /// Merge an update into the given data trie using the given helpers. Extracted to separate method for testing.
     static int mergeUpdate(InMemoryDeletionAwareTrie<Object, TrieTombstoneMarker> dataTrie,
                            MemtableAllocator allocator,
-                           DeletionAwareTrie<Object, TrieTombstoneMarker> updateTrie,
+                           BasicDeletionAwareTrie<Object, TrieTombstoneMarker> updateTrie,
                            UpdateTransaction indexer,
                            OpOrder.Group opGroup,
                            TriePartitionUpdater updater)

@@ -353,9 +353,10 @@ position, the content, `advance` and `advanceMultiple`, together with the proces
 extends it with `skipTo` and `tailCursor`.
 
 A basic cursor is much easier to implement than a full one, which makes it practical to present other data in trie
-form to these consumers without building a trie. The sources of basic cursors are `BasicTrie`, `BasicRangeTrie` and
-`BasicDeletionAwareTrie`, which the corresponding trie interfaces extend: every trie is also a basic trie, by default
-using its normal cursor.
+form to these consumers without building a trie. For example, `EntryStreamCursor` makes a basic deletion-aware cursor
+from a list of entries given in order, and `PartitionUpdateTrieView` uses it to merge partition updates that are not
+tries into trie memtables. The sources of basic cursors are `BasicTrie`, `BasicRangeTrie` and `BasicDeletionAwareTrie`,
+which the corresponding trie interfaces extend: every trie is also a basic trie, by default using its normal cursor.
 
 A basic range cursor presents only the boundaries of the ranges. Since the walk cannot skip, the state that applies
 between two boundaries is always the succeeding state of the first.

@@ -28,7 +28,7 @@ import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.TrieBackedRow;
 import org.apache.cassandra.db.memtable.TrieCellData;
 import org.apache.cassandra.db.rows.TrieTombstoneMarker;
-import org.apache.cassandra.db.tries.DeletionAwareTrie;
+import org.apache.cassandra.db.tries.BasicDeletionAwareTrie;
 import org.apache.cassandra.db.tries.InMemoryDeletionAwareTrie;
 import org.apache.cassandra.db.tries.TrieSpaceExhaustedException;
 
@@ -63,7 +63,7 @@ public class TriePartitionUpdater
     }
 
     /// Merge the given update into the data trie.
-    public void mergeUpdate(DeletionAwareTrie<Object, TrieTombstoneMarker> update) throws TrieSpaceExhaustedException
+    public void mergeUpdate(BasicDeletionAwareTrie<Object, TrieTombstoneMarker> update) throws TrieSpaceExhaustedException
     {
         this.currentPartition = null;
         this.partitionsAdded = 0;
