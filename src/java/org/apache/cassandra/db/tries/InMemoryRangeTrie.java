@@ -610,41 +610,205 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
 
     }
 
-    /// Range trie mutation functionality. Provides functionality used both by range trie and deletion-aware mutators.
-    static class MutatorStatic<S extends RangeState<S>, U extends RangeState<U>>
-    extends InMemoryBaseTrie.Mutator<S, U, RangeCursor<U>, ApplyState<S>>
+    /// Applies a sequence of range boundaries given in order, e.g. the content of a [BasicRangeCursor], to an in-memory
+    /// range trie or to a deletion branch of an in-memory deletion-aware trie. The caller moves the applier to each
+    /// position of the mutation with [#moveTo] and gives it the mutation's boundary there, if any, with [#applyAt].
+    ///
+    /// While a range of the mutation is open, i.e. between a boundary that starts a range and the one that ends it,
+    /// [#moveTo] also visits the existing boundaries on the way to apply the range to them.
+    static class RangeApplier<S extends RangeState<S>, U extends RangeState<U>> implements NodeFeatures<U>
     {
-        MutatorStatic(ApplyState<S> applyState,
-                      UpsertTransformer<S, U> transformer,
-                      Predicate<NodeFeatures<U>> needsForcedCopy,
-                      Consumer<? super S> droppedContentCallback)
+        final ApplyState<S> state;
+        final UpsertTransformer<S, U> transformer;
+        final Predicate<NodeFeatures<U>> needsForcedCopy;
+        final Consumer<? super S> droppedContentCallback;
+
+        /// The depth of the root of the applied trie in the positions given to [#moveTo].
+        int rootDepth;
+        int forcedCopyDepth;
+        /// The boundary of the mutation at the current position, null if none.
+        U mutationContent;
+        /// The range of the mutation that covers what follows the current position, null if no range is open.
+        U mutationCoveringState;
+        /// The range of the existing trie that covers what follows the current position, null if none. Only meaningful
+        /// while `existingCoveringStateIsValid`: it is tracked while a range of the mutation is open, and remains valid
+        /// afterwards for as long as the walk cannot have passed any existing boundaries, i.e. while it moves inside
+        /// branches that do not exist in the trie. When not valid, it is found by a search (see
+        /// [#existingCoveringState]).
+        S existingCoveringState;
+        boolean existingCoveringStateIsValid;
+
+        RangeApplier(ApplyState<S> state,
+                     UpsertTransformer<S, U> transformer,
+                     Predicate<NodeFeatures<U>> needsForcedCopy,
+                     Consumer<? super S> droppedContentCallback)
         {
-            super(transformer, needsForcedCopy, droppedContentCallback, applyState);
+            this.state = state;
+            this.transformer = transformer;
+            this.needsForcedCopy = needsForcedCopy;
+            this.droppedContentCallback = droppedContentCallback;
+        }
+
+        /// Prepare to apply a mutation to the trie with the given root, which the mutation presents at the given depth.
+        void start(int root, int initialForcedCopyDepth, int rootDepth)
+        {
+            state.start(root, droppedContentCallback);
+            this.rootDepth = rootDepth;
+            forcedCopyDepth = initialForcedCopyDepth;
+            mutationContent = null;
+            mutationCoveringState = null;
+            // No range can be open before the root.
+            setExistingCoveringState(null);
         }
 
         @Override
-        MutatorStatic<S, U> apply() throws TrieSpaceExhaustedException
+        public U content()
         {
-            applyRanges();
-            assert state.currentDepth == 0 || state.currentDepth == -1 : "Unexpected change to applyState. Concurrent trie modification?";
-            return this;
+            return mutationContent;
         }
 
-        @Override
-        void complete() throws TrieSpaceExhaustedException
+        /// Move to the given position of the mutation. If a range of the mutation is open, apply it to the existing
+        /// boundaries on the way.
+        ///
+        /// @return false if the mutation is exhausted. The state is then at the root, or above it if the content on
+        /// the root's return path was changed; see [#completeBranch].
+        boolean moveTo(long position) throws TrieSpaceExhaustedException
         {
-            if (state.currentDepth == 0)
-                super.complete();
-            else if (state.currentDepth == -1) // root already prepared because of return-path update to the root node
-                state.attachPreparedRoot(state.existingFullNodeAtDepth(0));
+            int depth = Cursor.depth(position) - rootDepth;
+            int transition = Cursor.incomingTransition(position);
+            boolean onReturnPath = Cursor.isOnReturnPath(position);
+
+            if (mutationCoveringState == null)
+            {
+                // The move skips the existing boundaries between the two positions. There are none if it descends
+                // from the current node and the node has no existing children before the target, or if it is made
+                // from a node that does not exist in the trie.
+                boolean skipsNoChildren = existingCoveringStateIsValid
+                                          && !onReturnPath
+                                          && depth == state.currentDepth + 1
+                                          && state.trie.getNextTransition(state.updatedPostContentNode(), state.transition() + 1) >= transition;
+                if (!state.advanceToMutationPosition(depth, transition, onReturnPath, forcedCopyDepth))
+                    return false;
+                existingCoveringStateIsValid &= skipsNoChildren
+                                                || isNull(state.existingFullNodeAtDepth(onReturnPath ? depth : depth - 1));
+                return true;
+            }
+
+            assert depth >= 0 : "Unbounded range in mutation trie, state " + mutationCoveringState + " active when exhausted.";
+            while (true)
+            {
+                AdvanceResult advance = state.tryDescendInExisting(depth, transition, onReturnPath);
+                // We need to force-copy every node we touch while applying ranges to ensure consistent ranges.
+                forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
+
+                switch (advance)
+                {
+                    case AT_LIMIT:
+                        return true;
+                    case DESCENDED:
+                    {
+                        // An existing position covered by the mutation's range. Apply the range to its boundary.
+                        S existingContent = state.getDescentPathContent();
+                        if (existingContent != null)
+                        {
+                            applyContent(existingContent, mutationCoveringState);
+                            existingCoveringState = existingContent.succedingState(Direction.FORWARD);
+                        }
+                        break;
+                    }
+                    case NEEDS_ASCENT:
+                    {
+                        // There are no more existing children. Ascend, applying the range to a boundary on the return
+                        // path of the node.
+                        int existingContentId = state.getAscentPathContentId();
+                        if (existingContentId != NONE)
+                        {
+                            S existingContent = state.trie.getContent(existingContentId);
+                            existingCoveringState = existingContent.succedingState(Direction.FORWARD);
+                            ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationCoveringState);
+                        }
+                        else
+                            state.attachAndMoveToParentState(forcedCopyDepth);
+                        break;
+                    }
+                    default:
+                        throw new AssertionError();
+                }
+            }
+        }
+
+        /// Apply the boundary that the mutation has at the current position (null if none), which must have been
+        /// reached with [#moveTo].
+        ///
+        /// If the position is on the return path and its content changes, this also ascends to the parent of the node.
+        void applyAt(U mutationContent, boolean onReturnPath) throws TrieSpaceExhaustedException
+        {
+            this.mutationContent = mutationContent;
+            if (state.currentDepth < forcedCopyDepth)
+                forcedCopyDepth = needsForcedCopy.test(this) ? state.currentDepth : Integer.MAX_VALUE;
+
+            int existingContentId = onReturnPath ? state.getAscentPathContentId() : state.descentPathContentId();
+            S existingContent = isNull(existingContentId) ? null : state.trie.getContent(existingContentId);
+            if (mutationContent == null && mutationCoveringState == null)
+            {
+                // Nothing to apply. An existing boundary tells us the state that follows.
+                if (existingContent != null)
+                    setExistingCoveringState(existingContent.succedingState(Direction.FORWARD));
+                return;
+            }
+
+            // We need to force-copy every node we touch while applying ranges to ensure consistent ranges.
+            forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
+            if (existingContent == null && mutationContent == null)
+                return;
+
+            S existing = existingContent != null ? existingContent : existingCoveringState(onReturnPath);
+            U mutation = mutationContent != null ? mutationContent : mutationCoveringState;
+            if (onReturnPath)
+                ascendWithUpdatedReturnPathContent(existingContentId, existing, mutation);
             else
-                throw new AssertionError("Unexpected depth value " + state.currentDepth);
+                applyContent(existing, mutation);
+
+            mutationCoveringState = mutation.succedingState(Direction.FORWARD);
+            setExistingCoveringState(rightSideAsCovering(existing));
         }
 
+        /// The state of the existing trie at the current position, which must not be on the return path, before
+        /// anything is applied there: its boundary if it has one, otherwise the range that covers it.
+        S existingStateAtCurrentPosition()
+        {
+            S content = state.getDescentPathContent();
+            return content != null ? content : existingCoveringState(false);
+        }
+
+        /// The range of the existing trie that covers the current position, which must have no existing boundary.
+        private S existingCoveringState(boolean onReturnPath)
+        {
+            if (!existingCoveringStateIsValid)
+            {
+                // The walk may have skipped boundaries. Take the state from the next one.
+                S nextBoundary = state.getNearestContent(onReturnPath);
+                setExistingCoveringState(nextBoundary != null ? nextBoundary.precedingState(Direction.FORWARD) : null);
+            }
+            return existingCoveringState;
+        }
+
+        private void setExistingCoveringState(S coveringState)
+        {
+            existingCoveringState = coveringState;
+            existingCoveringStateIsValid = true;
+        }
+
+        /// Complete the application after the mutation is exhausted or has left the branch: ascend to the root, apply
+        /// the changes to it and return the updated root.
         int completeBranch() throws TrieSpaceExhaustedException
         {
+            assert mutationCoveringState == null : "Unbounded range in mutation trie, state " + mutationCoveringState + " active when exhausted.";
+            while (state.currentDepth > 0)
+                state.attachAndMoveToParentState(forcedCopyDepth);
+
             if (state.currentDepth == 0)
-                return state.applyContent(state.currentDepth >= forcedCopyDepth);
+                return state.applyContent(0 >= forcedCopyDepth);
             else if (state.currentDepth == -1) // root already prepared because of return-path update to the root node
                 return state.existingFullNodeAtDepth(0);
             else
@@ -664,37 +828,6 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                                             state.currentDepth >= forcedCopyDepth); // this is called at the start of processing
         }
 
-        void applyRanges() throws TrieSpaceExhaustedException
-        {
-            // While activeDeletion is not set, follow the mutation trie.
-            // When a deletion is found, get existing covering state, combine and apply/store.
-            // Get rightSideAsCovering and walk the full existing trie to apply, advancing mutation cursor in parallel
-            // until we see an end boundary in mutation trie.
-            // Repeat until mutation trie is exhausted.
-            int depth = state.currentDepth;
-            long position = mutationCursor.encodedPosition();
-            assert !Cursor.isOnReturnPath(position) : "Cursor cannot start with position on return path.";
-            while (true)
-            {
-                if (depth < forcedCopyDepth)
-                    forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
-
-                U content = (position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null;
-                if (content != null)
-                {
-                    S existingCoveringState = getExistingCoveringState(Cursor.isOnReturnPath(position));
-                    applyDeletionRange(rightSideAsCovering(existingCoveringState), position);
-                }
-
-                position = mutationCursor.advance();
-                depth = Cursor.depth(position);
-                // Advance according to the mutation cursor. This will apply point content and complete anything already modified.
-                if (!state.advanceToMutationPosition(depth, Cursor.incomingTransition(position), Cursor.isOnReturnPath(position), forcedCopyDepth))
-                    break;
-                assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
-            }
-        }
-
         private void ascendWithUpdatedReturnPathContent(int existingContentId, S existingState, U content) throws TrieSpaceExhaustedException
         {
             S combined = transformer.apply(existingState, content);
@@ -712,100 +845,6 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             state.attachAndMoveToParentStateWithAscentPathContent(combinedId, forcedCopyDepth);
         }
 
-        void applyDeletionRange(S existingCoveringState, long position)
-        throws TrieSpaceExhaustedException
-        {
-            AdvanceResult advance = AdvanceResult.AT_LIMIT;
-            int limitDepth = Cursor.depth(position);
-            int limitTransition = Cursor.incomingTransition(position);
-            boolean limitOnReturnPath = Cursor.isOnReturnPath(position);
-            U mutationCoveringState = null;
-
-            // We are walking both tries in parallel.
-            while (true)
-            {
-                // We need to force-copy every node we touch while applying ranges to ensure consistent ranges.
-                forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
-
-                switch (advance)
-                {
-                    case AT_LIMIT:
-                    {
-                        // We are following the mutation cursor. Check it for content to apply, and then advance it.
-                        U mutationContent = (position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null;
-
-                        int existingContentId = limitOnReturnPath ? state.getAscentPathContentId() : state.descentPathContentId();
-                        S existingContent = InMemoryReadTrie.isNull(existingContentId) ? null : state.trie.getContent(existingContentId);
-
-                        if (existingContent != null || mutationContent != null)
-                        {
-                            if (existingContent == null)
-                                existingContent = existingCoveringState;
-                            if (mutationContent == null)
-                                mutationContent = mutationCoveringState;
-
-                            if (limitOnReturnPath)
-                                ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationContent);
-                            else
-                                applyContent(existingContent, mutationContent);
-
-                            mutationCoveringState = mutationContent.succedingState(Direction.FORWARD);
-                            existingCoveringState = rightSideAsCovering(existingContent);
-                            if (mutationCoveringState == null)
-                                return; // mutation deletion range was closed, we can continue normal mutation cursor iteration
-                        }
-
-                        position = mutationCursor.advance();
-                        limitDepth = Cursor.depth(position);
-                        limitTransition = Cursor.incomingTransition(position);
-                        limitOnReturnPath = Cursor.isOnReturnPath(position);
-                        assert limitDepth >= 0 : "Unbounded range in mutation trie, state " + mutationCoveringState + " active when exhausted.";
-                        break;
-                    }
-                    case DESCENDED:
-                    {
-                        // We have descended in the existing trie. Apply the mutation's deletion to an content and
-                        // continue.
-                        S existingContent = state.getDescentPathContent();
-                        if (existingContent != null)
-                        {
-                            applyContent(existingContent, mutationCoveringState);
-                            existingCoveringState = existingContent.succedingState(Direction.FORWARD);
-                        }
-                        break;
-                    }
-                    case NEEDS_ASCENT:
-                    {
-                        // There are no more children in the existing trie, and we need to ascend. Do so, but first
-                        // check if there is ascent path content that needs to be updated.
-                        int existingContentId = state.getAscentPathContentId();
-                        if (existingContentId != NONE)
-                        {
-                            S existingContent = state.trie.getContent(existingContentId);
-                            existingCoveringState = existingContent.succedingState(Direction.FORWARD);
-                            ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationCoveringState);
-                        }
-                        else
-                            state.attachAndMoveToParentState(forcedCopyDepth);
-                        break;
-                    }
-                    default:
-                        throw new AssertionError();
-                }
-
-                advance = state.tryDescendInExisting(limitDepth, limitTransition, limitOnReturnPath);
-            }
-        }
-
-        S getExistingCoveringState(boolean onReturnPath)
-        {
-            S existingCoveringState = state.getNearestContent(onReturnPath);
-            if (existingCoveringState != null)
-                return existingCoveringState.precedingState(Direction.FORWARD);
-
-            return null;
-        }
-
         static <S extends RangeState<S>> S rightSideAsCovering(S rangeState)
         {
             if (rangeState == null)
@@ -815,25 +854,55 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
     }
 
     /// Range trie mutator, binding the trie with merge configuration (i.e. transformer and predicates).
-    /// Can be used to apply multiple modifications to the trie using [#apply(RangeTrie)].
-    public class Mutator<U extends RangeState<U>> extends MutatorStatic<S, U>
+    /// Can be used to apply multiple modifications to the trie using [#apply(BasicRangeTrie)].
+    public class Mutator<U extends RangeState<U>> extends InMemoryBaseTrie.Mutator<S, U, BasicRangeCursor<U>, ApplyState<S>>
     {
+        final RangeApplier<S, U> applier;
+
         /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of the
         /// parameters.
         Mutator(UpsertTransformer<S, U> transformer, Predicate<NodeFeatures<U>> needsForcedCopy, Consumer<? super S> droppedContentCallback)
         {
-            super(applyState, transformer, needsForcedCopy, droppedContentCallback);
+            super(transformer, needsForcedCopy, droppedContentCallback, applyState);
+            this.applier = new RangeApplier<>(applyState, transformer, needsForcedCopy, droppedContentCallback);
+        }
+
+        @Override
+        Mutator<U> start(int root, BasicRangeCursor<U> mutationCursor, int initialForcedCopyDepth)
+        {
+            super.start(root, mutationCursor, initialForcedCopyDepth);
+            applier.start(root, initialForcedCopyDepth, 0);
+            return this;
+        }
+
+        @Override
+        Mutator<U> apply() throws TrieSpaceExhaustedException
+        {
+            long position = mutationCursor.encodedPosition();
+            do
+            {
+                applier.applyAt(BasicCursor.content(mutationCursor, position), Cursor.isOnReturnPath(position));
+                position = mutationCursor.advance();
+            }
+            while (applier.moveTo(position));
+            return this;
+        }
+
+        @Override
+        void complete() throws TrieSpaceExhaustedException
+        {
+            state.attachPreparedRoot(applier.completeBranch());
         }
 
         /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
         /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
         /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
         /// different than the element type for this memtable trie.
-        public void apply(RangeTrie<U> mutation) throws TrieSpaceExhaustedException
+        public void apply(BasicRangeTrie<U> mutation) throws TrieSpaceExhaustedException
         {
             try
             {
-                start(mutation.cursor(Direction.FORWARD)).apply().complete();
+                start(mutation.basicCursor(Direction.FORWARD)).apply().complete();
                 completeMutation();
             }
             catch (Throwable t)
@@ -890,7 +959,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
     /// concurrent readers. Note that this only applies to separate ranges in the mutation. Whenever a mutation range is
     /// applied, the covered content is copied to ensure that consumer cannot see unclosed ranges due to intermediate
     /// state. See [NodeFeatures] for more details.
-    public <U extends RangeState<U>> void apply(RangeTrie<U> mutation,
+    public <U extends RangeState<U>> void apply(BasicRangeTrie<U> mutation,
                                                 final UpsertTransformer<S, U> transformer,
                                                 Predicate<NodeFeatures<U>> needsForcedCopy)
     throws TrieSpaceExhaustedException

@@ -66,17 +66,6 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
      */
     public final Predicate<InMemoryTrie.NodeFeatures<TestRangeState>> FORCE_COPY_PARTITION_RANGE_STATE = features -> isPartition(features.content());
     /**
-     * Force copy every modified cell below the earliest branching point. Provides atomicity of mutations at any level,
-     * but readers/walkers may see inconsistent views of the data, in the sense that older mutations may be missed
-     * while newer ones are returned.
-     */
-    public final static Predicate<InMemoryTrie.NodeFeatures<?>> FORCE_ATOMIC = InMemoryBaseTrie.NodeFeatures::isBranching;
-    @SuppressWarnings("unchecked")
-    public static <Q> Predicate<InMemoryTrie.NodeFeatures<Q>> forceAtomic()
-    {
-        return (Predicate<InMemoryTrie.NodeFeatures<Q>>) (Predicate<?>) FORCE_ATOMIC;
-    }
-    /**
      * Do not do any additional copying beyond what is required to build the tries safely for concurrent readers.
      * Mutations may be partially seen by readers, and older mutations may be missed while newer ones are returned.
      */
@@ -157,14 +146,6 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
     }
 
     @Test
-    public void testAtomicUpdates() throws Exception
-    {
-        // Check that multi-path updates with below-branching-point copying are safe for concurrent readers,
-        // and that content is atomically applied, i.e. that reader see either nothing from the update or all of it.
-        testUpdateConsistency(3, forceAtomic(), forceAtomic(), true, false);
-    }
-
-    @Test
     public void testSafeUpdates() throws Exception
     {
         // Check that multi path updates without additional copying are safe for concurrent readers.
@@ -179,15 +160,6 @@ public abstract class ConsistencyTestBase<C, T extends BaseTrie<C, ?, T>, R exte
         // older ones. (For example, if the sequence of additions is 3, 1, 5, without this requirement a reader
         // could see an enumeration which lists 3 and 5 but not 1.)
         testUpdateConsistency(1, FORCE_COPY_PARTITION, FORCE_COPY_PARTITION_RANGE_STATE, true, true);
-    }
-
-
-    @Test
-    public void testAtomicSinglePathUpdates() throws Exception
-    {
-        // When doing single path updates atomicity comes for free. This only checks that the branching checker is
-        // not doing anything funny.
-        testUpdateConsistency(1, forceAtomic(), forceAtomic(), true, false);
     }
 
     @Test

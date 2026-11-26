@@ -23,10 +23,11 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /// In-memory implementation of deletion-aware tries with concurrent access support.
@@ -273,17 +274,48 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     final InMemoryRangeTrie.ApplyState<D> deletionState = new InMemoryRangeTrie.ApplyState<>((InMemoryBaseTrie<D, ?, ?>) this);
 
     /// Deletion-aware trie mutator, binding the trie with a merge configuration (i.e. transformers and predicates).
-    /// Can be used to apply multiple modifications to the trie using [#apply(DeletionAwareTrie)].
+    /// Can be used to apply multiple modifications to the trie using [#apply(BasicDeletionAwareTrie)].
+    ///
+    /// The mutation is given as a [BasicDeletionAwareCursor], i.e. with its live content and deletions in one walk,
+    /// and is applied in one pass in which the live trie and the relevant deletion branch of this trie are walked
+    /// together with it:
+    /// - Outside deletion branches the walk follows the mutation in the live trie and merges in its content.
+    /// - A deletion branch is entered at a node of this trie that has one, or at a position that the mutation marks as
+    ///   a deletion branch root. In the latter case a new branch is started, after hoisting the deletion branches this
+    ///   trie has below that point (which can only exist if deletions are not at fixed points). The branch is attached
+    ///   to its node when the walk leaves it.
+    /// - Inside a deletion branch the mutation's deletions are merged into the branch, and applied to the existing live
+    ///   content that they cover: while a deletion of the mutation is open, the walk also visits everything that this
+    ///   trie has between the mutation's positions. The mutation's live content is merged after applying this trie's
+    ///   deletions to it.
+    ///
+    /// Inside a deletion branch the transformers are called in the order `deletionTransformer`, `existingDeleter`,
+    /// `insertedDeleter`, `liveTransformer`, both at a position of the mutation and for what this trie has between two
+    /// positions: deletions are processed first, so that they only apply to pre-existing content.
+    ///
+    /// The exception is live content at the root of a deletion branch, which is taken to describe the branch (e.g. the
+    /// metadata of a partition) and is processed before it, so that the other transformers can rely on it: it is
+    /// merged, without calling `insertedDeleter`, and then given to `existingDeleter` if the mutation has a deletion at
+    /// the root.
     public class Mutator<V, E extends RangeState<E>>
-    extends InMemoryBaseTrie.Mutator<T, V, DeletionAwareMergeSource<V, E, D>, ApplyState<T, D>>
+    extends InMemoryBaseTrie.Mutator<T, V, BasicDeletionAwareCursor<V, E>, ApplyState<T, D>>
     {
+        final UpsertTransformer<D, E> deletionTransformer;
+        final UpsertTransformer<T, E> existingDeleter;
         final BiFunction<D, V, V> insertedDeleter;
         final boolean deletionsAtFixedPoints;
-        final InMemoryRangeTrie.MutatorStatic<D, E> deletionMutator;
-        final InMemoryTrie.RangeMutator<T, E> deleter;
+        final InMemoryRangeTrie.RangeApplier<D, E> deletionApplier;
+
+        /// The depth of the root of the deletion branch that the walk is in, -1 if it is not in one.
+        int deletionBranchDepth;
+        /// Whether the deletion branch that the walk is in was made by hoisting branches from below its root.
+        boolean hoisted;
+        /// True while the deletion transformer is called, when the key methods describe the deletion's position.
+        boolean atDeletion;
 
         /// See [InMemoryDeletionAwareTrie#mutator(UpsertTransformer, UpsertTransformer, UpsertTransformer, BiFunction, boolean, Predicate, Predicate)]
         /// for the meaning of the parameters.
+        @SuppressWarnings("unchecked")
         Mutator(UpsertTransformer<T, V> liveTransformer,
                 UpsertTransformer<D, E> deletionTransformer,
                 UpsertTransformer<T, E> existingDeleter,
@@ -294,188 +326,179 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
                 boolean deletionsAtFixedPoints)
         {
             super(liveTransformer, needsForcedCopyInLiveTrie, droppedContentCallback, applyState);
-            this.deletionMutator = new InMemoryRangeTrie.MutatorStatic<>(deletionState,
-                                                                         deletionTransformer,
+            this.deletionTransformer = deletionTransformer;
+            this.deletionApplier = new InMemoryRangeTrie.RangeApplier<>(deletionState,
+                                                                         this::mergeDeletion,
                                                                          needsForcedCopyInDeletionBranch,
                                                                          (Consumer<D>) droppedContentCallback);
-            this.deleter = new InMemoryTrie.RangeMutator<>(applyState, existingDeleter, needsForcedCopyInDeletionBranch, droppedContentCallback);
+            this.existingDeleter = existingDeleter;
             this.insertedDeleter = insertedDeleter;
             this.deletionsAtFixedPoints = deletionsAtFixedPoints;
-        }
-
-        Mutator<V, E> start(DeletionAwareCursor<V, E> mutationCursor)
-        {
-            super.start(new DeletionAwareMergeSource<>(insertedDeleter, mutationCursor));
-            return this;
         }
 
         @Override
         Mutator<V, E> apply() throws TrieSpaceExhaustedException
         {
-            int depth = state.currentDepth;
+            deletionBranchDepth = -1;
+            atDeletion = false;
             long position = mutationCursor.encodedPosition();
-            while (true)
+            do
             {
-                if (depth < forcedCopyDepth)
-                    forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
-
-                // Content must be applied before descending into the branch to make sure we call the transformers
-                // in the right order.
-                applyContent(BasicCursor.content(mutationCursor, position));
-
-                int existingAlternateBranch = state.alternateBranch();
-                RangeCursor<E> incomingAlternateBranch = DeletionAwareCursor.deletionBranchCursor(mutationCursor, position);
-                if (incomingAlternateBranch != null || existingAlternateBranch != NONE)
-                {
-                    int updatedAlternateBranch = hoistAndApplyDeletionBranch(existingAlternateBranch, incomingAlternateBranch);
-
-                    // Ascend and apply alternate branch.
-                    state.alternateBranchToAttach = updatedAlternateBranch;
-                    if (state.currentDepth == 0)
-                        break; // to be attached to root by complete()
-
-                    state.attachAndMoveToParentState(forcedCopyDepth);
-                    position = mutationCursor.encodedPosition();
-                }
-                else
-                    position = mutationCursor.advance();
-
-                rejectReturnPath(position);
-                depth = Cursor.depth(position);
-                if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
-                    break;
-                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
+                applyPosition(position);
+                position = mutationCursor.advance();
             }
+            while (moveTo(position));
             return this;
         }
 
-        /// Hoist our deletion branches to this point if necessary, and apply the incoming deletion branch.
-        /// See [#applyDeletionBranch].
-        private int hoistAndApplyDeletionBranch(int existingAlternateBranch, RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
+        /// Apply what the mutation has at the given position, which the walk has just reached.
+        private void applyPosition(long position) throws TrieSpaceExhaustedException
         {
-            if (!deletionsAtFixedPoints && existingAlternateBranch == NONE && state.existingFullNode() != NONE)
+            V content = BasicCursor.content(mutationCursor, position);
+            E deletion = BasicDeletionAwareCursor.deletion(mutationCursor, position);
+            if (Cursor.isOnReturnPath(position))
             {
-                // Move any covered deletion branches up to this depth so that we can correctly merge the
-                // incoming deletions.
-                int hoistedAlternateBranch = hoistOurDeletionBranches();
-                int updatedAlternateBranch = applyDeletionBranch(hoistedAlternateBranch, incomingAlternateBranch);
-
-                // Make sure hoisting is done as a single operation without temporarily losing deletion branches
-                // if a prefix updates the child and alternate links separately.
-                // Applied after applyDeletionBranch when the descendants have been processed to only affect the
-                // attachment.
-                if (hoistedAlternateBranch != NONE)
-                    forcedCopyDepth = Math.min(forcedCopyDepth, state.currentDepth);
-                return updatedAlternateBranch;
-            }
-            else
-                return applyDeletionBranch(existingAlternateBranch, incomingAlternateBranch);
-        }
-
-        /// Merge the incoming deletion branch into ours and apply it to the data below this point.
-        ///
-        /// Takes ownership of `incomingAlternateBranch` and closes it, together with the cursors made from it here.
-        /// The incoming trie can be file-backed, in which case each of these holds a buffer until it is closed.
-        private int applyDeletionBranch(int hoistedAlternateBranch, RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
-        {
-            int updatedAlternateBranch = hoistedAlternateBranch;
-            RangeCursor<D> ourDeletionBranch = ((InMemoryDeletionAwareTrie<T, D>) state.trie()).makeRangeCursor(Direction.FORWARD, updatedAlternateBranch);
-
-            if (!deletionsAtFixedPoints && incomingAlternateBranch == null)
-            {
-                // The incoming cursor has no deletions here, but it may have some below this point.
-                // Switch to deletion branch to transform them to be rooted here.
-                // (Note: this will cause a lot of processing of unproductive branches.)
-                incomingAlternateBranch = new DeletionAwareCursor.DeletionsTrieCursor<>(mutationCursor.tailCursor(Direction.FORWARD));
+                // Only deletions can be placed after a branch, and we can only get here inside a deletion branch.
+                if (content != null)
+                    throw new IllegalArgumentException("Live content on the return path at " + Cursor.toString(position));
+                deletionApplier.applyAt(deletion, true);
+                return;
             }
 
-            if (incomingAlternateBranch != null)
+            int depth = state.currentDepth;
+            assert depth == Cursor.depth(position) : "Unexpected change to applyState. Concurrent trie modification?";
+            if (depth < forcedCopyDepth)
+                forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
+
+            if (deletionBranchDepth < 0)
             {
-                try
+                // If a deletion branch is rooted here, the live content is processed before the branch.
+                applyContent(content);
+                if (enterDeletionBranch(position))
                 {
-                    // Duplicate cursor as we need it for both deletion and live branches.
-                    try (RangeCursor<E> deletionBranch = incomingAlternateBranch.tailCursor(Direction.FORWARD))
-                    {
-                        // Delete data that is covered by the new deletions.
-                        applyDeletions(incomingAlternateBranch);
-
-                        // Merge the deletions into our deletion branch.
-                        updatedAlternateBranch = mergeDeletionBranch(updatedAlternateBranch, deletionBranch);
-                    }
+                    if (deletion != null)
+                        deleteExistingContent(deletion);
+                    deletionApplier.applyAt(deletion, false);
                 }
-                finally
+                else
+                    assert deletion == null : "Deletion outside a deletion branch at " + Cursor.toString(position);
+                return;
+            }
+            assert state.alternateBranch() == NONE : "Deletion branch found inside another deletion branch. Are deletions really at fixed points?";
+
+            // The existing deletion that applies to the incoming content must be taken before the incoming deletion
+            // changes it.
+            D existingDeletion = content != null ? deletionApplier.existingStateAtCurrentPosition() : null;
+
+            E applicableDeletion = deletion != null ? deletion : deletionApplier.mutationCoveringState;
+            deletionApplier.applyAt(deletion, false);
+            if (applicableDeletion != null)
+                deleteExistingContent(applicableDeletion);
+
+            if (existingDeletion != null)
+                content = insertedDeleter.apply(existingDeletion, content);
+            applyContent(content);
+        }
+
+        /// Enter the deletion branch rooted at the current position, if this trie has one there or the mutation marks
+        /// the position as a deletion branch root.
+        private boolean enterDeletionBranch(long position) throws TrieSpaceExhaustedException
+        {
+            int branch = state.alternateBranch();
+            hoisted = false;
+            if (branch == NONE)
+            {
+                if (!BasicDeletionAwareCursor.isDeletionBranchRoot(position))
+                    return false;
+
+                // The mutation's deletions are to be rooted here. Any deletion branches we have below this point must
+                // be moved up to be merged with them.
+                if (!deletionsAtFixedPoints && !isNull(state.existingFullNode()))
                 {
-                    incomingAlternateBranch.close();
+                    branch = hoistOurDeletionBranches();
+                    hoisted = branch != NONE;
                 }
             }
 
-            // Continue processing to also insert the incoming data at this branch.
-            // Note that this will also apply the incoming content to this node and advance the mutation cursor
-            // to the position after this branch.
-            applyLiveDataUnderDeletion(ourDeletionBranch);
-            return updatedAlternateBranch;
-        }
-
-        private void applyLiveDataUnderDeletion(RangeCursor<D> ourDeletionBranch) throws TrieSpaceExhaustedException
-        {
-            // Add our deletion to DeletionAwareMergeSource to apply them to incoming data.
-            if (ourDeletionBranch != null)
-                mutationCursor.addDeletions(ourDeletionBranch);
-            int initialDepth = state.currentDepth;
-
-            // The first forcedCopyDepth and applyContent are already called.
-            long position = mutationCursor.advance();
-            int depth = Cursor.depth(position);
-            rejectReturnPath(position);
-
-            // Below is the same as the main loop in `apply`, slightly rearranged and ignoring deletion branches.
-            while (state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
-            {
-                assert state.currentDepth == depth : "Unexpected change to applyState. Concurrent trie modification?";
-
-                if (depth < forcedCopyDepth)
-                    forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
-
-                applyContent((position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null);
-                position = mutationCursor.advance();
-                rejectReturnPath(position);
-                depth = Cursor.depth(position);
-            }
-            assert state.currentDepth == initialDepth;
-        }
-
-        private void applyDeletions(RangeCursor<E> incomingAlternateBranch) throws TrieSpaceExhaustedException
-        {
-            // Apply the deletion branch to our data.
-            try
-            {
-                deleter.continueFromCurrentState(incomingAlternateBranch, forcedCopyDepth).apply();
-            }
-            finally
-            {
-                // This mutator outlives the mutation; do not keep the branch, and the trie behind it, until the next one.
-                deleter.releaseMutationCursor();
-            }
-
-            // Make sure the data pass that follows walks the updated branch.
-            state.prepareToWalkBranchAgain();
-        }
-
-        private int mergeDeletionBranch(int existingAlternateBranch, RangeCursor<E> deletionBranch) throws TrieSpaceExhaustedException
-        {
+            deletionBranchDepth = state.currentDepth;
             // If forced copying is in force, apply it to the deletion branch too.
-            int deletionForcedCopyDepth = forcedCopyDepth <= state.currentDepth ? 0 : Integer.MAX_VALUE;
-            try
+            deletionApplier.start(branch, forcedCopyDepth <= deletionBranchDepth ? 0 : Integer.MAX_VALUE, deletionBranchDepth);
+            return true;
+        }
+
+        /// Complete the deletion branch that the walk is leaving, and have it attached to its node.
+        private void exitDeletionBranch() throws TrieSpaceExhaustedException
+        {
+            while (state.currentDepth > deletionBranchDepth)
+                state.attachAndMoveToParentState(forcedCopyDepth);
+            state.alternateBranchToAttach = deletionApplier.completeBranch();
+
+            // A node that is given hoisted deletion branches has lost them from its descendants. Readers must see both
+            // changes at once, i.e. the node must be copied rather than changed in place, where the links to its child
+            // and its deletion branch are written separately.
+            if (hoisted)
+                forcedCopyDepth = Math.min(forcedCopyDepth, deletionBranchDepth);
+            deletionBranchDepth = -1;
+        }
+
+        /// Move the walk to the given position of the mutation.
+        ///
+        /// @return false if the mutation is exhausted.
+        private boolean moveTo(long position) throws TrieSpaceExhaustedException
+        {
+            int depth = Cursor.depth(position);
+            int transition = Cursor.incomingTransition(position);
+            boolean onReturnPath = Cursor.isOnReturnPath(position);
+
+            if (deletionBranchDepth >= 0)
             {
-                deletionMutator.start(existingAlternateBranch, deletionBranch, deletionForcedCopyDepth).apply();
-            }
-            finally
-            {
-                // As in applyDeletions, do not keep the branch past this mutation.
-                deletionMutator.releaseMutationCursor();
+                if (depth > deletionBranchDepth || depth == deletionBranchDepth && onReturnPath)
+                {
+                    deletionApplier.moveTo(position);
+                    applyDeletionToExistingLiveData(depth, transition, onReturnPath);
+                    return true;
+                }
+                exitDeletionBranch();
             }
 
-            return deletionMutator.completeBranch();
+            rejectReturnPath(position);
+            return state.advanceTo(depth, transition, forcedCopyDepth);
+        }
+
+        /// Move the walk of the live trie to the given position inside the deletion branch. If a deletion of the
+        /// mutation is open, apply it to the existing live content on the way.
+        private void applyDeletionToExistingLiveData(int depth, int transition, boolean onReturnPath) throws TrieSpaceExhaustedException
+        {
+            E deletion = deletionApplier.mutationCoveringState;
+            if (deletion != null)
+            {
+                while (state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, deletionBranchDepth))
+                    deleteExistingContent(deletion);
+            }
+            else if (onReturnPath)
+                state.advanceToReturnPath(depth, transition, forcedCopyDepth, deletionBranchDepth);
+            else
+                state.advanceTo(depth, transition, forcedCopyDepth, deletionBranchDepth);
+        }
+
+        private void deleteExistingContent(E deletion) throws TrieSpaceExhaustedException
+        {
+            T existingContent = state.getDescentPathContent();
+            if (existingContent != null)
+            {
+                T remainingContent = existingDeleter.apply(existingContent, deletion);
+                if (remainingContent != existingContent)
+                    state.setDescentPathContent(remainingContent, // can be null
+                                                state.currentDepth >= forcedCopyDepth);
+            }
+        }
+
+        private D mergeDeletion(D existing, E update)
+        {
+            atDeletion = true;
+            D merged = deletionTransformer.apply(existing, update);
+            atDeletion = false;
+            return merged;
         }
 
         private int hoistOurDeletionBranches() throws TrieSpaceExhaustedException
@@ -488,9 +511,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
             // The process must be atomic to make sure readers can't lose a deletion branch that has already been added,
             // thus we force all modifications to `state` to be done with force-copying, which will also result in
             // copying the leading node's child if anything was modified. The leading node itself is changed when the
-            // hoisted branch is attached to it, which must also copy it (see `hoistedDeletionBranches`): changing it
-            // in place would make it point to the new child while its deletion branch is not yet set.
-            InMemoryRangeTrie.ApplyState<D> deletionState = deletionMutator.state;
+            // hoisted branch is attached to it, which must also copy it (see [#exitDeletionBranch]).
             deletionState.start(NONE);
             final int initialDepth = state.currentDepth;
             final int targetForcedCopyDepth = Integer.MAX_VALUE; // never force-copy in the new branch, these are completely new nodes
@@ -522,20 +543,20 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
         /// Modify this trie to apply the mutation given in the form of a trie. Any content in the mutation will be resolved
         /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
         /// All of the deletions in the given mutation trie will be applied, removing any content and trie paths that become
-        /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
-        /// of the trie will be combined with the incoming deletions.
+        /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletions of
+        /// the mutation will be combined with the deletion branches of this trie.
         ///
         /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
         /// different than the element type for this memtable trie.
         /// @see DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints
         public
-        void apply(DeletionAwareTrie<V, E> mutation)
+        void apply(BasicDeletionAwareTrie<V, E> mutation)
         throws TrieSpaceExhaustedException
         {
             // TODO: track hasDeletions and do plain Trie merges if neither this nor mutation has deletions.
             try
             {
-                start(mutation.cursor(Direction.FORWARD)).apply().complete();
+                start(mutation.basicCursor(Direction.FORWARD)).apply().complete();
                 completeMutation();
             }
             catch (Throwable t)
@@ -562,51 +583,50 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
         void delete(RangeTrie<E> mutation)
         throws TrieSpaceExhaustedException
         {
-            DeletionAwareCursor<V, E> mutationCursor = new SingletonCursor.DeletionBranch<>(Direction.FORWARD,
-                                                                                            ByteSource.EMPTY,
-                                                                                            byteComparableVersion,
-                                                                                            mutation);
-
-            try
-            {
-                start(mutationCursor).apply().complete();
-                completeMutation();
-            }
-            catch (Throwable t)
-            {
-                abortMutation();
-                throw t;
-            }
-            finally
-            {
-                releaseMutationCursor();
-            }
+            apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, byteComparableVersion, mutation));
         }
 
-        /// Get the bytes of the key in the deletion branch. This will not include the portion of the trie path leading
-        /// to the deletion branch.
+        // The methods below describe the position that a transformer is called for. For `deletionTransformer` this is
+        // the position of the deletion, whose path continues from the root of the deletion branch in `deletionState`.
+
+        @Override
+        public int currentDepth()
+        {
+            return atDeletion ? deletionBranchDepth + deletionState.currentDepth : state.currentDepth;
+        }
+
+        @Override
+        public byte[] getCurrentKeyBytes(int startDepth)
+        {
+            if (!atDeletion)
+                return state.getBytes(startDepth);
+
+            int depth = currentDepth();
+            Preconditions.checkArgument(startDepth >= 0 && startDepth <= depth);
+            byte[] bytes = new byte[depth - startDepth];
+            int liveLength = Math.max(deletionBranchDepth - startDepth, 0);
+            state.copyBytes(startDepth, startDepth + liveLength, bytes, 0);
+            deletionState.copyBytes(startDepth + liveLength - deletionBranchDepth, deletionState.currentDepth, bytes, liveLength);
+            return bytes;
+        }
+
+        /// @inheritDoc
+        /// For a deletion, only its ancestors down to the root of the deletion branch are considered.
+        @Override
+        public int getNearestAncestorDepthSatisfying(Predicate<T> shouldStop)
+        {
+            return atDeletion
+                   ? state.getNearestAncestorDepthSatisfying(shouldStop, Math.min(deletionBranchDepth, currentDepth() - 1))
+                   : state.getNearestAncestorDepthSatisfying(shouldStop);
+        }
+
+        /// Get the bytes of the current key below the root of the deletion branch. The returned array can be safely
+        /// modified and/or stored.
         ///
-        /// This method may be called by `deletionTransformer` to get information about the current state.
+        /// This method may only be called by `deletionTransformer`.
         public byte[] getDeletionBranchKeyBytes()
         {
-            return deletionMutator.getCurrentKeyBytes();
-        }
-
-        /// Get the bytes of the key in the deletion branch from the given depth, which must be obtained using
-        /// [#getDeletionBranchDepth()]. The returned array can be safely modified and/or stored.
-        ///
-        /// This method may be called by `deletionTransformer` to get information about the current state.
-        public byte[] getDeletionBranchKeyBytes(int startDepth)
-        {
-            return deletionMutator.getCurrentKeyBytes(startDepth);
-        }
-
-        /// Return the depth of the currently processed node in the deletion branch.
-        ///
-        /// This method may be called by the upsert transformer to get information about the current state.
-        public int getDeletionBranchDepth()
-        {
-            return deletionMutator.currentDepth();
+            return deletionState.getBytes(0);
         }
     }
 
@@ -618,7 +638,6 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -662,7 +681,6 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -707,7 +725,6 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -750,7 +767,6 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -763,7 +779,6 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
     /// even if there is no pre-existing deletion to convert the marker type. The transformer can return null if
     /// deletions cancel out or should not be preserved.
-    /// **Note: for code simplicity this transformer is provided only the path to the root of the deletion branch.**
     /// @param existingDeleter a function used to apply a deletion marker to potentially delete live data. This is
     /// only called if there is both content and deletion at a given covered point. It should return null if the entry
     /// is to be deleted.
@@ -775,7 +790,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity
     /// guarantees to concurrent readers, applied in both live and deletion branches. See [NodeFeatures] for details.
     public <V, E extends RangeState<E>>
-    void apply(DeletionAwareTrie<V, E> mutation,
+    void apply(BasicDeletionAwareTrie<V, E> mutation,
                final UpsertTransformer<T, V> liveTransformer,
                final UpsertTransformer<D, E> deletionTransformer,
                final UpsertTransformer<T, E> existingDeleter,

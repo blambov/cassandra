@@ -741,9 +741,10 @@ is a volatile variable, so this also enforces the happens-before relationship we
 ### Merging a branch using `apply`
 
 This is a generalization of the mutation procedure above, which applies to more complex branches, where each node may
-potentially need multiple updates to attach more than one child. The process proceeds following the nodes that a cursor
-of the mutation trie produces and we maintain full (i.e. for all nodes in the parent chain) backtracking information in
-an array of integers that contains
+potentially need multiple updates to attach more than one child. The mutation is given as a basic trie (see "Basic
+cursors" in [Trie.md](Trie.md)), i.e. it only has to be able to list its positions in order, and does not need to be a
+trie. The process proceeds following the nodes that the mutation's cursor produces and we maintain full (i.e. for all
+nodes in the parent chain) backtracking information in an array of integers that contains
 - `existingNode`, the corresponding pointer in the memtable trie,
 - `updatedNode`, the current corresponding pointer in the memtable trie, which may be different from the above if the
   mutation node is branching and one or more of its children have been already added,
@@ -789,7 +790,8 @@ of a mutation, or all of them, i.e. that they can never see some part of an upda
 We can achieve this by making sure that the application of a mutation has only one attachment point. This is always the
 case for single-path updates (`putRecursive` or `apply` where no mutation node has more than one child). We can achieve
 the same for branching updates if we "force-copy" all memtable trie nodes at or below the topmost branching node of
-the mutation trie.
+the mutation trie. The mutation's cursor cannot look ahead to recognize that node; in practice the point to copy from
+is identified by its content (see the next section), or everything is copied from the root.
 
 This ensures that any partially applied changes are only done in unreachable copy nodes, while concurrent readers
 continue working on the originals. Once the branch is fully prepared, we attach it using one in-place write which makes
@@ -1042,12 +1044,21 @@ non-null content.
 Deletion-aware tries are tries that contain parallel deletion branch range tries at some of their nodes. In in-memory
 deletion-aware tries, the parallel branches are stored using the alternate branch pointers of prefix nodes.
 
-When a deletion-aware trie needs to be applied to an in-memory trie, it proceeds as normal while a deletion branch is
-not seen in either source or target. When a deletion branch is found, the procedure must:
-- check if the other source has a deletion branch at the same point, and if it doesn't (and `deletionsAtFixedPoints` is
-  not set), hoist its descendant deletion branches to this position.
-- merge the two deletion branches into the new deletion branch (using range trie merge logic).
-- apply the source deletion branch to the live trie to apply any incoming deletions.
-- merge the source live branch, with the target's deletion branch applied to it (to make sure any preexisting deletions
-  are also taken into account for incoming data if that happens to be older), into the live trie (using plain trie merge
-  logic, i.e. no longer checking for deletion branches).
+A mutation of a deletion-aware in-memory trie is given as a basic deletion-aware cursor, which presents the mutation's
+live content and deletions in one walk and marks the positions where its deletion branches are rooted. It is applied in
+one pass, which proceeds as a plain trie mutation until a deletion branch root is seen in either the target (a node
+with a deletion branch) or the mutation (a marked position). From that point until the walk leaves the node:
+- If the branch root is the mutation's and the target has no deletion branch there, the target's deletion branches
+  below that point are first hoisted to it (unless `deletionsAtFixedPoints` is set, which means there cannot be any).
+- The target's deletion branch is walked together with the mutation and the mutation's deletions are merged into it,
+  using the range trie logic above.
+- While a deletion of the mutation is open, the walk of the live trie visits all existing content between the
+  mutation's positions to apply the deletion to it.
+- The mutation's live content is merged into the live trie after applying to it the target's deletion that covers its
+  position (to make sure preexisting deletions are taken into account for incoming data that happens to be older).
+  Deletions are processed before the live content at the same position, so that they only apply to preexisting
+  content. The exception is live content at the root of the deletion branch, which is processed before the branch: it
+  is merged without applying the target's deletion to it, and the mutation's deletion at the root, if any, is then
+  applied to the result.
+
+When the walk leaves the root of the deletion branch, the updated branch is attached to it.

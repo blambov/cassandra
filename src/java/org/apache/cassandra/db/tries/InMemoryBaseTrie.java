@@ -1318,15 +1318,16 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
         public byte[] getBytes(int startDepth)
         {
             Preconditions.checkArgument(startDepth >= 0 && startDepth <= currentDepth);
-            int arrSize = currentDepth - startDepth;
-            byte[] data = new byte[arrSize];
-            int pos = 0;
-            for (int i = startDepth; i < currentDepth; ++i)
-            {
-                int trans = transitionAtDepth(i);
-                data[pos++] = (byte) trans;
-            }
+            byte[] data = new byte[currentDepth - startDepth];
+            copyBytes(startDepth, currentDepth, data, 0);
             return data;
+        }
+
+        /// Copy the bytes of the path between the given depths to the given position in the array.
+        void copyBytes(int startDepth, int endDepth, byte[] dest, int destPos)
+        {
+            for (int i = startDepth; i < endDepth; ++i)
+                dest[destPos++] = (byte) transitionAtDepth(i);
         }
 
         public int getNearestAncestorDepthSatisfying(Predicate<T> shouldStop)
@@ -1390,7 +1391,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     }
 
     /// Interface providing features of the mutating node during mutation done using [InMemoryTrie#apply].
-    /// Effectively a subset of the [Cursor] interface which only permits operations that are safe to
+    /// Effectively a subset of the [BasicCursor] interface which only permits operations that are safe to
     /// perform before iterating the children of the mutation node to apply the branch mutation.
     ///
     /// This is mainly used as an argument to predicates that decide when to copy substructure when modifying tries,
@@ -1400,10 +1401,6 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     /// they achieve.
     public interface NodeFeatures<T>
     {
-        /// Whether or not the node has more than one descendant. If a checker needs mutations to be atomic, they can
-        /// return true when this becomes true.
-        boolean isBranching();
-
         /// The metadata associated with the node. If readers need to see a consistent view (i.e. where older updates
         /// cannot be missed if a new one is presented) below some specified point (e.g. within a partition), the checker
         /// should return true when it identifies that point.
@@ -1417,7 +1414,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
     ///
     /// The mutator provides some methods that can be called by the given transformer to obtain information about the
     /// state when merging in data.
-    protected static class Mutator<T, U, C extends Cursor<U>, A extends ApplyState<T>> implements NodeFeatures<U>
+    protected static class Mutator<T, U, C extends BasicCursor<U>, A extends ApplyState<T>> implements NodeFeatures<U>
     {
         final UpsertTransformer<T, U> transformer;
         final Predicate<NodeFeatures<U>> needsForcedCopy;
@@ -1441,6 +1438,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
         Mutator<T, U, C, A> start(int root, C mutationCursor, int initialForcedCopyDepth)
         {
             mutationCursor.assertFresh();
+            assert mutationCursor.direction().isForward() : "Mutations can only be applied in forward direction.";
 
             this.mutationCursor = mutationCursor;
             this.forcedCopyDepth = initialForcedCopyDepth;
@@ -1462,7 +1460,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
-                applyContent((position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null);
+                applyContent(BasicCursor.content(mutationCursor, position));
 
                 position = mutationCursor.advance();
                 rejectReturnPath(position);
@@ -1505,25 +1503,9 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
         }
 
         @Override
-        public boolean isBranching()
-        {
-            if (Cursor.isOnReturnPath(mutationCursor.encodedPosition()))
-                return false;
-
-            // This is not very efficient, but we only currently use this option in tests.
-            // If it's needed for production use, isBranching should be implemented in the cursor interface.
-            try (Cursor<U> dupe = mutationCursor.tailCursor(Direction.FORWARD))
-            {
-                long childPosition = dupe.advance();
-                return !Cursor.isExhausted(childPosition) &&
-                       !Cursor.isExhausted(dupe.skipTo(Cursor.positionForSkippingBranch(childPosition)));
-            }
-        }
-
-        @Override
         public U content()
         {
-            return (mutationCursor.encodedPosition() & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null;
+            return BasicCursor.content(mutationCursor, mutationCursor.encodedPosition());
         }
 
         /// Return the depth of the currently processed node.
@@ -1564,7 +1546,7 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
         /// This method may be called by the upsert transformer to get information about the current state.
         public byte[] getCurrentKeyBytesToNearestAncestorSatisfying(Predicate<T> shouldStop)
         {
-            return state.getBytes(Math.max(0, getNearestAncestorDepthSatisfying(shouldStop)));
+            return getCurrentKeyBytes(Math.max(0, getNearestAncestorDepthSatisfying(shouldStop)));
         }
 
         public ByteComparable.Version byteComparableVersion()

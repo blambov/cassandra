@@ -465,18 +465,16 @@ public abstract class PrefixTailTestBase<T extends InMemoryBaseTrie<Object, ?, ?
                 if (currentTail == null)
                     output.append("Null currentTail").append(msg);
 
-                if (update instanceof ByteBuffer)
+                // For deletions the full path is that of the deletion, and the tail path is the key inside the deletion
+                // branch, which is rooted at the tail.
+                if (update instanceof TestRangeState)
+                    tailPath = ((InMemoryDeletionAwareTrie.Mutator) mutator).getDeletionBranchKeyBytes();
+
+                if (update instanceof ByteBuffer || update instanceof TestRangeState)
                 {
                     byte[] prefix = Arrays.copyOfRange(fullPath, 0, fullPath.length - tailPath.length);
                     if (!Arrays.equals(currentTail.prefix, prefix))
                         output.append("Prefix expected " + Hex.bytesToHex(currentTail.prefix) + msg);
-                }
-                else if (update instanceof TestRangeState)
-                {
-                    if (!Arrays.equals(currentTail.prefix, fullPath) || !Arrays.equals(currentTail.prefix, tailPath))
-                        output.append("Prefix expected ").append(Hex.bytesToHex(currentTail.prefix)).append(msg);
-                    // on deletions the tail path is queried separately
-                    tailPath = ((InMemoryDeletionAwareTrie.Mutator) mutator).getDeletionBranchKeyBytes();
                 }
 
                 ByteBuffer updateAsBuf = null;

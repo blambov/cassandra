@@ -938,10 +938,9 @@ public class OnDiskDeletionAwareTrieTest
     }
 
     /// A mutator is kept for further mutations -- a partition updater holds one per shard -- so once a mutation has
-    /// been applied it must not keep any of its cursors, including the deletion branch cursors handed to the mutators
-    /// it uses for the branches. A closed cursor over a file-backed trie still references that trie.
+    /// been applied it must not keep its cursor. A closed cursor over a file-backed trie still references that trie.
     @Test
-    public void testMutatorDoesNotKeepTheMutationCursors() throws IOException, TrieSpaceExhaustedException
+    public void testMutatorDoesNotKeepTheMutationCursor() throws IOException, TrieSpaceExhaustedException
     {
         List<DataPoint> points = points(live("aa", 1), marker("abc", -1, 5), marker("abd", 5, -1), live("abz", 3),
                                         marker("xbc", -1, 6), marker("xbd", 6, -1), live("xyz", 3));
@@ -960,9 +959,7 @@ public class OnDiskDeletionAwareTrieTest
                                false,
                                v -> false);
             mutator.apply(read);
-            assertNull("data mutation cursor", mutator.mutationCursor);
-            assertNull("deletion branch cursor applied to the data", mutator.deleter.mutationCursor);
-            assertNull("deletion branch cursor merged into the deletions", mutator.deletionMutator.mutationCursor);
+            assertNull(mutator.mutationCursor);
         }
     }
 

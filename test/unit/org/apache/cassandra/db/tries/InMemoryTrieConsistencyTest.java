@@ -145,8 +145,7 @@ public class InMemoryTrieConsistencyTest extends ConsistencyTestBase<InMemoryTri
         System.out.format("Reuse %s %s atomicity %s on-heap %,d (+%,d) off-heap %,d\n",
                           ((BufferManagerMultibuf) trie.bufferManager).cellAllocator.getClass().getSimpleName(),
                           trie.bufferManager.bufferType(),
-                          forcedCopyChecker == this.<Content>noAtomicity() ? "none" :
-                          forcedCopyChecker == this.<Content>forceAtomic() ? "atomic" : "consistent partition",
+                          forcedCopyChecker == this.<Content>noAtomicity() ? "none" : "consistent partition",
                           trie.usedSizeOnHeap(),
                           trie.unusedReservedOnHeapMemory(),
                           trie.usedSizeOffHeap());

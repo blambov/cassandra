@@ -111,7 +111,7 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
         else
             indexer.startRow(clustering, LivenessInfo.EMPTY, Row.Deletion.regular(existing), LivenessInfo.EMPTY, updatedDeletion);
 
-        currentRowDepth = mutator.getDeletionBranchDepth();
+        currentRowDepth = mutator.currentDepth();
         currentColumns = metadata.regularAndStaticColumns().columns(clustering == Clustering.STATIC_CLUSTERING);
     }
 
@@ -129,7 +129,7 @@ public final class TriePartitionUpdaterLegacyIndex extends TriePartitionUpdater
         // Indexer ignores existing deletions, so we don't need to report them here.
         if (rightKind == TrieTombstoneMarker.Kind.COLUMN)
         {
-            byte[] cellPath = mutator.getDeletionBranchKeyBytes(currentRowDepth);
+            byte[] cellPath = mutator.getCurrentKeyBytes(currentRowDepth);
             ColumnMetadata column = TrieBackedRow.columnMetadataFromPath(cellPath, cellPath.length, currentColumns);
             indexer.onComplexColumnDeletion(column, rightSide);
             return;

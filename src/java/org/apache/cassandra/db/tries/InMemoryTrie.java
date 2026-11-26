@@ -29,7 +29,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /// In-memory trie built for fast modification and reads executing concurrently with writes from a single mutator thread.
 ///
-/// The main method for performing writes is [#apply(Trie,UpsertTransformer,Predicate)] which takes a trie as
+/// The main method for performing writes is [#apply(BasicTrie,UpsertTransformer,Predicate)] which takes a trie as
 /// an argument and merges it into the current trie using the methods supplied by the given [UpsertTransformer],
 /// force copying anything below the points where the third argument returns true.
 ///
@@ -39,9 +39,6 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 ///     can see any mixture of old and modified content
 ///   -  if the predicate is `nf -> true`, full sequential consistency will be provided, i.e. if a reader sees any
 ///     part of a modification, it will see all of it, and all the results of all previous modifications
-///   -  if the predicate is `nf -> nf.isBranching()` the write will be atomic, i.e. either none or all of the
-///     content of the merged trie will be visible by concurrent readers, but not sequentially consistent, i.e. there
-///     may be writes that are not visible to a reader even when they precede writes that are visible.
 ///   -  if the predicate is `nf -> <some_test>(nf.content())` the write will be consistent below the identified
 ///     point (used e.g. by Memtable to ensure partition-level consistency)
 ///
@@ -198,8 +195,8 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
     final private ApplyState<T> applyState = new ApplyState<>(this);
 
     /// Mutator for `InMemoryTrie`. Combines the target trie with the merge options (i.e. the transformers and
-    /// predicates) and can be used repeatedly to apply modifications to the trie using [#apply(Trie)].
-    public class Mutator<U> extends InMemoryBaseTrie.Mutator<T, U, Cursor<U>, ApplyState<T>>
+    /// predicates) and can be used repeatedly to apply modifications to the trie using [#apply(BasicTrie)].
+    public class Mutator<U> extends InMemoryBaseTrie.Mutator<T, U, BasicCursor<U>, ApplyState<T>>
     {
         /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of the
         /// parameters.
@@ -212,12 +209,12 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
         /// with the given function before being placed in this trie (even if there's no pre-existing content in this trie).
         /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
         /// different than the element type for this memtable trie.
-        public void apply(Trie<U> mutation)
+        public void apply(BasicTrie<U> mutation)
         throws TrieSpaceExhaustedException
         {
             try
             {
-                start(mutation.cursor(Direction.FORWARD)).apply().complete();
+                start(mutation.basicCursor(Direction.FORWARD)).apply().complete();
                 completeMutation();
             }
             catch (Throwable t)
@@ -279,7 +276,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
     /// value. Applied even if there's no pre-existing value in the memtable trie.
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity guarantees to
     /// concurrent readers. See NodeFeatures for details.
-    public <U> void apply(Trie<U> mutation,
+    public <U> void apply(BasicTrie<U> mutation,
                           final UpsertTransformer<T, U> transformer,
                           final Predicate<NodeFeatures<U>> needsForcedCopy)
     throws TrieSpaceExhaustedException
@@ -287,12 +284,11 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
         mutator(transformer, needsForcedCopy).apply(mutation);
     }
 
-    /// Trie mutator that accepts a range trie (e.g. deletions) to apply over data in this trie using [#apply(RangeTrie)].
+    /// Trie mutator that accepts a range trie (e.g. deletions) to apply over data in this trie using
+    /// [#apply(BasicRangeTrie)].
     public static class RangeMutator<T, S extends RangeState<S>>
-    extends InMemoryBaseTrie.Mutator<T, S, RangeCursor<S>, ApplyState<T>>
+    extends InMemoryBaseTrie.Mutator<T, S, BasicRangeCursor<S>, ApplyState<T>>
     {
-        int initialDepth;
-
         /// See [InMemoryTrie#mutator(UpsertTransformer, Predicate)] for the meaning of
         /// the parameters.
         RangeMutator(ApplyState<T> state,
@@ -301,24 +297,6 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
                      Consumer<? super T> droppedContentCallback)
         {
             super(transformer, needsForcedCopy, droppedContentCallback, state);
-        }
-
-        RangeMutator<T, S> start(int root, RangeCursor<S> mutationCursor, int initialForcedCopyDepth)
-        {
-            initialDepth = 0;
-            super.start(root, mutationCursor, initialForcedCopyDepth);
-            return this;
-        }
-
-        /// A variation of `start` which starts the operation at some point in the trie rather than the root. Used for
-        /// processing deletion branches in deletion-aware tries.
-        RangeMutator<T, S> continueFromCurrentState(RangeCursor<S> mutationCursor, int initialForcedCopyDepth)
-        {
-            mutationCursor.assertFresh();
-            this.mutationCursor = mutationCursor;
-            this.initialDepth = state.currentDepth;
-            this.forcedCopyDepth = initialForcedCopyDepth;
-            return this;
         }
 
         @Override
@@ -332,22 +310,21 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
                 if (depth < forcedCopyDepth)
                     forcedCopyDepth = needsForcedCopy.test(this) ? depth : Integer.MAX_VALUE;
 
-                S content = (position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null;
-                if (content != null)
+                if (BasicCursor.content(mutationCursor, position) != null)
                     applyDeletionRange(position);
 
                 position = mutationCursor.advance();
-                depth = Cursor.depth(position) + initialDepth;
+                depth = Cursor.depth(position);
                 // Descend but do not modify anything yet. A position on the return path is after the node's branch;
                 // a range that starts there must not be applied to it.
                 if (Cursor.isOnReturnPath(position))
-                    state.advanceToReturnPath(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth);
-                else if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth, initialDepth))
+                    state.advanceToReturnPath(depth, Cursor.incomingTransition(position), forcedCopyDepth, 0);
+                else if (!state.advanceTo(depth, Cursor.incomingTransition(position), forcedCopyDepth))
                     break;
                 assert depth == state.currentDepth : "Unexpected change to applyState. Concurrent trie modification?";
             }
 
-            assert state.currentDepth == initialDepth;
+            assert state.currentDepth == 0;
             return this;
         }
 
@@ -358,7 +335,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
         {
             S mutationCoveringState = null;
             boolean atMutation = true;
-            int depth = Cursor.depth(position) + initialDepth;
+            int depth = Cursor.depth(position);
             int transition = Cursor.incomingTransition(position);
             boolean onReturnPath = Cursor.isOnReturnPath(position);
             // We are walking both tries in parallel.
@@ -369,7 +346,7 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
                     if (state.currentDepth < forcedCopyDepth)
                         forcedCopyDepth = needsForcedCopy.test(this) ? state.currentDepth : Integer.MAX_VALUE;
 
-                    S mutationContent = (position & Cursor.MAY_HAVE_CONTENT_BIT) != 0 ? mutationCursor.content() : null;
+                    S mutationContent = BasicCursor.content(mutationCursor, position);
 
                     if (mutationContent != null)
                     {
@@ -384,14 +361,14 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
                         return;
 
                     position = mutationCursor.advance();
-                    depth = Cursor.depth(position) + initialDepth;
+                    depth = Cursor.depth(position);
                     transition = Cursor.incomingTransition(position);
                     onReturnPath = Cursor.isOnReturnPath(position);
                 }
                 else
                     applyContent(mutationCoveringState);
 
-                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, initialDepth);
+                atMutation = !state.advanceToNextExistingOr(depth, transition, onReturnPath, forcedCopyDepth, 0);
             }
         }
 
@@ -412,12 +389,12 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
         /// trie will be modified by applying the transformer. This is usually used to delete covered content (by returning
         /// null from the transformer).
         /// @param rangeTrie the ranges to be applied, given in the form of a range trie.
-        public void apply(RangeTrie<S> rangeTrie) throws TrieSpaceExhaustedException
+        public void apply(BasicRangeTrie<S> rangeTrie) throws TrieSpaceExhaustedException
         {
-            apply(rangeTrie.cursor(Direction.FORWARD));
+            apply(rangeTrie.basicCursor(Direction.FORWARD));
         }
 
-        void apply(RangeCursor<S> cursor) throws TrieSpaceExhaustedException
+        void apply(BasicRangeCursor<S> cursor) throws TrieSpaceExhaustedException
         {
             try
             {
@@ -483,10 +460,11 @@ public class InMemoryTrie<T> extends InMemoryBaseTrie<T, Cursor<T>, Trie<T>> imp
         return rangeMutator(transformer, needsForcedCopy, null);
     }
 
-    /// Creates a set mutator that can be used to apply multiple deletions to the trie.
+    /// Creates a set mutator that can be used to apply multiple deletions to the trie. The deletions are applied with
+    /// full copying, i.e. atomically and consistently for concurrent readers.
     public SetMutator<T> deleter(Consumer<? super T> droppedContentCallback)
     {
-        return new SetMutator<>(applyState, NodeFeatures::isBranching, droppedContentCallback);
+        return new SetMutator<>(applyState, Predicates.alwaysTrue(), droppedContentCallback);
     }
 
     /// Delete all entries covered under the specified TrieSet
