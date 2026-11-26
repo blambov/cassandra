@@ -85,7 +85,8 @@ abstract class PrefixedCursor<T, C extends Cursor<T>> extends DepthAdjustedCurso
 
         while (nextPrefixByte != ByteSource.END_OF_STREAM)
         {
-            receiver.addPathByte(incomingTransition);
+            if (receiver != null)
+                receiver.addPathByte(incomingTransition);
             pos += DEPTH_ADJUSTMENT_ONE;
             incomingTransition = nextPrefixByte;
             nextPrefixByte = prefixBytes.next();
