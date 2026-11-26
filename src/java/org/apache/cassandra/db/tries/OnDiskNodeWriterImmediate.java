@@ -19,6 +19,7 @@ package org.apache.cassandra.db.tries;
 import java.io.IOException;
 import java.util.Arrays;
 
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 
 /// Writes every node as soon as the walk leaves it: the node itself, then the chain of transitions that leads to it.
@@ -28,9 +29,10 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 /// immediately precedes it and the furthest is the one completed first, so this needs neither a relay nor a search
 /// for the furthest child. The pages of the output are ignored.
 ///
-/// A nested trie is written like any other, at the time it is walked: its root is known when its walk completes, and
-/// attaching it to a node only records that position. Because the node must be written directly after the last of its
-/// children, the nested trie has to be walked before the children are.
+/// A nested trie is written like any other, as it is walked, and attaching it to a node only records where its root
+/// is. Its walk, however, is interleaved with the completion of the descendants of that node, and a node must be
+/// written directly after the last of its children. The descendants are thus held back in a buffer while the nested
+/// trie is in progress, and written out when the node completes, between the nested trie and the node.
 ///
 /// Unlike [OnDiskNodeWriterPageAware], this does not fold the transition to a node's only child into the chain that
 /// starts the child (see [OnDiskNodeWriterPageAware#complete]): by the time a node is found to have no other
@@ -43,9 +45,16 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
     /// 0 if there is none.
     private long lastRoot = 0;
 
+    /// Where nodes are written: the output, or `held` for the descendants of a node whose nested trie is in progress.
+    private DataOutputPlus target;
+    private DataOutputBuffer held;
+    /// The depth of the node whose descendants are being held, -1 if none.
+    private int heldBelowDepth = -1;
+
     public OnDiskNodeWriterImmediate(DataOutputPlus out, OnDiskTrieWriter.DataSerializer<T> serializer)
     {
         super(out, serializer);
+        target = out;
     }
 
     /// A node on the current path, with the children that have been completed and written so far. One instance per
@@ -113,6 +122,9 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
     void complete(Node<T> pathNode, byte[] path, int chainStart, int chainEnd) throws IOException
     {
         PathNode<T> node = (PathNode<T>) pathNode;
+        if (node.depth <= heldBelowDepth)
+            releaseHeld(node);
+
         boolean hasChildren = node.childCount > 0;
         boolean hasPayload = node.descentContent != null || node.ascentContent != null || node.alternateBranch > 0;
         assert hasChildren || hasPayload;
@@ -121,17 +133,35 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
             writeChildren(node);
 
         if (hasPayload)
-            OnDiskWriteNodeType.writePayload(out, serializer, node.descentContent, node.ascentContent, node.alternateBranch, hasChildren);
+            OnDiskWriteNodeType.writePayload(target, serializer, node.descentContent, node.ascentContent, node.alternateBranch, hasChildren);
 
         node.reset();
 
-        OnDiskWriteNodeType.writeChain(out, path, chainStart, chainEnd);
+        OnDiskWriteNodeType.writeChain(target, path, chainStart, chainEnd);
+    }
+
+    /// Write out the held descendants of the given node, which is the one that the nested trie was started for or,
+    /// if that node turned out to have nothing, one above it.
+    private void releaseHeld(PathNode<T> node) throws IOException
+    {
+        if (held.getLength() > 0)
+        {
+            assert node.depth == heldBelowDepth;
+            // The node's children were given positions in the buffer.
+            long shift = out.position();
+            for (int i = 0; i < node.childCount; ++i)
+                node.childPositions[i] += shift;
+            out.write(held.unsafeGetBufferAndFlip());
+            held.clear();
+        }
+        heldBelowDepth = -1;
+        target = out;
     }
 
     private void writeChildren(PathNode<T> node) throws IOException
     {
         int count = node.childCount;
-        long basePos = out.position();
+        long basePos = target.position();
         // Children are recorded in the order they were written, so the first is the furthest away and the last is
         // immediately before this node (delta 0, which the sparse, bitmap and chain types leave implicit).
         if (node.childPositions[count - 1] != basePos)
@@ -140,14 +170,14 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
         long furthestDelta = basePos - node.childPositions[0];
         assert furthestDelta >= 0;
         OnDiskWriteNodeType type = OnDiskWriteNodeType.selectChildrenType(furthestDelta, count);
-        type.writeChildren(out, node.childPositions, node.childTransitions, count, basePos);
+        type.writeChildren(target, node.childPositions, node.childTransitions, count, basePos);
     }
 
     @Override
     void attachCompleted(Node<T> parent, int transition)
     {
         // The node just completed, together with the chain that leads to it, is the last thing written.
-        ((PathNode<T>) parent).addChild(transition, out.position());
+        ((PathNode<T>) parent).addChild(transition, target.position());
     }
 
     @Override
@@ -163,6 +193,17 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
     }
 
     @Override
+    void startBranch(int depth)
+    {
+        // The node of an earlier nested trie may have turned out to have nothing, leaving its depth set.
+        assert heldBelowDepth < 0 || held.getLength() == 0 : "Nested trie started inside another";
+        if (held == null)
+            held = new DataOutputBuffer();
+        heldBelowDepth = depth;
+        target = held;
+    }
+
+    @Override
     void attachBranch(Node<T> node, OnDiskNodeWriter<?> nested)
     {
         // The nested trie is already written; all that remains is to note where.
@@ -173,7 +214,7 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
 
         PathNode<T> pathNode = (PathNode<T>) node;
         assert pathNode.alternateBranch == 0;
-        assert pathNode.childCount == 0 : "Alternate branch written after the children of its node";
+        assert pathNode.depth == heldBelowDepth : "Alternate branch attached to a node it was not started for";
         pathNode.alternateBranch = root;
     }
 
@@ -181,5 +222,8 @@ public final class OnDiskNodeWriterImmediate<T> extends OnDiskNodeWriter<T>
     void reset()
     {
         lastRoot = 0;
+        assert heldBelowDepth < 0 || held.getLength() == 0;
+        heldBelowDepth = -1;
+        target = out;
     }
 }

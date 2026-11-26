@@ -49,10 +49,12 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 /// placed is very much the business of the node writer of the trie it belongs to, which may want to keep the branch
 /// close to the node that refers to it. The node writer for the nested tries is thus obtained from the main one with
 /// [#nested], and the two are linked:
+/// - [#startBranch] tells the main writer that a nested trie is started for the node the walk is at. The nodes of the
+///   nested trie and the descendants of that node are then completed in the order of their paths, interleaved.
 /// - [#finish] of a nested writer does not have to write the trie out; it only has to keep it for the main writer.
 /// - [#attachBranch] of the main writer takes the trie the nested writer has finished and makes it the alternate
-///   branch of a node on the main trie writer's path. From that point on the branch is part of that node, and is written
-///   with it at the latest.
+///   branch of the node, when all of the node's descendants are complete. From that point on the branch is part of
+///   that node, and is written with it at the latest.
 ///
 /// Only one nested trie can be in progress at a time, and it must be attached before another is started.
 public abstract class OnDiskNodeWriter<T>
@@ -139,12 +141,15 @@ public abstract class OnDiskNodeWriter<T>
     /// same output and produces the same kind of layout.
     abstract <B> OnDiskNodeWriter<B> nested(OnDiskTrieWriter.DataSerializer<B> serializer);
 
-    /// Make the trie that `nested` has last finished the alternate branch of `node`, a node on the path of the trie
-    /// that is being written by this node writer. `nested` must have been created by [#nested] of this writer, and
-    /// the trie must not be empty.
-    ///
-    /// With a node writer that writes at once, the branch must be finished and attached before any of the node's
-    /// children is completed.
+    /// A nested trie is started for the node at the given depth of the trie writer's path, which has no completed
+    /// children yet. This is not followed by [#attachBranch] if the nested trie turns out to be empty.
+    void startBranch(int depth)
+    {
+    }
+
+    /// Make the trie that `nested` has last finished the alternate branch of `node`, the node of the trie written by
+    /// this node writer for which [#startBranch] was called. `nested` must have been created by [#nested] of this
+    /// writer, and the trie must not be empty. All descendants of the node are complete.
     abstract void attachBranch(Node<T> node, OnDiskNodeWriter<?> nested);
 
     /// Prepare for writing another trie to the same output. Only to be called when no trie is in progress, i.e. before

@@ -20,6 +20,7 @@ package org.apache.cassandra.db.tries;
 
 import java.io.IOException;
 
+import org.agrona.DirectBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 
 /// Serializes a [DeletionAwareTrie] using the [OnDiskTrieWriter] on-disk trie format.
@@ -61,27 +62,20 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 ///
 /// ## Writers
 ///
-/// The live trie and the deletion branches are separate tries with different types of content. This is the writer
-/// of the live trie, and holds an [OnDiskTrieWriter] that it reuses for each deletion branch: branches do not nest,
-/// so only one is in progress at a time.
+/// The trie is taken as a [BasicDeletionAwareCursor], which presents the live content and the deletions in one walk
+/// and marks the roots of the deletion branches. The live trie and the deletion branches are separate tries with
+/// different types of content: this is the writer of the live trie, and holds an [OnDiskTrieWriter] for the deletion
+/// branch in progress, which it reuses for each branch in turn (branches do not nest). While the walk is under a
+/// deletion branch root, every step is given to both writers, with the positions that the branch writer sees made
+/// relative to the root; each of the two only creates nodes for the content it is given.
 ///
 /// The two are connected through their node writers. The node writer of the branches is
-/// [nested][OnDiskNodeWriter#nested] in the one of the live trie, and a branch whose walk has
-/// completed is attached to the node of the live trie it belongs to ([OnDiskBaseTrieWriter#alternateBranch]).
-/// It is then up to the node writer where the branch is placed, and thus when its root becomes known
-/// and can be recorded in the node: [OnDiskNodeWriterImmediate] writes the branch while it is walked,
-/// [OnDiskNodeWriterPageAware] holds it back to pack it in a page together with the node.
-///
-/// ## Ordering
-///
-/// [OnDiskBaseTrieWriter] completes nodes bottom-up as the walk ascends, so every pointer that is
-/// written points backwards. [DeletionAwareCursor#process] visits a node's content, then its
-/// deletion branch, then descends into its children, and the node itself is completed
-/// after its children. The deletion branch is walked, and attached to the node, when the walk
-/// reaches the node, before any of its children. Whichever way the node writer goes about it, the
-/// branch is therefore written before the node that references it, and the pointer stored for its root is a
-/// non-negative backward delta like every other. (A node writer that writes at once also needs the branch to come
-/// before the children, to keep the last of them adjacent to the node.)
+/// [nested][OnDiskNodeWriter#nested] in the one of the live trie, and a branch is attached to its node of the live
+/// trie when the walk leaves the node ([OnDiskBaseTrieWriter#alternateBranch]). Where the branch and the descendants
+/// of the node are placed is up to the node writer: [OnDiskNodeWriterPageAware] packs them in pages together with the
+/// node as far as possible, and [OnDiskNodeWriterImmediate] writes the branch first, then the descendants (which it
+/// has to hold back until the branch is complete) and the node. In both cases the branch is written before the node
+/// that refers to it, and the pointer stored for its root is a non-negative backward delta like every other.
 public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends OnDiskBaseTrieWriter<T>
 {
     final OnDiskTrieWriter.DataSerializer<D> deletionSerializer;
@@ -89,6 +83,29 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     /// The writer for each deletion branch in turn. Null until the first deletion branch, so that a trie without
     /// any does not allocate it.
     OnDiskTrieWriter<D> branchWriter;
+    /// The position of the root of the deletion branch that the walk is in, and its depth, -1 if it is not in one.
+    long branchRootPosition;
+    int branchDepth = -1;
+    /// The last position given to the branch writer.
+    long branchPosition;
+
+    /// Gives the transitions that the cursor takes inside a deletion branch to both writers.
+    private final BasicCursor.TransitionsReceiver bothWriters = new BasicCursor.TransitionsReceiver()
+    {
+        @Override
+        public void addPathByte(int nextByte)
+        {
+            OnDiskDeletionAwareTrieWriter.this.addPathByte(nextByte);
+            branchWriter.addPathByte(nextByte);
+        }
+
+        @Override
+        public void addPathBytes(DirectBuffer buffer, int pos, int count)
+        {
+            OnDiskDeletionAwareTrieWriter.this.addPathBytes(buffer, pos, count);
+            branchWriter.addPathBytes(buffer, pos, count);
+        }
+    };
 
     /// Create a writer that gives the nodes of the live trie to the given node writer, and the ones of the deletion
     /// branches to a node writer nested in it.
@@ -105,7 +122,7 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     ///
     /// @return the position of the root, which is the position of `out` when this returns, or 0 if the trie is empty,
     ///         as [OnDiskTrieWriter#write] returns it.
-    public static <T, D extends RangeState<D>> long write(DeletionAwareTrie<T, D> trie,
+    public static <T, D extends RangeState<D>> long write(BasicDeletionAwareTrie<T, D> trie,
                                                           OnDiskTrieWriter.DataSerializer<T> contentSerializer,
                                                           OnDiskTrieWriter.DataSerializer<D> deletionSerializer,
                                                           DataOutputPlus out) throws IOException
@@ -117,7 +134,7 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     ///
     /// @return the position of the root, which is the position of `out` when this returns, or 0 if the trie is empty,
     ///         as [OnDiskTrieWriter#write] returns it.
-    public static <T, D extends RangeState<D>> long write(DeletionAwareTrie<T, D> trie,
+    public static <T, D extends RangeState<D>> long write(BasicDeletionAwareTrie<T, D> trie,
                                                           OnDiskTrieWriter.DataSerializer<T> contentSerializer,
                                                           OnDiskTrieWriter.DataSerializer<D> deletionSerializer,
                                                           DataOutputPlus out,
@@ -128,18 +145,15 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
 
     /// Serialize the given trie. A writer can write several tries this way, one after the other.
     ///
-    /// [DeletionAwareCursor#process] cannot drive this: it never reports ascents, and [OnDiskBaseTrieWriter]
-    /// only completes nodes on ascent — which is why the writers are driven by [OnDiskBaseTrieWriter#step]. The same
-    /// applies to a deletion branch, which is walked by the branch writer's [OnDiskTrieWriter#writeFrom].
-    ///
     /// Writes in [Direction#REVERSE] like [OnDiskTrieWriter#write], so the root ends up last and the trie
     /// is read from the end of the stream.
     ///
     /// @return the position of the root, which is where the output is left, or 0 if the trie is empty.
-    long writeFrom(DeletionAwareTrie<T, D> trie) throws IOException
+    long writeFrom(BasicDeletionAwareTrie<T, D> trie) throws IOException
     {
         start();
-        try (DeletionAwareCursor<T, D> c = trie.cursor(Direction.REVERSE))
+        branchDepth = -1;
+        try (BasicDeletionAwareCursor<T, D> c = trie.basicCursor(Direction.REVERSE))
         {
             long position = c.getPositionAndAssertFresh();
             do
@@ -153,9 +167,12 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
         return rootPosition;
     }
 
-    /// Report the content and, if present, the whole deletion branch at the cursor's position.
-    private void emitAt(DeletionAwareCursor<T, D> c, long position) throws IOException
+    /// Report what the cursor has at its position: live content to this writer, and a deletion to the branch writer.
+    private void emitAt(BasicDeletionAwareCursor<T, D> c, long position)
     {
+        if (branchDepth < 0 && BasicDeletionAwareCursor.isDeletionBranchRoot(position))
+            startBranch(position);
+
         T content = BasicCursor.content(c, position);
         if (content != null)
         {
@@ -169,31 +186,49 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
             descentContent(content);
         }
 
-        // Both the branch and the content must be given while the walk is still at this position: they are attached
-        // to the node the walk is on, so they cannot be deferred past the next ascent.
-        try (RangeCursor<D> branch = DeletionAwareCursor.deletionBranchCursor(c, position))
+        D deletion = BasicDeletionAwareCursor.deletion(c, position);
+        if (deletion != null)
         {
-            if (branch != null)
-                writeDeletionBranch(branch);
+            if (branchDepth < 0)
+                throw new IllegalArgumentException("Deletion " + deletion + " is presented outside a deletion branch at " +
+                                                   Cursor.toString(position));
+            branchWriter.content(deletion, position);
         }
     }
 
-    /// Walk the deletion branch the given fresh cursor presents into the branch writer, and attach it to the node the
-    /// walk of the live trie is on.
-    private void writeDeletionBranch(RangeCursor<D> branch) throws IOException
+    private void startBranch(long position)
     {
         // Always written as a range trie, independently of the live trie: a deletion branch is one, and it is read
         // back through OnDiskRangeCursor, which reads the RANGE content style.
         if (branchWriter == null)
             branchWriter = new OnDiskTrieWriter<>(nodeWriter.nested(deletionSerializer), OnDiskCursor.ContentStyle.RANGE);
-        // A nested trie in the same stream. Its nodes are written before the node that will reference them, so
-        // the pointer to its root is a backward one like every other.
-        branchWriter.writeFrom(branch);
-        // A branch can be entered and produce nothing: `intersect` gives one when the set matches only a
-        // prefix of the branch's data (see testDeletionBranchEmptiedByIntersection). It writes nothing and has no
-        // root, and the node must not be given a branch then: a recorded root would make the reader
-        // set MAY_HAVE_DELETION_BRANCH_BIT and decode the byte before it as a node code.
-        if (branchWriter.hasRoot)
-            alternateBranch(branchWriter);
+        branchWriter.start();
+        startAlternateBranch();
+        branchRootPosition = position;
+        branchDepth = Cursor.depth(position);
+        branchPosition = Cursor.rootPosition(Cursor.direction(position));
+    }
+
+    @Override
+    long step(BasicCursor<?> c, long prevPosition) throws IOException
+    {
+        if (branchDepth < 0)
+            return super.step(c, prevPosition);
+
+        long position = c.advanceMultiple(bothWriters);
+        // The position as the branch sees it, which is exhausted if the walk has left the branch.
+        branchPosition = branchWriter.moveTo(DepthAdjustedCursor.fromAdjustedDepth(position,
+                                                                                   branchRootPosition,
+                                                                                   Cursor.depthCorrectionValue(branchRootPosition)),
+                                             branchPosition);
+        if (Cursor.isExhausted(branchPosition))
+        {
+            // A branch can be entered and produce nothing, e.g. when an intersection leaves none of its content. It
+            // writes nothing and has no root, and the node must not be given a branch then.
+            if (branchWriter.hasRoot)
+                alternateBranch(branchWriter, branchDepth);
+            branchDepth = -1;
+        }
+        return moveTo(position, prevPosition);
     }
 }

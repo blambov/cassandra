@@ -110,21 +110,29 @@ abstract class OnDiskBaseTrieWriter<T> extends TriePathReconstructor
         }
     }
 
-    /// Make the trie that `branchWriter` has just completed the alternate branch of the node at the current position.
-    /// `branchWriter` must be writing through a node writer [nested][OnDiskNodeWriter#nested] in this writer's, and
-    /// the trie it wrote must not be empty (see [#hasRoot]).
+    /// The walk is at a node that can be given an alternate branch: a trie that will be written through a node writer
+    /// [nested][OnDiskNodeWriter#nested] in this writer's while the walk is at or below the node, and that
+    /// [#alternateBranch] will attach to it when the walk is about to leave.
+    void startAlternateBranch()
+    {
+        nodeWriter.startBranch(keyPos);
+    }
+
+    /// Make the trie that `branchWriter` has just completed the alternate branch of the node at the given depth of the
+    /// current path, at which [#startAlternateBranch] was called. The trie must not be empty (see [#hasRoot]). Any
+    /// deeper nodes on the path are completed first.
     ///
     /// The pointer to the branch takes the ascent-side content slot of the node: the slot a range trie fills with
     /// return-path content is free in a trie whose content is descent-side only, which is the same reuse
     /// [InMemoryTrie] makes of a prefix node's alternate branch pointer. [OnDiskDeletionAwareTrieWriter] uses this for
     /// the deletion branches.
     ///
-    /// The node must thus not have, or later be given, content for its ascent-side slot. The branch must be walked
-    /// and attached when the walk first reaches the node, before any of the node's children is completed (see
-    /// [OnDiskNodeWriter#attachBranch]).
-    void alternateBranch(OnDiskBaseTrieWriter<?> branchWriter)
+    /// The node must thus not have, or later be given, content for its ascent-side slot.
+    void alternateBranch(OnDiskBaseTrieWriter<?> branchWriter, int depth) throws IOException
     {
         assert branchWriter.hasRoot;
+        completeNodesBelow(depth);
+        resetPathLength(depth);
         OnDiskNodeWriter.Node<T> node = nodeAtCurrentPosition();
         assert node.ascentContent == null;
         nodeWriter.attachBranch(node, branchWriter.nodeWriter);
@@ -155,11 +163,24 @@ abstract class OnDiskBaseTrieWriter<T> extends TriePathReconstructor
         return node;
     }
 
-    /// Complete every node the walk has finished with, i.e. every node on the path deeper than the position the
-    /// cursor ascended to, deepest first. Each node is given to the node writer together with the chain of transitions
-    /// between it and the next shallower node on the path (or the ascent depth, whichever is deeper), and is then
-    /// attached as a child of that parent, which is created if the path had no node at that depth.
+    /// Complete the nodes the walk has finished with when the cursor ascends to the given position.
     private void ascendTo(long newEncodedPosition) throws IOException
+    {
+        int newLength = Math.max(Cursor.depth(newEncodedPosition) - 1, -1);
+        // If we are returning to an ascent-path position that doesn't advance, prepare to add content to the node at
+        // this depth rather than add a new child to parent.
+        if (Cursor.isOnReturnPath(newEncodedPosition)
+            && (newLength == -1 ||
+                (keyBytes[newLength] & 0xFF) == Cursor.incomingTransition(newEncodedPosition)))
+            ++newLength;
+        completeNodesBelow(newLength);
+    }
+
+    /// Complete every node on the path that is deeper than the given depth, deepest first. Each node is given to the
+    /// node writer together with the chain of transitions between it and the next shallower node on the path (or the
+    /// given depth, whichever is deeper), and is then attached as a child of that parent, which is created if the
+    /// path had no node at that depth.
+    private void completeNodesBelow(int newLength) throws IOException
     {
         if (lastNodeOnPath < 0)
         {
@@ -171,14 +192,6 @@ abstract class OnDiskBaseTrieWriter<T> extends TriePathReconstructor
         OnDiskNodeWriter.Node<T> node = nodesOnPath[lastNodeOnPath];
         assert node.depth <= keyPos;
         keyPos = node.depth;
-
-        int newLength = Math.max(Cursor.depth(newEncodedPosition) - 1, -1);
-        // If we are returning to an ascent-path position that doesn't advance, prepare to add content to the node at
-        // this depth rather than add a new child to parent.
-        if (Cursor.isOnReturnPath(newEncodedPosition)
-            && (newLength == -1 ||
-                (keyBytes[newLength] & 0xFF) == Cursor.incomingTransition(newEncodedPosition)))
-            ++newLength;
 
         while (newLength < node.depth)
         {
@@ -212,11 +225,17 @@ abstract class OnDiskBaseTrieWriter<T> extends TriePathReconstructor
     /// Advance the cursor from `prevPosition` with this as the receiver of the transitions it takes, complete the
     /// nodes it ascended out of, and bring the path up to the new position. Returns the new position.
     ///
-    /// [Cursor#process] cannot drive a writer: it never reports ascents, and nodes are only completed on ascent.
-    long step(Cursor<?> c, long prevPosition) throws IOException
+    /// [BasicCursor#process] cannot drive a writer: it never reports ascents, and nodes are only completed on ascent.
+    long step(BasicCursor<?> c, long prevPosition) throws IOException
     {
-        long currPosition = c.advanceMultiple(this);
+        return moveTo(c.advanceMultiple(this), prevPosition);
+    }
 
+    /// The cursor has advanced from `prevPosition` to `currPosition`, having given the transitions it took on the way
+    /// (see [BasicCursor#advanceMultiple]) to this object. Complete the nodes it ascended out of, and bring the path
+    /// up to the new position. Returns the new position.
+    long moveTo(long currPosition, long prevPosition) throws IOException
+    {
         if (Cursor.ascended(currPosition, prevPosition))
         {
             // hand over the nodes that have been completed
