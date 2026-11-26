@@ -695,7 +695,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
             }
         }
 
-        private void ascendWithUpdatedReturnPathContent(int existingContentId, S existingState, U content, int depth) throws TrieSpaceExhaustedException
+        private void ascendWithUpdatedReturnPathContent(int existingContentId, S existingState, U content) throws TrieSpaceExhaustedException
         {
             S combined = transformer.apply(existingState, content);
             S existing = existingState;
@@ -707,7 +707,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                              ? state.combineContent(existingContentId,
                                                     combined,
                                                     true,
-                                                    forcedCopyDepth >= depth)
+                                                    state.currentDepth >= forcedCopyDepth)
                              : existingContentId;
             state.attachAndMoveToParentStateWithAscentPathContent(combinedId, forcedCopyDepth);
         }
@@ -745,7 +745,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                                 mutationContent = mutationCoveringState;
 
                             if (limitOnReturnPath)
-                                ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationContent, limitDepth);
+                                ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationContent);
                             else
                                 applyContent(existingContent, mutationContent);
 
@@ -783,10 +783,7 @@ public class InMemoryRangeTrie<S extends RangeState<S>> extends InMemoryBaseTrie
                         {
                             S existingContent = state.trie.getContent(existingContentId);
                             existingCoveringState = existingContent.succedingState(Direction.FORWARD);
-                            ascendWithUpdatedReturnPathContent(existingContentId,
-                                                               existingContent,
-                                                               mutationCoveringState,
-                                                               forcedCopyDepth);
+                            ascendWithUpdatedReturnPathContent(existingContentId, existingContent, mutationCoveringState);
                         }
                         else
                             state.attachAndMoveToParentState(forcedCopyDepth);
