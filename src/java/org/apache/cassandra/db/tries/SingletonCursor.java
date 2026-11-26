@@ -252,4 +252,86 @@ class SingletonCursor<T> implements Cursor<T>
             return new DeletionBranch<>(dir, currentPosition, nextPosition, duplicateSource(), byteComparableVersion, deletionBranch);
         }
     }
+
+    /// The basic cursor of a deletion-aware trie made of a deletion branch at the end of a prefix: the walk of the
+    /// prefix, followed by the positions of the branch, which is given as a basic range cursor and whose boundaries
+    /// are presented as deletions.
+    static class BasicDeletionBranch<T, D extends RangeState<D>> implements BasicDeletionAwareCursor<T, D>
+    {
+        /// Walks the prefix. Null when the cursor is in the branch.
+        SingletonCursor<T> prefix;
+        final BasicRangeCursor<D> branch;
+        long currentPosition;
+        /// The position of the root of the branch and the depth correction for it, to convert the branch's positions.
+        long branchRootPosition;
+        long branchDepthCorrection;
+
+        BasicDeletionBranch(Direction direction, ByteSource prefix, BasicRangeCursor<D> branch)
+        {
+            this.branch = branch;
+            this.prefix = new SingletonCursor<>(direction, prefix, branch.byteComparableVersion(), null);
+            inPrefix(this.prefix.encodedPosition());
+        }
+
+        /// Take the given position of the prefix, entering the branch if it is the prefix's end.
+        private long inPrefix(long prefixPosition)
+        {
+            if (!prefix.atEnd())
+                return currentPosition = prefixPosition;
+
+            prefix = null;
+            branchRootPosition = prefixPosition & ~FLAGS_MASK;
+            branchDepthCorrection = Cursor.depthCorrectionValue(branchRootPosition);
+            return currentPosition = inBranch(branch.getPositionAndAssertFresh()) | MAY_HAVE_DELETION_BRANCH_BIT;
+        }
+
+        /// Convert the given position of the branch, where the content flag stands for a deletion.
+        private long inBranch(long branchPosition)
+        {
+            long position = DepthAdjustedCursor.toAdjustedDepth(branchPosition, branchRootPosition, branchDepthCorrection);
+            return currentPosition = (position & ~FLAGS_MASK) | ((branchPosition & MAY_HAVE_CONTENT_BIT) != 0 ? MAY_HAVE_DELETION_BIT : 0);
+        }
+
+        @Override
+        public long advance()
+        {
+            return prefix != null ? inPrefix(prefix.advance()) : inBranch(branch.advance());
+        }
+
+        @Override
+        public long advanceMultiple(TransitionsReceiver receiver)
+        {
+            return prefix != null ? inPrefix(prefix.advanceMultiple(receiver)) : inBranch(branch.advanceMultiple(receiver));
+        }
+
+        @Override
+        public long encodedPosition()
+        {
+            return currentPosition;
+        }
+
+        @Override
+        public T content()
+        {
+            return null;
+        }
+
+        @Override
+        public D deletion()
+        {
+            return prefix == null ? branch.content() : null;
+        }
+
+        @Override
+        public ByteComparable.Version byteComparableVersion()
+        {
+            return branch.byteComparableVersion();
+        }
+
+        @Override
+        public void close()
+        {
+            branch.close();
+        }
+    }
 }

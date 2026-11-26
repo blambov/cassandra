@@ -35,6 +35,7 @@ import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
 import static org.junit.Assert.assertEquals;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.booleans;
+import static org.quicktheories.generators.SourceDSL.lists;
 
 /// Tests of the basic cursor interfaces and of applying basic cursors to in-memory deletion-aware tries.
 @RunWith(Parameterized.class)
@@ -59,6 +60,76 @@ public class BasicCursorTest extends DeletionAwareTestBase
                     assertEquals(direction.toString(), deletionBranchRoots(trie, direction), deletionBranchRoots(steps));
                 }
             });
+    }
+
+    /// A deletion branch at the end of a prefix has a basic cursor of its own, which must present what the trie's
+    /// deletion-aware cursor does.
+    @Test
+    public void testDeletionBranchBasicCursor()
+    {
+        qt().forAll(dataPointListGen(), booleans().all())
+            .checkAssert((dataPoints, withPrefix) -> {
+                ByteComparable prefix = withPrefix ? at(11) : ByteComparable.EMPTY;
+                DeletionAwareTrie<LivePoint, DeletionMarker> trie =
+                    DeletionAwareTrie.deletionBranch(prefix, VERSION, fromList(dataPoints, false, true).deletionOnlyTrie());
+                assertSameAsDefaultBasicCursor(trie);
+            });
+    }
+
+    /// The same for a deletion that covers the whole branch, which has a boundary on the return path of the root.
+    @Test
+    public void testBranchDeletionBasicCursor()
+    {
+        for (ByteComparable prefix : Arrays.asList(ByteComparable.EMPTY, at(11)))
+        {
+            RangeTrie<DeletionMarker> deletion = RangeTrie.branch(ByteComparable.EMPTY, VERSION, new DeletionMarker(ByteComparable.EMPTY, 5, 5));
+            assertSameAsDefaultBasicCursor(DeletionAwareTrie.deletionBranch(prefix, VERSION, deletion));
+        }
+    }
+
+    /// The basic cursor of a merge merges the basic cursors of the sources, and must present what the merge's
+    /// deletion-aware cursor does.
+    @Test
+    public void testMergeBasicCursor()
+    {
+        qt().forAll(dataPointPairGen(), booleans().all())
+            .checkAssert((pair, deletionsAtRoot) -> {
+                DeletionAwareTrie<LivePoint, DeletionMarker> merged =
+                    fromList(pair.get(0), false, deletionsAtRoot).mergeWith(fromList(pair.get(1), false, deletionsAtRoot),
+                                                                            LivePoint::combine,
+                                                                            DeletionMarker::combine,
+                                                                            DeletionMarker::applyTo,
+                                                                            deletionsAtRoot);
+                assertSameAsDefaultBasicCursor(merged);
+            });
+    }
+
+    @Test
+    public void testCollectionMergeBasicCursor()
+    {
+        qt().forAll(lists().of(dataPointListGen()).ofSizeBetween(3, 6), booleans().all())
+            .checkAssert((lists, deletionsAtRoot) -> {
+                List<DeletionAwareTrie<LivePoint, DeletionMarker>> tries = lists.stream()
+                                                                                .map(list -> fromList(list, false, deletionsAtRoot))
+                                                                                .collect(Collectors.toList());
+                assertSameAsDefaultBasicCursor(DeletionAwareTrie.merge(tries,
+                                                                       LivePoint::combineCollection,
+                                                                       DeletionMarker::combineCollection,
+                                                                       DeletionMarker::applyTo,
+                                                                       deletionsAtRoot));
+            });
+    }
+
+    /// Checks that the basic cursor of the given trie, which is specific to the kind of trie, presents the same as
+    /// the default one, which is made from the trie's deletion-aware cursor.
+    private static void assertSameAsDefaultBasicCursor(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
+        for (Direction direction : Direction.values())
+        {
+            List<BasicCursorWalks.Step> expected = BasicCursorWalks.walk(new DeletionAwareCursor.AsBasic<>(trie.cursor(direction)));
+            assertEquals(direction.toString(), expected, BasicCursorWalks.walk(trie.basicCursor(direction)));
+            assertEquals(direction.toString(), expected, BasicCursorWalks.walkMultiple(trie.basicCursor(direction)));
+        }
     }
 
     /// Applying a source that is not a trie must have the same effect as merging its content. Done with the deletion

@@ -125,6 +125,19 @@ public class OnDiskDeletionAwareMergeTest extends DeletionAwareTestBase
         }
     }
 
+    /// A merge of read-back tries written to disk, as a compaction would do it. The writer walks the basic cursor of
+    /// the merge, which merges the basic cursors of the sources in one pass.
+    @Test
+    public void testWriteMerge()
+    {
+        for (List<DataPoint> right : asList(overlappingRanges(), liveOnly(), List.<DataPoint>of()))
+        {
+            List<DataPoint> left = dataSet();
+            DeletionAwareTrie<LivePoint, DeletionMarker> merged = merge(onDisk(left), onDisk(right));
+            assertResultMatches("written merge", mergeLists(left, right), onDisk(merged), null);
+        }
+    }
+
     /// [DeletionAwareTrie#merge] over a collection, with the on-disk operand in each position in turn. The collection
     /// merge keeps its sources in a heap ordered by position, so which slot the read-back trie occupies decides when
     /// its position is read and which of its cursor's paths the merge takes.
@@ -225,9 +238,14 @@ public class OnDiskDeletionAwareMergeTest extends DeletionAwareTestBase
 
     private OnDiskDeletionAwareTrie<LivePoint, DeletionMarker> onDisk(List<DataPoint> points)
     {
+        return onDisk(inMemory(points));
+    }
+
+    private OnDiskDeletionAwareTrie<LivePoint, DeletionMarker> onDisk(DeletionAwareTrie<LivePoint, DeletionMarker> trie)
+    {
         try (DataOutputBuffer out = kind.newOutput())
         {
-            OnDiskDeletionAwareTrieWriter.write(inMemory(points), LIVE, MARKER, out, kind.nodeWriterType);
+            OnDiskDeletionAwareTrieWriter.write(trie, LIVE, MARKER, out, kind.nodeWriterType);
             OnDiskDeletionAwareTrie<LivePoint, DeletionMarker> read =
                 OnDiskDeletionAwareTrie.open(out.asNewBuffer(), LIVE, MARKER, VERSION, -1);
             return read;

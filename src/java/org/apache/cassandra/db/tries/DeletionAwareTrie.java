@@ -150,10 +150,34 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>, BasicDe
     static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> deletionBranch(ByteComparable prefixInLiveTrie, ByteComparable.Version byteComparableVersion, RangeTrie<D> rangeTrie)
     {
-        return dir -> new SingletonCursor.DeletionBranch<>(dir,
-                                                           prefixInLiveTrie.asComparableBytes(byteComparableVersion),
-                                                           byteComparableVersion,
-                                                           rangeTrie);
+        return withBasicCursor(dir -> new SingletonCursor.DeletionBranch<>(dir,
+                                                                           prefixInLiveTrie.asComparableBytes(byteComparableVersion),
+                                                                           byteComparableVersion,
+                                                                           rangeTrie),
+                               dir -> new SingletonCursor.BasicDeletionBranch<>(dir,
+                                                                                prefixInLiveTrie.asComparableBytes(byteComparableVersion),
+                                                                                rangeTrie.basicCursor(dir)));
+    }
+
+    /// Returns the given trie with its basic cursor replaced by the given one, which must present the same content.
+    /// Used where the content can be walked in order more efficiently than through the trie's deletion-aware cursor.
+    static <T, D extends RangeState<D>>
+    DeletionAwareTrie<T, D> withBasicCursor(DeletionAwareTrie<T, D> trie, BasicDeletionAwareTrie<T, D> basicTrie)
+    {
+        return new DeletionAwareTrie<>()
+        {
+            @Override
+            public DeletionAwareCursor<T, D> makeCursor(Direction direction)
+            {
+                return trie.makeCursor(direction);
+            }
+
+            @Override
+            public BasicDeletionAwareCursor<T, D> basicCursor(Direction direction)
+            {
+                return basicTrie.basicCursor(direction);
+            }
+        };
     }
 
     /// Wraps a plain trie into a deletion-aware one. The resulting trie has no deletion branches and matches
@@ -240,12 +264,18 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>, BasicDe
                                               BiFunction<D, T, T> deleter,
                                               boolean deletionsAtFixedPoints)
     {
-        return dir -> new MergeCursor.DeletionAware<>(mergeResolver,
-                                                      deletionResolver,
-                                                      deleter,
-                                                      cursor(dir),
-                                                      other.cursor(dir),
-                                                      deletionsAtFixedPoints);
+        return withBasicCursor(dir -> new MergeCursor.DeletionAware<>(mergeResolver,
+                                                                      deletionResolver,
+                                                                      deleter,
+                                                                      cursor(dir),
+                                                                      other.cursor(dir),
+                                                                      deletionsAtFixedPoints),
+                               // When the merge is only walked in order, the sources can be too, and merged in one pass.
+                               dir -> new BasicDeletionAwareMergeCursor<>(mergeResolver,
+                                                                          deletionResolver,
+                                                                          deleter,
+                                                                          basicCursor(dir),
+                                                                          other.basicCursor(dir)));
     }
 
     /// Constructs a view of the merge of this deletion-aware trie with another, applying deletions during the merge
@@ -408,14 +438,35 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>, BasicDe
                 return t1.mergeWith(t2, mergeResolver, deletionResolver, deleter, deletionsAtFixedPoints);
             }
             default:
-                return dir -> new CollectionMergeCursor.DeletionAware<>(mergeResolver,
-                                                                        deletionResolver,
-                                                                        deleter,
-                                                                        deletionsAtFixedPoints,
-                                                                        dir,
-                                                                        sources,
-                                                                        DeletionAwareTrie::cursor);
+                return withBasicCursor(dir -> new CollectionMergeCursor.DeletionAware<>(mergeResolver,
+                                                                                        deletionResolver,
+                                                                                        deleter,
+                                                                                        deletionsAtFixedPoints,
+                                                                                        dir,
+                                                                                        sources,
+                                                                                        DeletionAwareTrie::cursor),
+                                       dir -> basicMergeCursor(dir, List.copyOf(sources), mergeResolver, deletionResolver, deleter));
         }
+    }
+
+    /// Merges the basic cursors of the given tries with a balanced tree of two-way merges, which resolve the content
+    /// of the sources in pairs.
+    private static <T, D extends RangeState<D>>
+    BasicDeletionAwareCursor<T, D> basicMergeCursor(Direction direction,
+                                                    List<? extends DeletionAwareTrie<T, D>> sources,
+                                                    Trie.MergeResolver<T> mergeResolver,
+                                                    Trie.MergeResolver<D> deletionResolver,
+                                                    BiFunction<D, T, T> deleter)
+    {
+        if (sources.size() == 1)
+            return sources.get(0).basicCursor(direction);
+
+        int middle = sources.size() / 2;
+        return new BasicDeletionAwareMergeCursor<>(mergeResolver,
+                                                   deletionResolver,
+                                                   deleter,
+                                                   basicMergeCursor(direction, sources.subList(0, middle), mergeResolver, deletionResolver, deleter),
+                                                   basicMergeCursor(direction, sources.subList(middle, sources.size()), mergeResolver, deletionResolver, deleter));
     }
 
     static <T, D extends RangeState<D>> DeletionAwareTrie<T, D> mergeDistinct(List<DeletionAwareTrie<T, D>> tries)

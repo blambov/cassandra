@@ -28,6 +28,7 @@ import com.google.common.base.Preconditions;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
+import org.apache.cassandra.utils.bytecomparable.ByteSource;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /// In-memory implementation of deletion-aware tries with concurrent access support.
@@ -580,10 +581,10 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
         /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
         /// different than the element type for this memtable trie.
         public
-        void delete(RangeTrie<E> mutation)
+        void delete(BasicRangeTrie<E> mutation)
         throws TrieSpaceExhaustedException
         {
-            apply(DeletionAwareTrie.deletionBranch(ByteComparable.EMPTY, byteComparableVersion, mutation));
+            apply(dir -> new SingletonCursor.BasicDeletionBranch<>(dir, ByteSource.EMPTY, mutation.basicCursor(dir)));
         }
 
         // The methods below describe the position that a transformer is called for. For `deletionTransformer` this is

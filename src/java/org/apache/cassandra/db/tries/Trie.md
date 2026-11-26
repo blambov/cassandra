@@ -1079,7 +1079,12 @@ deletion-aware cursors designate these positions with the `MAY_HAVE_DELETION_BRA
 below a flagged position, and flagged positions are never nested.
 
 The basic cursor of a deletion-aware trie is, by default, made by `DeletionAwareCursor.AsBasic`, which walks each
-deletion branch of the trie's cursor together with the live branch it is attached to.
+deletion branch of the trie's cursor together with the live branch it is attached to. Tries that can be walked in order
+more efficiently provide their own. Most importantly, the basic cursor of a merge (`BasicDeletionAwareMergeCursor`)
+merges the basic cursors of the sources. It tracks the deletion of each source that covers the current position, and
+thus does in one walk of each source what the merge of full cursors needs four combinations for (the merge of the
+live branches, the merge of the deletion branches, and the application of each source's deletion branch to the live
+branch of the other). This is the form in which merges are to be written to disk, e.g. by compaction.
 
 # Appendices
 
