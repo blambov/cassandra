@@ -99,7 +99,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
 
         while (true)
         {
-            T content = Cursor.content(this, currentPosition);
+            T content = BasicCursor.content(this, currentPosition);
             if (content != null)
                 walker.content(content);
 
@@ -482,6 +482,69 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
                 default:
                     throw new AssertionError("Deletion branch extends above its introduction");
             }
+        }
+    }
+
+    /// Presents a deletion-aware cursor as a [BasicDeletionAwareCursor], walking each deletion branch together with
+    /// the live branch it is attached to.
+    class AsBasic<T, D extends RangeState<D>>
+    extends BasicFlexibleMergeCursor<DeletionAwareCursor<T, D>, RangeCursor<D>, T>
+    implements BasicDeletionAwareCursor<T, D>
+    {
+        AsBasic(DeletionAwareCursor<T, D> c1)
+        {
+            super(c1);
+            postAdvance(currentPosition);
+        }
+
+        @Override
+        long postAdvance(long encodedPosition)
+        {
+            long flags = 0;
+            if (state == State.C1_ONLY)
+            {
+                RangeCursor<D> deletionBranch = DeletionAwareCursor.deletionBranchCursor(c1, encodedPosition);
+                if (deletionBranch != null)
+                {
+                    addCursor(deletionBranch);
+                    flags = MAY_HAVE_DELETION_BRANCH_BIT;
+                }
+            }
+
+            // The content flag of the deletion branch stands for a deletion. Take the flags of each source separately.
+            switch (state)
+            {
+                case C1_ONLY:
+                case AT_C1:
+                    flags |= encodedPosition & MAY_HAVE_CONTENT_BIT;
+                    break;
+                case AT_C2:
+                    flags |= deletionFlag(encodedPosition);
+                    break;
+                case AT_BOTH:
+                    flags |= (c1.encodedPosition() & MAY_HAVE_CONTENT_BIT) | deletionFlag(c2.encodedPosition());
+                    break;
+                default:
+                    throw new AssertionError();
+            }
+            return currentPosition = (encodedPosition & ~FLAGS_MASK) | flags;
+        }
+
+        private static long deletionFlag(long deletionBranchPosition)
+        {
+            return (deletionBranchPosition & MAY_HAVE_CONTENT_BIT) != 0 ? MAY_HAVE_DELETION_BIT : 0;
+        }
+
+        @Override
+        public T content()
+        {
+            return state != State.AT_C2 ? c1.content() : null;
+        }
+
+        @Override
+        public D deletion()
+        {
+            return state == State.AT_C2 || state == State.AT_BOTH ? c2.content() : null;
         }
     }
 

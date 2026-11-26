@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.db.tries;
 
-import org.apache.cassandra.db.tries.Cursor.TransitionsReceiver;
+import org.apache.cassandra.db.tries.BasicCursor.TransitionsReceiver;
 
 /**
  * Enum representing different types of trie nodes for reading from disk.

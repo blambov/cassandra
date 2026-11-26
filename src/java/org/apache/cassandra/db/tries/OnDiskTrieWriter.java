@@ -103,7 +103,7 @@ public class OnDiskTrieWriter<T> extends OnDiskBaseTrieWriter<T>
         long position = c.encodedPosition();
         do
         {
-            T content = Cursor.content(c, position);
+            T content = BasicCursor.content(c, position);
             if (content != null)
                 content(content, position);
             position = step(c, position);

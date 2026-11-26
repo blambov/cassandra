@@ -321,7 +321,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
 
                 // Content must be applied before descending into the branch to make sure we call the transformers
                 // in the right order.
-                applyContent(Cursor.content(mutationCursor, position));
+                applyContent(BasicCursor.content(mutationCursor, position));
 
                 int existingAlternateBranch = state.alternateBranch();
                 RangeCursor<E> incomingAlternateBranch = DeletionAwareCursor.deletionBranchCursor(mutationCursor, position);

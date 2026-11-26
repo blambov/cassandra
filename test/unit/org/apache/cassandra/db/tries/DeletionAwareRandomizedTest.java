@@ -18,11 +18,9 @@
 
 package org.apache.cassandra.db.tries;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -31,18 +29,15 @@ import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
-import org.quicktheories.core.Gen;
 
 import static java.util.Arrays.asList;
 import static org.apache.cassandra.db.tries.DataPoint.fromList;
 import static org.apache.cassandra.db.tries.DataPoint.toList;
-import static org.apache.cassandra.db.tries.DataPoint.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.booleans;
 import static org.quicktheories.generators.SourceDSL.integers;
-import static org.quicktheories.generators.SourceDSL.lists;
 
 /// Randomized property-based testing for deletion-aware tries using QuickTheories.
 ///
@@ -59,132 +54,6 @@ public class DeletionAwareRandomizedTest extends DeletionAwareTestBase
         CassandraRelevantProperties.TRIE_DEBUG.setBoolean(true);
     }
 
-    private static final int MAX_POINTS = 20;
-    private static final int MAX_VALUE = 63; // Fits in 6 bits (bitsNeeded)
-    private static final int MAX_TIMESTAMP = 100;
-    
-    /// Generator for random live data points.
-    /// Creates `LivePoint` instances with random positions and timestamps.
-    private Gen<LivePoint> livePointGen()
-    {
-        return integers().between(0, MAX_VALUE)
-                        .zip(integers().between(1, MAX_TIMESTAMP),
-                             (pos, ts) -> new LivePoint(at(pos), ts));
-    }
-
-    /// Generator for random deletion markers.
-    /// Creates `DeletionMarker` instances representing deletion ranges.
-    /// Generates pairs of markers: one to start deletion, one to end it.
-    private Gen<List<DataPoint>> deletionMarkerPairGen()
-    {
-        return integers().between(0, MAX_VALUE)
-                        .zip(integers().between(0, MAX_VALUE),
-                             integers().between(1, MAX_TIMESTAMP),
-                             (start, end, ts) -> {
-                                 int left = Math.min(start, end);
-                                 int right = Math.max(start, end);
-                                 if (left == right)
-                                     right = Math.min(right + 1, MAX_VALUE);
-
-                                 List<DataPoint> markers = new ArrayList<>();
-                                 markers.add(new DeletionMarker(before(left), -1, ts));
-                                 markers.add(new DeletionMarker(before(right), ts, -1));
-                                 return markers;
-                             });
-    }
-
-    /// Generator for random live point lists.
-    /// Creates sorted lists mixing `LivePoint` and `DeletionMarker` instances for trie construction.
-    private Gen<List<DataPoint>> dataPointListGen()
-    {
-        // Generate a mix of live points and deletion marker pairs
-        Gen<DataPoint> liveGen = livePointGen().map(lp -> (DataPoint) lp);
-        Gen<List<DataPoint>> deletionGen = deletionMarkerPairGen();
-
-        return lists().of(liveGen)
-                     .ofSizeBetween(0, MAX_POINTS / 2)
-                     .zip(lists().of(deletionGen)
-                                .ofSizeBetween(0, MAX_POINTS / 4),
-                          (livePoints, deletionPairs) -> {
-                              List<DataPoint> combined = new ArrayList<>(livePoints);
-                              for (List<DataPoint> pair : deletionPairs)
-                                  combined.addAll(pair);
-                              return combined;
-                          })
-                     .map(this::sortAndValidateDataPoints);
-    }
-    
-    /// Generator for pairs of data point lists for merge testing.
-    private Gen<List<List<DataPoint>>> dataPointPairGen()
-    {
-        return dataPointListGen().zip(dataPointListGen(), Arrays::asList);
-    }
-    
-    /// Sorts data points by position and ensures they form a valid deletion-aware sequence.
-    /// Removes live points that are covered by deletion markers with higher timestamps.
-    private List<DataPoint> sortAndValidateDataPoints(List<DataPoint> points)
-    {
-        if (points.isEmpty())
-            return points;
-            
-        // Sort by position
-        List<DataPoint> sorted = points.stream()
-                                      .sorted((a, b) -> ByteComparable.compare(a.position(), b.position(), TrieUtil.VERSION))
-                                      .collect(Collectors.toList());
-        
-        // Remove duplicates at same position, keeping the last one
-        List<DataPoint> deduplicated = new ArrayList<>();
-        DataPoint prev = null;
-        for (DataPoint dp : sorted)
-        {
-            if (prev == null || ByteComparable.compare(prev.position(), dp.position(), TrieUtil.VERSION) != 0)
-                deduplicated.add(dp);
-            else
-                deduplicated.set(deduplicated.size() - 1, dp); // Replace with newer
-            prev = dp;
-        }
-        
-        // Remove live points that are covered by deletions with higher timestamps
-        // Track active deletion timestamp as we iterate through sorted points
-        List<DataPoint> filtered = new ArrayList<>();
-        int activeDeletionTimestamp = -1;
-        
-        for (DataPoint dp : deduplicated)
-        {
-            if (dp instanceof DeletionMarker)
-            {
-                DeletionMarker marker = (DeletionMarker) dp;
-                // Update active deletion timestamp based on marker semantics
-                // leftSide is timestamp before position, rightSide is timestamp after position
-                if (marker.leftSide == -1 && marker.rightSide >= 0)
-                    activeDeletionTimestamp = marker.rightSide; // Start of deletion range
-                else if (marker.leftSide >= 0 && marker.rightSide == -1)
-                    activeDeletionTimestamp = -1; // End of deletion range
-                else if (marker.leftSide >= 0 && marker.rightSide >= 0)
-                    activeDeletionTimestamp = marker.rightSide; // Timestamp change
-                filtered.add(dp);
-            }
-            else if (dp instanceof LivePoint)
-            {
-                LivePoint live = (LivePoint) dp;
-                // Only include live point if not covered by active deletion with higher timestamp
-                if (activeDeletionTimestamp == -1 || live.timestamp > activeDeletionTimestamp)
-                    filtered.add(dp);
-                // Otherwise skip this live point as it would be deleted
-            }
-        }
-        
-        try
-        {
-            return verify(filtered);
-        }
-        catch (AssertionError e)
-        {
-            // If verification fails, return empty list to avoid invalid test data
-            return Collections.emptyList();
-        }
-    }
-    
     /// Test that trie construction and iteration are consistent.
     ///
     /// **Property**: Converting a list to a trie and back should yield the same list.

@@ -271,7 +271,7 @@ public class MergedTrieSwitchableTest extends DeletionAwareTestBase
         if (switchAfter == 0)
             stopIssuingDeletions(cursor, path);
 
-        DataPoint content = Cursor.content(cursor, cursor.getPositionAndAssertFresh());
+        DataPoint content = BasicCursor.content(cursor, cursor.getPositionAndAssertFresh());
         while (true)
         {
             if (content != null)
@@ -311,7 +311,7 @@ public class MergedTrieSwitchableTest extends DeletionAwareTestBase
         Cursor<DataPoint> plain = source.<DataPoint>mergedTrie(DataPoint::resolve).makeCursor(direction);
         Cursor<DataPoint> switchable = source.<DataPoint>mergedTrieSwitchable(DataPoint::resolve).makeCursor(direction);
         TriePathReconstructor path = new TriePathReconstructor();
-        DataPoint content = Cursor.content(plain, plain.getPositionAndAssertFresh());
+        DataPoint content = BasicCursor.content(plain, plain.getPositionAndAssertFresh());
         switchable.getPositionAndAssertFresh();
         while (true)
         {
@@ -348,7 +348,7 @@ public class MergedTrieSwitchableTest extends DeletionAwareTestBase
             switched = true;
         }
 
-        DataPoint content = Cursor.content(cursor, position);
+        DataPoint content = BasicCursor.content(cursor, position);
         while (true)
         {
             if (content != null)

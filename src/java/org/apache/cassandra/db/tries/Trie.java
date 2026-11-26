@@ -61,7 +61,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// See [Trie.md](./Trie.md) for further description of the trie representation model.
 ///
 /// @param <T> The content type of the trie.
-public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
+public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>, BasicTrie<T>
 {
     boolean DEBUG = CassandraRelevantProperties.TRIE_DEBUG.getBoolean();
 
@@ -366,5 +366,13 @@ public interface Trie<T> extends BaseTrie<T, Cursor<T>, Trie<T>>
         return cursor instanceof DeletionAwareTrie.DeletionsStopControl
                ? new VerificationCursor.PlainSwitchable<>(cursor)
                : new VerificationCursor.Plain<>(cursor);
+    }
+
+    /// @inheritDoc
+    /// Trie cursors are basic cursors; by default this is the trie's [#cursor].
+    @Override
+    default BasicCursor<T> basicCursor(Direction direction)
+    {
+        return cursor(direction);
     }
 }

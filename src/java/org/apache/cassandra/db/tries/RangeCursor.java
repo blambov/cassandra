@@ -49,7 +49,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 /// correctly determines that there is no covering deletion for "d").
 ///
 /// For further details, see the range trie section in [Trie.md](./Trie.md).
-interface RangeCursor<S extends RangeState<S>> extends Cursor<S>
+interface RangeCursor<S extends RangeState<S>> extends Cursor<S>, BasicRangeCursor<S>
 {
     /// Returns a range that covers positions before this in iteration order, including this position if `content()` is
     /// null. This is the range that is active at (i.e. covers) a position that was skipped to, when the range trie

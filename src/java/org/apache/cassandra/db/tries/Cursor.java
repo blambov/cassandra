@@ -21,10 +21,6 @@ package org.apache.cassandra.db.tries;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import javax.annotation.Nullable;
-
-import org.agrona.DirectBuffer;
-import org.apache.cassandra.utils.Closeable;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 import org.apache.cassandra.utils.bytecomparable.ByteSource;
 
@@ -129,8 +125,11 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// a cursor for a trie containing "ab", "abc" and "cba", will visit the nodes in order "cba", "ab", "abc", i.e.
 /// prefixes will still be reported before their descendants.
 ///
+/// The position, the content and the methods that walk the trie in order are defined in [BasicCursor]. This interface
+/// adds skipping and tail cursors.
+///
 /// Also see [Trie.md](./Trie.md) for further documentation.
-interface Cursor<T> extends Closeable
+interface Cursor<T> extends BasicCursor<T>
 {
     /// The depth is stored in the high-order 32-bits of the long.
     int DEPTH_SHIFT = 32;
@@ -153,8 +152,12 @@ interface Cursor<T> extends Closeable
     /// Flag indicating whether this position may have content.
     long MAY_HAVE_CONTENT_BIT = 1L;
 
-    /// Flag indicating whether this position may have deletion branch.
+    /// Flag indicating whether this position may have deletion branch. In [BasicDeletionAwareCursor], which has no
+    /// deletion branches, the flag marks the position where one is to be rooted.
     long MAY_HAVE_DELETION_BRANCH_BIT = 2L;
+
+    /// Flag indicating whether this position may have a deletion marker. Used by [BasicDeletionAwareCursor].
+    long MAY_HAVE_DELETION_BIT = 4L;
 
     /// Mask of the transition bits including the direction. We apply xor with this value to form a position in the
     /// reverse direction.
@@ -339,135 +342,14 @@ interface Cursor<T> extends Closeable
 
     static String toString(long encodedPosition)
     {
-        return String.format("depth %d incomingTransition %02x%s%s%s %s",
+        return String.format("depth %d incomingTransition %02x%s%s%s%s %s",
                              depth(encodedPosition),
                              incomingTransition(encodedPosition),
                              isOnReturnPath(encodedPosition) ? "↑" : " ",
                              (encodedPosition & MAY_HAVE_CONTENT_BIT) != 0 ? "C" : " ",
                              (encodedPosition & MAY_HAVE_DELETION_BRANCH_BIT) != 0 ? "D" : " ",
+                             (encodedPosition & MAY_HAVE_DELETION_BIT) != 0 ? "d" : " ",
                              direction(encodedPosition));
-    }
-
-    /// Returns the cursor's current position encoded as a long. This combines the depth and incoming transition as well
-    /// as other flags that are part of the state. Use the static methods above to compare, manipulate, decode or encode
-    /// cursor positions.
-    long encodedPosition();
-
-    /// Returns the content associated with the cursor's current node, or null if the position does not have the
-    /// [#MAY_HAVE_CONTENT_BIT] flag set. This avoids redundant content lookups when the flag indicates no content.
-    static <T> T content(Cursor<T> cursor, long cursorPosition)
-    {
-        return (cursorPosition & MAY_HAVE_CONTENT_BIT) != 0 ? cursor.content() : null;
-    }
-
-    /// @return the content associated with the current node. This may be non-null for any presented node, including
-    ///         the root.
-    ///         It is preferable to retrieve this via the static method [Cursor#content(Cursor, long)] to take
-    ///         advantage of the [#MAY_HAVE_CONTENT_BIT] flag and avoid megamorphic calls to this method unless
-    ///         content is actually present.
-    @Nullable
-    T content();
-
-    /// Returns the direction in which this cursor is progressing.
-    default Direction direction()
-    {
-        return direction(encodedPosition());
-    }
-
-    /// Returns the byte-comparable version that this trie uses.
-    ByteComparable.Version byteComparableVersion();
-
-    /// Advance one position to the node whose associated path is next lexicographically.
-    /// This can be either:
-    ///   - descending one level to the first child of the current node,
-    ///   - ascending to the closest parent that has remaining children, and then descending one level to its next
-    ///     child.
-    ///
-    /// It is an error to call this after the trie has already been exhausted (i.e. when `depth() == -1`);
-    /// for performance reasons we won't always check this.
-    ///
-    /// @return encoded position after the advance (see [#encodedPosition()]).
-    long advance();
-
-    /// Advance, descending multiple levels if the cursor can do this for the current position without extra work
-    /// (e.g. when positioned on a chain node in a memtable trie). If the current node does not have children this
-    /// is exactly the same as advance(), otherwise it may take multiple steps down (but will not necessarily, even
-    /// if they exist).
-    ///
-    /// Note that if any positions are skipped, their content must be null.
-    ///
-    /// This is an optional optimization; the default implementation falls back to calling advance.
-    ///
-    /// It is an error to call this after the trie has already been exhausted (i.e. when `depth() == -1`);
-    /// for performance reasons we won't always check this.
-    ///
-    /// @param receiver object that will receive all transitions taken except the last;
-    ///                                 on ascend, or if only one step down was taken, it will not receive any
-    /// @return encoded position after the advance (see [#encodedPosition()]).
-    default long advanceMultiple(TransitionsReceiver receiver)
-    {
-        return advance();
-    }
-
-    /// Advance all the way to the next node with non-null content.
-    ///
-    /// It is an error to call this after the trie has already been exhausted (i.e. when `depth() == -1`);
-    /// for performance reasons we won't always check this.
-    ///
-    /// @param receiver object that will receive all taken transitions
-    /// @return the content, null if the trie is exhausted
-    default T advanceToContent(ResettingTransitionsReceiver receiver)
-    {
-        return receiver != null ? advanceToContentWithReceiver(receiver) : advanceToContent();
-    }
-
-    private T advanceToContentWithReceiver(ResettingTransitionsReceiver receiver)
-    {
-        long prevPosition = encodedPosition();
-        while (true)
-        {
-            long currPosition = advanceMultiple(receiver);
-            if (isExhausted(currPosition))
-                return null;
-
-            if (ascended(currPosition, prevPosition))
-            {
-                int depth = depth(currPosition);
-                if (depth > 0)
-                {
-                    receiver.resetPathLength(depth - 1);
-                    receiver.addPathByte(incomingTransition(currPosition));
-                }
-                else
-                {
-                    receiver.resetPathLength(0);
-                }
-            }
-            else
-                receiver.addPathByte(incomingTransition(currPosition));
-
-            if (isOnReturnPath(currPosition))
-                receiver.onReturnPath();
-
-            T content = content(this, currPosition);
-            if (content != null)
-                return content;
-            prevPosition = currPosition;
-        }
-    }
-
-    private T advanceToContent()
-    {
-        while (true)
-        {
-            long currPosition = advanceMultiple(null);
-            if (isExhausted(currPosition))
-                return null;
-
-            T content = content(this, currPosition);
-            if (content != null)
-                return content;
-        }
     }
 
     /// Advance to the specified depth and incoming transition or the first valid position that is after the specified
@@ -562,59 +444,6 @@ interface Cursor<T> extends Closeable
     @Override
     void close();
 
-    /// Used by [#advanceMultiple] to feed the transitions taken.
-    interface TransitionsReceiver
-    {
-        /// Add a single byte to the path.
-        void addPathByte(int nextByte);
-        /// Add the count bytes from position pos in the given buffer.
-        void addPathBytes(DirectBuffer buffer, int pos, int count);
-
-        /// Called when the current position is on the return path. Sets and ranges use these positions to return
-        /// end-inclusive ranges.
-        default void onReturnPath()
-        {
-            // nothing by default
-        }
-    }
-
-    /// Used by [#advanceToContent] to track the transitions and backtracking taken.
-    interface ResettingTransitionsReceiver extends TransitionsReceiver
-    {
-        /// Delete all bytes beyond the given length.
-        void resetPathLength(int newLength);
-    }
-
-    /// A push interface for walking over a trie. Builds upon [TransitionsReceiver] to be given the bytes of the
-    /// path, and adds methods called on encountering content and completion.
-    /// See [TrieDumper] for an example of how this can be used, and [TrieEntriesWalker] as a base class
-    /// for other common usages.
-    interface Walker<T, R> extends Cursor.ResettingTransitionsReceiver
-    {
-        /// Called when content is found.
-        void content(T content);
-
-        /// Called at the completion of the walk.
-        R complete();
-    }
-
-    /// Process the trie using the given [Walker].
-    /// This method must only be called on a freshly constructed cursor.
-    default <R> R process(Cursor.Walker<? super T, R> walker)
-    {
-        long currentPosition = getPositionAndAssertFresh();
-        T content = content(this, currentPosition);
-        if (content == null)
-            content = advanceToContent(walker);
-
-        while (content != null)
-        {
-            walker.content(content);
-            content = advanceToContent(walker);
-        }
-        return walker.complete();
-    }
-
     /// Process the trie using the given [Walker], skipping over branches where content is found.
     /// In other words, it walks the top levels of the trie until it finds a content-bearing node. When it does, it
     /// presents this content and continues with the next sibling of that node, ignoring all substructure below it.
@@ -624,9 +453,9 @@ interface Cursor<T> extends Closeable
     /// This is similar to [Trie#tailTries], but able to access only the content instead of the full branch.
     ///
     /// This method should only be called on a freshly constructed cursor.
-    default <R> R processSkippingBranches(Predicate<? super T> acceptancePredicate, Cursor.Walker<? super T, R> walker)
+    default <R> R processSkippingBranches(Predicate<? super T> acceptancePredicate, Walker<? super T, R> walker)
     {
-        T content = content(this, getPositionAndAssertFresh());
+        T content = BasicCursor.content(this, getPositionAndAssertFresh());
         if (content != null && acceptancePredicate.test(content))
         {
             walker.content(content);
@@ -651,7 +480,7 @@ interface Cursor<T> extends Closeable
                 }
                 else
                     walker.resetPathLength(0);
-                content = content(this, currentPosition);
+                content = BasicCursor.content(this, currentPosition);
                 if (content == null)
                     content = advanceToContent(walker);
             }
@@ -735,17 +564,5 @@ interface Cursor<T> extends Closeable
         {
             return tail.process(new TrieDumper.Plain<>(toStringFunction));
         }
-    }
-
-    default void assertFresh()
-    {
-        getPositionAndAssertFresh();
-    }
-
-    default long getPositionAndAssertFresh()
-    {
-        long pos = encodedPosition();
-        assert depth(pos) == 0 : "The provided cursor has already been advanced.";
-        return pos;
     }
 }

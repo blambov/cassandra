@@ -39,7 +39,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// that the application of these mappers preserves the properties of the range trie.
 ///
 /// See [RangeCursor] and [Trie.md](./Trie.md) for further details on the implementation of range tries.
-public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCursor<S>, RangeTrie<S>>
+public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCursor<S>, RangeTrie<S>>, BasicRangeTrie<S>
 {
     /// Returns a range trie covering a branch.
     ///
@@ -225,5 +225,13 @@ public interface RangeTrie<S extends RangeState<S>> extends BaseTrie<S, RangeCur
     {
         return Trie.DEBUG ? new VerificationCursor.Range<>(makeCursor(direction))
                           : makeCursor(direction);
+    }
+
+    /// @inheritDoc
+    /// Range cursors are basic range cursors; by default this is the trie's [#cursor].
+    @Override
+    default BasicRangeCursor<S> basicCursor(Direction direction)
+    {
+        return cursor(direction);
     }
 }

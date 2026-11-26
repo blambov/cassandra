@@ -72,7 +72,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteSource;
 /// @param <T> The content type for live data in the trie
 /// @param <D> The deletion marker type, must extend [RangeState] for range operations
 public interface DeletionAwareTrie<T, D extends RangeState<D>>
-extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
+extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>, BasicDeletionAwareTrie<T, D>
 {
     /// Creates a singleton deletion-aware trie containing only live data at the specified key.
     ///
@@ -789,5 +789,13 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     {
         return Trie.DEBUG ? new VerificationCursor.DeletionAware<>(makeCursor(direction))
                           : makeCursor(direction);
+    }
+
+    /// @inheritDoc
+    /// By default this walks the deletion branches of the trie's [#cursor] together with its live content.
+    @Override
+    default BasicDeletionAwareCursor<T, D> basicCursor(Direction direction)
+    {
+        return new DeletionAwareCursor.AsBasic<>(cursor(direction));
     }
 }

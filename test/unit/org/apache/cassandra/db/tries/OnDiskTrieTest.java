@@ -405,7 +405,7 @@ public class OnDiskTrieTest
                 int steps = 0;
                 while (!Cursor.isExhausted(position))
                 {
-                    Cursor.content(cursor, position);
+                    BasicCursor.content(cursor, position);
                     position = cursor.advance();
                     if (++steps > maxSteps)
                         fail("Walk over a corrupt trie did not finish in " + maxSteps + " steps: " + ByteBufferUtil.bytesToHex(buffer));

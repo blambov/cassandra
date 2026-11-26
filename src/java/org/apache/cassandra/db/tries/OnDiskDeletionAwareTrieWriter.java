@@ -156,7 +156,7 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     /// Report the content and, if present, the whole deletion branch at the cursor's position.
     private void emitAt(DeletionAwareCursor<T, D> c, long position) throws IOException
     {
-        T content = Cursor.content(c, position);
+        T content = BasicCursor.content(c, position);
         if (content != null)
         {
             // The ascent-side slot is the branch pointer's (see the class documentation); live content on the return path

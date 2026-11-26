@@ -270,7 +270,7 @@ public class ReturnPathSeekTest
                     Cursor.isOnReturnPath(skipped));
 
         List<String> remaining = new ArrayList<>();
-        String value = Cursor.content(cursor, skipped);
+        String value = BasicCursor.content(cursor, skipped);
         if (value == null)
             value = cursor.advanceToContent(null);
         while (value != null)

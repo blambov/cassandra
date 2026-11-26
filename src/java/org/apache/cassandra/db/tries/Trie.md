@@ -324,15 +324,15 @@ branch (to be described below). To make it possible to take advantage of this an
 methods like `content()` on every visited node, the encoded position also includes bits flagging whether a feature 
 may be present. The various iteration and processing methods take advantage of this by tracking the encoded position
 returned by `advance()` calls and only calling `content()` if the flag is set (using the helper method
-`Cursor.content(Cursor, position)`).
+`BasicCursor.content(cursor, position)`).
 
 The flags work like a bloom filter: if the flag is not set, the feature definitely isn't there, and if the flag is set,
 the feature _may_ be present. In particular, if checking e.g. for the presence of content is hard, the cursor may
 unconditionally set the flag to ensure that if the user needs the content they will call `content()` to retrieve it.
 
-We currently have two such feature flags: `MAY_HAVE_CONTENT` and `MAY_HAVE_DELETION_BRANCH`. Note that when comparing
-two encoded positions, these and any other flags need to be ignored, i.e. encoded positions must be compared using the
-`Cursor.compare` method.
+We currently have three such feature flags: `MAY_HAVE_CONTENT`, `MAY_HAVE_DELETION_BRANCH` and `MAY_HAVE_DELETION` (the
+last is only used by basic deletion-aware cursors, described below). Note that when comparing two encoded positions,
+these and any other flags need to be ignored, i.e. encoded positions must be compared using the `Cursor.compare` method.
 
 ### Closing cursors
 
@@ -344,6 +344,21 @@ This is done to make it possible to construct tail tries. `Cursor` is `Closeable
 hold resources until a cursor is requested. Because in various places we need to construct tries matching the current
 position in a cursor walk, we support this by wrapping a closed cursor in the resulting `Trie`, and making sure we 
 can take the tail branch from that closed cursor.
+
+### Basic cursors
+
+Some consumers walk the whole of a trie in order and never skip or take tails, e.g. the mutation of in-memory tries and
+writing a trie to disk. `BasicCursor` is the part of the cursor interface that such consumers need: the encoded
+position, the content, `advance` and `advanceMultiple`, together with the processing methods built on them. `Cursor`
+extends it with `skipTo` and `tailCursor`.
+
+A basic cursor is much easier to implement than a full one, which makes it practical to present other data in trie
+form to these consumers without building a trie. The sources of basic cursors are `BasicTrie`, `BasicRangeTrie` and
+`BasicDeletionAwareTrie`, which the corresponding trie interfaces extend: every trie is also a basic trie, by default
+using its normal cursor.
+
+A basic range cursor presents only the boundaries of the ranges. Since the walk cannot skip, the state that applies
+between two boundaries is always the succeeding state of the first.
 
 ## Merging two tries
 
@@ -1049,6 +1064,22 @@ perform all merges with this flag set to true.
 This means preparing deletions so that they always share the same point of introduction of the deletion branch. For the
 example above it means preparing the deletion in the hoisted form. In Cassandra, for example, this can be guaranteed 
 by wiring the deletion branches to always be on the partition level.
+
+## Basic deletion-aware cursors
+
+The separation of deletion branches from the live trie exists to serve skipping: a consumer can go directly to the live
+data closest to a given point without walking through deletions, and to the deletion that applies to a point without
+walking through live data. A basic cursor cannot skip, thus a basic deletion-aware cursor has no use for the
+separation. It presents the live content and the deletions in a single walk, where a position can have live content
+(`content()`), a deletion boundary (`deletion()`, flagged by `MAY_HAVE_DELETION`), or both.
+
+Consumers that build a deletion-aware structure, i.e. in-memory mutation and writing to disk, have to recover the shape
+of the full cursor from this walk, and for that they need to know where the deletion branches are rooted. Basic
+deletion-aware cursors designate these positions with the `MAY_HAVE_DELETION_BRANCH` flag: all deletions are at or
+below a flagged position, and flagged positions are never nested.
+
+The basic cursor of a deletion-aware trie is, by default, made by `DeletionAwareCursor.AsBasic`, which walks each
+deletion branch of the trie's cursor together with the live branch it is attached to.
 
 # Appendices
 

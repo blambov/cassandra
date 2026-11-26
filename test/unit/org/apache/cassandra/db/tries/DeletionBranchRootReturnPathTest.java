@@ -23,6 +23,7 @@ import java.util.List;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 import static org.apache.cassandra.db.tries.TrieUtil.VERSION;
@@ -90,6 +91,30 @@ public class DeletionBranchRootReturnPathTest
                      mergedEntries(trie("3040"), Direction.FORWARD));
         assertEquals(Arrays.asList("30=30", "3055=3055", "3040=D1/-1", "3040=D-1/1", "10=10", "1055=1055"),
                      mergedEntries(trie("3040"), Direction.REVERSE));
+    }
+
+    /// The basic cursor of the trie presents the same, where the boundaries are at the branch root and its return path.
+    @Test
+    public void testBasicCursor()
+    {
+        assertEquals(Arrays.asList("10=10", "1055=1055", "20=D-1/1", "20↑=D1/-1", "30=30", "3055=3055"),
+                     basicEntries(trie("20"), Direction.FORWARD));
+        assertEquals(Arrays.asList("30=30", "3055=3055", "20=D1/-1", "20↑=D-1/1", "10=10", "1055=1055"),
+                     basicEntries(trie("20"), Direction.REVERSE));
+    }
+
+    private static List<String> basicEntries(DeletionAwareTrie<String, TestRangeState> trie, Direction direction)
+    {
+        List<String> entries = new ArrayList<>();
+        for (BasicCursorWalks.Step step : BasicCursorWalks.walk(trie.basicCursor(direction)))
+        {
+            TestRangeState deletion = (TestRangeState) step.deletion;
+            assertEquals(deletion != null && !step.onReturnPath, step.isDeletionBranchRoot);
+            entries.add(Hex.bytesToHex(step.path) + (step.onReturnPath ? "↑" : "") + "=" +
+                        (step.content != null ? step.content : "") +
+                        (deletion != null ? "D" + deletion.leftSide + "/" + deletion.rightSide : ""));
+        }
+        return entries;
     }
 
     /// A merge applies the deletions of each source to the live content of the other, which must only be done inside
