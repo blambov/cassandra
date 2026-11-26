@@ -568,10 +568,10 @@ abstract class CollectionMergeCursor<T, C extends Cursor<T>> implements Cursor<T
 
         /// Critical performance optimization flag. When true, guarantees that if one merge source
         /// has a deletion branch at some position, the other source cannot have deletion branches
-        /// below or above that position. This allows us to skip walking the data trie to look for
+        /// below or above that position. This allows us to skip walking the live trie to look for
         /// lower-level deletion branches when merging. If the flag is false, we cannot know where
         /// in the covered branch we may have a deletion, thus to be sure to find all we _must_
-        /// walk the whole data subtrie. This can be terribly expensive.
+        /// walk the whole live subtrie. This can be terribly expensive.
         ///
         /// If we can guarantee that deletions always come at the same points in each path (e.g. at
         /// partition roots), we can use this optimization.

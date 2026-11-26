@@ -32,7 +32,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 /// use (`HAS_CHILD`, `HAS_ASCENT_CONTENT`, `HAS_DESCENT_CONTENT`).
 ///
 /// A node does, however, have a spare payload slot. A generic-content node carries content on both the
-/// descent and the ascent (return) path, and the data trie of a deletion-aware trie only ever presents
+/// descent and the ascent (return) path, and the live trie of a deletion-aware trie only ever presents
 /// content on descent (see the `presentContentOnDescentPath` argument
 /// [InMemoryDeletionAwareTrie] passes to its base) — so nothing ever fills its ascent-side slot. The
 /// deletion branch's root goes there, as a delta subtracted from the position where the slot starts, stored
@@ -61,13 +61,13 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 ///
 /// ## Writers
 ///
-/// The data trie and the deletion branches are separate tries with different types of content. This is the writer
-/// of the data trie, and holds an [OnDiskTrieWriter] that it reuses for each deletion branch: branches do not nest,
+/// The live trie and the deletion branches are separate tries with different types of content. This is the writer
+/// of the live trie, and holds an [OnDiskTrieWriter] that it reuses for each deletion branch: branches do not nest,
 /// so only one is in progress at a time.
 ///
 /// The two are connected through their node writers. The node writer of the branches is
-/// [nested][OnDiskNodeWriter#nested] in the one of the data trie, and a branch whose walk has
-/// completed is attached to the node of the data trie it belongs to ([OnDiskBaseTrieWriter#alternateBranch]).
+/// [nested][OnDiskNodeWriter#nested] in the one of the live trie, and a branch whose walk has
+/// completed is attached to the node of the live trie it belongs to ([OnDiskBaseTrieWriter#alternateBranch]).
 /// It is then up to the node writer where the branch is placed, and thus when its root becomes known
 /// and can be recorded in the node: [OnDiskNodeWriterImmediate] writes the branch while it is walked,
 /// [OnDiskNodeWriterPageAware] holds it back to pack it in a page together with the node.
@@ -90,7 +90,7 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     /// any does not allocate it.
     OnDiskTrieWriter<D> branchWriter;
 
-    /// Create a writer that gives the nodes of the data trie to the given node writer, and the ones of the deletion
+    /// Create a writer that gives the nodes of the live trie to the given node writer, and the ones of the deletion
     /// branches to a node writer nested in it.
     OnDiskDeletionAwareTrieWriter(OnDiskNodeWriter<T> nodeWriter,
                                   OnDiskTrieWriter.DataSerializer<D> deletionSerializer)
@@ -179,10 +179,10 @@ public class OnDiskDeletionAwareTrieWriter<T, D extends RangeState<D>> extends O
     }
 
     /// Walk the deletion branch the given fresh cursor presents into the branch writer, and attach it to the node the
-    /// walk of the data trie is on.
+    /// walk of the live trie is on.
     private void writeDeletionBranch(RangeCursor<D> branch) throws IOException
     {
-        // Always written as a range trie, independently of the data trie: a deletion branch is one, and it is read
+        // Always written as a range trie, independently of the live trie: a deletion branch is one, and it is read
         // back through OnDiskRangeCursor, which reads the RANGE content style.
         if (branchWriter == null)
             branchWriter = new OnDiskTrieWriter<>(nodeWriter.nested(deletionSerializer), OnDiskCursor.ContentStyle.RANGE);

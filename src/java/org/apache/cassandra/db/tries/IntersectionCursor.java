@@ -368,19 +368,19 @@ implements Cursor<T>
     {
         final Predicate<? super S> includedInSet;
         final Predicate<? super D> includedInDeletion;
-        final BiFunction<T, ? super S, T> dataResolver;
+        final BiFunction<T, ? super S, T> liveResolver;
         final BiFunction<D, ? super S, D> deletionResolver;
 
         public DeletionAwareByRange(DeletionAwareCursor<T, D> source, RangeCursor<S> set,
                                     Predicate<? super S> includedInSet,
                                     Predicate<? super D> includedInDeletion,
-                                    BiFunction<T, ? super S, T> dataResolver,
+                                    BiFunction<T, ? super S, T> liveResolver,
                                     BiFunction<D, ? super S, D> deletionResolver)
         {
             super(source, set);
             this.includedInSet = includedInSet;
             this.includedInDeletion = includedInDeletion;
-            this.dataResolver = dataResolver;
+            this.liveResolver = liveResolver;
             this.deletionResolver = deletionResolver;
             setInitialState();
         }
@@ -401,9 +401,9 @@ implements Cursor<T>
             switch (state)
             {
                 case MATCHING:
-                    return dataResolver.apply(content, set.state());
+                    return liveResolver.apply(content, set.state());
                 case SET_AHEAD:
-                    return dataResolver.apply(content, set.precedingState());
+                    return liveResolver.apply(content, set.precedingState());
                 default:
                     throw new AssertionError();
             }
@@ -419,7 +419,7 @@ implements Cursor<T>
                     return new DeletionAwareByRange<>(sourceTail, set.tailCursor(direction),
                                                       includedInSet,
                                                       includedInDeletion,
-                                                      dataResolver,
+                                                      liveResolver,
                                                       deletionResolver);
                 case SET_AHEAD:
                     RangeCursor<S> setTail = set.precedingStateCursor(direction);
@@ -428,7 +428,7 @@ implements Cursor<T>
                     return new DeletionAwareByRange<>(sourceTail, setTail,
                                                       includedInSet,
                                                       includedInDeletion,
-                                                      dataResolver,
+                                                      liveResolver,
                                                       deletionResolver);
                 default:
                     throw new AssertionError();

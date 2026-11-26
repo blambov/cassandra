@@ -191,7 +191,7 @@ public abstract class TrieTailsIterator<T, V, C extends Cursor<T>> extends TrieP
         protected abstract V mapContent(S value, RangeTrie<S> tailTrie, byte[] bytes, int byteLength);
     }
 
-    /// Deletion-aware tails iterator that only walks the live data trie and ignores covering deletion branches.
+    /// Deletion-aware tails iterator that only walks the live trie and ignores covering deletion branches.
     /// To be used in cases where it is known that deletion branches can only start at or below the selected tail
     /// positions.
     public static abstract class DeletionAwareWithoutCoveringDeletions<T, D extends RangeState<D>, V>

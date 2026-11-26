@@ -255,8 +255,8 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// already applied (e.g. new version of a node that is not yet linked to the current trie) and some that are yet
     /// to be applied (e.g. updated content).
     ///
-    /// This state is used for the data part of the trie (i.e. excluding deletion branches). This includes machinery to
-    /// attach deletion branches to nodes in the data trie.
+    /// This state is used for the live part of the trie (i.e. excluding deletion branches). This includes machinery to
+    /// attach deletion branches to nodes in the live trie.
     ///
     /// Because in-memory tries are single-writer, we can reuse a single state array for all updates. The updates are
     /// serialized and thus no other thread can corrupt this state (note that this is not the factor enforcing the
@@ -284,16 +284,16 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
 
         /// See [InMemoryDeletionAwareTrie#mutator(UpsertTransformer, UpsertTransformer, UpsertTransformer, BiFunction, boolean, Predicate, Predicate)]
         /// for the meaning of the parameters.
-        Mutator(UpsertTransformer<T, V> dataTransformer,
+        Mutator(UpsertTransformer<T, V> liveTransformer,
                 UpsertTransformer<D, E> deletionTransformer,
                 UpsertTransformer<T, E> existingDeleter,
                 BiFunction<D, V, V> insertedDeleter,
-                Predicate<NodeFeatures<V>> needsForcedCopyInData,
+                Predicate<NodeFeatures<V>> needsForcedCopyInLiveTrie,
                 Predicate<NodeFeatures<E>> needsForcedCopyInDeletionBranch,
                 Consumer<? super T> droppedContentCallback,
                 boolean deletionsAtFixedPoints)
         {
-            super(dataTransformer, needsForcedCopyInData, droppedContentCallback, applyState);
+            super(liveTransformer, needsForcedCopyInLiveTrie, droppedContentCallback, applyState);
             this.deletionMutator = new InMemoryRangeTrie.MutatorStatic<>(deletionState,
                                                                          deletionTransformer,
                                                                          needsForcedCopyInDeletionBranch,
@@ -393,7 +393,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
             {
                 try
                 {
-                    // Duplicate cursor as we need it for both deletion and data branches.
+                    // Duplicate cursor as we need it for both deletion and live branches.
                     try (RangeCursor<E> deletionBranch = incomingAlternateBranch.tailCursor(Direction.FORWARD))
                     {
                         // Delete data that is covered by the new deletions.
@@ -412,11 +412,11 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
             // Continue processing to also insert the incoming data at this branch.
             // Note that this will also apply the incoming content to this node and advance the mutation cursor
             // to the position after this branch.
-            applyDataUnderDeletion(ourDeletionBranch);
+            applyLiveDataUnderDeletion(ourDeletionBranch);
             return updatedAlternateBranch;
         }
 
-        private void applyDataUnderDeletion(RangeCursor<D> ourDeletionBranch) throws TrieSpaceExhaustedException
+        private void applyLiveDataUnderDeletion(RangeCursor<D> ourDeletionBranch) throws TrieSpaceExhaustedException
         {
             // Add our deletion to DeletionAwareMergeSource to apply them to incoming data.
             if (ourDeletionBranch != null)
@@ -480,10 +480,10 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
 
         private int hoistOurDeletionBranches() throws TrieSpaceExhaustedException
         {
-            // Walk all of our data branch and build new branches corresponding to it. When we reach a deletion
+            // Walk all of our live branch and build new branches corresponding to it. When we reach a deletion
             // branch, link it. If a branch is walked without finding a deletion branch, the returned NONEs should
             // propagate up.
-            // We need to walk both the deletion-aware/data trie, as well as the deletion branch being built, so that
+            // We need to walk both the deletion-aware/live trie, as well as the deletion branch being built, so that
             // the existing deletion branch mappings can be removed.
             // The process must be atomic to make sure readers can't lose a deletion branch that has already been added,
             // thus we force all modifications to `state` to be done with force-copying, which will also result in
@@ -514,7 +514,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
             if (deletionState.currentDepth > 0)
                 deletionState.advanceTo(-1, -1, targetForcedCopyDepth);
 
-            // Make sure the walks over the data branch that follow use the updated branch.
+            // Make sure the walks over the live branch that follow use the updated branch.
             state.prepareToWalkBranchAgain();
             return deletionState.applyContent(false);
         }
@@ -612,7 +612,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
 
     /// Creates a trie mutator that can be used to apply multiple modifications to the trie.
     ///
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// @param liveTransformer a function applied to the potentially pre-existing value for the given key, and the new
     /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
     /// if the entry should not be added or preserved.
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
@@ -627,27 +627,27 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// with a path to the modified data.
     /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See
     /// [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints].
-    /// @param needsForcedCopyInData a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in data branches. See [NodeFeatures] for details.
+    /// @param needsForcedCopyInLiveTrie a predicate which decides when to fully copy a branch to provide atomicity
+    /// guarantees to concurrent readers, applied in live branches. See [NodeFeatures] for details.
     /// @param needsForcedCopyInDeletions a predicate which decides when to fully copy a branch to provide atomicity
     /// guarantees to concurrent readers, applied in deletion branches. See [NodeFeatures] for details.
     /// @param droppedContentCallback function to call when childless content is dropped because
     /// [ContentManager#shouldPreserveWithoutChildren] returned false.
     public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
+    Mutator<V, E> mutator(final UpsertTransformer<T, V> liveTransformer,
                           final UpsertTransformer<D, E> deletionTransformer,
                           final UpsertTransformer<T, E> existingDeleter,
                           final BiFunction<D, V, V> insertedDeleter,
                           boolean deletionsAtFixedPoints,
-                          Predicate<NodeFeatures<V>> needsForcedCopyInData,
+                          Predicate<NodeFeatures<V>> needsForcedCopyInLiveTrie,
                           Predicate<NodeFeatures<E>> needsForcedCopyInDeletions,
                           Consumer<? super T> droppedContentCallback)
     {
-        return new Mutator<>(dataTransformer,
+        return new Mutator<>(liveTransformer,
                              deletionTransformer,
                              existingDeleter,
                              insertedDeleter,
-                             needsForcedCopyInData,
+                             needsForcedCopyInLiveTrie,
                              needsForcedCopyInDeletions,
                              droppedContentCallback,
                              deletionsAtFixedPoints);
@@ -656,7 +656,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
 
     /// Creates a trie mutator that can be used to apply multiple modifications to the trie.
     ///
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// @param liveTransformer a function applied to the potentially pre-existing value for the given key, and the new
     /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
     /// if the entry should not be added or preserved.
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
@@ -671,24 +671,24 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// with a path to the modified data.
     /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See
     /// [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints].
-    /// @param needsForcedCopyInData a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in data branches. See [NodeFeatures] for details.
+    /// @param needsForcedCopyInLiveTrie a predicate which decides when to fully copy a branch to provide atomicity
+    /// guarantees to concurrent readers, applied in live branches. See [NodeFeatures] for details.
     /// @param needsForcedCopyInDeletions a predicate which decides when to fully copy a branch to provide atomicity
     /// guarantees to concurrent readers, applied in deletion branches. See [NodeFeatures] for details.
     public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
+    Mutator<V, E> mutator(final UpsertTransformer<T, V> liveTransformer,
                           final UpsertTransformer<D, E> deletionTransformer,
                           final UpsertTransformer<T, E> existingDeleter,
                           final BiFunction<D, V, V> insertedDeleter,
                           boolean deletionsAtFixedPoints,
-                          Predicate<NodeFeatures<V>> needsForcedCopyInData,
+                          Predicate<NodeFeatures<V>> needsForcedCopyInLiveTrie,
                           Predicate<NodeFeatures<E>> needsForcedCopyInDeletions)
     {
-        return new Mutator<>(dataTransformer,
+        return new Mutator<>(liveTransformer,
                              deletionTransformer,
                              existingDeleter,
                              insertedDeleter,
-                             needsForcedCopyInData,
+                             needsForcedCopyInLiveTrie,
                              needsForcedCopyInDeletions,
                              null,
                              deletionsAtFixedPoints);
@@ -701,7 +701,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// empty as a result of the deletions and releasing any of the trie cells that they occupied. The deletion branches
     /// of the trie will be combined with the incoming deletions.
     ///
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// @param liveTransformer a function applied to the potentially pre-existing value for the given key, and the new
     /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
     /// if the entry should not be added or preserved.
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
@@ -717,17 +717,17 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See
     /// [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints].
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in both data and deletion branches. See [NodeFeatures] for details.
+    /// guarantees to concurrent readers, applied in both live and deletion branches. See [NodeFeatures] for details.
     @SuppressWarnings({"rawtypes", "unchecked"})
     public <V, E extends RangeState<E>>
-    Mutator<V, E> mutator(final UpsertTransformer<T, V> dataTransformer,
+    Mutator<V, E> mutator(final UpsertTransformer<T, V> liveTransformer,
                           final UpsertTransformer<D, E> deletionTransformer,
                           final UpsertTransformer<T, E> existingDeleter,
                           final BiFunction<D, V, V> insertedDeleter,
                           boolean deletionsAtFixedPoints,
                           Predicate<NodeFeatures<?>> needsForcedCopy)
     {
-        return mutator(dataTransformer,
+        return mutator(liveTransformer,
                        deletionTransformer,
                        existingDeleter,
                        insertedDeleter,
@@ -744,7 +744,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     ///
     /// @param mutation the mutation to be applied, given in the form of a trie. Note that its content can be of type
     /// different than the element type for this memtable trie.
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// @param liveTransformer a function applied to the potentially pre-existing value for the given key, and the new
     /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
     /// if the entry should not be added or preserved.
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
@@ -757,7 +757,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param insertedDeleter a function used to filter incoming entries that are covered by existing deletions
     /// in this trie, called only if both an entry and a deletion apply to a given point. This function is not provided
     /// with a path to the modified data.
-    /// @param dataTransformer a function applied to the potentially pre-existing value for the given key, and the new
+    /// @param liveTransformer a function applied to the potentially pre-existing value for the given key, and the new
     /// value. Applied even if there's no pre-existing value in the memtable trie. The transformer can return null
     /// if the entry should not be added or preserved.
     /// @param deletionTransformer a function applied to combine overlapping deletions into a consistent view. Called
@@ -773,10 +773,10 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     /// @param deletionsAtFixedPoints True if deletion branches are at predetermined positions. See
     /// [DeletionAwareTrie.MergeResolver#deletionsAtFixedPoints].
     /// @param needsForcedCopy a predicate which decides when to fully copy a branch to provide atomicity
-    /// guarantees to concurrent readers, applied in both data and deletion branches. See [NodeFeatures] for details.
+    /// guarantees to concurrent readers, applied in both live and deletion branches. See [NodeFeatures] for details.
     public <V, E extends RangeState<E>>
     void apply(DeletionAwareTrie<V, E> mutation,
-               final UpsertTransformer<T, V> dataTransformer,
+               final UpsertTransformer<T, V> liveTransformer,
                final UpsertTransformer<D, E> deletionTransformer,
                final UpsertTransformer<T, E> existingDeleter,
                final BiFunction<D, V, V> insertedDeleter,
@@ -785,7 +785,7 @@ extends InMemoryBaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>> 
     throws TrieSpaceExhaustedException
     {
         // TODO: track hasDeletions and do plain Trie merges if neither this nor mutation has deletions.
-        mutator(dataTransformer,
+        mutator(liveTransformer,
                 deletionTransformer,
                 existingDeleter,
                 insertedDeleter,

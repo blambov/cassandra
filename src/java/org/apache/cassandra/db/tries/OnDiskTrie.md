@@ -533,7 +533,7 @@ reports the range state at its position. It follows it from the boundaries it pa
 inside a range, works it out from the nearest content below the position it landed on. A tail of a range trie presents
 at its root, as boundaries, the ranges that are open there.
 
-A deletion-aware trie is a data trie written unordered, with live content on the descent side only, whose nodes can
+A deletion-aware trie consists of a live trie, written unordered with content on the descent side only, whose nodes can
 point to a deletion branch: a range trie written in the same stream before the node, whose root the node's
 ascent-side slot gives as a delta from the start of the node (see the generic content nodes above). The reader flags
 such a node with `MAY_HAVE_DELETION_BRANCH_BIT` from the node code alone, and only reads the slot when the cursor is

@@ -26,33 +26,33 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// A cursor applying deletions to a deletion-aware cursor, where the deletions can be dynamically added.
 /// Based on [RangeApplyCursor] and used by [MergeCursor.DeletionAware] to process each source with the deletions of the
-/// other. The cursor will present the content of the data trie modified by any applicable/covering range of the
+/// other. The cursor will present the content of the live trie modified by any applicable/covering range of the
 /// deletion trie, and will leave the deletion branches unmodied (allowing the merger to process them).
 class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<E>> implements DeletionAwareCursor<T, D>
 {
     final BiFunction<E, T, T> resolver;
-    final DeletionAwareCursor<T, D> data;
+    final DeletionAwareCursor<T, D> live;
     @Nullable RangeCursor<E> deletions;
-    /// The position of the data cursor at which the deletions are attached, and the depth correction for it. The
+    /// The position of the live cursor at which the deletions are attached, and the depth correction for it. The
     /// deletions' positions are converted with [DepthAdjustedCursor#toAdjustedDepth(long, long, long)].
     long deletionsRootPosition;
     long deletionsDepthCorrection;
 
     boolean atDeletions;
 
-    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> data)
+    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> live)
     {
-        this(resolver, data, null);
+        this(resolver, live, null);
     }
 
-    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> data, RangeCursor<E> deletions)
+    DeletionAwareMergeSource(BiFunction<E, T, T> resolver, DeletionAwareCursor<T, D> live, RangeCursor<E> deletions)
     {
         this.resolver = resolver;
         this.deletions = deletions;
-        this.data = data;
-        this.deletionsRootPosition = data.encodedPosition();
+        this.live = live;
+        this.deletionsRootPosition = live.encodedPosition();
         this.deletionsDepthCorrection = 0;
-        data.assertFresh();
+        live.assertFresh();
         if (deletions != null)
             deletions.assertFresh();
         atDeletions = deletions != null;
@@ -63,7 +63,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     {
         try
         {
-            data.close();
+            live.close();
         }
         finally
         {
@@ -75,91 +75,91 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     @Override
     public long encodedPosition()
     {
-        return data.encodedPosition();
+        return live.encodedPosition();
     }
 
     @Override
     public ByteComparable.Version byteComparableVersion()
     {
-        assert deletions == null || deletions.byteComparableVersion() == data.byteComparableVersion() :
+        assert deletions == null || deletions.byteComparableVersion() == live.byteComparableVersion() :
         "Merging cursors with different byteComparableVersions: " +
-        deletions.byteComparableVersion() + " vs " + data.byteComparableVersion();
-        return data.byteComparableVersion();
+        deletions.byteComparableVersion() + " vs " + live.byteComparableVersion();
+        return live.byteComparableVersion();
     }
 
     @Override
     public long advance()
     {
-        long newDataPosition = data.advance();
+        long newLivePosition = live.advance();
 
         if (deletions == null)
-            return newDataPosition;
+            return newLivePosition;
         else if (atDeletions) // if both cursors were at the same position, always advance the deletions' cursor to catch up.
-            return skipDeletionsToDataPosition(newDataPosition);
-        else // otherwise skip deletions to the new data position only if it advances past the deletions' current position.
-            return maybeSkipDeletions(newDataPosition);
+            return skipDeletionsToLivePosition(newLivePosition);
+        else // otherwise skip deletions to the new live position only if it advances past the deletions' current position.
+            return maybeSkipDeletions(newLivePosition);
     }
 
     @Override
     public long skipTo(long encodedSkipPosition)
     {
-        long newDataPosition = data.skipTo(encodedSkipPosition);
+        long newLivePosition = live.skipTo(encodedSkipPosition);
 
         if (deletions == null)
-            return newDataPosition;
+            return newLivePosition;
         else if (atDeletions) // if both cursors were at the same position, always advance the deletions' cursor to catch up.
-            return skipDeletionsToDataPosition(newDataPosition);
-        else // otherwise skip deletions to the new data position only if it advances past the deletions' current position.
-            return maybeSkipDeletions(newDataPosition);
+            return skipDeletionsToLivePosition(newLivePosition);
+        else // otherwise skip deletions to the new live position only if it advances past the deletions' current position.
+            return maybeSkipDeletions(newLivePosition);
     }
 
     @Override
     public long advanceMultiple(TransitionsReceiver receiver)
     {
         if (deletions == null)
-            return data.advanceMultiple(receiver);
+            return live.advanceMultiple(receiver);
 
         // While we are on a shared position, we must descend one byte at a time to maintain the cursor ordering.
         if (atDeletions)
-            return skipDeletionsToDataPosition(data.advance());
-        else // atData only
-            return maybeSkipDeletions(data.advanceMultiple(receiver));
+            return skipDeletionsToLivePosition(live.advance());
+        else // at live only
+            return maybeSkipDeletions(live.advanceMultiple(receiver));
     }
 
-    long maybeSkipDeletions(long dataPosition)
+    long maybeSkipDeletions(long livePosition)
     {
         long deletionsPosition = DepthAdjustedCursor.toAdjustedDepth(deletions.encodedPosition(), deletionsRootPosition, deletionsDepthCorrection);
         
-        // If data position is at or before the deletions position, we are good.
-        long cmp = Cursor.compare(dataPosition, deletionsPosition);
+        // If the live position is at or before the deletions position, we are good.
+        long cmp = Cursor.compare(livePosition, deletionsPosition);
         if (cmp <= 0)
-            return setAtDeletionsAndReturnPosition(cmp == 0, dataPosition);
+            return setAtDeletionsAndReturnPosition(cmp == 0, livePosition);
 
-        // Deletions cursor is before data cursor.
-        return skipDeletionsToDataPosition(dataPosition);
+        // Deletions cursor is before live cursor.
+        return skipDeletionsToLivePosition(livePosition);
     }
 
-    private long skipDeletionsToDataPosition(long dataPosition)
+    private long skipDeletionsToLivePosition(long livePosition)
     {
-        // Skip deletions cursor to the data position; if that is beyond the branch's root, no need to skip, just leave it.
-        long deletionsSkipPosition = DepthAdjustedCursor.fromAdjustedDepth(dataPosition, deletionsRootPosition, deletionsDepthCorrection);
+        // Skip deletions cursor to the live position; if that is beyond the branch's root, no need to skip, just leave it.
+        long deletionsSkipPosition = DepthAdjustedCursor.fromAdjustedDepth(livePosition, deletionsRootPosition, deletionsDepthCorrection);
         long deletionsPositionUncorrected = !Cursor.isExhausted(deletionsSkipPosition)
                                             ? deletions.skipTo(deletionsSkipPosition)
                                             : Cursor.exhaustedPosition(deletionsSkipPosition);
         if (Cursor.isExhausted(deletionsPositionUncorrected))
-            return leaveDeletionsBranch(dataPosition);
+            return leaveDeletionsBranch(livePosition);
         else
             return setAtDeletionsAndReturnPosition(Cursor.compare(deletionsPositionUncorrected, deletionsSkipPosition) == 0,
-                                                   dataPosition);
+                                                   livePosition);
     }
 
-    private long leaveDeletionsBranch(long dataPosition)
+    private long leaveDeletionsBranch(long livePosition)
     {
         // The deletions cursor is only attached for the span of a branch; release it as soon as we leave that branch
         // rather than waiting for [#close], as a file-backed one holds a buffer.
         deletions.close();
         deletions = null;
-        return setAtDeletionsAndReturnPosition(false, dataPosition);
+        return setAtDeletionsAndReturnPosition(false, livePosition);
     }
 
     private long setAtDeletionsAndReturnPosition(boolean atDeletions, long position)
@@ -171,7 +171,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     @Override
     public T content()
     {
-        T content = data.content();
+        T content = live.content();
         if (content == null)
             return null;
         if (deletions == null)
@@ -192,18 +192,18 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     public DeletionAwareMergeSource<T, D, E> tailCursor(Direction direction)
     {
         if (atDeletions)
-            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.tailCursor(direction));
+            return new DeletionAwareMergeSource<>(resolver, live.tailCursor(direction), deletions.tailCursor(direction));
         else if (deletions != null)
-            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction), deletions.precedingStateCursor(direction));
+            return new DeletionAwareMergeSource<>(resolver, live.tailCursor(direction), deletions.precedingStateCursor(direction));
         else
-            return new DeletionAwareMergeSource<>(resolver, data.tailCursor(direction));
+            return new DeletionAwareMergeSource<>(resolver, live.tailCursor(direction));
     }
 
     @Override
     public RangeCursor<D> deletionBranchCursor(Direction direction)
     {
         // Return unchanged, to be handled by MergeCursor.
-        return data.deletionBranchCursor(direction);
+        return live.deletionBranchCursor(direction);
     }
 
     public void addDeletions(RangeCursor<E> deletions)
@@ -211,7 +211,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
         assert this.deletions == null;
         deletions.assertFresh();
         this.deletions = deletions;
-        this.deletionsRootPosition = data.encodedPosition();
+        this.deletionsRootPosition = live.encodedPosition();
         this.deletionsDepthCorrection = Cursor.depthCorrectionValue(deletionsRootPosition);
         this.atDeletions = true;
     }

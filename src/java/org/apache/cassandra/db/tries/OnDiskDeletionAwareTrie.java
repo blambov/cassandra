@@ -26,7 +26,7 @@ import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
 /// Reads a [DeletionAwareTrie] written by [OnDiskDeletionAwareTrieWriter].
 ///
-/// The data trie is read as an ordinary on-disk trie of the caller's content, walked with
+/// The live trie is read as an ordinary on-disk trie of the caller's content, walked with
 /// [OnDiskCursor#alternateInAscentSlot] set so that the ascent-side content slot is understood as the
 /// position of the node's deletion branch. A deletion branch is itself a complete range trie in the same
 /// stream, so [Cursor#deletionBranchCursor] is just an [OnDiskRangeCursor] opened at that position.

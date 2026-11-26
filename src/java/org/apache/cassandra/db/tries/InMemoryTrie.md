@@ -1047,7 +1047,7 @@ not seen in either source or target. When a deletion branch is found, the proced
 - check if the other source has a deletion branch at the same point, and if it doesn't (and `deletionsAtFixedPoints` is
   not set), hoist its descendant deletion branches to this position.
 - merge the two deletion branches into the new deletion branch (using range trie merge logic).
-- apply the source deletion branch to the data trie to apply any incoming deletions.
-- merge the source data branch, with the target's deletion branch applied to it (to make sure any preexisting deletions
-  are also taken into account for incoming data if that happens to be older), into the data trie (using plain trie merge
+- apply the source deletion branch to the live trie to apply any incoming deletions.
+- merge the source live branch, with the target's deletion branch applied to it (to make sure any preexisting deletions
+  are also taken into account for incoming data if that happens to be older), into the live trie (using plain trie merge
   logic, i.e. no longer checking for deletion branches).

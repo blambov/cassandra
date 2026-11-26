@@ -50,7 +50,7 @@ public class OnDiskCursor<T> implements Cursor<T>
         /// A range trie: content in both slots, presented on the path of the slot's name in forward walks and on the
         /// other path in reverse ones.
         RANGE,
-        /// The data trie of a deletion-aware trie: unordered content in the descent-side slot, and the pointer to the
+        /// The live trie of a deletion-aware trie: unordered content in the descent-side slot, and the pointer to the
         /// node's deletion branch in the ascent-side slot.
         ALTERNATE_BRANCH
     }

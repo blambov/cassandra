@@ -401,17 +401,17 @@ abstract class MergeCursor<T, C extends Cursor<T>, U, D extends Cursor<U>, R> im
             // OPTIMIZATION: When deletionsAtFixedPoints=true, we know that both sources would
             // have deletions at the same depth, i.e. if one source has a deletion
             // branch at this position, the other cannot have any deletion branches below this
-            // point. We can thus avoid reproducing the data trie in the deletion branch.
+            // point. We can thus avoid reproducing the live trie in the deletion branch.
             if (!deletionsAtFixedPoints)
             {
                 // Safe path: create DeletionsTrieCursor for missing deletion branches
                 // This ensures we capture any deletion branches that might exist deeper
                 // in the trie structure, but is expensive for large tries because we have
-                // to list the whole data trie (minus content).
+                // to list the whole live trie (minus content).
                 if (b1 == null)
-                    b1 = new DeletionAwareCursor.DeletionsTrieCursor<>(c1.data.tailCursor(direction));
+                    b1 = new DeletionAwareCursor.DeletionsTrieCursor<>(c1.live.tailCursor(direction));
                 if (b2 == null)
-                    b2 = new DeletionAwareCursor.DeletionsTrieCursor<>(c2.data.tailCursor(direction));
+                    b2 = new DeletionAwareCursor.DeletionsTrieCursor<>(c2.live.tailCursor(direction));
             }
             // Otherwise (with the optimization), we can directly return the existing deletion branch
             // without needing to create expensive DeletionsTrieCursor instances

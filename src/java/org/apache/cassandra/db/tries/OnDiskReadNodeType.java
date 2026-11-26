@@ -657,7 +657,7 @@ enum OnDiskReadNodeType
 
         /// [#load] for a node whose ascent slot holds an alternate-branch pointer, not content to present on the return
         /// path: flag it on the position and step over its bytes. The branch is read on demand, by
-        /// [OnDiskCursor#alternateBranch]. A deletion-aware data trie is never written ordered, so the two sides are
+        /// [OnDiskCursor#alternateBranch]. The live trie of a deletion-aware trie is never written ordered, so the two sides are
         /// never swapped here.
         private long loadWithBranchPointer(OnDiskCursor<?> state, boolean hasDescent, boolean hasAscent, boolean hasChild, long currentPos)
         {

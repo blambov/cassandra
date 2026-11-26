@@ -44,7 +44,7 @@ import static org.junit.Assert.assertEquals;
 /// contains no occurrence of `DeletionAware`: it covers [Trie#mapValues] only, and a plain trie has no deletion
 /// branch to forward.
 ///
-/// The deletion-aware mapping cursors are where the gap bites. `ContentMappingCursor.DeletionAwareDataOnly` must
+/// The deletion-aware mapping cursors are where the gap bites. `ContentMappingCursor.DeletionAwareLiveOnly` must
 /// hand the source's deletion branch through untouched, and `ContentMappingCursor.DeletionAware` must wrap it in a
 /// mapping range cursor that maps not only the boundaries a walk reports but also the `state` and `precedingState` a
 /// merge or an intersection reads. Nothing checked either. `TrieBackedRow.transformAndFilter` and

@@ -152,10 +152,10 @@ abstract class ContentMappingCursor<T, C extends Cursor<T>, V> implements Cursor
     }
 
 
-    static class DeletionAwareDataOnly<T, D extends RangeState<D>, V>
+    static class DeletionAwareLiveOnly<T, D extends RangeState<D>, V>
     extends ContentMappingCursor<T, DeletionAwareCursor<T, D>, V> implements DeletionAwareCursor<V, D>
     {
-        DeletionAwareDataOnly(Function<T, V> mapper, DeletionAwareCursor<T, D> source)
+        DeletionAwareLiveOnly(Function<T, V> mapper, DeletionAwareCursor<T, D> source)
         {
             super(mapper, source);
         }
@@ -169,7 +169,7 @@ abstract class ContentMappingCursor<T, C extends Cursor<T>, V> implements Cursor
         @Override
         public DeletionAwareCursor<V, D> tailCursor(Direction direction)
         {
-            return new DeletionAwareDataOnly<>(mapper, source.tailCursor(direction));
+            return new DeletionAwareLiveOnly<>(mapper, source.tailCursor(direction));
         }
     }
 }

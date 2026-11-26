@@ -160,7 +160,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
         /// Called when a deletion branch is found. Return false to skip over it, or true to use to descend inside
         /// it. If this returns true, this walker will go through the deletion branch, call [#deletionMarker] for
         /// all content of the deletion branch and exit the branch by calling [#exitDeletionsBranch] when it is
-        /// exhausted, after which it will start the walk over the data branch of this node.
+        /// exhausted, after which it will start the walk over the live branch of this node.
         ///
         /// Note that the depth given by [#resetPathLength] in the deletion branch will be relative to the root of the
         /// deletion branch. See [TrieEntriesWalker.DeletionAware] for an example of handling this.
@@ -229,7 +229,7 @@ public interface DeletionAwareCursor<T, D extends RangeState<D>> extends Cursor<
             }
         }
 
-        /// Returns an unmerged tail cursor that includes the data and deletion branches applicable to the current
+        /// Returns an unmerged tail cursor that includes the live and deletion branches applicable to the current
         /// point. Used by [TrieTailsIterator.DeletionAware].
         ///
         /// @param includeCoveringDeletion If false, any covering deletion will not be included in the tail deletion

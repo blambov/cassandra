@@ -702,7 +702,7 @@ public abstract class InMemoryReadTrie<T>
         }
 
         /// A version of the constructor which allows the `presentContentOnDescentPath` flag to be overridden.
-        /// This is needed for [DeletionAwareTrie] which uses the same structure for both metadata-carrying data trie
+        /// This is needed for [DeletionAwareTrie] which uses the same structure for both metadata-carrying live trie
         /// where content must always be before branch and range tries where the position of content must be preserved.
         InMemoryCursor(InMemoryReadTrie<T> trie, Direction direction, int root, boolean presentContentOnDescentPath)
         {

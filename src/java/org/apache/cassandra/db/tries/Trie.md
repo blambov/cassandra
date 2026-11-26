@@ -939,7 +939,7 @@ cross. It is natural, then, to split the live and deletion branches at the parti
 
 One way to avoid the concurrency issue above is to leave the live data in place and apply the deletion trie on every
 query. This does ease the atomicity problem, and in addition makes the merge process simpler as we can independently
-merge data and deletion branches.
+merge live and deletion branches.
 
 However, we pay a cost on live data read that is not insignificant, and the amount of space and effort we must spend
 to deal with the retained data items can quickly compound unless we apply garbage collection at some points. We prefer

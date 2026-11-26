@@ -19,7 +19,7 @@ package org.apache.cassandra.db.tries;
 import org.apache.cassandra.io.util.RebuffererFactory;
 import org.apache.cassandra.utils.bytecomparable.ByteComparable;
 
-/// Presents the data trie of an [OnDiskDeletionAwareTrie] as a deletion-aware cursor.
+/// Presents the live trie of an [OnDiskDeletionAwareTrie] as a deletion-aware cursor.
 ///
 /// A node's descent- and ascent-content bits are exactly [Cursor#MAY_HAVE_CONTENT_BIT] and
 /// [Cursor#MAY_HAVE_DELETION_BRANCH_BIT], so the plain cursor already reports both flags and its positions are

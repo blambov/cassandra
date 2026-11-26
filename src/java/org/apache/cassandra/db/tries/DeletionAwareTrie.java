@@ -92,33 +92,33 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
 
     /// Creates a deletion-aware trie containing a single deletion range.
     ///
-    /// This method creates a trie that represents a deletion covering the range from `prefixInDataTrie`+`left` to
-    /// `prefixInDataTrie`+`right`. The deletion is presented as a deletion branch at the specified prefix, allowing
+    /// This method creates a trie that represents a deletion covering the range from `prefixInLiveTrie`+`left` to
+    /// `prefixInLiveTrie`+`right`. The deletion is presented as a deletion branch at the specified prefix, allowing
     /// the user to take advantage of predefined deletion-branch positions.
     ///
     /// This version is inclusive on the left side and exclusive on the right.
     ///
-    /// @param prefixInDataTrie The position in the data trie where this deletion branch is rooted
+    /// @param prefixInLiveTrie The position in the live trie where this deletion branch is rooted
     /// @param left The left boundary of the deletion range, inclusive
     /// @param right The right boundary of the deletion range, exclusive
     /// @param byteComparableVersion The version to use for byte-comparable serialization
     /// @param deletion A _covering_ range state that defines the deletion information
     /// @return A deletion-aware trie containing the deletion range
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletedRange(ByteComparable prefixInDataTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
+    DeletionAwareTrie<T, D> deletedRange(ByteComparable prefixInLiveTrie, ByteComparable left, ByteComparable right, ByteComparable.Version byteComparableVersion, D deletion)
     {
-        return deletedRange(prefixInDataTrie, left, true, right, false, byteComparableVersion, deletion);
+        return deletedRange(prefixInLiveTrie, left, true, right, false, byteComparableVersion, deletion);
     }
 
     /// Creates a deletion-aware trie containing a single deletion range.
     ///
-    /// This method creates a trie that represents a deletion covering the range from `prefixInDataTrie`+`left` to
-    /// `prefixInDataTrie`+`right`. The deletion is presented as a deletion branch at the specified prefix, allowing
+    /// This method creates a trie that represents a deletion covering the range from `prefixInLiveTrie`+`left` to
+    /// `prefixInLiveTrie`+`right`. The deletion is presented as a deletion branch at the specified prefix, allowing
     /// the user to take advantage of predefined deletion-branch positions.
     ///
     /// This version is inclusive on the left side and exclusive on the right.
     ///
-    /// @param prefixInDataTrie The position in the data trie where this deletion branch is rooted
+    /// @param prefixInLiveTrie The position in the live trie where this deletion branch is rooted
     /// @param left The left boundary of the deletion range
     /// @param leftInclusive Whether the range should include the left bound and its descendants.
     /// @param right The right boundary of the deletion range, exclusive
@@ -127,14 +127,14 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param deletion A _covering_ range state that defines the deletion information
     /// @return A deletion-aware trie containing the deletion range
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletedRange(ByteComparable prefixInDataTrie,
+    DeletionAwareTrie<T, D> deletedRange(ByteComparable prefixInLiveTrie,
                                          ByteComparable left, boolean leftInclusive,
                                          ByteComparable right, boolean rightInclusive,
                                          ByteComparable.Version byteComparableVersion,
                                          D deletion)
     {
         RangeTrie<D> rangeTrie = RangeTrie.range(left, leftInclusive, right, rightInclusive, byteComparableVersion, deletion);
-        return deletionBranch(prefixInDataTrie, byteComparableVersion, rangeTrie);
+        return deletionBranch(prefixInLiveTrie, byteComparableVersion, rangeTrie);
     }
 
     /// Creates a deletion-aware trie from an existing range trie representing deletions.
@@ -143,20 +143,20 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// that may contain multiple ranges, boundaries, and complex deletion states. This is useful for
     /// advanced scenarios where simple range deletions are insufficient.
     ///
-    /// @param prefixInDataTrie The position in the data trie where this deletion branch is to be rooted
+    /// @param prefixInLiveTrie The position in the live trie where this deletion branch is to be rooted
     /// @param byteComparableVersion The version to use for byte-comparable serialization
     /// @param rangeTrie A pre-constructed range trie representing the deletion pattern
     /// @return A deletion-aware trie containing the deletion branch
     static <T, D extends RangeState<D>>
-    DeletionAwareTrie<T, D> deletionBranch(ByteComparable prefixInDataTrie, ByteComparable.Version byteComparableVersion, RangeTrie<D> rangeTrie)
+    DeletionAwareTrie<T, D> deletionBranch(ByteComparable prefixInLiveTrie, ByteComparable.Version byteComparableVersion, RangeTrie<D> rangeTrie)
     {
         return dir -> new SingletonCursor.DeletionBranch<>(dir,
-                                                           prefixInDataTrie.asComparableBytes(byteComparableVersion),
+                                                           prefixInLiveTrie.asComparableBytes(byteComparableVersion),
                                                            byteComparableVersion,
                                                            rangeTrie);
     }
 
-    /// Wraps a plain data trie into a deletion-aware one. The resulting trie has no deletion branches and matches
+    /// Wraps a plain trie into a deletion-aware one. The resulting trie has no deletion branches and matches
     /// `plainTrie` in all positions and content.
     static <T, D extends RangeState<D>>
     DeletionAwareTrie<T, D> wrap(Trie<T> plainTrie)
@@ -212,10 +212,10 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
         ///
         /// This is a critical performance optimization. When true, guarantees that if one merge source
         /// has a deletion branch at some position, the other source cannot have deletion branches
-        /// below or above that position. This allows us to skip walking the data trie to look for
+        /// below or above that position. This allows us to skip walking the live trie to look for
         /// lower-level deletion branches when merging. If the flag is false, we cannot know where
         /// in the covered branch we may have a deletion, thus to be sure to find all we _must_
-        /// walk the whole data subtrie. This can be terribly expensive.
+        /// walk the whole live subtrie. This can be terribly expensive.
         boolean deletionsAtFixedPoints();
     }
 
@@ -309,20 +309,20 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// @param includedInSource Predicate checking if the trie region covered by the given source state should be
     ///                         presented in the output. The argument is the applicable deletion branch state and may
     ///                         be null.
-    /// @param dataResolver Resolver for applying intersection ranges to live data.
+    /// @param liveResolver Resolver for applying intersection ranges to live data.
     /// @param deletionResolver Resolver for applying intersection ranges to deletion markers.
     /// @return A live view of the merged tries with deletions applied
     default <S extends RangeState<S>>
     DeletionAwareTrie<T, D> intersectWith(RangeTrie<S> intersectionTrie,
                                           Predicate<? super S> includedInRange,
                                           Predicate<? super D> includedInSource,
-                                          BiFunction<T, ? super S, T> dataResolver,
+                                          BiFunction<T, ? super S, T> liveResolver,
                                           BiFunction<D, ? super S, D> deletionResolver)
     {
         return dir -> new IntersectionCursor.DeletionAwareByRange<>(cursor(dir), intersectionTrie.cursor(dir),
                                                                     includedInRange,
                                                                     includedInSource,
-                                                                    dataResolver,
+                                                                    liveResolver,
                                                                     deletionResolver);
     }
 
@@ -551,9 +551,9 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
 
     /// Returns a view of all deletion ranges in this trie as a single [RangeTrie].
     ///
-    /// Because a deletion branch can be introduced at any depth, the returned trie will present all paths in the data
+    /// Because a deletion branch can be introduced at any depth, the returned trie will present all paths in the live
     /// trie that do not introduce a deletion branch. In particular, walks over tries that do not have any deletions
-    /// will have to follow the entire data trie.
+    /// will have to follow the entire live trie.
     ///
     /// If it is known that the deletion branch can only be introduced at the root, one can use [#deletionBranchAtRoot]
     /// as a more efficient version of this.
@@ -569,7 +569,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     default RangeTrie<D> deletionBranchAtRoot()
     {
         return dir -> {
-            // The data cursor is only needed to reach the branch, which does not depend on it.
+            // The live cursor is only needed to reach the branch, which does not depend on it.
             try (DeletionAwareCursor<T, D> cursor = cursor(dir))
             {
                 RangeCursor<D> deletionBranch = cursor.deletionBranchCursor(dir);
@@ -757,7 +757,7 @@ extends BaseTrie<T, DeletionAwareCursor<T, D>, DeletionAwareTrie<T, D>>
     /// Returns a view of this trie where all live content is processed through the given mapping function.
     default <V> DeletionAwareTrie<V, D> mapValues(Function<T, V> mapper)
     {
-        return dir -> new ContentMappingCursor.DeletionAwareDataOnly<>(mapper, cursor(dir));
+        return dir -> new ContentMappingCursor.DeletionAwareLiveOnly<>(mapper, cursor(dir));
     }
 
     /// Returns a view of this trie where all live content and deletions are processed through the given mapping
