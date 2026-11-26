@@ -1010,6 +1010,18 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
             return true;
         }
 
+        /// Advance to the return path of the node at the given depth that the given transition leads to, i.e. to that
+        /// node (entering it if the walk has not been through it) with all of its children treated as done.
+        void advanceToReturnPath(int depth, int transition, int forcedCopyDepth, int ascendLimit) throws TrieSpaceExhaustedException
+        {
+            if (depth > ascendLimit && (currentDepth < depth || transitionAtDepth(depth - 1) != transition))
+                advanceTo(depth, transition, forcedCopyDepth, ascendLimit);
+            else
+                while (currentDepth > depth)
+                    attachAndMoveToParentState(forcedCopyDepth);
+            setTransition(0xFF);
+        }
+
         /// Advance to an existing position in the trie or the given limit, whichever comes first.
         /// If there is an existing position before this limit, the state will be positioned on it, and true will be
         /// returned. If not, we will advance and descend into the given limit position, and return false.
@@ -1028,7 +1040,9 @@ public abstract class InMemoryBaseTrie<T, C extends Cursor<T>, Q extends BaseTri
             {
                 int currentTransition = transition();
                 int nextTransition = trie.getNextTransition(updatedPostContentNode(), currentTransition + 1);
-                if (currentDepth + 1 == limitDepth && nextTransition >= limitTransition)
+                // A limit on the return path of an existing node is after everything in the node's branch.
+                if (currentDepth + 1 == limitDepth
+                    && (nextTransition > limitTransition || nextTransition == limitTransition && !limitIsOnReturnPath))
                 {
                     descend(limitTransition);
                     return false;
