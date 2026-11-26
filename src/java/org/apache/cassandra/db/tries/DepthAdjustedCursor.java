@@ -47,6 +47,19 @@ abstract class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
 
     long toAdjustedDepth(long position)
     {
+        return toAdjustedDepth(position, matchingPositionAtRoot, depthAdjustment);
+    }
+
+    long fromAdjustedDepth(long position)
+    {
+        return fromAdjustedDepth(position, matchingPositionAtRoot, depthAdjustment);
+    }
+
+    /// Converts a position of a cursor whose root is attached at `matchingPositionAtRoot` to the corresponding
+    /// position below the attachment point, where `depthAdjustment` is the [Cursor#depthCorrectionValue] of the
+    /// attachment point. The root's positions, including the one on its return path, map to the attachment point's.
+    static long toAdjustedDepth(long position, long matchingPositionAtRoot, long depthAdjustment)
+    {
         if (Cursor.depth(position) > 0)
             return position + depthAdjustment;
         else if (Cursor.isExhausted(position))
@@ -58,7 +71,8 @@ abstract class DepthAdjustedCursor<T, C extends Cursor<T>> implements Cursor<T>
         }
     }
 
-    long fromAdjustedDepth(long position)
+    /// The inverse of [#toAdjustedDepth(long, long, long)]. Positions outside the attached branch map to exhausted.
+    static long fromAdjustedDepth(long position, long matchingPositionAtRoot, long depthAdjustment)
     {
         // matchingPositionAtRoot | ON_RETURN_PATH_BIT should map to rootPosition | ON_RETURN_PATH_BIT
         long adjusted = position - depthAdjustment;

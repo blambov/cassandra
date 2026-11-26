@@ -33,6 +33,9 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     final BiFunction<E, T, T> resolver;
     final DeletionAwareCursor<T, D> data;
     @Nullable RangeCursor<E> deletions;
+    /// The position of the data cursor at which the deletions are attached, and the depth correction for it. The
+    /// deletions' positions are converted with [DepthAdjustedCursor#toAdjustedDepth(long, long, long)].
+    long deletionsRootPosition;
     long deletionsDepthCorrection;
 
     boolean atDeletions;
@@ -47,6 +50,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
         this.resolver = resolver;
         this.deletions = deletions;
         this.data = data;
+        this.deletionsRootPosition = data.encodedPosition();
         this.deletionsDepthCorrection = 0;
         data.assertFresh();
         if (deletions != null)
@@ -124,7 +128,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
 
     long maybeSkipDeletions(long dataPosition)
     {
-        long deletionsPosition = deletions.encodedPosition() + deletionsDepthCorrection;
+        long deletionsPosition = DepthAdjustedCursor.toAdjustedDepth(deletions.encodedPosition(), deletionsRootPosition, deletionsDepthCorrection);
         
         // If data position is at or before the deletions position, we are good.
         long cmp = Cursor.compare(dataPosition, deletionsPosition);
@@ -138,7 +142,7 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
     private long skipDeletionsToDataPosition(long dataPosition)
     {
         // Skip deletions cursor to the data position; if that is beyond the branch's root, no need to skip, just leave it.
-        long deletionsSkipPosition = dataPosition - deletionsDepthCorrection;
+        long deletionsSkipPosition = DepthAdjustedCursor.fromAdjustedDepth(dataPosition, deletionsRootPosition, deletionsDepthCorrection);
         long deletionsPositionUncorrected = !Cursor.isExhausted(deletionsSkipPosition)
                                             ? deletions.skipTo(deletionsSkipPosition)
                                             : Cursor.exhaustedPosition(deletionsSkipPosition);
@@ -207,7 +211,8 @@ class DeletionAwareMergeSource<T, D extends RangeState<D>, E extends RangeState<
         assert this.deletions == null;
         deletions.assertFresh();
         this.deletions = deletions;
-        this.deletionsDepthCorrection = Cursor.depthCorrectionValue(data.encodedPosition());
+        this.deletionsRootPosition = data.encodedPosition();
+        this.deletionsDepthCorrection = Cursor.depthCorrectionValue(deletionsRootPosition);
         this.atDeletions = true;
     }
 

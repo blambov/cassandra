@@ -27,6 +27,9 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
 {
     final C c1;
     @Nullable D c2;
+    /// The position of c1 at which c2 is attached, and the depth correction for it. c2's positions are converted
+    /// with [DepthAdjustedCursor#toAdjustedDepth(long, long, long)].
+    long c2rootPosition;
     long c2depthCorrection;
     long currentPosition;
 
@@ -56,6 +59,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
             c2.assertFresh();
         this.c1 = c1;
         this.c2 = c2;
+        this.c2rootPosition = c1.encodedPosition();
         this.c2depthCorrection = 0;
         state = c2 != null ? State.AT_BOTH : State.C1_ONLY;
         currentPosition = c1.encodedPosition();
@@ -69,6 +73,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
     {
         assert state == State.C1_ONLY : "Attempting to add further cursors to a cursor that already has two sources";
         this.c2 = c2;
+        this.c2rootPosition = currentPosition;
         this.c2depthCorrection = Cursor.depthCorrectionValue(currentPosition);
         this.state = State.AT_BOTH;
         currentPosition = Cursor.unionFlags(currentPosition, c2.getPositionAndAssertFresh(), Cursor.FLAGS_MASK);
@@ -126,7 +131,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         if (state == State.C1_ONLY)
             return inC1Only(c1.skipTo(encodedSkipPosition));
 
-        long c2encodedSkipPosition = encodedSkipPosition - c2depthCorrection;
+        long c2encodedSkipPosition = DepthAdjustedCursor.fromAdjustedDepth(encodedSkipPosition, c2rootPosition, c2depthCorrection);
         // Handle request to exit c2 branch separately for simplicity
         if (Cursor.isExhausted(c2encodedSkipPosition))
         {
@@ -188,7 +193,7 @@ abstract class FlexibleMergeCursor<C extends Cursor<?>, D extends Cursor<?>, T> 
         if (Cursor.isExhausted(c2posUncorrected))
             return leaveC2(c1pos);
 
-        long c2pos = c2posUncorrected + c2depthCorrection;
+        long c2pos = DepthAdjustedCursor.toAdjustedDepth(c2posUncorrected, c2rootPosition, c2depthCorrection);
         long cmp = Cursor.compare(c1pos, c2pos);
         if (cmp < 0)
         {
